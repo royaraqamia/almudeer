@@ -526,6 +526,59 @@ async def broadcast_task_complete(license_id: int, task_id: str, result: Dict[st
     ))
 
 
+async def broadcast_subscription_updated(license_id: int, update_data: Dict[str, Any]):
+    """
+    Broadcast when a user's subscription or profile data is updated.
+    Notifies the user themselves (multi-device) and all managers who have 
+    this user in their customer list.
+    """
+    manager = get_websocket_manager()
+    
+    # 1. Broadcast to self (multi-device sync)
+    await manager.send_to_license(license_id, WebSocketMessage(
+        event="subscription_updated",
+        data={**update_data, "is_self": True}
+    ))
+
+    # 2. Broadcast to all managers who have this user as a customer
+    from db_helper import get_db, fetch_all, fetch_one
+    try:
+        async with get_db() as db:
+            # Find the username of the updated user (to use as sender_contact in peers' apps)
+            user_row = await fetch_one(db, "SELECT username FROM license_keys WHERE id = ?", [license_id])
+            if not user_row or not user_row.get("username"):
+                return
+            
+            username = user_row["username"]
+            
+            # Find all licenses who have this user in their 'customers' table
+            # We check by license_key_id link
+            managers = await fetch_all(db, "SELECT DISTINCT license_key_id FROM customers WHERE contact = ?", [username])
+            
+            for manager_row in managers:
+                manager_license_id = manager_row["license_key_id"]
+                # For the manager, this is a CUSTOMER update
+                await manager.send_to_license(manager_license_id, WebSocketMessage(
+                    event="customer_updated",
+                    data={
+                        "sender_contact": username,
+                        "updated_fields": update_data,
+                        "is_self": False
+                    }
+                ))
+    except Exception as e:
+        logger.warning(f"Failed to notify managers of subscription update: {e}")
+
+
+async def broadcast_customer_updated(license_id: int, customer_data: Dict[str, Any]):
+    """Broadcast when a customer's information is updated"""
+    manager = get_websocket_manager()
+    await manager.send_to_license(license_id, WebSocketMessage(
+        event="customer_updated",
+        data=customer_data
+    ))
+
+
 
 
 

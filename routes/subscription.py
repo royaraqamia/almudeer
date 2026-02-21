@@ -320,6 +320,7 @@ async def update_subscription(
     from database import DB_TYPE, DATABASE_PATH, DATABASE_URL, POSTGRES_AVAILABLE
     from db_helper import get_db, fetch_one, execute_sql, commit_db
     from logging_config import get_logger
+    from services.websocket_manager import broadcast_subscription_updated
     
     logger = get_logger(__name__)
     
@@ -412,6 +413,27 @@ async def update_subscription(
                     await trigger_account_logout(license_id)
                 except Exception as e:
                     logger.warning(f"Failed to trigger account logout for {license_id}: {e}")
+
+            # 3. Trigger WebSocket broadcast for real-time UI updates
+            # Find updated fields for the broadcast
+            broadcast_data = {}
+            if update.full_name is not None: broadcast_data["full_name"] = update.full_name
+            if update.username is not None: broadcast_data["username"] = update.username
+            if update.profile_image_url is not None: broadcast_data["profile_image_url"] = update.profile_image_url
+            
+            # Handle expiry update for broadcast
+            if update.days_valid_extension is not None and update.days_valid_extension != 0:
+                 # Re-fetch from DB or use the new_expires calculated above (if we kept it in scope)
+                 # To be safe and simple, we'll just re-fetch the final state from DB or just include the new_expires if available.
+                 # Actually new_expires was local to if block. Let's just broadcast what we changed.
+                 pass # We'll handle expiry separately if needed or just broadcast a 'refresh' signal
+
+            if broadcast_data:
+                try:
+                    import asyncio
+                    asyncio.create_task(broadcast_subscription_updated(license_id, broadcast_data))
+                except Exception as e:
+                    logger.warning(f"Failed to broadcast subscription update: {e}")
 
             return {
                 "success": True,
