@@ -375,6 +375,9 @@ async def update_subscription(
                     updates.append("expires_at = ?")
                     params.append(new_expires.isoformat())
                 param_index += 1
+                
+                # Capture for broadcast
+                expires_at_str = new_expires.isoformat()
             
             if update.profile_image_url is not None:
                 if DB_TYPE == "postgresql":
@@ -423,10 +426,11 @@ async def update_subscription(
             
             # Handle expiry update for broadcast
             if update.days_valid_extension is not None and update.days_valid_extension != 0:
-                 # Re-fetch from DB or use the new_expires calculated above (if we kept it in scope)
-                 # To be safe and simple, we'll just re-fetch the final state from DB or just include the new_expires if available.
-                 # Actually new_expires was local to if block. Let's just broadcast what we changed.
-                 pass # We'll handle expiry separately if needed or just broadcast a 'refresh' signal
+                try:
+                    # 'expires_at_str' was defined in the if block above
+                    broadcast_data["expires_at"] = expires_at_str
+                except NameError:
+                    pass
 
             if broadcast_data:
                 try:
