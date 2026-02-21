@@ -390,6 +390,25 @@ async def _init_postgresql_tables(conn):
         )
     """))
 
+    # Fix sequences if out of sync to prevent "duplicate key value violates unique constraint" errors
+    try:
+        tables_with_sequences = [
+            ("license_keys", "license_keys_id_seq"),
+            ("crm_entries", "crm_entries_id_seq"),
+            ("customers", "customers_id_seq"),
+            ("orders", "orders_id_seq"),
+            ("version_history", "version_history_id_seq"),
+            ("update_events", "update_events_id_seq")
+        ]
+        
+        for table, seq in tables_with_sequences:
+            try:
+                await conn.execute(f"SELECT setval('{seq}', COALESCE((SELECT MAX(id) FROM {table}), 1), COALESCE((SELECT MAX(id) FROM {table}) IS NOT NULL, false))")
+            except Exception as e:
+                pass
+    except Exception:
+        pass
+
     # Create indexes for performance
     await conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_license_key_hash 
