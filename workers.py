@@ -1141,12 +1141,21 @@ class MessagePoller:
                         caption = body if body else None
                         
                         for att in media_for_album:
-                            file_data = base64.b64decode(att["base64"])
-                            suffix = os.path.splitext(att["filename"])[1]
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                                tmp.write(file_data)
-                                tpath = tmp.name
-                                tmp_paths.append(tpath)
+                            tpath = None
+                            if att.get("local_path"):
+                                # Standard upload flow: use disk path
+                                tpath = os.path.join(os.getcwd(), "static", "uploads", att["local_path"])
+                            elif att.get("base64"):
+                                # Legacy flow: decode and create temp file
+                                file_data = base64.b64decode(att["base64"])
+                                suffix = os.path.splitext(att["filename"])[1]
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                                    tmp.write(file_data)
+                                    tpath = tmp.name
+                                    tmp_paths.append(tpath)
+                            
+                            if not tpath or not os.path.exists(tpath):
+                                continue
                                 
                             mime = att.get("mime_type") or mimetypes.guess_type(att["filename"])[0] or "image/jpeg"
                             item_type = "video" if mime.startswith("video/") else "photo"
@@ -1192,11 +1201,21 @@ class MessagePoller:
                 for i, att in enumerate(other_attachments):
                     if not att.get("base64") or not att.get("filename"): continue
                     try:
-                        file_data = base64.b64decode(att["base64"])
-                        suffix = os.path.splitext(att["filename"])[1]
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                            tmp.write(file_data)
-                            tmp_path = tmp.name
+                        tmp_path = None
+                        is_temporary = False
+                        
+                        if att.get("local_path"):
+                            tmp_path = os.path.join(os.getcwd(), "static", "uploads", att["local_path"])
+                        elif att.get("base64"):
+                            file_data = base64.b64decode(att["base64"])
+                            suffix = os.path.splitext(att["filename"])[1]
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                                tmp.write(file_data)
+                                tmp_path = tmp.name
+                                is_temporary = True
+                        
+                        if not tmp_path or not os.path.exists(tmp_path):
+                            continue
                         
                         try:
                             mime_type = att.get("mime_type") or mimetypes.guess_type(att["filename"])[0] or "application/octet-stream"
@@ -1246,8 +1265,9 @@ class MessagePoller:
                                         sent_anything = True
                                         if res: last_platform_id = str(res.get("id"))
                         finally:
-                            try: os.remove(tmp_path)
-                            except: pass
+                            if is_temporary and tmp_path:
+                                try: os.remove(tmp_path)
+                                except: pass
                     except Exception as att_e:
                         logger.error(f"Error sending attachment: {att_e}")
 

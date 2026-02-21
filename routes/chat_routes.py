@@ -183,25 +183,60 @@ async def send_recording_indicator(
     await broadcast_recording_indicator(license["license_id"], sender_contact, is_recording)
     return {"success": True}
 
+from fastapi import Form, File, UploadFile
+from typing import List
+
 @router.post("/conversations/{sender_contact:path}/send")
 async def send_chat_message(
     sender_contact: str,
-    request: Request,
     background_tasks: BackgroundTasks,
+    message: Optional[str] = Form(None),
+    channel: Optional[str] = Form(None),
+    reply_to_platform_id: Optional[str] = Form(None),
+    reply_to_body_preview: Optional[str] = Form(None),
+    reply_to_sender_name: Optional[str] = Form(None),
+    reply_to_id: Optional[int] = Form(None),
+    is_forwarded: bool = Form(False),
+    attachments: Optional[str] = Form(None), # For legacy Base64 or metadata
+    files: Optional[List[UploadFile]] = File(None),
     license: dict = Depends(get_license_from_header)
 ):
-    data = await request.json()
-    body = data.get("message", "").strip()
-    attachments = data.get("attachments", [])
-    reply_to_platform_id = data.get("reply_to_platform_id")
-    reply_to_body_preview = data.get("reply_to_body_preview")
-    reply_to_sender_name = data.get("reply_to_sender_name")
-    reply_to_id = data.get("reply_to_id") or data.get("reply_to_message_id")
-    is_forwarded = data.get("is_forwarded", False)
+    body = (message or "").strip()
     
-    if not body and not attachments: raise HTTPException(status_code=400, detail="الرسالة فارغة")
+    # Process Attachments
+    processed_attachments = []
     
-    channel = data.get("channel")
+    # 1. Handle Multipart Files (The new standard)
+    if files:
+        from services.file_storage_service import get_file_storage
+        storage = get_file_storage()
+        for file in files:
+            # We save to 'outbox' subfolder. These are NOT public yet.
+            rel_path, _ = await storage.save_upload_file_async(
+                file, 
+                file.filename, 
+                file.content_type, 
+                subfolder="outbox"
+            )
+            processed_attachments.append({
+                "type": "file",
+                "local_path": rel_path, # Store the disk path
+                "filename": file.filename,
+                "mime_type": file.content_type
+            })
+            
+    # 2. Handle metadata/legacy attachments if provided as JSON string
+    if attachments:
+        try:
+            extra_attachments = json.loads(attachments)
+            if isinstance(extra_attachments, list):
+                processed_attachments.extend(extra_attachments)
+        except:
+            pass
+
+    if not body and not processed_attachments:
+        raise HTTPException(status_code=400, detail="الرسالة فارغة")
+    
     if not channel:
         if sender_contact == "__saved_messages__":
             channel = "saved"
@@ -219,13 +254,13 @@ async def send_chat_message(
             recipient_id = history[0].get("sender_id")
     
     outbox_id = await create_outbox_message(
-        inbox_message_id=reply_to_id, # Link the server side ID if it's a reply
+        inbox_message_id=reply_to_id,
         license_id=license["license_id"],
         channel=channel,
         body=body,
         recipient_id=recipient_id,
         recipient_email=sender_contact,
-        attachments=attachments or None,
+        attachments=processed_attachments or None,
         reply_to_platform_id=reply_to_platform_id,
         reply_to_body_preview=reply_to_body_preview,
         reply_to_id=reply_to_id,
