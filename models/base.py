@@ -475,7 +475,7 @@ async def init_customers_and_analytics():
             await execute_sql(db, "ALTER TABLE customers ADD COLUMN IF NOT EXISTS has_whatsapp BOOLEAN DEFAULT FALSE")
         except: pass
         try:
-            await execute_sql(db, "ALTER TABLE customers ADD COLUMN IF NOT EXISTS has_telegram BOOLEAN DEFAULT FALSE")
+                await execute_sql(db, "ALTER TABLE customers ADD COLUMN IF NOT EXISTS has_telegram BOOLEAN DEFAULT FALSE")
         except: pass
         try:
             await execute_sql(db, "ALTER TABLE customers ADD COLUMN IF NOT EXISTS contact TEXT")
@@ -483,6 +483,24 @@ async def init_customers_and_analytics():
             # but that's complex without knowing current data. 
             # The next init will handle it if IF NOT EXISTS works properly on table creation.
         except: pass
+
+        # Knowledge Base Documents
+        await execute_sql(db, f"""
+            CREATE TABLE IF NOT EXISTS knowledge_documents (
+                id {ID_PK},
+                license_key_id INTEGER NOT NULL,
+                user_id TEXT,
+                source TEXT DEFAULT 'manual',
+                text TEXT,
+                file_path TEXT,
+                file_size INTEGER,
+                mime_type TEXT,
+                created_at {TIMESTAMP_NOW},
+                updated_at TIMESTAMP,
+                deleted_at TIMESTAMP,
+                FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
+            )
+        """)
 
         # Orders Table
         await execute_sql(db, f"""

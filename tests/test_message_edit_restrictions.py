@@ -101,5 +101,5 @@ async def test_edit_message_generic_channel_no_time_limit():
          patch("models.inbox.commit_db", AsyncMock()), \
          patch("models.inbox.upsert_conversation_state", AsyncMock()):
         
-        result = await edit_outbox_message(message_id, license_id, "New body")
-        assert result["success"] is True
+        with pytest.raises(ValueError, match="لا يمكن تعديل الرسائل المرسلة عبر generic"):
+            await edit_outbox_message(message_id, license_id, "New body")

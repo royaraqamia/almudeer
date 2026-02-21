@@ -1057,7 +1057,8 @@ class MessagePoller:
 
             # --- EXTERNAL CHANNELS ---
             elif channel == "email":
-                from services.gmail_api_service import GmailAPIService, GmailOAuthService
+                from services.gmail_api_service import GmailAPIService
+                from services.gmail_oauth_service import GmailOAuthService
                 from models.email_config import get_email_oauth_tokens
                 tokens = await get_email_oauth_tokens(license_id)
                 if tokens and tokens.get("access_token"):

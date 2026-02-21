@@ -105,6 +105,27 @@ class WhatsAppService:
                 "success": response.status_code == 200,
                 "response": response.json() if response.status_code == 200 else response.text
             }
+
+    async def get_templates(self, business_account_id: str) -> Dict:
+        """Fetch pre-approved message templates from Meta Business Account"""
+        url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{business_account_id}/message_templates"
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url,
+                headers={"Authorization": f"Bearer {self.access_token}"}
+            )
+            
+            if response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": response.text
+                }
+            
+            return {
+                "success": True,
+                "data": response.json().get("data", [])
+            }
     
     async def mark_as_read(self, message_id: str) -> bool:
         """Mark a message as read"""

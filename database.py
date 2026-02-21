@@ -244,6 +244,24 @@ async def _init_sqlite_tables(db):
         )
     """)
 
+    # Knowledge Base Documents
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS knowledge_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            license_key_id INTEGER NOT NULL,
+            user_id TEXT,
+            source TEXT DEFAULT 'manual',
+            text TEXT,
+            file_path TEXT,
+            file_size INTEGER,
+            mime_type TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP,
+            deleted_at TIMESTAMP,
+            FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
+        )
+    """)
+
     # Create indexes for performance
     await db.execute("""
         CREATE INDEX IF NOT EXISTS idx_license_key_hash 
@@ -390,6 +408,24 @@ async def _init_postgresql_tables(conn):
         )
     """))
 
+    # Knowledge Base Documents
+    await conn.execute(_adapt_sql_for_db("""
+        CREATE TABLE IF NOT EXISTS knowledge_documents (
+            id SERIAL PRIMARY KEY,
+            license_key_id INTEGER NOT NULL,
+            user_id TEXT,
+            source VARCHAR(255) DEFAULT 'manual',
+            text TEXT,
+            file_path TEXT,
+            file_size INTEGER,
+            mime_type VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP,
+            deleted_at TIMESTAMP,
+            FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
+        )
+    """))
+
     # Fix sequences if out of sync to prevent "duplicate key value violates unique constraint" errors
     try:
         tables_with_sequences = [
@@ -398,7 +434,8 @@ async def _init_postgresql_tables(conn):
             ("customers", "customers_id_seq"),
             ("orders", "orders_id_seq"),
             ("version_history", "version_history_id_seq"),
-            ("update_events", "update_events_id_seq")
+            ("update_events", "update_events_id_seq"),
+            ("knowledge_documents", "knowledge_documents_id_seq")
         ]
         
         for table, seq in tables_with_sequences:

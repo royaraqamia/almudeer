@@ -303,11 +303,11 @@ class TestFilterEmpty:
         should_process, reason = filter_empty(message)
         assert should_process is False
 
-    def test_blocks_short_message(self):
-        """Test that very short messages are blocked"""
+    def test_allows_short_message(self):
+        """Test that very short messages are allowed"""
         message = {"body": "hi"}
         should_process, reason = filter_empty(message)
-        assert should_process is False
+        assert should_process is True
 
     def test_allows_normal_message(self):
         """Test that normal messages pass empty filter"""

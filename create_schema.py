@@ -158,6 +158,22 @@ async def create_schema():
                 PRIMARY KEY (license_key_id, sender_contact)
             )
         """)
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS knowledge_documents (
+                id SERIAL PRIMARY KEY,
+                license_key_id INTEGER NOT NULL REFERENCES license_keys(id),
+                user_id TEXT,
+                source TEXT DEFAULT 'manual',
+                text TEXT,
+                file_path TEXT,
+                file_size INTEGER,
+                mime_type TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP,
+                deleted_at TIMESTAMP
+            )
+        """)
         
         # Create indexes
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_license_key_hash ON license_keys(key_hash)")

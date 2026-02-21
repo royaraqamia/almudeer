@@ -140,10 +140,36 @@ def filter_automated_messages(message: Dict) -> tuple[bool, Optional[str]]:
             return False, "Automated: Sender pattern detected"
 
     # Marketing patterns
-    marketing_patterns = [r"خصم", r"عرض", r"اشتراك", r"مجانا", r"discount", r"offer", r"subscribe", r"free"]
+    marketing_patterns = [r"خصم", r"عرض", r"اشتراك", r"مجانا", r"discount", r"offer", r"subscribe", r"free", r"sale", r"deals", r"unsubscribe"]
     for pattern in marketing_patterns:
         if re.search(pattern, full_text):
             return False, "Marketing message detected"
+            
+    # OTP patterns
+    otp_patterns = [r"verification code", r"رمز التحقق", r"كود التفعيل"]
+    for pattern in otp_patterns:
+        if re.search(pattern, full_text):
+            return False, "OTP message detected"
+            
+    # Transactional patterns
+    transactional_patterns = [r"order confirmation", r"تأكيد الطلب", r"automated message", r"do not reply"]
+    for pattern in transactional_patterns:
+        if re.search(pattern, full_text):
+            return False, "Transactional message detected"
+            
+    # Account & Security patterns
+    account_patterns = [r"password reset", r"new login", r"security alert", r"fraud alert", r"suspicious activity", r"unauthorized access"]
+    for pattern in account_patterns:
+        if re.search(pattern, full_text):
+            if "security" in pattern or "fraud" in pattern or "suspicious" in pattern or "unauthorized" in pattern:
+                return False, "Security alert detected"
+            return False, "Account notification detected"
+            
+    # Newsletter patterns
+    newsletter_patterns = [r"newsletter", r"weekly digest", r"daily digest", r"roundup"]
+    for pattern in newsletter_patterns:
+        if re.search(pattern, full_text):
+            return False, "Newsletter detected"
 
     return True, None
 

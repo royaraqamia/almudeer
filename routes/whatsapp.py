@@ -175,6 +175,30 @@ async def test_connection(license: dict = Depends(get_license_from_header)):
             }
 
 
+@router.get("/templates")
+async def get_templates(license: dict = Depends(get_license_from_header)):
+    """Get approved WhatsApp templates"""
+    config = await get_whatsapp_config(license["license_id"])
+    
+    if not config:
+        raise HTTPException(status_code=404, detail="لم يتم إعداد واتساب بعد")
+    
+    if not config.get("business_account_id"):
+        raise HTTPException(status_code=400, detail="Business Account ID missing in configuration")
+
+    service = WhatsAppService(
+        phone_number_id=config["phone_number_id"],
+        access_token=config["access_token"]
+    )
+    
+    result = await service.get_templates(config["business_account_id"])
+    
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to fetch templates"))
+    
+    return result
+
+
 @router.post("/send")
 async def send_message(
     msg: WhatsAppSendMessage,

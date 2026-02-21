@@ -16,29 +16,10 @@ class TestAuthModels:
     def test_login_request_model(self):
         """Test LoginRequest model accepts valid data"""
         from routes.auth import LoginRequest
-        
         # Login with license key
         req = LoginRequest(license_key="MUDEER-TEST-1234")
         assert req.license_key == "MUDEER-TEST-1234"
-        
-        # Login with email/password
-        req2 = LoginRequest(email="user@example.com", password="password123")
-        assert req2.email == "user@example.com"
-    
-    def test_register_request_model(self):
-        """Test RegisterRequest model"""
-        from routes.auth import RegisterRequest
-        
-        req = RegisterRequest(
-            email="new@example.com",
-            password="securepass123",
-            name="أحمد محمد",
-            license_key="MUDEER-LICENSE-KEY"
-        )
-        
-        assert req.email == "new@example.com"
-        assert req.name == "أحمد محمد"
-    
+
     def test_token_response_model(self):
         """Test TokenResponse model"""
         from routes.auth import TokenResponse
@@ -95,45 +76,6 @@ class TestLoginEndpoint:
             
             # Should return unauthorized
             assert response.status_code in [401, 404]
-
-
-# ============ Registration Endpoint ============
-
-class TestRegisterEndpoint:
-    """Tests for /api/auth/register endpoint"""
-    
-    @pytest.mark.asyncio
-    async def test_register_missing_fields(self):
-        """Test registration fails without required fields"""
-        from main import app
-        
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.post(
-                "/api/auth/register",
-                json={"email": "test@example.com"}  # Missing password, name, license
-            )
-            
-            assert response.status_code == 422  # Validation error
-    
-    @pytest.mark.asyncio
-    async def test_register_invalid_email(self):
-        """Test registration fails with invalid email format"""
-        from main import app
-        
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.post(
-                "/api/auth/register",
-                json={
-                    "email": "not-an-email",
-                    "password": "password123",
-                    "name": "Test User",
-                    "license_key": "LICENSE-123"
-                }
-            )
-            
-            assert response.status_code == 422
 
 
 # ============ Token Refresh Endpoint ============

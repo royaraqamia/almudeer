@@ -2329,315 +2329,121 @@ async def upsert_conversation_state(
 ):
     """
     Recalculate and update the cached conversation state in `inbox_conversations`.
-    To best maintain consistency, we re-calculate from source tables.
-    This approach is "read-heavy write" but ensures accuracy vs incremental updates which can drift.
+    Optimized: Combines multiple queries into a single pull where possible.
     """
     from db_helper import DB_TYPE
     
     async with get_db() as db:
-        # 1. Get stats
-        # Unread count: incoming messages that are analyzed but not read
-        # Message count: all non-pending messages
-        
-        # Get all aliases for this sender to ensure we count EVERYTHING
+        # 1. Get Stats and Aliases
         all_contacts, all_ids = await _get_sender_aliases(db, license_id, sender_contact)
         
-        # Build conditions for inbox
-        in_v_conditions = []
-        in_v_params = [license_id]
-        
+        # Build optimized WHERE clauses
+        in_params = [license_id]
+        in_filt = []
         if all_contacts:
-            contact_placeholders = ", ".join(["?" for _ in all_contacts])
-            in_v_conditions.append(f"sender_contact IN ({contact_placeholders})")
-            in_v_params.extend(list(all_contacts))
-        
+            in_filt.append(f"sender_contact IN ({', '.join(['?' for _ in all_contacts])})")
+            in_params.extend(all_contacts)
         if all_ids:
-            id_placeholders = ", ".join(["?" for _ in all_ids])
-            in_v_conditions.append(f"sender_id IN ({id_placeholders})")
-            in_v_params.extend(list(all_ids))
-            
-        in_v_where = " OR ".join(in_v_conditions) if in_v_conditions else "1=0"
+            in_filt.append(f"sender_id IN ({', '.join(['?' for _ in all_ids])})")
+            in_params.extend(all_ids)
+        in_where = f"({' OR '.join(in_filt)})" if in_filt else "1=0"
 
-        # Calculate Unread Count
-        unread_conditions_sql = "is_read = 0 OR is_read IS NULL"
-        if DB_TYPE == "postgresql":
-            unread_conditions_sql = "is_read IS FALSE OR is_read IS NULL"
-            
-        row_unread = await fetch_one(db, f"""
-            SELECT COUNT(*) as count FROM inbox_messages 
-            WHERE license_key_id = ? 
-            AND ({in_v_where})
-            AND deleted_at IS NULL
-            AND ({unread_conditions_sql})
-        """, in_v_params)
-        unread_count = row_unread["count"] if row_unread else 0
-        
-        # Calculate Total Message Count
-        row_count_in = await fetch_one(db, f"""
-            SELECT COUNT(*) as count FROM inbox_messages 
-            WHERE license_key_id = ? 
-            AND ({in_v_where})
-            AND deleted_at IS NULL
-        """, in_v_params)
-
-        # Get Total Message Count from Outbox
-        out_v_conditions = []
-        out_v_params = [license_id]
-        
+        out_params = [license_id]
+        out_filt = []
         if all_contacts:
-            contact_placeholders = ", ".join(["?" for _ in all_contacts])
-            out_v_conditions.append(f"recipient_email IN ({contact_placeholders})")
-            out_v_params.extend(list(all_contacts))
-        
+            out_filt.append(f"recipient_email IN ({', '.join(['?' for _ in all_contacts])})")
+            out_params.extend(all_contacts)
         if all_ids:
-            id_placeholders = ", ".join(["?" for _ in all_ids])
-            out_v_conditions.append(f"recipient_id IN ({id_placeholders})")
-            out_v_params.extend(list(all_ids))
-            
-        out_v_where = " OR ".join(out_v_conditions) if out_v_conditions else "1=0"
+            out_filt.append(f"recipient_id IN ({', '.join(['?' for _ in all_ids])})")
+            out_params.extend(all_ids)
+        out_where = f"({' OR '.join(out_filt)})" if out_filt else "1=0"
 
-        row_count_out = await fetch_one(db, f"""
-            SELECT COUNT(*) as count FROM outbox_messages 
-            WHERE license_key_id = ? 
-            AND ({out_v_where})
-            AND deleted_at IS NULL
-        """, out_v_params)
-        
-        message_count = (row_count_in["count"] if row_count_in else 0) + (row_count_out["count"] if row_count_out else 0)
-        
-        # 2. Get Last Message (Source of Truth)
-        # Latest from Inbox
-        latest_inbox = await fetch_one(db, f"""
-            SELECT id, body, attachments as last_message_attachments, NULL as ai_summary, received_at as created_at, status, channel
-            FROM inbox_messages
-            WHERE license_key_id = ?
-            AND ({in_v_where})
-            AND deleted_at IS NULL
-            ORDER BY created_at DESC LIMIT 1
-        """, in_v_params)
-        
-        # Latest from Outbox
-        latest_outbox = await fetch_one(db, f"""
-            SELECT id, body, attachments as last_message_attachments, NULL as ai_summary, created_at, status, channel 
-            FROM outbox_messages 
-            WHERE license_key_id = ? 
-            AND ({out_v_where}) 
-            AND deleted_at IS NULL
-            ORDER BY created_at DESC LIMIT 1
-        """, out_v_params)
-        
-        # Determine winner
-        last_message = None
-        last_message_at = None
-        
-        last_inbox_time = None
-        if latest_inbox:
-            # Handle string/datetime differences
-            last_inbox_time = latest_inbox["created_at"]
-            if isinstance(last_inbox_time, str):
-                try: last_inbox_time = datetime.fromisoformat(last_inbox_time.replace('Z', '+00:00'))
-                except: pass
-        
-        last_outbox_time = None
-        if latest_outbox:
-             last_outbox_time = latest_outbox["created_at"]
-             if isinstance(last_outbox_time, str):
-                try: last_outbox_time = datetime.fromisoformat(last_outbox_time.replace('Z', '+00:00'))
-                except: pass
+        # Optimization: Combined Counts and Latest Message
+        stats_query = f"""
+            SELECT 
+                (SELECT COUNT(*) FROM inbox_messages WHERE license_key_id = ? AND ({in_where}) AND deleted_at IS NULL AND (is_read = 0 OR is_read IS NULL OR is_read IS FALSE)) as unread_count,
+                (SELECT COUNT(*) FROM inbox_messages WHERE license_key_id = ? AND ({in_where}) AND deleted_at IS NULL) as count_in,
+                (SELECT COUNT(*) FROM outbox_messages WHERE license_key_id = ? AND ({out_where}) AND deleted_at IS NULL) as count_out
+        """
+        row_stats = await fetch_one(db, stats_query, [license_id] + in_params[1:] + [license_id] + in_params[1:] + [license_id] + out_params[1:])
+        unread_count = row_stats["unread_count"] if row_stats else 0
+        message_count = (row_stats["count_in"] if row_stats else 0) + (row_stats["count_out"] if row_stats else 0)
 
-        # Compare
-        is_inbox_latest = False
-        if last_inbox_time and last_outbox_time:
-            if last_inbox_time >= last_outbox_time:
-                last_message = latest_inbox
-                last_message_at = last_inbox_time
-                is_inbox_latest = True
-            else:
-                last_message = latest_outbox
-                last_message_at = last_outbox_time
-        elif last_inbox_time:
-            last_message = latest_inbox
-            last_message_at = last_inbox_time
-            is_inbox_latest = True
-        elif last_outbox_time:
-             last_message = latest_outbox
-             last_message_at = last_outbox_time
-        
+        # 2-in-1 Latest Message Query
+        latest_msg_query = f"""
+            SELECT id, body, attachments, received_at as created_at, status, channel
+            FROM inbox_messages WHERE license_key_id = ? AND ({in_where}) AND deleted_at IS NULL
+            UNION ALL
+            SELECT id, body, attachments, created_at, status, channel
+            FROM outbox_messages WHERE license_key_id = ? AND ({out_where}) AND deleted_at IS NULL
+            ORDER BY created_at DESC LIMIT 1
+        """
+        last_message = await fetch_one(db, latest_msg_query, [license_id] + in_params[1:] + [license_id] + out_params[1:])
+
         if not last_message:
-            # No valid messages? (Maybe all pending or deleted).
-            # We keep the conversation entry with 0 counts so it stays in Inbox
-            # unless explicitly deleted via soft_delete_conversation.
             ts_now = datetime.now(timezone.utc).replace(tzinfo=None) if DB_TYPE == "postgresql" else datetime.utcnow().isoformat()
-            
-            await execute_sql(
-                db, 
-                """
+            await execute_sql(db, """
                 UPDATE inbox_conversations SET 
-                    last_message_id = 0, last_message_body = '', 
-                    unread_count = 0, message_count = 0, updated_at = ?
+                    last_message_id = 0, last_message_body = '', unread_count = 0, message_count = 0, updated_at = ?
                 WHERE license_key_id = ? AND sender_contact = ?
-                """, 
-                [ts_now, license_id, sender_contact]
-            )
+            """, [ts_now, license_id, sender_contact])
+            await commit_db(db)
             return
 
+        # Body formatting with Attachment Emojis
         status = last_message["status"]
         body = last_message["body"] or ""
-        ai_summary = last_message.get("ai_summary")
         msg_id = last_message["id"]
-        
-        # Fallback channel from latest message if not provided
-        if not channel:
-            channel = last_message.get("channel")
-        # Check for empty body but present attachments (Audio/File)
-        last_attachments = last_message.get("last_message_attachments")
-        if not body.strip():
-            if last_attachments:
-                import json
-                try:
-                    att_list = []
-                    if isinstance(last_attachments, str):
-                        att_list = json.loads(last_attachments)
-                    elif isinstance(last_attachments, list):
-                        att_list = last_attachments
-                    
-                    if att_list and len(att_list) > 0:
-                        att = att_list[0]
-                        # Check mime_type or filename extension
-                        mime = att.get("mime_type", "").lower()
-                        filename = (att.get("filename") or att.get("file_name") or "").lower()
-                        att_type = att.get("type", "").lower()
-                        
-                        if att_type == "note":
-                            body = "📝 ملاحظة"
-                        elif att_type == "task":
-                            body = "✅ مَهمَّة"
-                        elif att_type == "voice":
-                            body = "🎤 تسجيل صوتي"
-                        elif att_type == "audio" or mime.startswith("audio/") or filename.endswith((".mp3", ".wav", ".aac", ".m4a", ".ogg", ".opus", ".amr")):
-                             body = "🎵 ملف صوتي"
-                        elif att_type in ["image", "photo"] or mime.startswith("image/") or filename.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
-                             body = "📸 صورة"
-                        elif att_type == "video" or mime.startswith("video/") or filename.endswith((".mp4", ".mov", ".avi", ".webm")):
-                             body = "🎥 فيديو"
-                        elif filename.endswith((".zip", ".rar", ".7z", ".tar", ".gz")):
-                             body = "📦 ملف مضغوط"
-                        else:
-                             body = "📄 ملف"
-                except:
-                    body = "📄 ملف"
-        else:
-            # Body is not empty, but if there are attachments, prepend emoji
-            if last_attachments:
-                import json
-                try:
-                    att_list = []
-                    if isinstance(last_attachments, str):
-                        att_list = json.loads(last_attachments)
-                    elif isinstance(last_attachments, list):
-                        att_list = last_attachments
-                    
-                    if att_list and len(att_list) > 0:
-                        att = att_list[0]
-                        mime = att.get("mime_type", "").lower()
-                        filename = (att.get("filename") or att.get("file_name") or "").lower()
-                        att_type = att.get("type", "").lower()
-                        
-                        emoji = ""
-                        if att_type == "note":
-                            emoji = "📝"
-                        elif att_type == "task":
-                            emoji = "✅"
-                        elif att_type == "voice":
-                            emoji = "🎤"
-                        elif att_type == "audio" or mime.startswith("audio/") or filename.endswith((".mp3", ".wav", ".aac", ".m4a", ".ogg", ".opus", ".amr")):
-                             emoji = "🎵"
-                        elif att_type in ["image", "photo"] or mime.startswith("image/") or filename.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
-                             emoji = "📸"
-                        elif att_type == "video" or mime.startswith("video/") or filename.endswith((".mp4", ".mov", ".avi", ".webm")):
-                             emoji = "🎥"
-                        elif filename.endswith((".zip", ".rar", ".7z", ".tar", ".gz")):
-                             emoji = "📦"
-                        else:
-                             emoji = "📄"
-                        
-                        if emoji:
-                            # Prepend emoji to body
-                            body = f"{emoji} {body}"
-                except:
-                    pass
+        last_message_at = last_message["created_at"]
+        last_attachments = last_message["attachments"]
+        if not channel: channel = last_message.get("channel")
 
-        # 3. Upsert
+        if last_attachments:
+            import json
+            try:
+                att_list = json.loads(last_attachments) if isinstance(last_attachments, str) else last_attachments
+                if att_list:
+                    att = att_list[0]
+                    mime = (att.get("mime_type") or "").lower()
+                    filename = (att.get("filename") or att.get("file_name") or "").lower()
+                    att_type = (att.get("type") or "").lower()
+                    
+                    emoji = "📄"
+                    if att_type in ["note", "task", "voice", "audio", "image", "photo", "video"]:
+                        emoji = {"note":"📝","task":"✅","voice":"🎤","audio":"🎵","image":"📸","photo":"📸","video":"🎥"}[att_type]
+                    elif mime.startswith("audio/"): emoji = "🎵"
+                    elif mime.startswith("image/"): emoji = "📸"
+                    elif mime.startswith("video/"): emoji = "🎥"
+                    elif filename.endswith((".zip", ".rar", ".7z")): emoji = "📦"
+                    
+                    label_map = {"📝":"ملاحظة","✅":"مَهمَّة","🎤":"تسجيل صوتي","🎵":"ملف صوتي","📸":"صورة","🎥":"فيديو","📦":"ملف مضغوط","📄":"ملف"}
+                    body = f"{emoji} {body}" if body.strip() else f"{emoji} {label_map.get(emoji, 'ملف')}"
+            except: pass
+
+        # 3. Upsert State
         now = datetime.utcnow()
         ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
-        
-        # Prepare timestamp for DB
-        last_ts_value = last_message_at
-        if DB_TYPE != "postgresql" and isinstance(last_message_at, datetime):
-            last_ts_value = last_message_at.isoformat()
-        
-        fields = ["license_key_id", "sender_contact", "last_message_id", "last_message_body", "last_message_ai_summary",
+        if DB_TYPE == "postgresql" and isinstance(last_message_at, str):
+            try: last_message_at = datetime.fromisoformat(last_message_at.replace('Z', '+00:00'))
+            except: pass
+        elif DB_TYPE != "postgresql" and isinstance(last_message_at, datetime):
+            last_message_at = last_message_at.isoformat()
+
+        fields = ["license_key_id", "sender_contact", "last_message_id", "last_message_body", 
                   "last_message_at", "last_message_attachments", "status", "unread_count", "message_count", "updated_at"]
-        params = [license_id, sender_contact, msg_id, body, ai_summary, last_ts_value, last_attachments, status, unread_count, message_count, ts_value]
+        params = [license_id, sender_contact, msg_id, body, last_message_at, last_attachments, status, unread_count, message_count, ts_value]
         
-        update_frame = """
-            last_message_id = ?, last_message_body = ?, last_message_ai_summary = ?, last_message_at = ?, 
-            last_message_attachments = ?, status = ?, unread_count = ?, message_count = ?, updated_at = ?
-        """
-        
-        if sender_name:
-            fields.append("sender_name")
-            params.append(sender_name)
-            update_frame += ", sender_name = ?"
+        if sender_name: fields.append("sender_name"); params.append(sender_name)
+        if channel: fields.append("channel"); params.append(channel)
             
-        if channel:
-            fields.append("channel")
-            params.append(channel)
-            update_frame += ", channel = ?"
-            
-        # Placeholders
         placeholders = ", ".join(["?" for _ in fields])
         cols = ", ".join(fields)
+        update_cols = ", ".join([f"{f} = EXCLUDED.{f}" if DB_TYPE == "postgresql" else f"{f} = excluded.{f}" for f in fields if f not in ["license_key_id", "sender_contact"]])
         
-        if DB_TYPE == "postgresql":
-            # PostgreSQL upsert
-            sql = f"""
-                INSERT INTO inbox_conversations ({cols}) VALUES ({placeholders})
-                ON CONFLICT (license_key_id, sender_contact) DO UPDATE SET
-                last_message_id = EXCLUDED.last_message_id,
-                last_message_body = EXCLUDED.last_message_body,
-                last_message_ai_summary = EXCLUDED.last_message_ai_summary,
-                last_message_at = EXCLUDED.last_message_at,
-                last_message_attachments = EXCLUDED.last_message_attachments,
-                status = EXCLUDED.status,
-                unread_count = EXCLUDED.unread_count,
-                message_count = EXCLUDED.message_count,
-                updated_at = EXCLUDED.updated_at
-            """
-            if sender_name: sql += ", sender_name = EXCLUDED.sender_name"
-            if channel: sql += ", channel = EXCLUDED.channel"
-            await execute_sql(db, sql, params)
-            
-        else:
-             sql = f"""
-                INSERT INTO inbox_conversations ({cols}) VALUES ({placeholders})
-                ON CONFLICT(license_key_id, sender_contact) DO UPDATE SET
-                last_message_id = excluded.last_message_id,
-                last_message_body = excluded.last_message_body,
-                last_message_ai_summary = excluded.last_message_ai_summary,
-                last_message_at = excluded.last_message_at,
-                last_message_attachments = excluded.last_message_attachments,
-                status = excluded.status,
-                unread_count = excluded.unread_count,
-                message_count = excluded.message_count,
-                updated_at = excluded.updated_at
-            """
-             if sender_name: sql += ", sender_name = excluded.sender_name"
-             if channel: sql += ", channel = excluded.channel"
-             
-             await execute_sql(db, sql, params)
-        
+        sql = f"INSERT INTO inbox_conversations ({cols}) VALUES ({placeholders}) ON CONFLICT (license_key_id, sender_contact) DO UPDATE SET {update_cols}"
+        await execute_sql(db, sql, params)
         await commit_db(db)
+
 
 
 def _parse_message_row(row: Optional[dict]) -> Optional[dict]:

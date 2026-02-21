@@ -81,14 +81,24 @@ async def db_session():
             CREATE TABLE IF NOT EXISTS license_keys (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 key_hash TEXT UNIQUE NOT NULL,
+                license_key_encrypted TEXT,
                 full_name TEXT NOT NULL,
+                profile_image_url TEXT,
                 contact_email TEXT,
+                username TEXT UNIQUE,
                 is_active BOOLEAN DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 expires_at TIMESTAMP,
-                max_requests_per_day INTEGER DEFAULT 100,
                 requests_today INTEGER DEFAULT 0,
-                last_request_date DATE
+                last_request_date DATE,
+                last_seen_at TIMESTAMP,
+                referral_code TEXT UNIQUE,
+                referred_by_id INTEGER,
+                is_trial BOOLEAN DEFAULT 0,
+                referral_count INTEGER DEFAULT 0,
+                phone TEXT,
+                email TEXT,
+                token_version INTEGER DEFAULT 1
             )
         """)
         # Initialize Legacy Tables
@@ -115,6 +125,22 @@ async def db_session():
                 status TEXT DEFAULT 'جديد',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP
+            )
+        """)
+        
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS knowledge_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                license_key_id INTEGER NOT NULL REFERENCES license_keys(id),
+                user_id TEXT,
+                source TEXT DEFAULT 'manual',
+                text TEXT,
+                file_path TEXT,
+                file_size INTEGER,
+                mime_type TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP,
+                deleted_at TIMESTAMP
             )
         """)
         await db.commit()

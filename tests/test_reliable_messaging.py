@@ -53,7 +53,7 @@ async def test_send_message_with_captions():
         setup_message("whatsapp", body="Check this photo", attachments=[{"filename": "test.jpg", "base64": base64.b64encode(b"fake_data").decode()}])
         mock_wa_config.return_value = {"phone_number_id": "pid", "access_token": "token"}
         
-        with patch("services.whatsapp_service.WhatsAppService") as MockWS:
+        with patch("workers.WhatsAppService") as MockWS:
             ws_instance = MockWS.return_value
             ws_instance.upload_media = AsyncMock(return_value="media_id_123")
             ws_instance.send_image_message = AsyncMock(return_value={"success": True, "message_id": "wa_msg_id"})
@@ -72,7 +72,7 @@ async def test_send_message_with_captions():
         setup_message("telegram_bot", body="Here is the PDF", attachments=[{"filename": "doc.pdf", "base64": base64.b64encode(b"pdf_data").decode()}])
         mock_fetch_one.return_value = {"bot_token": "bot_token_123"}
         
-        with patch("services.telegram_service.TelegramService") as MockTS:
+        with patch("workers.TelegramService") as MockTS:
             ts_instance = MockTS.return_value
             ts_instance.send_document = AsyncMock(return_value={"message_id": "tg_msg_id"})
             
@@ -95,7 +95,8 @@ async def test_send_message_with_captions():
         setup_message("email", body="See attached files", attachments=atts)
         
         with patch("services.gmail_api_service.GmailAPIService") as MockGS, \
-             patch("models.email_config.get_email_oauth_tokens", new_callable=AsyncMock) as mock_tokens:
+             patch("models.email_config.get_email_oauth_tokens", new_callable=AsyncMock) as mock_tokens, \
+             patch("services.gmail_oauth_service.GmailOAuthService") as MockOAuth:
             mock_tokens.return_value = {"access_token": "at"}
             gs_instance = MockGS.return_value
             gs_instance.send_message = AsyncMock(return_value={"id": "gmail_id"})
@@ -118,7 +119,9 @@ async def test_internal_channels():
          patch("workers.fetch_all", new_callable=AsyncMock) as mock_fetch_all, \
          patch("workers.fetch_one", new_callable=AsyncMock) as mock_fetch_one, \
          patch("workers.mark_outbox_sent", new_callable=AsyncMock) as mock_mark_sent, \
-         patch("workers.save_platform_message_id", new_callable=AsyncMock) as mock_save_pid:
+         patch("workers.mark_outbox_failed", new_callable=AsyncMock) as mock_mark_failed, \
+         patch("models.inbox.upsert_conversation_state", new_callable=AsyncMock) as mock_upsert_global, \
+         patch("services.delivery_status.save_platform_message_id", new_callable=AsyncMock) as mock_save_pid:
 
         mock_get_db.return_value = MockDBContext()
         from workers import MessagePoller
@@ -143,8 +146,8 @@ async def test_internal_channels():
             "platform_message_id": None
         }]
         mock_fetch_one.side_effect = [
-            {"id": 2, "full_name": "Target Company"}, # Target license holder
-            {"username": "me", "full_name": "My Company"} # Sender license info
+            {"id": 2, "company_name": "Target Company"}, # Target license holder
+            {"username": "me", "company_name": "My Company"} # Sender license info
         ]
         
         with patch("models.inbox.save_inbox_message", new_callable=AsyncMock) as mock_save_inbox, \

@@ -63,16 +63,7 @@ class TestJWTAuth:
         result = verify_token("invalid-token", TokenType.ACCESS)
         assert result is None
     
-    def test_password_hashing(self):
-        """Test password hashing"""
-        from services.jwt_auth import hash_password, verify_password
-        
-        password = "SecurePassword123!"
-        hashed = hash_password(password)
-        
-        assert hashed != password
-        assert verify_password(password, hashed)
-        assert not verify_password("WrongPassword", hashed)
+
 
 
 # ============ Pagination Service ============

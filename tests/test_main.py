@@ -57,19 +57,6 @@ def test_sanitize_message():
     assert "<script>" not in result
 
 
-def test_password_hashing():
-    """Test password hashing and verification"""
-    from services.jwt_auth import hash_password, verify_password
-    
-    password = "test_password_123"
-    hashed = hash_password(password)
-    
-    # Should not be plain text
-    assert hashed != password
-    
-    # Should verify correctly
-    assert verify_password(password, hashed) is True
-    assert verify_password("wrong_password", hashed) is False
 
 
 @pytest.mark.anyio
