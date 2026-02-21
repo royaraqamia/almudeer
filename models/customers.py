@@ -24,27 +24,26 @@ if DB_TYPE != "postgresql":
 
 async def get_or_create_customer(
     license_id: int,
+    name: str = None,
     phone: str = None,
     email: str = None,
-    name: str = None,
     username: str = None,
     has_whatsapp: bool = False,
-    has_telegram: bool = False
+    has_telegram: bool = False,
+    is_manual: bool = False
 ) -> dict:
     """Get existing customer or create new one (SQLite & PostgreSQL compatible)."""
     
-    
-    # Anti-Bot & Spam Guard: Refuse to create customers with known spam keywords
-    blocked_keywords = [
-        "bot", "api", 
-        "no-reply", "noreply", "donotreply",
-        "newsletter", "bulletin", 
-        "calendly", "submagic", "iconscout"
-    ]
     # Anti-Bot & Spam Guard
-    blocked_keywords = ["bot", "api", "no-reply", "noreply", "newsletter", "calendly"]
-    if name and any(k in name.lower() for k in blocked_keywords):
-        return {"id": None}
+    if not is_manual:
+        blocked_keywords = [
+            "bot", "api", 
+            "no-reply", "noreply", "donotreply",
+            "newsletter", "bulletin", 
+            "calendly", "submagic", "iconscout"
+        ]
+        if name and any(k in name.lower() for k in blocked_keywords):
+            return {"id": None}
     
     async with get_db() as db:
         # Check existing by phone/email
@@ -616,3 +615,57 @@ async def delete_customer(license_id: int, customer_id: int) -> bool:
         await commit_db(db)
         return True
 
+
+async def delete_customers(license_id: int, customer_ids: List[int]) -> bool:
+    """
+    Delete multiple customers and clean up related data efficiently.
+    """
+    if not customer_ids:
+        return False
+        
+    async with get_db() as db:
+        # Create placeholders for IN clause
+        placeholders = ", ".join(["?"] * len(customer_ids))
+        id_params = customer_ids
+        
+        # 0. Get customer contacts before deletion
+        query = f"SELECT contact FROM customers WHERE license_key_id = ? AND id IN ({placeholders})"
+        rows = await fetch_all(db, query, [license_id] + id_params)
+        
+        if not rows:
+            return False
+            
+        contacts = [row["contact"] for row in rows]
+        contact_placeholders = ", ".join(["?"] * len(contacts))
+        
+        # 1. Unlink orders
+        if contacts:
+            await execute_sql(
+                db,
+                f"UPDATE orders SET customer_contact = NULL WHERE customer_contact IN ({contact_placeholders})",
+                contacts
+            )
+            
+        # 2. Detach library items ONLY
+        await execute_sql(
+            db,
+            f"UPDATE library_items SET customer_id = NULL WHERE license_key_id = ? AND customer_id IN ({placeholders})",
+            [license_id] + id_params
+        )
+        
+        # 3. Delete from customer_messages links
+        await execute_sql(
+            db,
+            f"DELETE FROM customer_messages WHERE customer_id IN ({placeholders})",
+            id_params
+        )
+        
+        # 4. Finally delete the customers
+        await execute_sql(
+            db,
+            f"DELETE FROM customers WHERE license_key_id = ? AND id IN ({placeholders})",
+            [license_id] + id_params
+        )
+        
+        await commit_db(db)
+        return True

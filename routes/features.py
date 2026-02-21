@@ -67,12 +67,13 @@ async def add_customer(
     """Add a new customer or get existing one"""
     customer = await get_or_create_customer(
         license["license_id"],
+        name=sanitize_string(data.name, max_length=200),
         phone=sanitize_phone(data.phone) if data.phone else None,
         email=sanitize_email(data.email) if data.email else None,
-        name=sanitize_string(data.name, max_length=200),
         username=sanitize_string(data.username, max_length=100) if data.username else None,
         has_whatsapp=data.has_whatsapp,
-        has_telegram=data.has_telegram
+        has_telegram=data.has_telegram,
+        is_manual=True
     )
     
     # If customer was created or found, update notes/company if provided
@@ -122,7 +123,7 @@ async def update_customer_detail(
 ):
     """Update customer details"""
     # Sanitize and normalize incoming data without changing the response shape
-    raw_data = data.dict(exclude_none=True)
+    raw_data = data.dict(exclude_unset=True)
 
     if "email" in raw_data:
         sanitized_email = sanitize_email(raw_data["email"])
@@ -173,6 +174,22 @@ async def delete_customer_endpoint(
     return {"success": True, "message": "تم حذف العميل بنجاح"}
 
 
+class BulkDeleteRequest(BaseModel):
+    customer_ids: List[int]
+
+
+@router.post("/customers/bulk-delete")
+async def bulk_delete_customers_endpoint(
+    req: BulkDeleteRequest,
+    license: dict = Depends(get_license_from_header)
+):
+    """Delete multiple customers and related records"""
+    from models.customers import delete_customers
+    success = await delete_customers(license["license_id"], req.customer_ids)
+    if not success:
+        raise HTTPException(status_code=400, detail="لم يتم العثور على العملاء أو فشل الحذف")
+    
+    return {"success": True, "message": "تم حذف العملاء بنجاح"}
 
 # ============ Preferences Schemas ============
 
