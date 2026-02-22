@@ -142,8 +142,6 @@ async def _init_sqlite_tables(db):
             is_active BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             expires_at TIMESTAMP,
-            requests_today INTEGER DEFAULT 0,
-            last_request_date DATE,
             last_seen_at TIMESTAMP,
             referral_code TEXT UNIQUE,
             referred_by_id INTEGER,
@@ -301,8 +299,6 @@ async def _init_postgresql_tables(conn):
             is_active BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT NOW(),
             expires_at TIMESTAMP,
-            requests_today INTEGER DEFAULT 0,
-            last_request_date DATE,
             referral_code VARCHAR(50) UNIQUE,
             referred_by_id INTEGER REFERENCES license_keys(id),
             is_trial BOOLEAN DEFAULT FALSE,
@@ -618,19 +614,6 @@ async def validate_license_key(key: str) -> dict:
         if now_utc > expires_at:
             return {"valid": False, "error": "انتهت صلاحية الاشتراك"}
     
-    # Check daily rate limit
-    today = datetime.now(timezone.utc).date()
-    last_request_date = None
-    lr_val = row_dict.get("last_request_date")
-    if lr_val:
-        lr_dt = parse_datetime(lr_val)
-        if lr_dt:
-            last_request_date = lr_dt.date()
-    
-    if last_request_date == today:
-        if row_dict.get("requests_today", 0) >= row_dict.get("max_requests_per_day", 0):
-            return {"valid": False, "error": "تم تجاوز الحد اليومي للطلبات"}
-    
     # Prepare result
     expires_at_str = None
     if row_dict.get("expires_at"):
@@ -666,21 +649,9 @@ async def validate_license_key(key: str) -> dict:
 
 
 async def increment_usage(license_id: int, action_type: str, input_preview: str = None):
-    """Increment usage counter (Analytics logging REMOVED)"""
-    today = datetime.now(timezone.utc).date().isoformat()
-    
-    async with get_db() as db:
-        # Update request counter
-        await execute_sql(db, """
-            UPDATE license_keys 
-            SET requests_today = CASE 
-                WHEN last_request_date = ? THEN requests_today + 1 
-                ELSE 1 
-            END,
-            last_request_date = ?
-            WHERE id = ?
-        """, [today, today, license_id])
-        await commit_db(db)
+    """Increment usage counter (Legacy - No longer used)"""
+    # Logic removed to simplify system: max daily requests no longer enforced
+    return
 
 
 async def save_crm_entry(

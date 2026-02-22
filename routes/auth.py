@@ -65,13 +65,15 @@ async def login(data: LoginRequest):
         role="user",
     )
     
+    # Remove valid/error from result before returning as user info
+    user_info = result.copy()
+    user_info.pop("valid", None)
+    user_info.pop("error", None)
+    # Rename for frontend compatibility if needed (company_name -> full_name handled by UserInfo.fromJson)
+    
     return TokenResponse(
         **tokens,
-        user={
-            "license_id": result.get("license_id"),
-            "company_name": result.get("full_name"),
-            "username": result.get("username"),
-        }
+        user=user_info
     )
 
 

@@ -74,9 +74,7 @@ async def create_postgresql_schema(conn: asyncpg.Connection):
             is_active BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             expires_at TIMESTAMP,
-            max_requests_per_day INTEGER DEFAULT 100,
-            requests_today INTEGER DEFAULT 0,
-            last_request_date DATE
+            expires_at TIMESTAMP
         )
     """)
     
@@ -225,18 +223,11 @@ async def import_data_to_postgresql(conn: asyncpg.Connection, data: Dict[str, Li
                 except:
                     expires_at = None
             
-            last_request_date = row.get('last_request_date')
-            if last_request_date and isinstance(last_request_date, str):
-                try:
-                    last_request_date = datetime.fromisoformat(last_request_date).date()
-                except:
-                    last_request_date = None
             
             await conn.execute("""
                 INSERT INTO license_keys 
-                (id, key_hash, full_name, contact_email, is_active, created_at, 
-                 expires_at, max_requests_per_day, requests_today, last_request_date)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                (id, key_hash, full_name, contact_email, is_active, created_at, expires_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (id) DO NOTHING
             """, 
                 row.get('id'),
@@ -245,10 +236,7 @@ async def import_data_to_postgresql(conn: asyncpg.Connection, data: Dict[str, Li
                 row.get('contact_email'),
                 is_active,
                 created_at,
-                expires_at,
-                row.get('max_requests_per_day', 100),
-                row.get('requests_today', 0),
-                last_request_date
+                expires_at
             )
     
     # Import inbox_messages

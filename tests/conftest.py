@@ -89,8 +89,6 @@ async def db_session():
                 is_active BOOLEAN DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 expires_at TIMESTAMP,
-                requests_today INTEGER DEFAULT 0,
-                last_request_date DATE,
                 last_seen_at TIMESTAMP,
                 referral_code TEXT UNIQUE,
                 referred_by_id INTEGER,

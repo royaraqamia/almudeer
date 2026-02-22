@@ -34,9 +34,7 @@ async def create_schema():
                 is_active BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 expires_at TIMESTAMP,
-                max_requests_per_day INTEGER DEFAULT 100,
-                requests_today INTEGER DEFAULT 0,
-                last_request_date DATE
+                expires_at TIMESTAMP
             )
         """)
         

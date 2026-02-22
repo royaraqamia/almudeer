@@ -35,7 +35,6 @@ class TestSubscriptionRoutes:
             payload = SubscriptionCreate(
                 full_name="Test Company",
                 days_valid=30,
-                max_requests_per_day=100,
                 username="test_user"
             )
             

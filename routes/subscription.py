@@ -185,7 +185,7 @@ async def list_subscriptions(
         
         from db_helper import get_db, fetch_all
         async with get_db() as db:
-            query = "SELECT id, full_name, contact_email, username, is_active, created_at, expires_at, requests_today, last_request_date, is_trial, referral_code, referral_count, profile_image_url FROM license_keys"
+            query = "SELECT id, full_name, contact_email, username, is_active, created_at, expires_at, last_request_date, is_trial, referral_code, referral_count, profile_image_url FROM license_keys"
             params = []
             
             if active_only:
@@ -281,21 +281,9 @@ async def get_subscription(
             else:
                 subscription["days_remaining"] = None
             
-            # Calculate usage statistics
-            today = datetime.now().date()
-            last_request_date = subscription.get("last_request_date")
-            if isinstance(last_request_date, str):
-                last_request_date = datetime.fromisoformat(last_request_date).date()
-            elif last_request_date:
-                if hasattr(last_request_date, 'date'):
-                    last_request_date = last_request_date.date()
-                elif isinstance(last_request_date, datetime):
-                    last_request_date = last_request_date.date()
-            
-            if last_request_date == today:
-                subscription["requests_today"] = subscription.get("requests_today", 0)
-            else:
-                subscription["requests_today"] = 0
+            # Legacy field removal from response
+            subscription.pop("requests_today", None)
+            subscription.pop("max_requests_per_day", None)
             
             return {"subscription": subscription}
     
