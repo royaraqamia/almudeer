@@ -436,6 +436,13 @@ try:
 except Exception as e:
     logger.warning(f"Voice router not loaded: {e}")
 
+# Browser routes (scraper, link preview)
+try:
+    from routes.browser import router as browser_router
+    app.include_router(browser_router)
+except Exception as e:
+    logger.warning(f"Browser router not loaded: {e}")
+
 # Health check endpoints (no prefix, accessible at root level)
 from health_check import router as health_router
 app.include_router(health_router)
