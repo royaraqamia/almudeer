@@ -13,6 +13,7 @@ from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 
 from jose import jwt, JWTError
+from starlette.concurrency import run_in_threadpool
 
 from logging_config import get_logger
 
@@ -29,18 +30,22 @@ def _get_jwt_secret_key() -> str:
     
     # In production, we MUST have a stable secret key
     if os.getenv("ENVIRONMENT", "development") == "production":
+        logger.error("JWT_SECRET_KEY is NOT set in production environment!")
         raise ValueError(
             "JWT_SECRET_KEY must be set in production! "
             "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
         )
     
-    # Development only: generate a random key (tokens won't persist across restarts)
-    generated_key = secrets.token_hex(32)
+    # Development only: Check for a local .env file or fallback
     logger.warning(
-        "JWT_SECRET_KEY not set - using auto-generated key. "
-        "Tokens will be invalidated on restart. Set JWT_SECRET_KEY in production!"
+        "JWT_SECRET_KEY not set in environment. "
+        "Falling back to a potentially unstable key. "
+        "Run 'python scripts/generate_secrets.py' to stabilize your development environment."
     )
-    return generated_key
+    
+    # Fallback for dev: Use a stable-ish key based on the machine or project path if possible,
+    # but for now, we'll keep the random hex to encourage proper setup.
+    return secrets.token_hex(32)
 
 
 @dataclass
@@ -121,6 +126,21 @@ def create_refresh_token(data: Dict[str, Any], family_id: str = None) -> Tuple[s
     return jwt.encode(to_encode, config.secret_key, algorithm=config.algorithm), jti
 
 
+# ============ Async Performance Wrappers ============
+
+async def create_access_token_async(data: Dict[str, Any], expires_delta: timedelta = None) -> Tuple[str, str, datetime]:
+    """Async wrapper for create_access_token to avoid event loop blocking."""
+    return await run_in_threadpool(create_access_token, data, expires_delta)
+
+async def create_refresh_token_async(data: Dict[str, Any], family_id: str = None) -> Tuple[str, str]:
+    """Async wrapper for create_refresh_token to avoid event loop blocking."""
+    return await run_in_threadpool(create_refresh_token, data, family_id)
+
+async def verify_token_async(token: str, token_type: str = TokenType.ACCESS) -> Optional[Dict[str, Any]]:
+    """Async wrapper for verify_token to avoid event loop blocking."""
+    return await run_in_threadpool(verify_token, token, token_type)
+
+
 async def create_token_pair(
     user_id: str, 
     license_id: int = None, 
@@ -128,7 +148,8 @@ async def create_token_pair(
     device_fingerprint: str = None,
     ip_address: str = None,
     family_id: str = None,
-    device_secret_hash: str = None
+    device_secret_hash: str = None,
+    user_agent: str = None
 ) -> Dict[str, Any]:
     """
     Create both access and refresh tokens. Track device session.
@@ -162,8 +183,13 @@ async def create_token_pair(
         "family_id": family_id,
     }
     
-    access_token, jti, expires_at = create_access_token(payload)
-    refresh_token, refresh_jti = create_refresh_token(payload, family_id=family_id)
+    access_token, jti, expires_at = await create_access_token_async(payload)
+    refresh_token, refresh_jti = await create_refresh_token_async(payload, family_id=family_id)
+    
+    # Session Intelligence: Resolve location and parse device name
+    from services.session_intelligence import resolve_location, parse_device_info
+    location = await resolve_location(ip_address)
+    device_name = parse_device_info(user_agent)
     
     # Store session in DB for RTR
     if license_id:
@@ -177,28 +203,30 @@ async def create_token_pair(
                     if DB_TYPE == "postgresql":
                         await execute_sql(db, """
                             INSERT INTO device_sessions 
-                            (license_key_id, family_id, refresh_token_jti, device_fingerprint, ip_address, expires_at, device_secret_hash)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, [license_id, family_id, refresh_jti, device_fingerprint, ip_address, expires_db, device_secret_hash])
+                            (license_key_id, family_id, refresh_token_jti, device_fingerprint, ip_address, expires_at, device_secret_hash, device_name, location, user_agent)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, [license_id, family_id, refresh_jti, device_fingerprint, ip_address, expires_db, device_secret_hash, device_name, location, user_agent])
                     else:
                         await execute_sql(db, """
                             INSERT INTO device_sessions 
-                            (license_key_id, family_id, refresh_token_jti, device_fingerprint, ip_address, expires_at, device_secret_hash)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, [license_id, family_id, refresh_jti, device_fingerprint, ip_address, expires_db.isoformat(), device_secret_hash])
+                            (license_key_id, family_id, refresh_token_jti, device_fingerprint, ip_address, expires_at, device_secret_hash, device_name, location, user_agent)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, [license_id, family_id, refresh_jti, device_fingerprint, ip_address, expires_db.isoformat(), device_secret_hash, device_name, location, user_agent])
                 else:
                     if DB_TYPE == "postgresql":
                         await execute_sql(db, """
                             UPDATE device_sessions 
-                            SET refresh_token_jti = ?, last_used_at = NOW(), expires_at = ?, ip_address = COALESCE(?, ip_address), device_secret_hash = COALESCE(?, device_secret_hash)
+                            SET refresh_token_jti = ?, last_used_at = NOW(), expires_at = ?, ip_address = COALESCE(?, ip_address), device_secret_hash = COALESCE(?, device_secret_hash),
+                                device_name = COALESCE(?, device_name), location = COALESCE(?, location), user_agent = COALESCE(?, user_agent)
                             WHERE family_id = ?
-                        """, [refresh_jti, expires_db, ip_address, device_secret_hash, family_id])
+                        """, [refresh_jti, expires_db, ip_address, device_secret_hash, device_name, location, user_agent, family_id])
                     else:
                         await execute_sql(db, """
                             UPDATE device_sessions 
-                            SET refresh_token_jti = ?, last_used_at = CURRENT_TIMESTAMP, expires_at = ?, ip_address = COALESCE(?, ip_address), device_secret_hash = COALESCE(?, device_secret_hash)
+                            SET refresh_token_jti = ?, last_used_at = CURRENT_TIMESTAMP, expires_at = ?, ip_address = COALESCE(?, ip_address), device_secret_hash = COALESCE(?, device_secret_hash),
+                                device_name = COALESCE(?, device_name), location = COALESCE(?, location), user_agent = COALESCE(?, user_agent)
                             WHERE family_id = ?
-                        """, [refresh_jti, expires_db.isoformat(), ip_address, device_secret_hash, family_id])
+                        """, [refresh_jti, expires_db.isoformat(), ip_address, device_secret_hash, device_name, location, user_agent, family_id])
                 
                 await commit_db(db)
         except Exception as e:
@@ -259,12 +287,13 @@ async def refresh_access_token(
     refresh_token: str, 
     device_fingerprint: str = None, 
     ip_address: str = None,
-    device_secret: str = None
+    device_secret: str = None,
+    user_agent: str = None
 ) -> Optional[Dict[str, Any]]:
     """
     Use a refresh token to get a new access token and rotate the refresh token.
     """
-    payload = verify_token(refresh_token, TokenType.REFRESH)
+    payload = await verify_token_async(refresh_token, TokenType.REFRESH)
     
     if not payload:
         return None
@@ -332,6 +361,7 @@ async def refresh_access_token(
                 ip_address=ip_address,
                 family_id=family_id,
                 device_secret_hash=stored_hash, # Keep the binding alive on rotation
+                user_agent=user_agent
             )
             
     except Exception as e:
@@ -365,7 +395,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    payload = verify_token(credentials.credentials, TokenType.ACCESS)
+    payload = await verify_token_async(credentials.credentials, TokenType.ACCESS)
     
     if not payload:
         raise HTTPException(
@@ -455,7 +485,7 @@ async def get_current_user_optional(
     if not credentials:
         return None
     
-    payload = verify_token(credentials.credentials, TokenType.ACCESS)
+    payload = await verify_token_async(credentials.credentials, TokenType.ACCESS)
     if not payload:
         return None
     

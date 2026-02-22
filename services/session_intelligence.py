@@ -1,0 +1,91 @@
+"""
+Al-Mudeer - Session Intelligence Service
+Handles GeoIP resolution and User-Agent parsing to provide context for device sessions.
+"""
+
+import httpx
+import re
+from typing import Dict, Optional
+from logging_config import get_logger
+
+logger = get_logger(__name__)
+
+# Cache for GeoIP to avoid redundant API calls
+# In production, this should be moved to Redis
+_geoip_cache = {}
+
+async def resolve_location(ip: str) -> str:
+    """
+    Resolve IP address to a human-readable location (City, Country).
+    Uses ip-api.com (Free tier: 45 requests/min).
+    """
+    if not ip or ip in ("127.0.0.1", "localhost", "::1"):
+        return "Local Network"
+    
+    if ip in _geoip_cache:
+        return _geoip_cache[ip]
+    
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            # Note: ip-api.com is free for non-commercial use, 45 requests per minute
+            response = await client.get(f"http://ip-api.com/json/{ip}?fields=status,message,country,city")
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("status") == "success":
+                    location = f"{data.get('city')}, {data.get('country')}"
+                    _geoip_cache[ip] = location
+                    return location
+    except Exception as e:
+        logger.debug(f"GeoIP resolution failed for {ip}: {e}")
+    
+    return "Unknown Location"
+
+def parse_device_info(ua_string: Optional[str]) -> str:
+    """
+    Extract readable device info from User-Agent string.
+    Basic regex-based parser (can be upgraded to 'user-agents' library).
+    """
+    if not ua_string:
+        return "Unknown Device"
+    
+    # Common Patterns
+    # iOS: ... (iPhone; CPU iPhone OS 17_0 like Mac OS X) ...
+    # Android: ... (Linux; Android 14; Pixel 7) ...
+    # Windows: ... (Windows NT 10.0; Win64; x64) ...
+    
+    ua = ua_string
+    
+    # 1. Check for Mobile Devices
+    if "iPhone" in ua:
+        model_match = re.search(r'iPhone OS ([\d_]+)', ua)
+        version = model_match.group(1).replace('_', '.') if model_match else ""
+        return f"iPhone (iOS {version})" if version else "iPhone"
+    
+    if "Android" in ua:
+        # Try to find device model: (Linux; Android 14; SM-S911B)
+        android_match = re.search(r'Android ([\d.]+); ([^;)]+)', ua)
+        if android_match:
+            version = android_match.group(1)
+            model = android_match.group(2).strip()
+            return f"{model} (Android {version})"
+        return "Android Device"
+    
+    if "iPad" in ua:
+        return "iPad"
+    
+    # 2. Check for Desktop
+    if "Windows NT" in ua:
+        return "Windows PC"
+    
+    if "Macintosh" in ua:
+        return "Mac"
+    
+    if "Linux" in ua and "Android" not in ua:
+        return "Linux PC"
+    
+    # 3. Last resort: just common browser
+    if "Chrome" in ua: return "Chrome Browser"
+    if "Safari" in ua: return "Safari Browser"
+    if "Firefox" in ua: return "Firefox Browser"
+    
+    return "Unknown Device"

@@ -58,24 +58,39 @@ async def login(data: LoginRequest, request: Request):
     
     Returns JWT tokens for authenticated access.
     """
-    # 1. Check brute-force protection
-    is_locked, remaining = check_account_lockout(data.license_key)
-    if is_locked:
-        logger.warning(f"Login attempt for locked account: {data.license_key}")
+    # 1. Check brute-force protection (Account + IP)
+    ip_address = request.client.host if request.client else "unknown"
+    
+    # Check account lockout
+    is_key_locked, key_remaining = check_account_lockout(data.license_key)
+    # Check IP lockout
+    is_ip_locked, ip_remaining = check_account_lockout(f"ip:{ip_address}")
+    
+    if is_key_locked or is_ip_locked:
+        remaining = max(key_remaining or 0, ip_remaining or 0)
+        logger.warning(f"Login attempt blocked (lockout): account={data.license_key}, ip={ip_address}")
+        
+        detail_msg = "تم حظر الحساب مؤقتًا."
+        if is_ip_locked and not is_key_locked:
+            detail_msg = "تم حظر هذا الجهاز مؤقتًا بسبب كثرة المحاولات الفاشلة."
+            
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"تم حظر الحساب مؤقتًا. حاول مرة أخرى بعد {remaining // 60} دقائق." if remaining > 60 else f"تم حظر الحساب مؤقتًا. حاول مرة أخرى بعد {remaining} ثانية.",
+            detail=f"{detail_msg} حاول مرة أخرى بعد {remaining // 60} دقائق." if remaining > 60 else f"{detail_msg} حاول مرة أخرى بعد {remaining} ثانية.",
             headers={"Retry-After": str(remaining)},
         )
 
     result = await validate_license_key(data.license_key)
     
     if not result.get("valid"):
-        # Record failed attempt
-        attempts, locked_now = record_failed_login(data.license_key)
+        # Record failed attempt (on both account and IP)
+        record_failed_login(data.license_key)
+        _, ip_locked_now = record_failed_login(f"ip:{ip_address}")
         
         detail_msg = result.get("error", "مفتاح الاشتراك غير صحيح")
-        if locked_now:
+        if ip_locked_now:
+            detail_msg = "تم حظر هذا الجهاز بسبب محاولات تسجيل الدخول الفاشلة المتكررة. يرجى المحاولة لاحقاً."
+        elif check_account_lockout(data.license_key)[0]:
             detail_msg = "تم حظر الحساب بسبب محاولات تسجيل الدخول الفاشلة المتكررة. يرجى المحاولة لاحقاً."
             
         raise HTTPException(
@@ -85,18 +100,20 @@ async def login(data: LoginRequest, request: Request):
         
     # On success, clear failed attempts
     record_successful_login(data.license_key)
+    record_successful_login(f"ip:{ip_address}")
     
     # Extract metadata
     ip_address = request.client.host if request.client else None
     device_fingerprint = request.headers.get("User-Agent", "Unknown Device")
     
     tokens = await create_token_pair(
-        user_id=data.license_key[:20],
+        user_id=str(result.get("license_id")),
         license_id=result.get("license_id"),
         role="user",
         device_fingerprint=device_fingerprint,
         ip_address=ip_address,
         device_secret_hash=data.device_secret_hash,
+        user_agent=request.headers.get("User-Agent")
     )
     
     # Remove valid/error from result before returning as user info
@@ -125,7 +142,8 @@ async def refresh_token(data: RefreshRequest, request: Request):
         data.refresh_token, 
         device_fingerprint, 
         ip_address,
-        data.device_secret
+        data.device_secret,
+        user_agent=request.headers.get("User-Agent")
     )
     
     if not result:
@@ -153,10 +171,7 @@ async def logout(
 ):
     """
     Logout and invalidate the current token.
-    
-    The token will be blacklisted and cannot be used again.
     """
-    from fastapi import Request
     
     # Get the token from the Authorization header
     auth_header = request.headers.get("Authorization", "")
@@ -174,6 +189,20 @@ async def logout(
             if jti and exp:
                 from datetime import datetime
                 expires_at = datetime.utcfromtimestamp(exp)
+                
+                from database import DB_TYPE
+                from db_helper import get_db, execute_sql, commit_db
+                
+                family_id = payload.get("family_id")
+                if family_id:
+                    async with get_db() as db:
+                        if DB_TYPE == "postgresql":
+                            await execute_sql(db, "UPDATE device_sessions SET is_revoked = TRUE WHERE family_id = ?", [family_id])
+                        else:
+                            await execute_sql(db, "UPDATE device_sessions SET is_revoked = 1 WHERE family_id = ?", [family_id])
+                        await commit_db(db)
+                        logger.info(f"Device session revoked for family: {family_id}")
+
                 blacklist_token(jti, expires_at)
                 
                 security_logger = get_security_logger()
@@ -182,7 +211,7 @@ async def logout(
                 
                 logger.info(f"User logged out and token blacklisted: {user.get('user_id')}")
         except Exception as e:
-            logger.warning(f"Could not blacklist token on logout: {e}")
+            logger.warning(f"Could not blacklist token or revoke session on logout: {e}")
     
     return {"success": True, "message": "Logged out successfully"}
 

@@ -176,7 +176,7 @@ class TestJWTTokenFunctions:
         """Test refresh token contains JTI for revocation"""
         from services.jwt_auth import create_refresh_token, verify_token, TokenType
         
-        token = create_refresh_token({"sub": "user@test.com"})
+        token, jti = create_refresh_token({"sub": "user@test.com"})
         payload = verify_token(token, TokenType.REFRESH)
         
         assert "jti" in payload
