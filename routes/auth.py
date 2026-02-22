@@ -31,6 +31,7 @@ router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 class LoginRequest(BaseModel):
     """Login with license key"""
     license_key: str
+    device_secret_hash: Optional[str] = None
 
 
 class TokenResponse(BaseModel):
@@ -45,6 +46,7 @@ class TokenResponse(BaseModel):
 class RefreshRequest(BaseModel):
     """Refresh token request"""
     refresh_token: str
+    device_secret: Optional[str] = None
 
 
 # ============ Auth Endpoints ============
@@ -63,6 +65,7 @@ async def login(data: LoginRequest, request: Request):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"تم حظر الحساب مؤقتًا. حاول مرة أخرى بعد {remaining // 60} دقائق." if remaining > 60 else f"تم حظر الحساب مؤقتًا. حاول مرة أخرى بعد {remaining} ثانية.",
+            headers={"Retry-After": str(remaining)},
         )
 
     result = await validate_license_key(data.license_key)
@@ -93,6 +96,7 @@ async def login(data: LoginRequest, request: Request):
         role="user",
         device_fingerprint=device_fingerprint,
         ip_address=ip_address,
+        device_secret_hash=data.device_secret_hash,
     )
     
     # Remove valid/error from result before returning as user info
@@ -117,7 +121,12 @@ async def refresh_token(data: RefreshRequest, request: Request):
     ip_address = request.client.host if request.client else None
     device_fingerprint = request.headers.get("User-Agent", "Unknown Device")
     
-    result = await refresh_access_token(data.refresh_token, device_fingerprint, ip_address)
+    result = await refresh_access_token(
+        data.refresh_token, 
+        device_fingerprint, 
+        ip_address,
+        data.device_secret
+    )
     
     if not result:
         raise HTTPException(

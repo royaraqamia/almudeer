@@ -56,7 +56,8 @@ async def init_database():
                 "ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS referral_count INTEGER DEFAULT 0",
                 "ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE",
                 "ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP",
-                "ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 1"
+                "ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 1",
+                "ALTER TABLE device_sessions ADD COLUMN IF NOT EXISTS device_secret_hash VARCHAR(255)"
             ]
             
             for m in migrations:
@@ -79,6 +80,9 @@ async def init_database():
             except: pass
             try:
                 await execute_sql(conn, "ALTER TABLE license_keys ADD COLUMN token_version INTEGER DEFAULT 1")
+            except: pass
+            try:
+                await execute_sql(conn, "ALTER TABLE device_sessions ADD COLUMN device_secret_hash VARCHAR(255)")
             except: pass
             await commit_db(conn)
     
@@ -273,6 +277,7 @@ async def _init_sqlite_tables(db):
             last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             expires_at TIMESTAMP NOT NULL,
             is_revoked BOOLEAN DEFAULT FALSE,
+            device_secret_hash VARCHAR(255),
             FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
         )
     """)
@@ -483,6 +488,7 @@ async def _init_postgresql_tables(conn):
             last_used_at TIMESTAMP DEFAULT NOW(),
             expires_at TIMESTAMP NOT NULL,
             is_revoked BOOLEAN DEFAULT FALSE,
+            device_secret_hash VARCHAR(255),
             FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
         )
     """))
@@ -550,16 +556,26 @@ async def generate_license_key(
     async with get_db() as db:
         try:
             if DB_TYPE == "postgresql":
-                # Fetch row to check for referral count increment atomicity
-                row = await fetch_one(db, """
-                    INSERT INTO license_keys (key_hash, license_key_encrypted, full_name, expires_at, is_trial, referred_by_id, referral_code, username)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    RETURNING id
-                """, [key_hash, encrypted_key, full_name, expires_at, is_trial, referred_by_id, referral_code, username])
-                
-                # If referred, increment referrer's count
-                if referred_by_id and row:
-                    await execute_sql(db, "UPDATE license_keys SET referral_count = referral_count + 1 WHERE id = ?", [referred_by_id])
+                if referred_by_id:
+                    # Use a CTE to insert and increment referral count atomically
+                    # Note: db_pool handles postgres parameter replacement automatically
+                    row = await fetch_one(db, """
+                        WITH new_key AS (
+                            INSERT INTO license_keys (key_hash, license_key_encrypted, full_name, expires_at, is_trial, referred_by_id, referral_code, username)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            RETURNING id, referred_by_id
+                        )
+                        UPDATE license_keys 
+                        SET referral_count = referral_count + 1 
+                        FROM new_key WHERE license_keys.id = new_key.referred_by_id
+                        RETURNING new_key.id
+                    """, [key_hash, encrypted_key, full_name, expires_at, is_trial, referred_by_id, referral_code, username])
+                else:
+                    row = await fetch_one(db, """
+                        INSERT INTO license_keys (key_hash, license_key_encrypted, full_name, expires_at, is_trial, referred_by_id, referral_code, username)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        RETURNING id
+                    """, [key_hash, encrypted_key, full_name, expires_at, is_trial, referred_by_id, referral_code, username])
                 
                 return raw_key
             else:

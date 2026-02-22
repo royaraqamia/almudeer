@@ -6,6 +6,8 @@ Production-ready JWT authentication with access/refresh tokens
 import os
 import secrets
 import hashlib
+import hmac
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
@@ -125,7 +127,8 @@ async def create_token_pair(
     role: str = "user",
     device_fingerprint: str = None,
     ip_address: str = None,
-    family_id: str = None
+    family_id: str = None,
+    device_secret_hash: str = None
 ) -> Dict[str, Any]:
     """
     Create both access and refresh tokens. Track device session.
@@ -174,28 +177,28 @@ async def create_token_pair(
                     if DB_TYPE == "postgresql":
                         await execute_sql(db, """
                             INSERT INTO device_sessions 
-                            (license_key_id, family_id, refresh_token_jti, device_fingerprint, ip_address, expires_at)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                        """, [license_id, family_id, refresh_jti, device_fingerprint, ip_address, expires_db])
+                            (license_key_id, family_id, refresh_token_jti, device_fingerprint, ip_address, expires_at, device_secret_hash)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, [license_id, family_id, refresh_jti, device_fingerprint, ip_address, expires_db, device_secret_hash])
                     else:
                         await execute_sql(db, """
                             INSERT INTO device_sessions 
-                            (license_key_id, family_id, refresh_token_jti, device_fingerprint, ip_address, expires_at)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                        """, [license_id, family_id, refresh_jti, device_fingerprint, ip_address, expires_db.isoformat()])
+                            (license_key_id, family_id, refresh_token_jti, device_fingerprint, ip_address, expires_at, device_secret_hash)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, [license_id, family_id, refresh_jti, device_fingerprint, ip_address, expires_db.isoformat(), device_secret_hash])
                 else:
                     if DB_TYPE == "postgresql":
                         await execute_sql(db, """
                             UPDATE device_sessions 
-                            SET refresh_token_jti = ?, last_used_at = NOW(), expires_at = ?, ip_address = COALESCE(?, ip_address)
+                            SET refresh_token_jti = ?, last_used_at = NOW(), expires_at = ?, ip_address = COALESCE(?, ip_address), device_secret_hash = COALESCE(?, device_secret_hash)
                             WHERE family_id = ?
-                        """, [refresh_jti, expires_db, ip_address, family_id])
+                        """, [refresh_jti, expires_db, ip_address, device_secret_hash, family_id])
                     else:
                         await execute_sql(db, """
                             UPDATE device_sessions 
-                            SET refresh_token_jti = ?, last_used_at = CURRENT_TIMESTAMP, expires_at = ?, ip_address = COALESCE(?, ip_address)
+                            SET refresh_token_jti = ?, last_used_at = CURRENT_TIMESTAMP, expires_at = ?, ip_address = COALESCE(?, ip_address), device_secret_hash = COALESCE(?, device_secret_hash)
                             WHERE family_id = ?
-                        """, [refresh_jti, expires_db.isoformat(), ip_address, family_id])
+                        """, [refresh_jti, expires_db.isoformat(), ip_address, device_secret_hash, family_id])
                 
                 await commit_db(db)
         except Exception as e:
@@ -252,7 +255,12 @@ def verify_token(token: str, token_type: str = TokenType.ACCESS) -> Optional[Dic
         return None
 
 
-async def refresh_access_token(refresh_token: str, device_fingerprint: str = None, ip_address: str = None) -> Optional[Dict[str, Any]]:
+async def refresh_access_token(
+    refresh_token: str, 
+    device_fingerprint: str = None, 
+    ip_address: str = None,
+    device_secret: str = None
+) -> Optional[Dict[str, Any]]:
     """
     Use a refresh token to get a new access token and rotate the refresh token.
     """
@@ -294,6 +302,17 @@ async def refresh_access_token(refresh_token: str, device_fingerprint: str = Non
                 logger.warning(f"Session {family_id} is revoked.")
                 return None
                 
+            # Security Hardening: Device Secret Binding Verification
+            stored_hash = session.get("device_secret_hash")
+            if stored_hash: # Enforce only if session was created with a secret (backwards compat)
+                if not device_secret:
+                    logger.warning(f"Refresh failed: Missing device_secret for bound session {family_id}")
+                    return None
+                computed_hash = hashlib.sha256(device_secret.encode('utf-8')).hexdigest()
+                if not hmac.compare_digest(computed_hash, stored_hash):
+                    logger.warning(f"Refresh failed: Invalid device_secret for session {family_id}")
+                    return None
+                
             if session["refresh_token_jti"] != jti:
                 # TOKEN THEFT DETECTED
                 logger.warning(f"Token theft detected for family {family_id}. Revoking entire session chain.")
@@ -312,6 +331,7 @@ async def refresh_access_token(refresh_token: str, device_fingerprint: str = Non
                 device_fingerprint=device_fingerprint,
                 ip_address=ip_address,
                 family_id=family_id,
+                device_secret_hash=stored_hash, # Keep the binding alive on rotation
             )
             
     except Exception as e:
