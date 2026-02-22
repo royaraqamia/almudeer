@@ -863,16 +863,36 @@ async def broadcast_message_status_update(license_id: int, status_data: Dict[str
     ))
 
 
-async def broadcast_task_sync(license_id: int):
+async def broadcast_task_typing_indicator(license_id: int, task_id: str, user_id: str, user_name: str, is_typing: bool):
+    """
+    Broadcast task typing indicator to all users in the license.
+    """
+    manager = get_websocket_manager()
+    await manager.send_to_license(license_id, WebSocketMessage(
+        event="task_typing",
+        data={
+            "task_id": task_id,
+            "user_id": user_id,
+            "user_name": user_name,
+            "is_typing": is_typing,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    ))
+
+
+async def broadcast_task_sync(license_id: int, task_id: Optional[str] = None, change_type: str = "update"):
     """
     Broadcast a signal to all devices to trigger a task synchronization.
-    This ensures that alarms scheduled on one device are immediately 
-    propagated to others.
+    Optionally includes a task_id for targeted sync.
     """
     manager = get_websocket_manager()
     await manager.send_to_license(license_id, WebSocketMessage(
         event="task_sync",
-        data={"timestamp": datetime.utcnow().isoformat()}
+        data={
+            "timestamp": datetime.utcnow().isoformat(),
+            "task_id": task_id,
+            "change_type": change_type
+        }
     ))
 
 
