@@ -260,6 +260,23 @@ async def _init_sqlite_tables(db):
         )
     """)
 
+    # Device Sessions table (Refresh Token Rotation & Management)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS device_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            license_key_id INTEGER NOT NULL,
+            family_id VARCHAR(255) NOT NULL,
+            refresh_token_jti VARCHAR(255) NOT NULL,
+            device_fingerprint TEXT,
+            ip_address VARCHAR(255),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NOT NULL,
+            is_revoked BOOLEAN DEFAULT FALSE,
+            FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
+        )
+    """)
+
     # Create indexes for performance
     await db.execute("""
         CREATE INDEX IF NOT EXISTS idx_license_key_hash 
@@ -279,6 +296,16 @@ async def _init_sqlite_tables(db):
     await db.execute("""
         CREATE INDEX IF NOT EXISTS idx_license_expires_at 
         ON license_keys(expires_at)
+    """)
+    
+    await db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_device_sessions_jti 
+        ON device_sessions(refresh_token_jti)
+    """)
+    
+    await db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_device_sessions_family 
+        ON device_sessions(family_id)
     """)
     
     await db.commit()
@@ -431,7 +458,8 @@ async def _init_postgresql_tables(conn):
             ("orders", "orders_id_seq"),
             ("version_history", "version_history_id_seq"),
             ("update_events", "update_events_id_seq"),
-            ("knowledge_documents", "knowledge_documents_id_seq")
+            ("knowledge_documents", "knowledge_documents_id_seq"),
+            ("device_sessions", "device_sessions_id_seq")
         ]
         
         for table, seq in tables_with_sequences:
@@ -441,6 +469,23 @@ async def _init_postgresql_tables(conn):
                 pass
     except Exception:
         pass
+
+    # Device Sessions table (Refresh Token Rotation & Management)
+    await conn.execute(_adapt_sql_for_db("""
+        CREATE TABLE IF NOT EXISTS device_sessions (
+            id SERIAL PRIMARY KEY,
+            license_key_id INTEGER NOT NULL,
+            family_id VARCHAR(255) NOT NULL,
+            refresh_token_jti VARCHAR(255) NOT NULL,
+            device_fingerprint TEXT,
+            ip_address VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW(),
+            last_used_at TIMESTAMP DEFAULT NOW(),
+            expires_at TIMESTAMP NOT NULL,
+            is_revoked BOOLEAN DEFAULT FALSE,
+            FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
+        )
+    """))
 
     # Create indexes for performance
     await conn.execute("""
@@ -461,6 +506,16 @@ async def _init_postgresql_tables(conn):
     await conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_license_expires_at 
         ON license_keys(expires_at)
+    """)
+    
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_device_sessions_jti 
+        ON device_sessions(refresh_token_jti)
+    """)
+    
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_device_sessions_family 
+        ON device_sessions(family_id)
     """)
 
 

@@ -92,7 +92,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: timedelta = None) -
     return jwt.encode(to_encode, config.secret_key, algorithm=config.algorithm), jti, expire
 
 
-def create_refresh_token(data: Dict[str, Any]) -> str:
+def create_refresh_token(data: Dict[str, Any], family_id: str = None) -> Tuple[str, str]:
     """
     Create a JWT refresh token (longer expiration).
     
@@ -100,32 +100,35 @@ def create_refresh_token(data: Dict[str, Any]) -> str:
         data: Payload data (should include 'sub' for subject/user ID)
     
     Returns:
-        Encoded JWT refresh token string
+        Tuple of (encoded_token_string, jti)
     """
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(days=config.refresh_token_expire_days)
+    jti = secrets.token_hex(16)
     
     to_encode.update({
         "exp": expire,
         "iat": datetime.utcnow(),
         "type": TokenType.REFRESH,
-        "jti": secrets.token_hex(16),  # Unique token ID for revocation
+        "jti": jti,  # Unique token ID for revocation
     })
     
-    return jwt.encode(to_encode, config.secret_key, algorithm=config.algorithm)
+    if family_id:
+        to_encode["family_id"] = family_id
+    
+    return jwt.encode(to_encode, config.secret_key, algorithm=config.algorithm), jti
 
 
-async def create_token_pair(user_id: str, license_id: int = None, role: str = "user") -> Dict[str, Any]:
+async def create_token_pair(
+    user_id: str, 
+    license_id: int = None, 
+    role: str = "user",
+    device_fingerprint: str = None,
+    ip_address: str = None,
+    family_id: str = None
+) -> Dict[str, Any]:
     """
-    Create both access and refresh tokens.
-    
-    Args:
-        user_id: User identifier (typically license key prefix or username)
-        license_id: Associated license ID
-        role: User role (default: "user")
-    
-    Returns:
-        Dict with 'access_token', 'refresh_token', 'jti', 'expires_at'
+    Create both access and refresh tokens. Track device session.
     """
     # Fetch current token_version for the license to embed in JWT
     from database import get_db, fetch_one
@@ -133,25 +136,74 @@ async def create_token_pair(user_id: str, license_id: int = None, role: str = "u
     if license_id:
         try:
             async with get_db() as db:
-                row = await fetch_one(db, "SELECT token_version FROM license_keys WHERE id = ?", [license_id])
+                row = await fetch_one(db, "SELECT token_version, is_active FROM license_keys WHERE id = ?", [license_id])
                 if row:
                     token_version = row.get("token_version", 1)
+                    if not row.get("is_active", True):
+                        logger.warning(f"Denying token creation for deactivated license {license_id}")
+                        raise ValueError("Account is deactivated")
         except Exception as e:
             logger.error(f"Error fetching token version for JWT: {e}")
             pass
+
+    is_new_family = False
+    if not family_id:
+        family_id = str(uuid.uuid4())
+        is_new_family = True
 
     payload = {
         "sub": user_id,
         "license_id": license_id,
         "role": role,
         "v": token_version, # Token version for server-side kill-switch
+        "family_id": family_id,
     }
     
     access_token, jti, expires_at = create_access_token(payload)
+    refresh_token, refresh_jti = create_refresh_token(payload, family_id=family_id)
     
+    # Store session in DB for RTR
+    if license_id:
+        from database import DB_TYPE
+        from db_helper import execute_sql, commit_db
+        try:
+            async with get_db() as db:
+                expires_db = datetime.utcnow() + timedelta(days=config.refresh_token_expire_days)
+                
+                if is_new_family:
+                    if DB_TYPE == "postgresql":
+                        await execute_sql(db, """
+                            INSERT INTO device_sessions 
+                            (license_key_id, family_id, refresh_token_jti, device_fingerprint, ip_address, expires_at)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, [license_id, family_id, refresh_jti, device_fingerprint, ip_address, expires_db])
+                    else:
+                        await execute_sql(db, """
+                            INSERT INTO device_sessions 
+                            (license_key_id, family_id, refresh_token_jti, device_fingerprint, ip_address, expires_at)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, [license_id, family_id, refresh_jti, device_fingerprint, ip_address, expires_db.isoformat()])
+                else:
+                    if DB_TYPE == "postgresql":
+                        await execute_sql(db, """
+                            UPDATE device_sessions 
+                            SET refresh_token_jti = ?, last_used_at = NOW(), expires_at = ?, ip_address = COALESCE(?, ip_address)
+                            WHERE family_id = ?
+                        """, [refresh_jti, expires_db, ip_address, family_id])
+                    else:
+                        await execute_sql(db, """
+                            UPDATE device_sessions 
+                            SET refresh_token_jti = ?, last_used_at = CURRENT_TIMESTAMP, expires_at = ?, ip_address = COALESCE(?, ip_address)
+                            WHERE family_id = ?
+                        """, [refresh_jti, expires_db.isoformat(), ip_address, family_id])
+                
+                await commit_db(db)
+        except Exception as e:
+            logger.error(f"Error updating device session: {e}")
+
     return {
         "access_token": access_token,
-        "refresh_token": create_refresh_token(payload),
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "expires_in": config.access_token_expire_minutes * 60,  # seconds
         "jti": jti,
@@ -200,27 +252,71 @@ def verify_token(token: str, token_type: str = TokenType.ACCESS) -> Optional[Dic
         return None
 
 
-async def refresh_access_token(refresh_token: str) -> Optional[Dict[str, Any]]:
+async def refresh_access_token(refresh_token: str, device_fingerprint: str = None, ip_address: str = None) -> Optional[Dict[str, Any]]:
     """
-    Use a refresh token to get a new access token.
-    
-    Args:
-        refresh_token: Valid refresh token
-    
-    Returns:
-        New token pair or None if refresh token is invalid
+    Use a refresh token to get a new access token and rotate the refresh token.
     """
     payload = verify_token(refresh_token, TokenType.REFRESH)
     
     if not payload:
         return None
+        
+    jti = payload.get("jti")
+    family_id = payload.get("family_id")
+    license_id = payload.get("license_id")
     
-    # Create new access token pair with current token version
-    return await create_token_pair(
-        user_id=payload.get("sub"),
-        license_id=payload.get("license_id"),
-        role=payload.get("role", "user"),
-    )
+    if not license_id or not jti:
+        return None
+        
+    if not family_id:
+        # Legacy support
+        return await create_token_pair(
+            user_id=payload.get("sub"),
+            license_id=license_id,
+            role=payload.get("role", "user"),
+            device_fingerprint=device_fingerprint,
+            ip_address=ip_address,
+        )
+        
+    # RTR Logic
+    from db_helper import get_db, fetch_one, execute_sql, commit_db
+    from database import DB_TYPE
+    
+    try:
+        async with get_db() as db:
+            session = await fetch_one(db, "SELECT * FROM device_sessions WHERE family_id = ?", [family_id])
+            
+            if not session:
+                logger.warning(f"Device session {family_id} not found.")
+                return None
+                
+            if session["is_revoked"]:
+                logger.warning(f"Session {family_id} is revoked.")
+                return None
+                
+            if session["refresh_token_jti"] != jti:
+                # TOKEN THEFT DETECTED
+                logger.warning(f"Token theft detected for family {family_id}. Revoking entire session chain.")
+                if DB_TYPE == "postgresql":
+                    await execute_sql(db, "UPDATE device_sessions SET is_revoked = TRUE WHERE family_id = ?", [family_id])
+                else:
+                    await execute_sql(db, "UPDATE device_sessions SET is_revoked = 1 WHERE family_id = ?", [family_id])
+                await commit_db(db)
+                return None
+                
+            # Valid rotation
+            return await create_token_pair(
+                user_id=payload.get("sub"),
+                license_id=license_id,
+                role=payload.get("role", "user"),
+                device_fingerprint=device_fingerprint,
+                ip_address=ip_address,
+                family_id=family_id,
+            )
+            
+    except Exception as e:
+        logger.error(f"Error during RTR check: {e}")
+        return None
 
 
 # ============ FastAPI Dependencies ============
@@ -264,18 +360,61 @@ async def get_current_user(
     
     if license_id:
         from database import get_db, fetch_one
+        
+        # Try Cache first
+        cache_key = f"token_validation:{license_id}"
+        cached_data = None
+        redis_client = None
+        
         try:
-            async with get_db() as db:
-                row = await fetch_one(db, "SELECT token_version FROM license_keys WHERE id = ?", [license_id])
-                if row:
-                    current_v = row.get("token_version", 1)
-                    if current_v > token_v_in_jwt:
-                        logger.warning(f"Rejecting invalidated token for license {license_id} (JWT: {token_v_in_jwt}, DB: {current_v})")
-                        raise HTTPException(
-                            status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Session invalidated. Please log in again.",
-                            headers={"WWW-Authenticate": "Bearer"},
-                        )
+            import os
+            import redis
+            import json
+            redis_url = os.getenv("REDIS_URL")
+            if redis_url:
+                redis_client = redis.from_url(redis_url)
+                cached = redis_client.get(cache_key)
+                if cached:
+                    cached_data = json.loads(cached)
+        except Exception as e:
+            logger.debug(f"Redis cache check failed: {e}")
+            
+        try:
+            if cached_data:
+                current_v = cached_data.get("token_version", 1)
+                is_active = cached_data.get("is_active", True)
+            else:
+                async with get_db() as db:
+                    row = await fetch_one(db, "SELECT token_version, is_active FROM license_keys WHERE id = ?", [license_id])
+                    if row:
+                        current_v = row.get("token_version", 1)
+                        is_active = bool(row.get("is_active", True))
+                        
+                        # Cache the result to save DB hits (TTL 5 minutes)
+                        if redis_client:
+                            cache_payload = {
+                                "token_version": current_v,
+                                "is_active": is_active
+                            }
+                            redis_client.setex(cache_key, 300, json.dumps(cache_payload))
+                    else:
+                        current_v = 1
+                        is_active = False # Account deleted
+            
+            if not is_active:
+                logger.warning(f"Rejecting token for deactivated license {license_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Account deactivated. Please contact support.",
+                )
+                
+            if current_v > token_v_in_jwt:
+                logger.warning(f"Rejecting invalidated token for license {license_id} (JWT: {token_v_in_jwt}, DB: {current_v})")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session invalidated. Please log in again.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
         except HTTPException:
             raise
         except Exception as e:
