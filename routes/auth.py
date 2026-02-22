@@ -56,7 +56,7 @@ async def login(data: LoginRequest):
     if not result.get("valid"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid license key",
+            detail=result.get("error", "Invalid license key"),
         )
     
     tokens = await create_token_pair(

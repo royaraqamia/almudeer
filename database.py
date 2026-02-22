@@ -609,8 +609,14 @@ async def validate_license_key(key: str) -> dict:
 
     # Check expiration
     expires_at = parse_datetime(row_dict.get("expires_at"))
-    if expires_at and datetime.now(timezone.utc).replace(tzinfo=None) > expires_at:
-        return {"valid": False, "error": "انتهت صلاحية الاشتراك"}
+    if expires_at:
+        # Normalize to aware UTC for comparison
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        
+        now_utc = datetime.now(timezone.utc)
+        if now_utc > expires_at:
+            return {"valid": False, "error": "انتهت صلاحية الاشتراك"}
     
     # Check daily rate limit
     today = datetime.now(timezone.utc).date()
