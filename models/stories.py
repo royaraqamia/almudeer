@@ -4,8 +4,11 @@ DB table creation and CRUD for stories and views
 """
 
 import os
+import logging
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db, DB_TYPE
 from services.file_storage_service import get_file_storage
@@ -194,9 +197,14 @@ async def update_story(
         row = await fetch_one(db, "SELECT * FROM stories WHERE id = ?", [story_id])
         return dict(row) if row else None
 
-async def get_active_stories(license_id: int, viewer_contact: Optional[str] = None) -> List[dict]:
+async def get_active_stories(
+    license_id: int, 
+    viewer_contact: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0
+) -> List[dict]:
     """
-    Get active stories (last 24h) for a license.
+    Get active stories (last 24h) for a license with pagination.
     If viewer_contact is provided, includes 'is_viewed' join status.
     """
     if DB_TYPE == "postgresql":
@@ -211,10 +219,11 @@ async def get_active_stories(license_id: int, viewer_contact: Optional[str] = No
         LEFT JOIN story_views sv ON s.id = sv.story_id AND sv.viewer_contact = ?
         WHERE s.license_key_id = ? AND s.deleted_at IS NULL AND {time_filter}
         ORDER BY s.created_at DESC
+        LIMIT ? OFFSET ?
     """
     
     async with get_db() as db:
-        rows = await fetch_all(db, query, [viewer_contact, license_id])
+        rows = await fetch_all(db, query, [viewer_contact, license_id, limit, offset])
         return [dict(row) for row in rows]
 
 async def mark_story_viewed(story_id: int, viewer_contact: str, viewer_name: Optional[str] = None) -> bool:
@@ -229,7 +238,6 @@ async def mark_story_viewed(story_id: int, viewer_contact: str, viewer_name: Opt
             VALUES (%s, %s, %s, %s)
             ON CONFLICT (story_id, viewer_contact) DO NOTHING
         """
-        # Note: execute_sql handles params differently for PG in some wrappers, but we follow the helper pattern
     else:
         query = """
             INSERT OR IGNORE INTO story_views (story_id, viewer_contact, viewer_name, viewed_at)
@@ -242,6 +250,65 @@ async def mark_story_viewed(story_id: int, viewer_contact: str, viewer_name: Opt
             await commit_db(db)
             return True
         except Exception:
+            return False
+
+async def mark_stories_viewed_batch(story_ids: List[int], viewer_contact: str, viewer_name: Optional[str] = None, license_id: int = None) -> bool:
+    """Record that a contact viewed multiple stories in a batch."""
+    if not story_ids:
+        return True
+        
+    now = datetime.utcnow()
+    ts_value = now if DB_TYPE == "postgresql" else now.strftime('%Y-%m-%d %H:%M:%S')
+    
+    async with get_db() as db:
+        try:
+            # Verify all stories belong to this license and are active
+            if license_id:
+                if DB_TYPE == "postgresql":
+                    time_filter = "expires_at > NOW()"
+                else:
+                    time_filter = "expires_at > datetime('now')"
+                    
+                placeholders = ','.join(['?' for _ in story_ids])
+                verify_query = f"""
+                    SELECT id FROM stories 
+                    WHERE id IN ({placeholders}) 
+                    AND license_key_id = ? 
+                    AND deleted_at IS NULL 
+                    AND {time_filter}
+                """
+                valid_stories = await fetch_all(db, verify_query, story_ids + [license_id])
+                valid_ids = [row['id'] for row in valid_stories]
+            else:
+                valid_ids = story_ids
+                
+            if not valid_ids:
+                return True
+                
+            # Batch insert views
+            if DB_TYPE == "postgresql":
+                for story_id in valid_ids:
+                    query = """
+                        INSERT INTO story_views (story_id, viewer_contact, viewer_name, viewed_at)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (story_id, viewer_contact) DO NOTHING
+                    """
+                    await execute_sql(db, query, [story_id, viewer_contact, viewer_name, ts_value])
+            else:
+                placeholders = ','.join(['(?, ?, ?, ?)' for _ in valid_ids])
+                values = []
+                for story_id in valid_ids:
+                    values.extend([story_id, viewer_contact, viewer_name, ts_value])
+                query = f"""
+                    INSERT OR IGNORE INTO story_views (story_id, viewer_contact, viewer_name, viewed_at)
+                    VALUES {placeholders}
+                """
+                await execute_sql(db, query, values)
+                
+            await commit_db(db)
+            return True
+        except Exception as e:
+            logger.error(f"Error in batch mark stories viewed: {e}")
             return False
 
 async def get_archived_stories(license_id: int, user_id: Optional[str] = None) -> List[dict]:
@@ -320,6 +387,18 @@ async def get_story_viewers(story_id: int, license_id: int) -> List[dict]:
     async with get_db() as db:
         rows = await fetch_all(db, query, [story_id, license_id])
         return [dict(row) for row in rows]
+
+async def get_story_view_count(story_id: int, license_id: int) -> int:
+    """Get the view count for a specific story."""
+    query = """
+        SELECT COUNT(*) as count
+        FROM story_views sv
+        JOIN stories s ON sv.story_id = s.id
+        WHERE sv.story_id = ? AND s.license_key_id = ?
+    """
+    async with get_db() as db:
+        row = await fetch_one(db, query, [story_id, license_id])
+        return row['count'] if row else 0
 
 import asyncio
 

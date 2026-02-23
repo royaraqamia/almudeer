@@ -28,6 +28,7 @@ class TaskBase(BaseModel):
     created_by: Optional[str] = None
     assigned_to: Optional[str] = None
     attachments: Optional[List[Attachment]] = []
+    visibility: str = "shared" # shared, private
 
 class TaskCreate(TaskBase):
     id: str = Field(..., description="UUID from client")
@@ -46,6 +47,7 @@ class TaskUpdate(BaseModel):
     order_index: Optional[float] = None
     assigned_to: Optional[str] = None
     attachments: Optional[List[Attachment]] = None
+    visibility: Optional[str] = None
 
 class TaskResponse(TaskBase):
     id: str

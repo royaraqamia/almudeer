@@ -50,3 +50,12 @@ class HighlightResponse(BaseModel):
 class StoriesListResponse(BaseModel):
     success: bool
     stories: List[StoryResponse]
+
+class BatchViewRequest(BaseModel):
+    story_ids: List[int]
+    viewer_contact: str
+    viewer_name: Optional[str] = None
+
+class BatchViewResponse(BaseModel):
+    success: bool
+    processed_count: int = 0

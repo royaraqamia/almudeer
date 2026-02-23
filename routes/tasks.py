@@ -47,10 +47,10 @@ async def list_tasks(
     since: Optional[datetime] = None,
     limit: Optional[int] = None,
     offset: Optional[int] = 0,
-    license: dict = Depends(get_license_from_header)
+    user: dict = Depends(get_current_user)
 ):
-    """Get all tasks, optionally filtered by last update time (delta sync), with pagination"""
-    tasks = await get_tasks(license["license_id"], since=since, limit=limit, offset=offset)
+    """Get tasks. Private tasks only visible to creator."""
+    tasks = await get_tasks(user["license_id"], user["user_id"], since=since, limit=limit, offset=offset)
     return tasks
 
 @router.post("/", response_model=TaskResponse)
@@ -140,6 +140,10 @@ async def update_existing_task(
     current_task = await get_task(license_id, task_id)
     if not current_task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    # Protection for Private Tasks
+    if current_task.get("visibility") == "private" and current_task.get("created_by") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="هذه المهمة خاصة، لا تملك صلاحية تعديلها")
         
     update_data = {}
     if task_json:
@@ -223,7 +227,11 @@ async def update_existing_task(
                     "due_date": next_due,
                     "priority": current_task.get("priority", "medium"),
                     "color": current_task.get("color"),
-                    "sub_tasks": current_task.get("sub_tasks", []), # Usually sub_tasks are wiped, but we copy for now 
+                    "sub_tasks": [
+                        {**st, "is_completed": False} 
+                        if isinstance(st, dict) else st 
+                        for st in current_task.get("sub_tasks", [])
+                    ],
                     "alarm_enabled": current_task.get("alarm_enabled", False),
                     "alarm_time": None, # Needs calculation if using specific time, keep none for simplicity or copy
                     "recurrence": current_task.get("recurrence"),
@@ -262,6 +270,15 @@ async def delete_existing_task(
 ):
     """Delete a task"""
     license_id = user["license_id"]
+    
+    current_task = await get_task(license_id, task_id)
+    if not current_task:
+        raise NotFoundError(resource="Task", resource_id=task_id)
+
+    # Protection for Private Tasks
+    if current_task.get("visibility") == "private" and current_task.get("created_by") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="هذه المهمة خاصة، لا تملك صلاحية حذفها")
+        
     success = await delete_task(license_id, task_id)
     if not success:
         raise NotFoundError(resource="Task", resource_id=task_id)

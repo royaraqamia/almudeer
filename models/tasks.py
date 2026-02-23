@@ -49,6 +49,7 @@ async def init_tasks_table():
                 created_by TEXT,
                 assigned_to TEXT,
                 attachments TEXT, -- JSON string
+                visibility TEXT DEFAULT 'shared',
                 created_at {TIMESTAMP_NOW},
                 updated_at TIMESTAMP,
                 synced_at TIMESTAMP,
@@ -96,8 +97,8 @@ async def init_tasks_table():
             pass
  
         try:
-            await execute_sql(db, "ALTER TABLE tasks ADD COLUMN order_index REAL DEFAULT 0.0")
-            print("Migrated tasks: added order_index")
+            await execute_sql(db, "ALTER TABLE tasks ADD COLUMN visibility TEXT DEFAULT 'shared'")
+            print("Migrated tasks: added visibility")
         except Exception:
             pass
 
@@ -130,15 +131,19 @@ async def init_tasks_table():
 
 async def get_tasks(
     license_id: int, 
+    user_id: str,
     since: Optional[datetime] = None,
     limit: Optional[int] = None,
     offset: Optional[int] = 0
 ) -> List[dict]:
-    """Get all tasks for a license + global tasks (license_id 0), optionally since a specific time, with pagination"""
+    """Get tasks for a license. Private tasks only visible to creator."""
     async with get_db() as db:
-        # Include license_id and global (0)
-        query = "SELECT * FROM tasks WHERE (license_key_id = ? OR license_key_id = 0)"
-        params = [license_id]
+        query = """
+            SELECT * FROM tasks 
+            WHERE (license_key_id = ? OR license_key_id = 0)
+            AND (visibility = 'shared' OR created_by = ?)
+        """
+        params = [license_id, user_id]
         
         if since:
             query += " AND (updated_at > ? OR synced_at > ?)"
@@ -207,8 +212,8 @@ async def create_task(license_id: int, task_data: dict) -> dict:
             INSERT INTO tasks (
                 id, license_key_id, title, description, is_completed, due_date, 
                 priority, color, sub_tasks, alarm_enabled, alarm_time, recurrence,
-                category, order_index, created_by, assigned_to, attachments, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+                category, order_index, created_by, assigned_to, attachments, visibility, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
             ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 description = excluded.description,
@@ -224,6 +229,7 @@ async def create_task(license_id: int, task_data: dict) -> dict:
                 order_index = excluded.order_index,
                 assigned_to = excluded.assigned_to,
                 attachments = excluded.attachments,
+                visibility = excluded.visibility,
                 updated_at = excluded.updated_at
             WHERE tasks.license_key_id = ? AND (tasks.updated_at IS NULL OR excluded.updated_at > tasks.updated_at)
         """, (
@@ -244,6 +250,7 @@ async def create_task(license_id: int, task_data: dict) -> dict:
             task_data.get('created_by'),
             task_data.get('assigned_to'),
             json.dumps(task_data.get('attachments', [])),
+            task_data.get('visibility', 'shared'),
             task_data.get('updated_at', datetime.utcnow().isoformat()), # Insert specific updated_at to respect client LWW
             license_id  # For the WHERE clause in ON CONFLICT
         ))
