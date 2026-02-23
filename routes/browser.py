@@ -1,27 +1,87 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from pydantic import BaseModel, HttpUrl
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+from pydantic import BaseModel, HttpUrl, field_validator
 from typing import Optional
 import httpx
 from bs4 import BeautifulSoup
 import tempfile
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from dependencies import get_current_user, get_license_from_header
 from models.library import add_library_item
 from services.file_storage_service import get_file_storage
+from rate_limiting import limiter, RateLimits
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/browser", tags=["browser"])
+
+MAX_CONTENT_SIZE = 2 * 1024 * 1024  # 2MB max content
+MAX_IMAGES = 10
+DEFAULT_TIMEOUT = 15.0
+SCRAPE_TIMEOUT = 30.0
+
+# Preview cache
+_preview_cache = {}
+_cache_ttl = timedelta(minutes=15)
+
+# Blocked URL patterns (internal networks, etc.)
+BLOCKED_URL_PATTERNS = [
+    "localhost",
+    "127.0.0.1",
+    "0.0.0.0",
+    "::1",
+    ".local",
+    ".internal",
+    "192.168.",
+    "10.",
+    "172.16.",
+]
 
 
 class ScrapeRequest(BaseModel):
     url: str
     format: str = "markdown"
     include_images: bool = True
+
+    @field_validator('url')
+    @classmethod
+    def validate_url(cls, v):
+        if not v or not v.strip():
+            raise ValueError('URL cannot be empty')
+        
+        # Add scheme if missing
+        if not v.startswith(('http://', 'https://')):
+            v = 'https://' + v
+        
+        # Validate URL format
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(v)
+            if not parsed.scheme or not parsed.netloc:
+                raise ValueError('Invalid URL format')
+            
+            # Check for blocked patterns
+            host = parsed.netloc.lower()
+            for pattern in BLOCKED_URL_PATTERNS:
+                if host.startswith(pattern) or host.endswith(pattern):
+                    raise ValueError(f'URL pattern blocked: {pattern}')
+                    
+        except Exception as e:
+            if isinstance(e, ValueError):
+                raise
+            raise ValueError(f'Invalid URL: {str(e)}')
+        
+        return v
+    
+    @field_validator('format')
+    @classmethod
+    def validate_format(cls, v):
+        if v not in ['markdown', 'html']:
+            raise ValueError('Format must be "markdown" or "html"')
+        return v
 
 
 class ScrapeResponse(BaseModel):
@@ -34,6 +94,27 @@ class ScrapeResponse(BaseModel):
 
 class LinkPreviewRequest(BaseModel):
     url: str
+    
+    @field_validator('url')
+    @classmethod
+    def validate_url(cls, v):
+        if not v or not v.strip():
+            raise ValueError('URL cannot be empty')
+        
+        if not v.startswith(('http://', 'https://')):
+            v = 'https://' + v
+        
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(v)
+            if not parsed.scheme or not parsed.netloc:
+                raise ValueError('Invalid URL format')
+        except Exception as e:
+            if isinstance(e, ValueError):
+                raise
+            raise ValueError(f'Invalid URL: {str(e)}')
+        
+        return v
 
 
 class LinkPreviewResponse(BaseModel):
@@ -47,17 +128,38 @@ async def scrape_url(url: str, include_images: bool = True) -> tuple[str, str, l
     """
     Scrape a URL and return (title, content, images)
     """
-    async with httpx.AsyncClient(
-        timeout=30.0,
-        follow_redirects=True,
-        headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        },
-    ) as client:
-        response = await client.get(url)
-        response.raise_for_status()
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(SCRAPE_TIMEOUT, connect=DEFAULT_TIMEOUT),
+            follow_redirects=True,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            },
+        ) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            
+            # Check content length header
+            content_length = response.headers.get("content-length")
+            if content_length and int(content_length) > MAX_CONTENT_SIZE:
+                raise HTTPException(
+                    status_code=413, 
+                    detail=f"Content too large: {content_length} bytes (max: {MAX_CONTENT_SIZE})"
+                )
+            
+            # Limit response reading
+            content = response.content[:MAX_CONTENT_SIZE]
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=408, detail="Request timed out")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"HTTP error: {e.response.status_code}")
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=400, detail=f"Request failed: {str(e)}")
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    try:
+        soup = BeautifulSoup(content.decode('utf-8', errors='ignore'), "html.parser")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Failed to parse HTML: {str(e)}")
 
     for tag in soup(["script", "style", "nav", "header", "footer", "aside"]):
         tag.decompose()
@@ -69,7 +171,12 @@ async def scrape_url(url: str, include_images: bool = True) -> tuple[str, str, l
         og_image = soup.find("meta", property="og:image")
         if og_image and og_image.get("content"):
             images.append(og_image["content"])
-        for img in soup.find_all("img", src=True)[:5]:
+        
+        twitter_image = soup.find("meta", attrs={"name": "twitter:image"})
+        if twitter_image and twitter_image.get("content"):
+            images.append(twitter_image["content"])
+        
+        for img in soup.find_all("img", src=True)[:MAX_IMAGES]:
             src = img["src"]
             if src.startswith("//"):
                 src = "https:" + src
@@ -89,9 +196,13 @@ async def scrape_url(url: str, include_images: bool = True) -> tuple[str, str, l
         content = soup.get_text(separator="\n", strip=True)
 
     lines = [line.strip() for line in content.split("\n") if line.strip()]
-    content = "\n\n".join(lines)
+    content = "\n\n".join(lines[:2000])  # Limit to 2000 lines
 
-    return title, content, images
+    # Truncate if still too large
+    if len(content) > MAX_CONTENT_SIZE:
+        content = content[:MAX_CONTENT_SIZE] + "\n\n[Content truncated due to size]"
+
+    return title, content, images[:MAX_IMAGES]
 
 
 def content_to_markdown(title: str, content: str, url: str, images: list) -> str:
@@ -187,8 +298,10 @@ async def save_to_library(
 
 
 @router.post("/scrape", response_model=ScrapeResponse)
+@limiter.limit(RateLimits.API)
 async def scrape_and_save(
-    request: ScrapeRequest,
+    request: Request,
+    scrape_request: ScrapeRequest,
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
     license: dict = Depends(get_license_from_header),
@@ -203,14 +316,14 @@ async def scrape_and_save(
             raise HTTPException(status_code=401, detail="Unauthorized")
 
         title, content, images = await scrape_url(
-            request.url, include_images=request.include_images
+            scrape_request.url, include_images=scrape_request.include_images
         )
 
-        if request.format == "markdown":
-            file_content = content_to_markdown(title, content, request.url, images)
+        if scrape_request.format == "markdown":
+            file_content = content_to_markdown(title, content, scrape_request.url, images)
             file_type = "md"
         else:
-            file_content = content_to_html(title, content, request.url, images)
+            file_content = content_to_html(title, content, scrape_request.url, images)
             file_type = "html"
 
         library_item = await save_to_library(
@@ -224,29 +337,40 @@ async def scrape_and_save(
             file_id=library_item.get("id"),
         )
 
+    except HTTPException:
+        raise
     except httpx.HTTPError as e:
-        logger.error(f"HTTP error scraping {request.url}: {e}")
-        return ScrapeResponse(success=False, error=f"Failed to fetch URL: {str(e)}")
+        logger.error(f"HTTP error scraping {scrape_request.url}: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch URL: {str(e)}")
     except Exception as e:
-        logger.error(f"Error scraping {request.url}: {e}")
-        return ScrapeResponse(success=False, error=str(e))
+        logger.error(f"Error scraping {scrape_request.url}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/preview", response_model=LinkPreviewResponse)
-async def get_link_preview(request: LinkPreviewRequest):
+@limiter.limit(RateLimits.API)
+async def get_link_preview(request: Request, preview_request: LinkPreviewRequest):
     """
     Generate a preview for a URL (title, description, image).
     Used for rich link previews in chat.
+    Cached for 15 minutes.
     """
+    url = preview_request.url
+    
+    # Check cache
+    cached = _preview_cache.get(url)
+    if cached and (datetime.now() - cached['timestamp']) < _cache_ttl:
+        return LinkPreviewResponse(**cached['data'])
+    
     try:
         async with httpx.AsyncClient(
-            timeout=10.0,
+            timeout=httpx.Timeout(10.0, connect=5.0),
             follow_redirects=True,
             headers={
                 "User-Agent": "Mozilla/5.0 (compatible; AlmudeerBot/1.0; +https://almudeer.app)"
             },
         ) as client:
-            response = await client.get(request.url)
+            response = await client.get(url)
             response.raise_for_status()
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -287,15 +411,33 @@ async def get_link_preview(request: LinkPreviewRequest):
         if not site_name:
             from urllib.parse import urlparse
 
-            site_name = urlparse(request.url).netloc
+            site_name = urlparse(url).netloc
 
-        return LinkPreviewResponse(
+        result = LinkPreviewResponse(
             title=title,
             description=description,
             image=image,
             site_name=site_name,
         )
+        
+        # Cache the result
+        _preview_cache[url] = {
+            'timestamp': datetime.now(),
+            'data': result.model_dump()
+        }
+        
+        # Clean old cache entries
+        if len(_preview_cache) > 100:
+            oldest_keys = sorted(_preview_cache.keys(), 
+                               key=lambda k: _preview_cache[k]['timestamp'])[:50]
+            for key in oldest_keys:
+                del _preview_cache[key]
 
+        return result
+
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error generating preview for {url}: {e}")
+        return LinkPreviewResponse()
     except Exception as e:
-        logger.error(f"Error generating preview for {request.url}: {e}")
+        logger.error(f"Error generating preview for {url}: {e}")
         return LinkPreviewResponse()
