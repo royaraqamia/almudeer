@@ -80,3 +80,6 @@ hijri-converter>=1.3.4
 
 # Voice Call Signaling
 agora-token-builder>=1.0.0
+
+# Web Scraping & Link Previews
+beautifulsoup4==4.12.3

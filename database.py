@@ -21,6 +21,8 @@ from db_helper import (
     POSTGRES_AVAILABLE
 )
 
+from db_pool import adapt_sql_for_db
+
 
 async def init_database():
     """Initialize the database with required tables (supports both SQLite and PostgreSQL)"""
@@ -333,8 +335,29 @@ async def _init_sqlite_tables(db):
 
 async def _init_postgresql_tables(conn):
     """Initialize PostgreSQL tables"""
-    # License keys table
-    await conn.execute(_adapt_sql_for_db("""
+    # 1. Device Sessions table (Refresh Token Rotation & Management)
+    # This MUST be first because subsequent migrations and sequence fixes depend on it.
+    await conn.execute(adapt_sql_for_db("""
+        CREATE TABLE IF NOT EXISTS device_sessions (
+            id SERIAL PRIMARY KEY,
+            license_key_id INTEGER NOT NULL,
+            family_id VARCHAR(255) NOT NULL,
+            refresh_token_jti VARCHAR(255) NOT NULL,
+            device_fingerprint TEXT,
+            ip_address VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW(),
+            last_used_at TIMESTAMP DEFAULT NOW(),
+            expires_at TIMESTAMP NOT NULL,
+            is_revoked BOOLEAN DEFAULT FALSE,
+            device_secret_hash VARCHAR(255),
+            device_name VARCHAR(255),
+            location VARCHAR(255),
+            user_agent TEXT
+        )
+    """))
+
+    # 2. License keys table
+    await conn.execute(adapt_sql_for_db("""
         CREATE TABLE IF NOT EXISTS license_keys (
             id SERIAL PRIMARY KEY,
             key_hash VARCHAR(255) UNIQUE NOT NULL,
@@ -358,7 +381,7 @@ async def _init_postgresql_tables(conn):
     """))
     
     # CRM entries table
-    await conn.execute(_adapt_sql_for_db("""
+    await conn.execute(adapt_sql_for_db("""
         CREATE TABLE IF NOT EXISTS crm_entries (
             id SERIAL PRIMARY KEY,
             license_key_id INTEGER,
@@ -377,7 +400,7 @@ async def _init_postgresql_tables(conn):
     """))
 
     # Customers table (for detailed profile)
-    await conn.execute(_adapt_sql_for_db("""
+    await conn.execute(adapt_sql_for_db("""
         CREATE TABLE IF NOT EXISTS customers (
             id SERIAL PRIMARY KEY,
             license_key_id INTEGER,
@@ -401,7 +424,7 @@ async def _init_postgresql_tables(conn):
         pass
 
     # Orders table
-    await conn.execute(_adapt_sql_for_db("""
+    await conn.execute(adapt_sql_for_db("""
         CREATE TABLE IF NOT EXISTS orders (
             id SERIAL PRIMARY KEY,
             order_ref VARCHAR(255) UNIQUE NOT NULL,
@@ -416,7 +439,7 @@ async def _init_postgresql_tables(conn):
     """))
 
     # App Config table (Source of Truth for Versioning)
-    await conn.execute(_adapt_sql_for_db("""
+    await conn.execute(adapt_sql_for_db("""
         CREATE TABLE IF NOT EXISTS app_config (
             key VARCHAR(255) PRIMARY KEY,
             value TEXT,
@@ -425,7 +448,7 @@ async def _init_postgresql_tables(conn):
     """))
 
     # Version History table
-    await conn.execute(_adapt_sql_for_db("""
+    await conn.execute(adapt_sql_for_db("""
         CREATE TABLE IF NOT EXISTS version_history (
             id SERIAL PRIMARY KEY,
             version VARCHAR(50) NOT NULL,
@@ -438,7 +461,7 @@ async def _init_postgresql_tables(conn):
     """))
 
     # Update Events table (for analytics)
-    await conn.execute(_adapt_sql_for_db("""
+    await conn.execute(adapt_sql_for_db("""
         CREATE TABLE IF NOT EXISTS update_events (
             id SERIAL PRIMARY KEY,
             event VARCHAR(50) NOT NULL,
@@ -452,7 +475,7 @@ async def _init_postgresql_tables(conn):
     """))
 
     # Knowledge Base Documents
-    await conn.execute(_adapt_sql_for_db("""
+    await conn.execute(adapt_sql_for_db("""
         CREATE TABLE IF NOT EXISTS knowledge_documents (
             id SERIAL PRIMARY KEY,
             license_key_id INTEGER NOT NULL,
@@ -484,31 +507,27 @@ async def _init_postgresql_tables(conn):
         
         for table, seq in tables_with_sequences:
             try:
+                # Ensure the table exists before trying to fix its sequence
+                # Note: adaptation of SQL for PG is handled in execute_sql and adapt_sql_for_db
                 await conn.execute(f"SELECT setval('{seq}', COALESCE((SELECT MAX(id) FROM {table}), 1), COALESCE((SELECT MAX(id) FROM {table}) IS NOT NULL, false))")
             except Exception as e:
+                from logging_config import get_logger
+                get_logger(__name__).debug(f"Sequence fix skipped for {table}: {e}")
                 pass
     except Exception:
         pass
 
-    # Device Sessions table (Refresh Token Rotation & Management)
-    await conn.execute(_adapt_sql_for_db("""
-        CREATE TABLE IF NOT EXISTS device_sessions (
-            id SERIAL PRIMARY KEY,
-            license_key_id INTEGER NOT NULL,
-            family_id VARCHAR(255) NOT NULL,
-            refresh_token_jti VARCHAR(255) NOT NULL,
-            device_fingerprint TEXT,
-            ip_address VARCHAR(255),
-            created_at TIMESTAMP DEFAULT NOW(),
-            last_used_at TIMESTAMP DEFAULT NOW(),
-            expires_at TIMESTAMP NOT NULL,
-            is_revoked BOOLEAN DEFAULT FALSE,
-            device_secret_hash VARCHAR(255),
-            device_name VARCHAR(255),
-            location VARCHAR(255),
-            user_agent TEXT,
-            FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
-        )
+    # Add foreign key to device_sessions after license_keys is created
+    await conn.execute(adapt_sql_for_db("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'device_sessions_license_key_id_fkey') THEN
+                ALTER TABLE device_sessions
+                ADD CONSTRAINT device_sessions_license_key_id_fkey
+                FOREIGN KEY (license_key_id) REFERENCES license_keys(id);
+            END IF;
+        END
+        $$;
     """))
 
     # Create indexes for performance
