@@ -47,6 +47,22 @@ router = APIRouter(tags=["Version"])
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "download")
 _APK_FILE = os.path.join(_STATIC_DIR, "almudeer.apk")
 
+# Multi-architecture APK variants
+# Structure: {arch_name: filename}
+_APK_VARIANTS = {
+    "universal": "almudeer.apk",  # Universal APK (all architectures)
+    "arm64_v8a": "almudeer_arm64_v8a.apk",  # ARM 64-bit (most modern devices)
+    "armeabi_v7a": "almudeer_armeabi_v7a.apk",  # ARM 32-bit (older devices)
+    "x86_64": "almudeer_x86_64.apk",  # x86 64-bit (emulators, some tablets)
+}
+
+# CDN URLs for architecture-specific APKs (optional)
+_APK_CDN_VARIANTS = {
+    "arm64_v8a": os.getenv("APK_CDN_URL_ARM64", ""),
+    "armeabi_v7a": os.getenv("APK_CDN_URL_ARMV7", ""),
+    "x86_64": os.getenv("APK_CDN_URL_X86", ""),
+}
+
 # Version for display purposes only
 _APP_VERSION = os.getenv("APP_VERSION", "1.0.0")
 _BACKEND_VERSION = os.getenv("BACKEND_VERSION", "1.0.0")
@@ -61,14 +77,56 @@ _APP_DOWNLOAD_URL = _APK_CDN_URL if _APK_CDN_URL else os.getenv(
 # iOS Store URL - Fallback if not in DB config
 _IOS_STORE_URL = os.getenv("IOS_STORE_URL", "")
 
+# iOS App Store ID - Used for deep linking (itms-apps://)
+_IOS_APP_STORE_ID = os.getenv("IOS_APP_STORE_ID", "")
+
 # Force update can be disabled in emergencies
 _FORCE_UPDATE_ENABLED = os.getenv("FORCE_UPDATE_ENABLED", "true").lower() == "true"
 
 # Force HTTPS in production
 _HTTPS_ONLY = os.getenv("HTTPS_ONLY", "false").lower() == "true"
 
-# Admin key for manual operations (Should be improved to constant-time compare)
+# Admin key for manual operations - using constant-time comparison
 _ADMIN_KEY = os.getenv("ADMIN_KEY", "")
+
+# Admin IP whitelist for additional security
+_ADMIN_IP_WHITELIST = os.getenv("ADMIN_IP_WHITELIST", "")  # Comma-separated IPs
+
+
+def check_https(request: Request) -> bool:
+    """
+    Check if the request is using HTTPS.
+    Handles reverse proxy headers (X-Forwarded-Proto).
+    """
+    # Check X-Forwarded-Proto header (set by reverse proxy)
+    forwarded_proto = request.headers.get('X-Forwarded-Proto', '')
+    if forwarded_proto:
+        return forwarded_proto.lower() == 'https'
+    
+    # Check the actual scheme
+    if request.url and request.url.scheme:
+        return request.url.scheme == 'https'
+    
+    # If we can't determine, assume not HTTPS
+    return False
+
+
+# Middleware for HTTPS enforcement (to be added to main app)
+async def https_enforcement_middleware(request: Request, call_next):
+    """
+    Middleware to enforce HTTPS in production.
+    Redirects HTTP requests to HTTPS.
+    """
+    if not _HTTPS_ONLY:
+        return await call_next(request)
+    
+    if check_https(request):
+        return await call_next(request)
+    
+    # Redirect to HTTPS
+    from fastapi.responses import RedirectResponse
+    https_url = str(request.url).replace('http://', 'https://')
+    return RedirectResponse(url=https_url, status_code=301)
 
 # Update priority levels
 UPDATE_PRIORITY_CRITICAL = "critical"
@@ -109,8 +167,34 @@ _MESSAGES = {
 }
 
 # Rate limiting configuration
-_RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "60"))  # requests per window
+_RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "30"))  # requests per window
 _RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # window in seconds
+
+
+def _get_client_ip(request: Request) -> str:
+    """
+    Get the real client IP address, handling proxies.
+    
+    Checks X-Forwarded-For header first, then falls back to request.client.host
+    """
+    # Check X-Forwarded-For header (set by reverse proxy)
+    forwarded_for = request.headers.get('X-Forwarded-For', '')
+    if forwarded_for:
+        # Take the first IP (original client)
+        client_ip = forwarded_for.split(',')[0].strip()
+        if client_ip:
+            return client_ip
+    
+    # Check X-Real-IP header (alternative proxy header)
+    real_ip = request.headers.get('X-Real-IP', '')
+    if real_ip:
+        return real_ip.strip()
+    
+    # Fallback to direct connection
+    if request.client and request.client.host:
+        return request.client.host
+    
+    return "unknown"
 
 
 class RateLimiter:
@@ -195,6 +279,34 @@ def compare_secure(a: Optional[str], b: Optional[str]) -> bool:
     return secrets.compare_digest(str(a), str(b))
 
 
+def _check_admin_access(request: Request, admin_key: Optional[str]) -> bool:
+    """
+    Verify admin access using:
+    1. Constant-time comparison of admin key
+    2. IP whitelist check (if configured)
+    """
+    # First check admin key
+    if not compare_secure(admin_key, _ADMIN_KEY):
+        return False
+    
+    # If IP whitelist is configured, check client IP
+    if _ADMIN_IP_WHITELIST:
+        client_ip = request.client.host if request and request.client else None
+        if not client_ip:
+            return False
+        
+        allowed_ips = [ip.strip() for ip in _ADMIN_IP_WHITELIST.split(',') if ip.strip()]
+        
+        # Also check X-Forwarded-For if behind proxy
+        forwarded_for = request.headers.get('X-Forwarded-For', '')
+        if forwarded_for:
+            client_ip = forwarded_for.split(',')[0].strip()
+        
+        return client_ip in allowed_ips
+    
+    return True
+
+
 
 async def _get_min_build_number() -> int:
     """Read the minimum required build number from DB."""
@@ -221,6 +333,48 @@ async def _get_cdn_url() -> Optional[str]:
         return await get_app_config("apk_cdn_url")
     except:
         return None
+
+
+def _get_architecture_specific_url(
+    arch: Optional[str], 
+    base_url: str
+) -> tuple[str, dict]:
+    """
+    Get architecture-specific APK URL and all available variants.
+    
+    Args:
+        arch: Requested architecture (arm64_v8a, armeabi_v7a, x86_64, universal)
+        base_url: Base APK URL to use as fallback
+    
+    Returns:
+        Tuple of (selected_url, variants_dict)
+    """
+    variants = {}
+    
+    # Build variant URLs
+    for variant_name, filename in _APK_VARIANTS.items():
+        variant_path = os.path.join(_STATIC_DIR, filename)
+        
+        # Check if variant file exists locally or has CDN URL
+        if variant_name in _APK_CDN_VARIANTS and _APK_CDN_VARIANTS[variant_name]:
+            # Use CDN URL if configured
+            variants[variant_name] = _APK_CDN_VARIANTS[variant_name]
+        elif os.path.exists(variant_path):
+            # Use local file URL
+            variants[variant_name] = f"{base_url.rsplit('/', 1)[0]}/download/{filename}"
+        elif variant_name == "universal":
+            # Universal always falls back to base URL
+            variants[variant_name] = base_url
+    
+    # Select URL based on requested architecture
+    if arch and arch in variants:
+        return variants[arch], variants
+    
+    # Default to universal or base URL
+    if "universal" in variants:
+        return variants["universal"], variants
+    
+    return base_url, variants
 
 
 async def _get_changelog() -> dict:
@@ -292,22 +446,44 @@ _ETAG_DATA_CACHE = {
     "changelog_mtime": 0,
     "update_config": None,
     "update_config_mtime": 0,
+    "min_build_number": 1,
+    "min_build_mtime": 0,
 }
 _ETAG_DATA_CACHE_LOCK = threading.Lock()
+_ETAG_CACHE_TTL = 60  # Cache TTL in seconds
 
 
 def _get_version_etag_sync() -> str:
-    """Get current ETag based on version configuration (sync version for ETag generation)."""
+    """Get current ETag based on version configuration (sync version for ETag generation).
+    
+    This function now uses proper caching to avoid async calls and potential deadlocks.
+    The cache is refreshed by the async _refresh_etag_cache() which should be called
+    periodically or after admin changes.
+    """
     import json
     global _ETAG_DATA_CACHE
     
     try:
+        current_time = time.time()
+        
         # Try to get from cache first
         changelog_data = _ETAG_DATA_CACHE.get("changelog")
         update_config = _ETAG_DATA_CACHE.get("update_config")
+        min_build = _ETAG_DATA_CACHE.get("min_build_number", 1)
         
-        # If cache is stale, we can't refresh it here (would need async)
-        # Return a version-based ETag using the cached min_build_number
+        # Check if cache is stale
+        cache_age = current_time - _ETAG_DATA_CACHE.get("min_build_mtime", 0)
+        
+        # If cache is very old (> TTL), use default values
+        # This avoids blocking - we don't try to do async calls here
+        if cache_age > _ETAG_CACHE_TTL:
+            # Return a time-based ETag that will change when cache refreshes
+            return _generate_version_etag(
+                min_build,
+                f"stale_{int(current_time)}",
+                "stale"
+            )
+        
         if changelog_data is None:
             changelog_str = json.dumps({"version": _APP_VERSION})
         else:
@@ -317,19 +493,6 @@ def _get_version_etag_sync() -> str:
             update_config_str = json.dumps({"priority": "normal"})
         else:
             update_config_str = json.dumps(update_config, sort_keys=True)
-        
-        min_build = 1
-        try:
-            import asyncio
-            loop = asyncio.new_event_loop()
-            try:
-                min_build_val = loop.run_until_complete(_get_min_build_number())
-                if min_build_val:
-                    min_build = min_build_val
-            finally:
-                loop.close()
-        except:
-            pass
         
         return _generate_version_etag(
             min_build,
@@ -341,7 +504,7 @@ def _get_version_etag_sync() -> str:
 
 
 async def _refresh_etag_cache():
-    """Refresh the ETag data cache (should be called periodically)."""
+    """Refresh the ETag data cache (should be called periodically or after admin changes)."""
     global _ETAG_DATA_CACHE
     
     with _ETAG_DATA_CACHE_LOCK:
@@ -350,6 +513,8 @@ async def _refresh_etag_cache():
             _ETAG_DATA_CACHE["changelog_mtime"] = time.time()
             _ETAG_DATA_CACHE["update_config"] = await _get_update_config()
             _ETAG_DATA_CACHE["update_config_mtime"] = time.time()
+            _ETAG_DATA_CACHE["min_build_number"] = await _get_min_build_number()
+            _ETAG_DATA_CACHE["min_build_mtime"] = time.time()
         except Exception:
             pass
 
@@ -462,7 +627,7 @@ def _is_update_active(config: dict) -> tuple[bool, str]:
 def _is_in_rollout(identifier: str, rollout_percentage: int) -> bool:
     """
     Determine if a user is in the rollout based on their identifier.
-    Uses consistent hashing so the same user always gets the same result.
+    Uses consistent SHA-256 hashing so the same user always gets the same result.
     
     Args:
         identifier: User identifier (license key, device ID, etc.)
@@ -476,8 +641,9 @@ def _is_in_rollout(identifier: str, rollout_percentage: int) -> bool:
     if rollout_percentage <= 0:
         return False
     
-    # Hash the identifier to get a consistent value 0-99
-    hash_value = int(hashlib.md5(identifier.encode()).hexdigest(), 16) % 100
+    # Hash the identifier to get a consistent value 0-99 using SHA-256
+    # SHA-256 is more secure than MD5 (which is broken for security purposes)
+    hash_value = int(hashlib.sha256(identifier.encode()).hexdigest(), 16) % 100
     return hash_value < rollout_percentage
 
 
@@ -559,7 +725,7 @@ class UpdateCheckResponse(BaseModel):
 @router.get("/check-update")
 async def check_update(request: Request, current_version: str = Query(None), platform: str = Query("android")):
     """Internal/Legacy alias for check_app_version"""
-    client_ip = request.client.host if request and request.client else "unknown"
+    client_ip = _get_client_ip(request)
     allowed, _ = _rate_limiter.is_allowed(client_ip)
     if not allowed:
         from fastapi.responses import JSONResponse
@@ -580,6 +746,7 @@ async def check_app_version(
     platform: str = Query("android"),
     app_build_number: int = Query(None, description="App build number for force update check"),
     language: str = Query("ar", description="Language code: ar, en"),
+    arch: str = Query(None, description="Device architecture: arm64_v8a, armeabi_v7a, x86_64, universal"),
     if_none_match: Optional[str] = Header(None, alias="If-None-Match")
 ):
     """
@@ -588,10 +755,16 @@ async def check_app_version(
     Supports both legacy version string checks and new build number-based force updates.
     For force updates, provide app_build_number parameter.
     
+    Architecture support:
+    - arm64_v8a: Most modern ARM devices (64-bit)
+    - armeabi_v7a: Older ARM devices (32-bit)
+    - x86_64: Emulators and some tablets
+    - universal: All architectures (larger file)
+    
     Supports ETag caching: Send If-None-Match header with previous ETag
     to receive 304 Not Modified if nothing changed.
     """
-    client_ip = request.client.host if request and request.client else "unknown"
+    client_ip = _get_client_ip(request)
     
     # Rate limiting: protect against abuse and retry storms
     allowed, remaining = _rate_limiter.is_allowed(client_ip)
@@ -604,10 +777,10 @@ async def check_app_version(
             headers={"Retry-After": str(_RATE_LIMIT_WINDOW)},
         )
     
-    logger.info(f"Version check request: build={app_build_number}, platform={platform}, version={current_version}, ip={client_ip}")
+    logger.info(f"Version check request: build={app_build_number}, platform={platform}, arch={arch}, version={current_version}, ip={client_ip}")
     
     # Get version check result
-    result = await _get_app_version_logic(current_version, platform, client_ip, app_build_number, language)
+    result = await _get_app_version_logic(current_version, platform, client_ip, app_build_number, language, arch)
     
     # Generate ETag for response
     response_etag = _generate_response_etag(result)
@@ -633,13 +806,16 @@ async def _get_app_version_logic(
     platform: str = "android", 
     client_ip: str = "unknown",
     app_build_number: Optional[int] = None,
-    language: str = "ar"
+    language: str = "ar",
+    arch: Optional[str] = None
 ):
     """
     Main version check logic supporting both legacy and new force update system.
     
     If app_build_number is provided, uses build number-based force update logic.
     Otherwise falls back to legacy version string comparison.
+    
+    Architecture support allows returning architecture-specific APK URLs.
     """
     # Get all configuration
     min_build_number = await _get_min_build_number()
@@ -684,6 +860,10 @@ async def _get_app_version_logic(
             update_available = False
     
     # Build response
+    # Get architecture-specific APK URL if available
+    base_url = await _get_cdn_url() or _APP_DOWNLOAD_URL
+    apk_url, apk_variants = _get_architecture_specific_url(arch, base_url)
+    
     response = {
         # Core flags
         "update_available": update_available,
@@ -695,9 +875,13 @@ async def _get_app_version_logic(
         "version": _APP_VERSION,
         
         # Download info - get CDN URL dynamically if available
-        "update_url": await _get_cdn_url() or _APP_DOWNLOAD_URL,
+        "update_url": apk_url,
         "apk_size_mb": _get_apk_size_mb(),
         "apk_sha256": _get_apk_sha256(),
+        
+        # Architecture-specific APK URLs
+        "apk_arch": arch or "universal",
+        "apk_variants": apk_variants,
         
         # Delta update support - TODO: Implement actual delta patch generation
         # For now, disabled. To enable:
@@ -735,6 +919,7 @@ async def _get_app_version_logic(
         
         # iOS support
         "ios_store_url": update_config.get("ios_store_url") or _IOS_STORE_URL,
+        "ios_app_store_id": update_config.get("ios_app_store_id") or _IOS_APP_STORE_ID,
     }
     
     return response
@@ -742,20 +927,22 @@ async def _get_app_version_logic(
 
 @router.post("/api/app/set-min-build", summary="Set minimum build number (admin only)")
 async def set_min_build_number(
+    request: Request,
     build_number: int,
     is_soft_update: bool = False,
     priority: str = UPDATE_PRIORITY_NORMAL,
     ios_store_url: Optional[str] = None,
+    ios_app_store_id: Optional[str] = None,
     x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")
 ):
     """
     Manually set the minimum required build number and update configuration.
     Uses DB persistence (Source of Truth).
     
-    Requires: X-Admin-Key header
+    Requires: X-Admin-Key header (and IP whitelist if configured)
     """
-    # Verify admin key
-    if not compare_secure(x_admin_key, _ADMIN_KEY):
+    # Verify admin access
+    if not _check_admin_access(request, x_admin_key):
         raise HTTPException(
             status_code=403,
             detail=_MESSAGES["ar"]["admin_required"]
@@ -782,7 +969,8 @@ async def set_min_build_number(
             "is_soft_update": is_soft_update,
             "priority": priority,
             "min_soft_update_build": 0,
-            "ios_store_url": ios_store_url
+            "ios_store_url": ios_store_url,
+            "ios_app_store_id": ios_app_store_id
         }
         await set_app_config("update_config", json.dumps(update_config))
             
@@ -794,7 +982,10 @@ async def set_min_build_number(
         )
     
     logger.info(f"App min build updated to {build_number} (soft={is_soft_update}, priority={priority})")
-    
+
+    # Refresh ETag cache after admin change
+    await _refresh_etag_cache()
+
     return {
         "success": True,
         "message": _MESSAGES["ar"]["min_build_updated"],
@@ -807,6 +998,7 @@ async def set_min_build_number(
 
 @router.post("/api/app/set-signing-fingerprint", summary="Set APK signing fingerprint (admin only)")
 async def set_signing_fingerprint(
+    request: Request,
     fingerprint: str,
     x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")
 ):
@@ -814,9 +1006,9 @@ async def set_signing_fingerprint(
     Set the SHA256 fingerprint of the APK signing certificate.
     Used for security verification by the mobile app.
     
-    Requires: X-Admin-Key header
+    Requires: X-Admin-Key header (and IP whitelist if configured)
     """
-    if not compare_secure(x_admin_key, _ADMIN_KEY):
+    if not _check_admin_access(request, x_admin_key):
         raise HTTPException(
             status_code=403,
             detail=_MESSAGES["ar"]["admin_required"]
@@ -844,6 +1036,9 @@ async def set_signing_fingerprint(
             detail=f"Failed to update fingerprint: {str(e)}"
         )
     
+    # Refresh ETag cache after admin change
+    await _refresh_etag_cache()
+    
     return {
         "success": True,
         "message": "APK signing fingerprint updated",
@@ -853,6 +1048,7 @@ async def set_signing_fingerprint(
 
 @router.post("/api/app/set-changelog", summary="Update changelog (admin only)")
 async def set_changelog(
+    request: Request,
     changelog_ar: List[str],
     changelog_en: Optional[List[str]] = None,
     release_notes_url: Optional[str] = None,
@@ -861,9 +1057,9 @@ async def set_changelog(
     """
     Update the changelog for the current version.
     
-    Requires: X-Admin-Key header
+    Requires: X-Admin-Key header (and IP whitelist if configured)
     """
-    if not compare_secure(x_admin_key, _ADMIN_KEY):
+    if not _check_admin_access(request, x_admin_key):
         raise HTTPException(
             status_code=403,
             detail=_MESSAGES["ar"]["admin_required"]
@@ -890,6 +1086,9 @@ async def set_changelog(
             changelog_en="\n".join(changelog_en or []),
             changes_json=json.dumps(changelog_data)
         )
+        
+        # Refresh ETag cache after admin change
+        await _refresh_etag_cache()
             
     except Exception as e:
         raise HTTPException(
@@ -906,14 +1105,15 @@ async def set_changelog(
 
 @router.delete("/api/app/force-update", summary="Disable force update (admin only)")
 async def disable_force_update(
+    request: Request,
     x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")
 ):
     """
     Emergency: Reset min build to 0 to stop forcing updates.
     
-    Requires: X-Admin-Key header
+    Requires: X-Admin-Key header (and IP whitelist if configured)
     """
-    if not compare_secure(x_admin_key, _ADMIN_KEY):
+    if not _check_admin_access(request, x_admin_key):
         raise HTTPException(
             status_code=403,
             detail=_MESSAGES["ar"]["admin_required"]
@@ -984,14 +1184,15 @@ async def track_update_event(data: UpdateEventRequest):
 @router.get("/api/app/update-analytics", summary="Get update analytics (admin only)")
 @router.get("/api/v1/app/update-analytics", summary="Get update analytics v1 (admin only)")
 async def get_update_analytics(
+    request: Request,
     x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")
 ):
     """
     Get update analytics summary.
     
-    Requires: X-Admin-Key header
+    Requires: X-Admin-Key header (and IP whitelist if configured)
     """
-    if not compare_secure(x_admin_key, _ADMIN_KEY):
+    if not _check_admin_access(request, x_admin_key):
         raise HTTPException(
             status_code=403,
             detail=_MESSAGES["ar"]["admin_required"]
@@ -1098,4 +1299,190 @@ async def get_version_history(
     """
     return {
         "versions": await get_version_history_list(limit)
+    }
+
+
+# ============ Admin Dashboard API ============
+
+@router.get("/api/admin/dashboard", summary="Get admin dashboard data")
+async def get_admin_dashboard(
+    request: Request,
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")
+):
+    """
+    Get comprehensive dashboard data for admin panel.
+    
+    Returns:
+    - Current version info
+    - Update status
+    - Analytics summary
+    - Available APK variants
+    """
+    if not _check_admin_access(request, x_admin_key):
+        raise HTTPException(
+            status_code=403,
+            detail=_MESSAGES["ar"]["admin_required"]
+        )
+    
+    # Get current version info
+    min_build = await _get_min_build_number()
+    changelog = await _get_changelog()
+    update_config = await _get_update_config()
+    
+    # Get analytics
+    events = await get_update_events(100)
+    total_views = sum(1 for e in events if e.get("event") == "viewed")
+    total_updates = sum(1 for e in events if e.get("event") == "clicked_update")
+    total_installed = sum(1 for e in events if e.get("event") == "installed")
+    adoption_rate = round((total_updates / total_views * 100), 1) if total_views > 0 else 0
+    
+    # Get version distribution
+    try:
+        from database import get_version_distribution
+        version_dist = await get_version_distribution()
+    except:
+        version_dist = []
+    
+    # Check available APK variants
+    available_variants = []
+    for variant_name, filename in _APK_VARIANTS.items():
+        variant_path = os.path.join(_STATIC_DIR, filename)
+        if os.path.exists(variant_path):
+            size_mb = round(os.path.getsize(variant_path) / (1024 * 1024), 1)
+            available_variants.append({
+                "name": variant_name,
+                "filename": filename,
+                "size_mb": size_mb,
+                "has_cdn": bool(_APK_CDN_VARIANTS.get(variant_name))
+            })
+    
+    return {
+        "version": {
+            "current": _APP_VERSION,
+            "min_build_number": min_build,
+            "backend_version": _BACKEND_VERSION,
+        },
+        "update_config": {
+            "is_soft_update": update_config.get("is_soft_update", False),
+            "priority": update_config.get("priority", "normal"),
+            "rollout_percentage": update_config.get("rollout_percentage", 100),
+            "update_active": True,  # Would need to check _is_update_active
+        },
+        "changelog": changelog,
+        "analytics": {
+            "total_views": total_views,
+            "total_updates": total_updates,
+            "total_installed": total_installed,
+            "adoption_rate": adoption_rate,
+            "version_distribution": version_dist,
+        },
+        "apk": {
+            "available_variants": available_variants,
+            "cdn_enabled": bool(_APK_CDN_URL),
+        },
+        "security": {
+            "signing_fingerprint_configured": bool(await _get_apk_signing_fingerprint()),
+            "admin_ip_whitelist_enabled": bool(_ADMIN_IP_WHITELIST),
+            "https_enforced": _HTTPS_ONLY,
+        },
+        "server_time": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/api/admin/config", summary="Get current configuration")
+async def get_admin_config(
+    request: Request,
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")
+):
+    """
+    Get current app configuration (admin view with sensitive data).
+    """
+    if not _check_admin_access(request, x_admin_key):
+        raise HTTPException(
+            status_code=403,
+            detail=_MESSAGES["ar"]["admin_required"]
+        )
+    
+    config = await get_all_app_config()
+    
+    # Mask sensitive values
+    if config.get("apk_signing_fingerprint"):
+        config["apk_signing_fingerprint"] = "***configured***"
+    if config.get("update_config"):
+        import json
+        try:
+            update_cfg = json.loads(config["update_config"])
+            if update_cfg.get("ios_store_url"):
+                update_cfg["ios_store_url"] = "***configured***"
+            config["update_config"] = json.dumps(update_cfg)
+        except:
+            pass
+    
+    return config
+
+
+@router.post("/api/admin/batch-update", summary="Batch update configuration")
+async def batch_update_config(
+    request: Request,
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
+    min_build_number: Optional[int] = None,
+    is_soft_update: Optional[bool] = None,
+    priority: Optional[str] = None,
+    rollout_percentage: Optional[int] = None,
+    changelog_ar: Optional[List[str]] = None,
+    changelog_en: Optional[List[str]] = None,
+):
+    """
+    Batch update multiple configuration values at once.
+    More efficient than making multiple API calls.
+    """
+    if not _check_admin_access(request, x_admin_key):
+        raise HTTPException(
+            status_code=403,
+            detail=_MESSAGES["ar"]["admin_required"]
+        )
+    
+    results = []
+    
+    # Update min build number
+    if min_build_number is not None:
+        try:
+            await set_app_config("min_build_number", str(min_build_number))
+            results.append({"field": "min_build_number", "success": True})
+        except Exception as e:
+            results.append({"field": "min_build_number", "success": False, "error": str(e)})
+    
+    # Get existing update config and update
+    if any(x is not None for x in [is_soft_update, priority, rollout_percentage]):
+        try:
+            existing_config = await _get_update_config()
+            existing_config["is_soft_update"] = is_soft_update if is_soft_update is not None else existing_config.get("is_soft_update", False)
+            existing_config["priority"] = priority if priority else existing_config.get("priority", "normal")
+            existing_config["rollout_percentage"] = rollout_percentage if rollout_percentage is not None else existing_config.get("rollout_percentage", 100)
+            await set_app_config("update_config", json.dumps(existing_config))
+            results.append({"field": "update_config", "success": True})
+        except Exception as e:
+            results.append({"field": "update_config", "success": False, "error": str(e)})
+    
+    # Update changelog
+    if changelog_ar is not None:
+        try:
+            min_build = await _get_min_build_number()
+            changelog_data = {
+                "version": _APP_VERSION,
+                "build_number": min_build,
+                "changelog_ar": changelog_ar,
+                "changelog_en": changelog_en or [],
+            }
+            await set_app_config("changelog_data", json.dumps(changelog_data))
+            results.append({"field": "changelog_data", "success": True})
+        except Exception as e:
+            results.append({"field": "changelog_data", "success": False, "error": str(e)})
+    
+    # Refresh cache after batch update
+    await _refresh_etag_cache()
+    
+    return {
+        "success": True,
+        "results": results,
     }

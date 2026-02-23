@@ -135,6 +135,19 @@ class RedisPubSubManager:
     
             return False
 
+    async def publish(self, license_id: int, message: WebSocketMessage):
+        """Publish a message to a specific license's channel"""
+        if not self._initialized:
+            return False
+        try:
+            channel = f"{self.CHANNEL_PREFIX}{license_id}"
+            await self._redis_client.publish(channel, message.to_json())
+            logger.debug(f"Published message to license {license_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to publish message: {e}")
+            return False
+    
     async def publish_outbox_trigger(self, license_id: int):
         """Trigger immediate outbox processing for a license"""
         if not self._initialized:

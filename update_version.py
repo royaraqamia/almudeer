@@ -51,7 +51,8 @@ async def update_version(args):
                 "build_number": args.build,
                 "is_soft_update": not args.force, # Force = !Soft
                 "priority": priority,
-                "ios_store_url": args.ios_url
+                "ios_store_url": args.ios_url,
+                "ios_app_store_id": args.ios_id
             }
             
             # Note: Query params for scalar, but let's check the API definition
@@ -101,6 +102,7 @@ def main():
     parser.add_argument("--notes-ar", required=True, help="Changelog details (Arabic)")
     parser.add_argument("--notes-en", help="Changelog details (English)")
     parser.add_argument("--ios-url", help="iOS App Store URL")
+    parser.add_argument("--ios-id", help="iOS App Store ID (for deep linking)")
     
     parser.add_argument("--url", default=DEFAULT_URL, help=f"Backend base URL (default: {DEFAULT_URL})")
     parser.add_argument("--key", help="Admin API Key")
