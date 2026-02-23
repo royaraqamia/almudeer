@@ -687,7 +687,10 @@ async def validate_license_key(key: str) -> dict:
         if not row:
             return {"valid": False, "error": "مفتاح الاشتراك غير صالح"}
         
-        result = _build_license_result(dict(row))
+        # Add the raw key to row for result building
+        row_dict = dict(row)
+        row_dict["license_key"] = key
+        result = _build_license_result(row_dict)
     
     # Cache the result (5 minutes TTL)
     try:
@@ -698,18 +701,60 @@ async def validate_license_key(key: str) -> dict:
     
     return result
 
-async def validate_license_by_id(license_id: int) -> dict:
-    """Validate a license by its database ID (used for JWT-based auth)"""
+async def validate_license_by_id(license_id: int, required_version: Optional[int] = None) -> dict:
+    """
+    Validate a license by its database ID (used for JWT-based auth).
+    Includes caching and real-time version/status check.
+    """
+    cache_key = f"lic_validation_id:{license_id}"
+    
+    # 1. Try Cache
+    try:
+        from cache import get_cached_license_validation
+        cached = await get_cached_license_validation(cache_key)
+        if cached:
+            # Atomic Security Checks on cached data
+            if not cached.get("is_active", True):
+                return {"valid": False, "error": "المشترك معطل", "code": "ACCOUNT_DEACTIVATED"}
+            if required_version is not None and cached.get("token_version", 0) > required_version:
+                return {"valid": False, "error": "جلسة العمل منتهية", "code": "SESSION_REVOKED"}
+            return cached
+    except (ImportError, Exception):
+        pass
+
+    # 2. Database Fallback
     from db_helper import get_db, fetch_one
     async with get_db() as db:
-        row = await fetch_one(db, """
-            SELECT * FROM license_keys WHERE id = ?
-        """, [license_id])
-        
+        row = await fetch_one(db, "SELECT * FROM license_keys WHERE id = ?", [license_id])
         if not row:
             return {"valid": False, "error": "المشترك غير موجود"}
         
-        return _build_license_result(dict(row))
+        row_dict = dict(row)
+        
+        # Ensure license_key is present (decrypted)
+        if not row_dict.get("license_key") and row_dict.get("license_key_encrypted"):
+            from security import decrypt_sensitive_data
+            try:
+                row_dict["license_key"] = decrypt_sensitive_data(row_dict["license_key_encrypted"])
+            except Exception:
+                pass
+                
+        result = _build_license_result(row_dict)
+        
+        # Atomic Security Checks on fresh data
+        if not result.get("is_active", True):
+             return {"valid": False, "error": "المشترك معطل", "code": "ACCOUNT_DEACTIVATED"}
+        if required_version is not None and result.get("token_version", 0) > required_version:
+            return {"valid": False, "error": "جلسة العمل منتهية", "code": "SESSION_REVOKED"}
+
+        # Cache the result
+        try:
+            from cache import cache_license_validation
+            await cache_license_validation(cache_key, result, ttl=300)
+        except (ImportError, Exception):
+            pass
+
+        return result
 
 def _build_license_result(row_dict: dict) -> dict:
     """Helper to convert database row to standardized license dictionary"""
@@ -764,6 +809,9 @@ def _build_license_result(row_dict: dict) -> dict:
         "referral_code": row_dict.get("referral_code"),
         "referral_count": row_dict.get("referral_count", 0),
         "username": row_dict.get("username"),
+        "license_key": row_dict.get("license_key"),
+        "token_version": row_dict.get("token_version", 1),
+        "is_active": bool(row_dict.get("is_active", True)),
         "requests_remaining": 999999 # Unlimited
     }
 

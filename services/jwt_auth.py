@@ -43,9 +43,8 @@ def _get_jwt_secret_key() -> str:
         "Run 'python scripts/generate_secrets.py' to stabilize your development environment."
     )
     
-    # Fallback for dev: Use a stable-ish key based on the machine or project path if possible,
-    # but for now, we'll keep the random hex to encourage proper setup.
-    return secrets.token_hex(32)
+    # Fallback for dev: Use a stable key to prevent session invalidation on restarts
+    return "mudeer_stable_dev_secret_key_777"
 
 
 @dataclass
@@ -404,72 +403,27 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Senior Engineering Hardening: Real-time Kill-Switch Verification
+    # Senior Engineering Hardening: Atomic Validation via Database Layer
     license_id = payload.get("license_id")
-    token_v_in_jwt = payload.get("v", 0)
-    
     if license_id:
-        from database import get_db, fetch_one
+        from database import validate_license_by_id
         
-        # Try Cache first
-        cache_key = f"token_validation:{license_id}"
-        cached_data = None
-        redis_client = None
+        # This one call handles: Redis Cache, DB Fallback, Account Activity, and Token Versioning
+        validation = await validate_license_by_id(
+            license_id, 
+            required_version=payload.get("v")
+        )
         
-        try:
-            import os
-            import redis
-            import json
-            redis_url = os.getenv("REDIS_URL")
-            if redis_url:
-                redis_client = redis.from_url(redis_url)
-                cached = redis_client.get(cache_key)
-                if cached:
-                    cached_data = json.loads(cached)
-        except Exception as e:
-            logger.debug(f"Redis cache check failed: {e}")
-            
-        try:
-            if cached_data:
-                current_v = cached_data.get("token_version", 1)
-                is_active = cached_data.get("is_active", True)
-            else:
-                async with get_db() as db:
-                    row = await fetch_one(db, "SELECT token_version, is_active FROM license_keys WHERE id = ?", [license_id])
-                    if row:
-                        current_v = row.get("token_version", 1)
-                        is_active = bool(row.get("is_active", True))
-                        
-                        # Cache the result to save DB hits (TTL 5 minutes)
-                        if redis_client:
-                            cache_payload = {
-                                "token_version": current_v,
-                                "is_active": is_active
-                            }
-                            redis_client.setex(cache_key, 300, json.dumps(cache_payload))
-                    else:
-                        current_v = 1
-                        is_active = False # Account deleted
-            
-            if not is_active:
-                logger.warning(f"Rejecting token for deactivated license {license_id}")
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Account deactivated. Please contact support.",
-                )
+        if not validation.get("valid"):
+            status_code = status.HTTP_401_UNAUTHORIZED
+            if validation.get("code") == "ACCOUNT_DEACTIVATED":
+                status_code = status.HTTP_403_FORBIDDEN
                 
-            if current_v > token_v_in_jwt:
-                logger.warning(f"Rejecting invalidated token for license {license_id} (JWT: {token_v_in_jwt}, DB: {current_v})")
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Session invalidated. Please log in again.",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error verifying token version: {e}")
-            # Fail open in production for availability, but ideally log this strictly
+            raise HTTPException(
+                status_code=status_code,
+                detail=validation.get("error", "Invalid session"),
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     return {
         "user_id": payload.get("sub"),

@@ -119,9 +119,9 @@ async def upload_file(
         
     # Save file using storage service
     try:
-        content = await file.read()
-        relative_path, public_url = file_storage.save_file(
-            content=content,
+        # Save file asynchronously
+        relative_path, public_url = await file_storage.save_upload_file_async(
+            upload_file=file,
             filename=file.filename,
             mime_type=content_type,
             subfolder="library"

@@ -597,12 +597,14 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 async def handle_websocket_connection(websocket: WebSocket, license_key: str):
     """Shared WebSocket connection handler"""
-    # Validate license key
-    license_result = await validate_license_key(license_key)
-    if not license_result["valid"]:
+    # Validate license key (or JWT)
+    from dependencies import resolve_license
+    try:
+        license_result = await resolve_license(license_key)
+    except Exception:
         # Must accept before closing if we want to send a reason/code in modern ASGI
         await websocket.accept()
-        await websocket.close(code=4001, reason="Invalid license key")
+        await websocket.close(code=4001, reason="Invalid credential")
         return
     
     license_id = license_result["license_id"]

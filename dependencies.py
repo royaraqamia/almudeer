@@ -29,7 +29,11 @@ async def get_license_from_header(
         payload = await verify_token_async(auth.credentials, TokenType.ACCESS)
         
         if payload and payload.get("license_id"):
-            result = await validate_license_by_id(payload["license_id"])
+            # Pass the 'v' (version) claim for atomic validation
+            result = await validate_license_by_id(
+                payload["license_id"], 
+                required_version=payload.get("v")
+            )
             if result.get("valid"):
                 # Add user_id to result for compatibility with routes that expect it
                 result["user_id"] = payload.get("sub")
@@ -86,3 +90,36 @@ async def get_optional_license_from_header(
     return result
 
 
+async def resolve_license(credential: str) -> Dict:
+    """
+    Unified resolver to validate a 'credential' which could be:
+    - A JWT Bearer token
+    - A raw license key string
+    
+    Used for WebSockets and other non-standard entry points.
+    """
+    if not credential:
+        raise HTTPException(status_code=401, detail="Credential required")
+
+    # 1. Try as JWT
+    from services.jwt_auth import verify_token_async, TokenType
+    if credential.count('.') == 2:
+        try:
+            payload = await verify_token_async(credential, TokenType.ACCESS)
+            if payload and payload.get("license_id"):
+                result = await validate_license_by_id(
+                    payload["license_id"],
+                    required_version=payload.get("v")
+                )
+                if result.get("valid"):
+                    result["user_id"] = payload.get("sub")
+                    return result
+        except Exception:
+            pass
+
+    # 2. Try as raw license key
+    result = await validate_license_key(credential)
+    if result.get("valid"):
+        return result
+
+    raise HTTPException(status_code=401, detail="فشل التحقق من الهوية")
