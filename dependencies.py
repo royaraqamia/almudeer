@@ -11,8 +11,8 @@ from typing import Dict, Optional
 
 from database import validate_license_key, validate_license_by_id
 
-# Re-use the security scheme from jwt_auth to extract Bearer tokens
-security = HTTPBearer(auto_error=False)
+# Re-use the security scheme and dependencies from services.jwt_auth
+from services.jwt_auth import security, get_current_user, get_current_user_optional
 
 async def get_license_from_header(
     x_license_key: Optional[str] = Header(None, alias="X-License-Key"),
