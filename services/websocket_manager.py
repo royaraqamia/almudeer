@@ -53,6 +53,7 @@ class RedisPubSubManager:
     """
     
     CHANNEL_PREFIX = "almudeer:ws:"
+    OUTBOX_TRIGGER_CHANNEL = "almudeer:outbox_trigger"
     
     def __init__(self):
         self._redis_client = None
@@ -132,20 +133,38 @@ class RedisPubSubManager:
             except Exception as e:
                 logger.error(f"Failed to unsubscribe from Redis channel: {e}")
     
-    async def publish(self, license_id: int, message: WebSocketMessage):
-        """Publish a message to a license channel"""
+            return False
+
+    async def publish_outbox_trigger(self, license_id: int):
+        """Trigger immediate outbox processing for a license"""
         if not self._initialized:
             return False
-        
-        channel = f"{self.CHANNEL_PREFIX}{license_id}"
         try:
-            await self._redis_client.publish(channel, message.to_json())
-            logger.debug(f"Published to Redis channel: {channel}")
+            await self._redis_client.publish(self.OUTBOX_TRIGGER_CHANNEL, str(license_id))
+            logger.debug(f"Published outbox trigger for license: {license_id}")
             return True
         except Exception as e:
-            logger.error(f"Failed to publish to Redis: {e}")
+            logger.error(f"Failed to publish outbox trigger: {e}")
             return False
-    
+
+    async def subscribe_system(self, handler):
+        """Subscribe to system-wide triggers"""
+        if not self._initialized:
+            return
+        
+        async with self._lock:
+            try:
+                await self._pubsub.subscribe(self.OUTBOX_TRIGGER_CHANNEL)
+                logger.info(f"Subscribed to system channel: {self.OUTBOX_TRIGGER_CHANNEL}")
+                
+                # Register a special handler key for system
+                self._message_handlers[-1] = handler 
+                
+                if self._listener_task is None or self._listener_task.done():
+                    self._listener_task = asyncio.create_task(self._listen())
+            except Exception as e:
+                logger.error(f"Failed to subscribe to system channel: {e}")
+
     async def _listen(self):
         """Background task to listen for Redis messages"""
         try:
@@ -173,6 +192,13 @@ class RedisPubSubManager:
                                 await handler(ws_message)
                         except (ValueError, json.JSONDecodeError) as e:
                             logger.debug(f"Failed to parse Redis message: {e}")
+                    elif channel == self.OUTBOX_TRIGGER_CHANNEL:
+                        try:
+                            handler = self._message_handlers.get(-1) # System handler
+                            if handler:
+                                await handler(data) # data is the license_id string
+                        except Exception as e:
+                            logger.error(f"Error in system message handler: {e}")
                 
                 if not message:
                     await asyncio.sleep(0.1)  # Sleep longer if no message

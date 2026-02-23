@@ -165,9 +165,19 @@ async def send_typing_indicator(
     request: Request,
     license: dict = Depends(get_license_from_header)
 ):
-    from services.websocket_manager import broadcast_typing_indicator
+    from services.websocket_manager import broadcast_typing_indicator, RedisPubSubManager
     data = await request.json()
     is_typing = data.get("is_typing", False)
+    
+    # [Senior Optimization] Persist in Redis for multi-device/multi-worker consistency
+    redis_mgr = RedisPubSubManager()
+    if await redis_mgr.initialize():
+        key = f"typing:{license['license_id']}:{sender_contact}"
+        if is_typing:
+            await redis_mgr._redis_client.setex(key, 10, "1")
+        else:
+            await redis_mgr._redis_client.delete(key)
+
     await broadcast_typing_indicator(license["license_id"], sender_contact, is_typing)
     return {"success": True}
 
@@ -177,9 +187,19 @@ async def send_recording_indicator(
     request: Request,
     license: dict = Depends(get_license_from_header)
 ):
-    from services.websocket_manager import broadcast_recording_indicator
+    from services.websocket_manager import broadcast_recording_indicator, RedisPubSubManager
     data = await request.json()
     is_recording = data.get("is_recording", False)
+    
+    # [Senior Optimization] Persist in Redis
+    redis_mgr = RedisPubSubManager()
+    if await redis_mgr.initialize():
+        key = f"recording:{license['license_id']}:{sender_contact}"
+        if is_recording:
+            await redis_mgr._redis_client.setex(key, 15, "1")
+        else:
+            await redis_mgr._redis_client.delete(key)
+
     await broadcast_recording_indicator(license["license_id"], sender_contact, is_recording)
     return {"success": True}
 
@@ -269,6 +289,13 @@ async def send_chat_message(
     )
     
     await approve_outbox_message(outbox_id, body)
+    
+    # Instant Send: Trigger Redis wake-up
+    from services.websocket_manager import RedisPubSubManager
+    trigger_mgr = RedisPubSubManager()
+    if await trigger_mgr.initialize():
+        await trigger_mgr.publish_outbox_trigger(license["license_id"])
+        
     background_tasks.add_task(send_approved_message, outbox_id, license["license_id"])
     return {"success": True, "outbox_id": outbox_id, "id": outbox_id}
 
@@ -311,6 +338,13 @@ async def approve_chat_message(
         if sender: await approve_chat_messages(license["license_id"], sender)
         
         background_tasks.add_task(send_approved_message, outbox_id, license["license_id"])
+        
+        # Instant Send: Trigger Redis wake-up
+        from services.websocket_manager import RedisPubSubManager
+        trigger_mgr = RedisPubSubManager()
+        if await trigger_mgr.initialize():
+            await trigger_mgr.publish_outbox_trigger(license["license_id"])
+            
         return {"success": True, "message": "تم إرسال الرد"}
 
 @router.post("/inbox/cleanup")

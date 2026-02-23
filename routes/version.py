@@ -64,6 +64,9 @@ _IOS_STORE_URL = os.getenv("IOS_STORE_URL", "")
 # Force update can be disabled in emergencies
 _FORCE_UPDATE_ENABLED = os.getenv("FORCE_UPDATE_ENABLED", "true").lower() == "true"
 
+# Force HTTPS in production
+_HTTPS_ONLY = os.getenv("HTTPS_ONLY", "false").lower() == "true"
+
 # Admin key for manual operations (Should be improved to constant-time compare)
 _ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 
@@ -87,7 +90,21 @@ _MESSAGES = {
         "force_update_disabled": "تم إلغاء التحديث الإجباري",
         "disable_failed": "فشل في إلغاء التحديث: {error}",
         "update_message": "يتوفر إصدار جديد من التطبيق يحتوي على تحسينات وميزات جديدة. يرجى التحديث للمتابعة.",
-         "invalid_event": "Invalid event. Must be one of: {events}"
+        "invalid_event": "حدث غير صالح. يجب أن يكون واحدًا من: {events}"
+    },
+    "en": {
+        "rate_limit": "Rate limit exceeded. Please try again later.",
+        "admin_required": "Unauthorized - Admin key required",
+        "invalid_build": "Build number must be 1 or higher",
+        "invalid_priority": "Update priority must be one of: {priorities}",
+        "update_failed": "Failed to update version number: {error}",
+        "min_build_updated": "Minimum build number updated",
+        "changelog_updated": "Changelog updated successfully",
+        "changelog_failed": "Failed to update changelog: {error}",
+        "force_update_disabled": "Force update disabled",
+        "disable_failed": "Failed to disable update: {error}",
+        "update_message": "A new version of the app is available with improvements and new features. Please update to continue.",
+        "invalid_event": "Invalid event. Must be one of: {events}"
     }
 }
 
@@ -171,11 +188,11 @@ class RateLimiter:
 _rate_limiter = RateLimiter(_RATE_LIMIT_REQUESTS, _RATE_LIMIT_WINDOW)
 import secrets
 
-def compare_secure(a: str, b: str) -> bool:
+def compare_secure(a: Optional[str], b: Optional[str]) -> bool:
     """Constant-time comparison for admin key to prevent timing attacks"""
     if not a or not b:
         return False
-    return secrets.compare_digest(a, b)
+    return secrets.compare_digest(str(a), str(b))
 
 
 
@@ -191,6 +208,19 @@ async def _get_min_build_number() -> int:
 async def _get_apk_signing_fingerprint() -> Optional[str]:
     """Read the APK signing certificate fingerprint from DB."""
     return await get_app_config("apk_signing_fingerprint")
+
+
+async def _get_cdn_url() -> Optional[str]:
+    """Read CDN URL from DB configuration (allows runtime updates)."""
+    # First check environment variable
+    if _APK_CDN_URL:
+        return _APK_CDN_URL
+    
+    # Then check database config (allows dynamic updates)
+    try:
+        return await get_app_config("apk_cdn_url")
+    except:
+        return None
 
 
 async def _get_changelog() -> dict:
@@ -238,6 +268,94 @@ _APK_CACHE = {
     "mtime": 0
 }
 _APK_CACHE_LOCK = threading.Lock()
+
+# ETag cache for version check responses
+_VERSION_ETAG_LOCK = threading.Lock()
+_VERSION_ETAG_CACHE = {}
+
+
+def _generate_response_etag(response: dict) -> str:
+    """Generate ETag from response content."""
+    content = json.dumps(response, sort_keys=True, default=str)
+    return f'"{hashlib.md5(content.encode()).hexdigest()}"'
+
+
+def _generate_version_etag(min_build: int, changelog_hash: str, update_config_hash: str) -> str:
+    """Generate ETag for version check response."""
+    content = f"{min_build}:{changelog_hash}:{update_config_hash}"
+    return hashlib.sha256(content.encode()).hexdigest()
+
+
+# Cache for sync access to avoid async issues
+_ETAG_DATA_CACHE = {
+    "changelog": None,
+    "changelog_mtime": 0,
+    "update_config": None,
+    "update_config_mtime": 0,
+}
+_ETAG_DATA_CACHE_LOCK = threading.Lock()
+
+
+def _get_version_etag_sync() -> str:
+    """Get current ETag based on version configuration (sync version for ETag generation)."""
+    import json
+    global _ETAG_DATA_CACHE
+    
+    try:
+        # Try to get from cache first
+        changelog_data = _ETAG_DATA_CACHE.get("changelog")
+        update_config = _ETAG_DATA_CACHE.get("update_config")
+        
+        # If cache is stale, we can't refresh it here (would need async)
+        # Return a version-based ETag using the cached min_build_number
+        if changelog_data is None:
+            changelog_str = json.dumps({"version": _APP_VERSION})
+        else:
+            changelog_str = json.dumps(changelog_data, sort_keys=True)
+        
+        if update_config is None:
+            update_config_str = json.dumps({"priority": "normal"})
+        else:
+            update_config_str = json.dumps(update_config, sort_keys=True)
+        
+        min_build = 1
+        try:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            try:
+                min_build_val = loop.run_until_complete(_get_min_build_number())
+                if min_build_val:
+                    min_build = min_build_val
+            finally:
+                loop.close()
+        except:
+            pass
+        
+        return _generate_version_etag(
+            min_build,
+            hashlib.md5(changelog_str.encode()).hexdigest()[:8],
+            hashlib.md5(update_config_str.encode()).hexdigest()[:8]
+        )
+    except:
+        return _generate_version_etag(1, "", "")
+
+
+async def _refresh_etag_cache():
+    """Refresh the ETag data cache (should be called periodically)."""
+    global _ETAG_DATA_CACHE
+    
+    with _ETAG_DATA_CACHE_LOCK:
+        try:
+            _ETAG_DATA_CACHE["changelog"] = await _get_changelog()
+            _ETAG_DATA_CACHE["changelog_mtime"] = time.time()
+            _ETAG_DATA_CACHE["update_config"] = await _get_update_config()
+            _ETAG_DATA_CACHE["update_config_mtime"] = time.time()
+        except Exception:
+            pass
+
+
+# Alias for backward compatibility
+_get_version_etag = _get_version_etag_sync
 
 def _refresh_apk_cache():
     """Refresh the APK metadata cache if the file has changed."""
@@ -460,13 +578,18 @@ async def check_app_version(
     request: Request, 
     current_version: str = Query(None), 
     platform: str = Query("android"),
-    app_build_number: int = Query(None, description="App build number for force update check")
+    app_build_number: int = Query(None, description="App build number for force update check"),
+    language: str = Query("ar", description="Language code: ar, en"),
+    if_none_match: Optional[str] = Header(None, alias="If-None-Match")
 ):
     """
     Public endpoint for mobile app version check.
     
     Supports both legacy version string checks and new build number-based force updates.
     For force updates, provide app_build_number parameter.
+    
+    Supports ETag caching: Send If-None-Match header with previous ETag
+    to receive 304 Not Modified if nothing changed.
     """
     client_ip = request.client.host if request and request.client else "unknown"
     
@@ -482,14 +605,35 @@ async def check_app_version(
         )
     
     logger.info(f"Version check request: build={app_build_number}, platform={platform}, version={current_version}, ip={client_ip}")
-    return await _get_app_version_logic(current_version, platform, client_ip, app_build_number)
+    
+    # Get version check result
+    result = await _get_app_version_logic(current_version, platform, client_ip, app_build_number, language)
+    
+    # Generate ETag for response
+    response_etag = _generate_response_etag(result)
+    
+    # Check if client has cached version
+    if if_none_match and if_none_match == response_etag:
+        from fastapi.responses import Response
+        return Response(status_code=304, headers={"ETag": response_etag})
+    
+    # Add ETag to response
+    if isinstance(result, dict):
+        result["etag"] = response_etag
+    
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        content=result,
+        headers={"ETag": response_etag, "Cache-Control": "public, max-age=60"}
+    )
 
 
 async def _get_app_version_logic(
     current_version: Optional[str] = None, 
     platform: str = "android", 
     client_ip: str = "unknown",
-    app_build_number: Optional[int] = None
+    app_build_number: Optional[int] = None,
+    language: str = "ar"
 ):
     """
     Main version check logic supporting both legacy and new force update system.
@@ -550,13 +694,28 @@ async def _get_app_version_logic(
         "min_build_number": min_build_number,
         "version": _APP_VERSION,
         
-        # Download info
-        "update_url": _APP_DOWNLOAD_URL,
+        # Download info - get CDN URL dynamically if available
+        "update_url": await _get_cdn_url() or _APP_DOWNLOAD_URL,
         "apk_size_mb": _get_apk_size_mb(),
         "apk_sha256": _get_apk_sha256(),
         
-        # Update metadata
-        "message": _MESSAGES["ar"]["update_message"] if update_required else None,
+        # Delta update support - TODO: Implement actual delta patch generation
+        # For now, disabled. To enable:
+        # 1. Create delta patch files: almudeer_{from}_to_{to}.patch
+        # 2. Store them in static/download/
+        # 3. Calculate and store delta_size_mb in DB
+        "delta_update": {
+            "supported": False,
+            "from_build": app_build_number if app_build_number else 0,
+            "to_build": min_build_number,
+            "delta_url": None,
+            "delta_size_mb": None,
+        },
+        
+        # Update metadata - include both languages
+        "message": _MESSAGES.get(language, _MESSAGES["ar"]).get("update_message") if update_required else None,
+        "message_ar": _MESSAGES["ar"].get("update_message") if update_required else None,
+        "message_en": _MESSAGES["en"].get("update_message") if update_required else None,
         "priority": update_config.get("priority", UPDATE_PRIORITY_NORMAL),
         "changelog": changelog_data.get("changelog_ar", []),
         "changelog_en": changelog_data.get("changelog_en", []),
@@ -779,12 +938,13 @@ async def disable_force_update(
 
 class UpdateEventRequest(BaseModel):
     """Request model for update analytics events"""
-    event: str  # viewed, clicked_update, clicked_later, installed
+    event: str  # viewed, clicked_update, clicked_later, installed, rolled_back
     from_build: int
     to_build: int
     device_id: Optional[str] = None
     device_type: Optional[str] = None  # android, ios, unknown
     license_key: Optional[str] = None
+    language: Optional[str] = Query("ar", description="Language code: ar, en")
 
 
 @router.post("/api/app/update-event", summary="Track update event (analytics)")
@@ -794,11 +954,13 @@ async def track_update_event(data: UpdateEventRequest):
     Track update-related events for analytics.
     No authentication required (public endpoint for app usage).
     """
-    valid_events = ["viewed", "clicked_update", "clicked_later", "installed"]
+    valid_events = ["viewed", "clicked_update", "clicked_later", "installed", "rolled_back"]
     if data.event not in valid_events:
+        lang = data.language or "ar"
+        error_msg = _MESSAGES.get(lang, _MESSAGES["ar"])["invalid_event"].format(events=', '.join(valid_events))
         raise HTTPException(
             status_code=400,
-            detail=_MESSAGES["ar"]["invalid_event"].format(events=', '.join(valid_events))
+            detail=error_msg
         )
     
     # Validate device_type if provided

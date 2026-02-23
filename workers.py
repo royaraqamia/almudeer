@@ -127,7 +127,28 @@ class MessagePoller:
         task = asyncio.create_task(self._polling_loop())
         self.background_tasks.add(task)
         task.add_done_callback(self.background_tasks.discard)
+
+        # Start Redis Trigger listener
+        async def setup_redis_trigger():
+            from services.websocket_manager import RedisPubSubManager
+            redis_mgr = RedisPubSubManager()
+            if await redis_mgr.initialize():
+                await redis_mgr.subscribe_system(self._on_outbox_trigger)
+        
+        trigger_task = asyncio.create_task(setup_redis_trigger())
+        self.background_tasks.add(trigger_task)
+        trigger_task.add_done_callback(self.background_tasks.discard)
     
+    async def _on_outbox_trigger(self, license_id_str: str):
+        """Handler for Redis-based outbox triggers"""
+        try:
+            license_id = int(license_id_str)
+            logger.info(f"Received immediate outbox trigger for license {license_id}")
+            # Run outbox retry immediately
+            await self._retry_approved_outbox(license_id)
+        except Exception as e:
+            logger.error(f"Error handling outbox trigger for license {license_id_str}: {e}")
+
     async def stop(self):
         """Stop all polling workers"""
         self.running = False
@@ -164,6 +185,13 @@ class MessagePoller:
                     t2 = asyncio.create_task(self._poll_telegram(license_id))
                     self.background_tasks.add(t2)
                     t2.add_done_callback(self.background_tasks.discard)
+                    
+                    # Ensure Telegram Listener is running (Senior Fix: Reliability)
+                    from services.telegram_listener_service import get_telegram_listener
+                    listener = get_telegram_listener()
+                    if not listener.running:
+                        asyncio.create_task(listener.start())
+                    
                     # WhatsApp uses webhooks, so no polling needed
                     
                     await self._retry_approved_outbox(license_id)
@@ -648,6 +676,12 @@ class MessagePoller:
                 # independent one, as that triggers the session conflict.
                 # Just log and skip this poll cycle.
                 logger.info(f"Skipping Telegram poll for {license_id}: Process in Standby Mode")
+                return
+            
+            # [Senior Optimization] Skip deep poll if listener is healthy and we are NOT in backfill mode
+            # This reduces redundant API calls and potential rate limiting
+            if not is_backfill:
+                logger.debug(f"Skipping Telegram poll for license {license_id} - Persistent listener is push-active.")
                 return
 
             # Fetch messages using the managed client

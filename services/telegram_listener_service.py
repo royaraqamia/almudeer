@@ -215,9 +215,24 @@ class TelegramListenerService:
             @client.on(events.UserUpdate)
             async def handler(event):
                 try:
-                    # We only care about online status if we were to implement it fully, 
-                    # but for now we are removing typing/recording.
-                    pass
+                    from services.websocket_manager import broadcast_typing_indicator, broadcast_recording_indicator
+                    
+                    sender_id = str(event.user_id)
+                    
+                    # We need the username/contact if possible
+                    # Try to find it from dialogs or entity cache
+                    entity = await client.get_entity(event.user_id)
+                    sender_contact = getattr(entity, 'username', sender_id)
+                    if not sender_contact: sender_contact = sender_id
+
+                    if event.typing:
+                        await broadcast_typing_indicator(license_id, sender_contact, True)
+                    elif event.recording:
+                        await broadcast_recording_indicator(license_id, sender_contact, True)
+                    else:
+                        # If stopped typing, broadcast False
+                        await broadcast_typing_indicator(license_id, sender_contact, False)
+                        await broadcast_recording_indicator(license_id, sender_contact, False)
                         
                 except Exception as e:
                     logger.debug(f"Error handling Telegram UserUpdate: {e}")

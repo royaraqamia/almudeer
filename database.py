@@ -245,6 +245,12 @@ async def _init_sqlite_tables(db):
             changes_json TEXT
         )
     """)
+    
+    # Index for version history lookups
+    await db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_version_history_build 
+        ON version_history(build_number DESC)
+    """)
 
     # Update Events table (for analytics)
     await db.execute("""
@@ -258,6 +264,24 @@ async def _init_sqlite_tables(db):
             license_key TEXT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+    """)
+    
+    # Create indexes for update_events to improve analytics query performance
+    await db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_update_events_timestamp 
+        ON update_events(timestamp DESC)
+    """)
+    await db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_update_events_device 
+        ON update_events(device_id, license_key)
+    """)
+    await db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_update_events_event_time 
+        ON update_events(event, timestamp DESC)
+    """)
+    await db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_update_events_build 
+        ON update_events(from_build, to_build)
     """)
 
     # Knowledge Base Documents
@@ -459,6 +483,12 @@ async def _init_postgresql_tables(conn):
             changes_json TEXT
         )
     """))
+    
+    # Index for version history lookups
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_version_history_build 
+        ON version_history(build_number DESC)
+    """)
 
     # Update Events table (for analytics)
     await conn.execute(adapt_sql_for_db("""
@@ -473,6 +503,24 @@ async def _init_postgresql_tables(conn):
             timestamp TIMESTAMP DEFAULT NOW()
         )
     """))
+    
+    # Create indexes for update_events (PostgreSQL)
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_update_events_timestamp 
+        ON update_events(timestamp DESC)
+    """)
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_update_events_device 
+        ON update_events(device_id, license_key)
+    """)
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_update_events_event_time 
+        ON update_events(event, timestamp DESC)
+    """)
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_update_events_build 
+        ON update_events(from_build, to_build)
+    """)
 
     # Knowledge Base Documents
     await conn.execute(adapt_sql_for_db("""
