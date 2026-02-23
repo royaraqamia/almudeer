@@ -518,6 +518,8 @@ v1_router.include_router(subscription_router, prefix="")
 
 
 # ============ License Key Middleware ============
+from dependencies import get_license_from_header
+
 
 from errors import (
     AuthenticationError, 
@@ -528,6 +530,7 @@ from errors import (
 
 # ... (omitted imports)
 
+# LEGACY: Use get_license_from_header from dependencies instead
 async def verify_license(x_license_key: str = Header(None, alias="X-License-Key")) -> dict:
     """Dependency to verify license key from header"""
     if not x_license_key:
@@ -678,7 +681,7 @@ async def get_inbox_paginated(
     page_size: int = 20,
     channel: str = None,
     is_read: bool = None,
-    license: dict = Depends(verify_license)
+    license: dict = Depends(get_license_from_header)
 ):
     """
     Get inbox messages with pagination.
@@ -700,7 +703,7 @@ async def get_inbox_paginated(
 async def get_crm_paginated(
     page: int = 1,
     page_size: int = 20,
-    license: dict = Depends(verify_license)
+    license: dict = Depends(get_license_from_header)
 ):
     """
     Get CRM entries with pagination.
@@ -718,7 +721,7 @@ async def get_customers_paginated(
     page: int = 1,
     page_size: int = 20,
     search: str = None,
-    license: dict = Depends(verify_license)
+    license: dict = Depends(get_license_from_header)
 ):
     """
     Get customers with pagination and optional search.
@@ -737,7 +740,7 @@ async def get_customers_paginated(
 @app.post("/api/crm/save", tags=["CRM"])
 async def save_to_crm(
     data: CRMEntryCreate,
-    license: dict = Depends(verify_license)
+    license: dict = Depends(get_license_from_header)
 ):
     """
     Save an entry to CRM.
@@ -775,7 +778,7 @@ async def save_to_crm(
 @app.get("/api/crm/entries", response_model=CRMListResponse, tags=["CRM"])
 async def list_crm_entries(
     limit: int = 50,
-    license: dict = Depends(verify_license)
+    license: dict = Depends(get_license_from_header)
 ):
     """
     List CRM entries.
@@ -799,7 +802,7 @@ async def list_crm_entries(
 @app.get("/api/crm/entries/{entry_id}", tags=["CRM"])
 async def get_crm_entry(
     entry_id: int,
-    license: dict = Depends(verify_license)
+    license: dict = Depends(get_license_from_header)
 ):
     """
     Get a specific CRM entry by ID.
@@ -821,7 +824,7 @@ async def get_crm_entry(
 
 
 @app.get("/api/auth/me", tags=["Authentication"])
-async def get_user_info(license: dict = Depends(verify_license)):
+async def get_user_info(license: dict = Depends(get_license_from_header)):
     """
     Get current user/license information.
     
