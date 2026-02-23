@@ -669,12 +669,11 @@ async def validate_license_key(key: str) -> dict:
     """Validate a license key and return its details"""
     # Try cache first
     try:
-        from cache import get_cached_license_validation, cache_license_validation
+        from cache import get_cached_license_validation
         cached_result = await get_cached_license_validation(key)
         if cached_result is not None:
             return cached_result
     except ImportError:
-        # Cache not available, continue with DB lookup
         pass
     
     key_hash = hash_license_key(key)
@@ -688,10 +687,34 @@ async def validate_license_key(key: str) -> dict:
         if not row:
             return {"valid": False, "error": "مفتاح الاشتراك غير صالح"}
         
-        row_dict = dict(row)
+        result = _build_license_result(dict(row))
     
+    # Cache the result (5 minutes TTL)
+    try:
+        from cache import cache_license_validation
+        await cache_license_validation(key, result, ttl=300)
+    except ImportError:
+        pass
+    
+    return result
+
+async def validate_license_by_id(license_id: int) -> dict:
+    """Validate a license by its database ID (used for JWT-based auth)"""
+    from db_helper import get_db, fetch_one
+    async with get_db() as db:
+        row = await fetch_one(db, """
+            SELECT * FROM license_keys WHERE id = ?
+        """, [license_id])
+        
+        if not row:
+            return {"valid": False, "error": "المشترك غير موجود"}
+        
+        return _build_license_result(dict(row))
+
+def _build_license_result(row_dict: dict) -> dict:
+    """Helper to convert database row to standardized license dictionary"""
     # Check if active
-    if not row_dict["is_active"]:
+    if not row_dict.get("is_active", True):
         return {"valid": False, "error": "تم تعطيل هذا الاشتراك"}
     
     # Helper for robust date parsing
@@ -700,11 +723,10 @@ async def validate_license_key(key: str) -> dict:
             return None
         if isinstance(val, datetime):
             return val
-        if hasattr(val, 'isoformat'): # Handle other date-like objects
+        if hasattr(val, 'isoformat'): 
             return datetime.fromisoformat(val.isoformat())
         try:
-            # Handle standard ISO strings and split out potential timezone/extra info
-            clean_val = str(val).replace('Z', '+00:00').split('.')[0] # Remove microsecs if bothering
+            clean_val = str(val).replace('Z', '+00:00').split('.')[0]
             if ' ' in clean_val and 'T' not in clean_val:
                 clean_val = clean_val.replace(' ', 'T')
             return datetime.fromisoformat(clean_val)
@@ -714,7 +736,6 @@ async def validate_license_key(key: str) -> dict:
     # Check expiration
     expires_at = parse_datetime(row_dict.get("expires_at"))
     if expires_at:
-        # Normalize to aware UTC for comparison
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         
@@ -732,7 +753,7 @@ async def validate_license_key(key: str) -> dict:
         else:
             expires_at_str = str(row_dict["expires_at"])
     
-    result = {
+    return {
         "valid": True,
         "license_id": row_dict["id"],
         "full_name": row_dict.get("full_name") or row_dict.get("company_name"),
@@ -745,15 +766,6 @@ async def validate_license_key(key: str) -> dict:
         "username": row_dict.get("username"),
         "requests_remaining": 999999 # Unlimited
     }
-    
-    # Cache the result (5 minutes TTL)
-    try:
-        from cache import cache_license_validation
-        await cache_license_validation(key, result, ttl=300)
-    except ImportError:
-        pass
-    
-    return result
 
 
 async def increment_usage(license_id: int, action_type: str, input_preview: str = None):
