@@ -8,6 +8,9 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 
 from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db, DB_TYPE
+from services.file_storage_service import get_file_storage
+
+file_storage = get_file_storage()
 
 # Story expiration (default 24 hours, but we keep them in DB and can filter by date)
 STORY_EXPIRATION_HOURS = int(os.getenv("STORY_EXPIRATION_HOURS", 24))
@@ -86,6 +89,32 @@ async def init_stories_tables():
         else:
             await execute_sql(db, "CREATE INDEX IF NOT EXISTS idx_stories_license ON stories(license_key_id)")
             await execute_sql(db, "CREATE INDEX IF NOT EXISTS idx_stories_created ON stories(created_at)")
+        
+        # 4. Highlights Table
+        await execute_sql(db, f"""
+            CREATE TABLE IF NOT EXISTS story_highlights (
+                id {ID_PK},
+                license_key_id INTEGER NOT NULL,
+                user_id TEXT,
+                title TEXT,
+                cover_media_path TEXT,
+                created_at {TIMESTAMP_NOW},
+                deleted_at TIMESTAMP
+            )
+        """)
+        
+        # Add highlight_id and is_archived columns if they don't exist
+        try:
+            if DB_TYPE == "postgresql":
+                await execute_sql(db, "ALTER TABLE stories ADD COLUMN IF NOT EXISTS highlight_id INTEGER")
+                await execute_sql(db, "ALTER TABLE stories ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE")
+            else:
+                try: await execute_sql(db, "ALTER TABLE stories ADD COLUMN highlight_id INTEGER")
+                except Exception: pass
+                try: await execute_sql(db, "ALTER TABLE stories ADD COLUMN is_archived BOOLEAN DEFAULT FALSE")
+                except Exception: pass
+        except Exception:
+            pass
         
         await commit_db(db)
 
@@ -215,6 +244,70 @@ async def mark_story_viewed(story_id: int, viewer_contact: str, viewer_name: Opt
         except Exception:
             return False
 
+async def get_archived_stories(license_id: int, user_id: Optional[str] = None) -> List[dict]:
+    """Retrieve expired or archived stories for the archive view."""
+    if DB_TYPE == "postgresql":
+        condition = "(expires_at <= NOW() OR is_archived = TRUE)"
+    else:
+        condition = "(expires_at <= datetime('now') OR is_archived = 1)"
+        
+    query = f"""
+        SELECT * FROM stories 
+        WHERE license_key_id = ? AND deleted_at IS NULL AND {condition}
+    """
+    params = [license_id]
+    if user_id:
+        query += " AND user_id = ?"
+        params.append(user_id)
+        
+    query += " ORDER BY created_at DESC"
+    
+    async with get_db() as db:
+        rows = await fetch_all(db, query, params)
+        return [dict(row) for row in rows]
+
+async def create_highlight(license_id: int, user_id: str, title: str, cover_media_path: Optional[str] = None) -> dict:
+    """Create a new story highlight group."""
+    query = """
+        INSERT INTO story_highlights (license_key_id, user_id, title, cover_media_path)
+        VALUES (?, ?, ?, ?)
+    """
+    if DB_TYPE == "postgresql":
+        query += " RETURNING *"
+        async with get_db() as db:
+            row = await fetch_one(db, query, [license_id, user_id, title, cover_media_path])
+            await commit_db(db)
+            return dict(row) if row else {}
+    else:
+        async with get_db() as db:
+            await execute_sql(db, query, [license_id, user_id, title, cover_media_path])
+            row = await fetch_one(db, "SELECT * FROM story_highlights WHERE id = last_insert_rowid()")
+            await commit_db(db)
+            return dict(row) if row else {}
+
+async def get_highlights(license_id: int, user_id: Optional[str] = None) -> List[dict]:
+    """List all highlights for a license/user."""
+    query = "SELECT * FROM story_highlights WHERE license_key_id = ? AND deleted_at IS NULL"
+    params = [license_id]
+    if user_id:
+        query += " AND user_id = ?"
+        params.append(user_id)
+        
+    async with get_db() as db:
+        rows = await fetch_all(db, query, params)
+        return [dict(row) for row in rows]
+
+async def add_story_to_highlight(story_id: int, highlight_id: int) -> bool:
+    """Assign a story to a highlight group."""
+    query = "UPDATE stories SET highlight_id = ? WHERE id = ?"
+    async with get_db() as db:
+        try:
+            await execute_sql(db, query, [highlight_id, story_id])
+            await commit_db(db)
+            return True
+        except Exception:
+            return False
+
 async def get_story_viewers(story_id: int, license_id: int) -> List[dict]:
     """List details of who viewed a specific story."""
     query = """
@@ -231,21 +324,15 @@ async def get_story_viewers(story_id: int, license_id: int) -> List[dict]:
 import asyncio
 
 async def _delete_file_safely(file_path: str):
-    """Utility to delete file from disk if it exists, handling both relative and absolute paths asynchronously."""
+    """Utility to delete file from disk if it exists, using file_storage service."""
     if not file_path:
         return
         
-    # If it's a URL, extract the path part assuming /static/ is the mount point
-    if file_path.startswith('http'):
-        if '/static/' in file_path:
-            parts = file_path.split('/static/')
-            file_path = os.path.join('static', parts[-1])
-    
-    if os.path.exists(file_path):
-        try:
-            await asyncio.to_thread(os.remove, file_path)
-        except Exception:
-            pass # Best effort
+    try:
+        # Use common service for robust URL/Path -> Disk resolution
+        await asyncio.to_thread(file_storage.delete_file, file_path)
+    except Exception:
+        pass # Best effort
 
 async def delete_story(story_id: int, license_id: int, user_id: Optional[str] = None) -> bool:
     """Immediate deletion of a story and its media. Ensures only owner or admin can delete."""
@@ -275,14 +362,17 @@ async def delete_story(story_id: int, license_id: int, user_id: Optional[str] = 
     return False
 
 async def cleanup_expired_stories():
-    """Permanent deletion of stories older than expiry hours or soft-deleted items."""
+    """Permanent deletion of stories older than expiry hours or soft-deleted items, 
+    EXCEPT if they are archived or in a highlight.
+    """
     async with get_db() as db:
-        # 1. Fetch paths of stories to be deleted to clean up disk
+        # We only delete if it's NOT archived and NOT in a highlight
         if DB_TYPE == "postgresql":
-            select_query = f"SELECT media_path, thumbnail_path FROM stories WHERE expires_at < NOW() OR deleted_at IS NOT NULL"
+            condition = "(expires_at < NOW() AND is_archived = FALSE AND highlight_id IS NULL) OR deleted_at IS NOT NULL"
         else:
-            select_query = f"SELECT media_path, thumbnail_path FROM stories WHERE expires_at < datetime('now') OR deleted_at IS NOT NULL"
-        
+            condition = "(expires_at < datetime('now') AND is_archived = 0 AND highlight_id IS NULL) OR deleted_at IS NOT NULL"
+            
+        select_query = f"SELECT media_path, thumbnail_path FROM stories WHERE {condition}"
         expired_stories = await fetch_all(db, select_query)
         
         # 2. Delete files from disk async
@@ -291,10 +381,6 @@ async def cleanup_expired_stories():
             await _delete_file_safely(story.get('thumbnail_path'))
 
         # 3. Delete from DB
-        if DB_TYPE == "postgresql":
-            delete_query = f"DELETE FROM stories WHERE expires_at < NOW() OR deleted_at IS NOT NULL"
-        else:
-            delete_query = f"DELETE FROM stories WHERE expires_at < datetime('now') OR deleted_at IS NOT NULL"
-        
+        delete_query = f"DELETE FROM stories WHERE {condition}"
         await execute_sql(db, delete_query)
         await commit_db(db)

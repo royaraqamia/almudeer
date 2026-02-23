@@ -196,6 +196,19 @@ async def view_story(
             raise HTTPException(status_code=404, detail="القصة غير موجودة")
             
     success = await mark_story_viewed(story_id, viewer_contact, viewer_name)
+    
+    if success:
+        # Broadcast that this story was viewed
+        manager = get_websocket_manager()
+        await manager.send_to_license(
+            license["license_id"],
+            WebSocketMessage(event="story_viewed", data={
+                "story_id": story_id,
+                "viewer_contact": viewer_contact,
+                "viewer_name": viewer_name
+            })
+        )
+        
     return {"success": success}
 
 @router.get("/{story_id}/viewers", response_model=List[StoryViewerDetails])
@@ -231,4 +244,55 @@ async def remove_story(
             WebSocketMessage(event="story_deleted", data={"id": story_id})
         )
         
+    return {"success": success}
+
+@router.get("/archive", response_model=List[StoryResponse])
+async def list_archived_stories(
+    license: dict = Depends(get_license_from_header),
+    user: Optional[dict] = Depends(get_current_user_optional)
+):
+    """List archived/expired stories for the current user."""
+    user_id = user.get("user_id") if user else None
+    stories = await get_archived_stories(license["license_id"], user_id)
+    return stories
+
+@router.get("/highlights", response_model=List[HighlightResponse])
+async def list_highlights(
+    license: dict = Depends(get_license_from_header),
+    user: Optional[dict] = Depends(get_current_user_optional)
+):
+    """List story highlights."""
+    user_id = user.get("user_id") if user else None
+    highlights = await get_highlights(license["license_id"], user_id)
+    return highlights
+
+@router.post("/highlights", response_model=HighlightResponse)
+async def create_new_highlight(
+    data: HighlightCreate,
+    license: dict = Depends(get_license_from_header),
+    user: Optional[dict] = Depends(get_current_user_optional)
+):
+    """Create a new highlight group and optionally add stories to it."""
+    user_id = user.get("user_id") if user else "مستخدم"
+    highlight = await create_highlight(
+        license["license_id"], 
+        user_id, 
+        data.title, 
+        data.cover_media_path
+    )
+    
+    if highlight and data.story_ids:
+        for sid in data.story_ids:
+            await add_story_to_highlight(sid, highlight["id"])
+            
+    return highlight
+
+@router.post("/{story_id}/highlight/{highlight_id}")
+async def add_to_highlight(
+    story_id: int,
+    highlight_id: int,
+    license: dict = Depends(get_license_from_header)
+):
+    """Add a specific story to a highlight."""
+    success = await add_story_to_highlight(story_id, highlight_id)
     return {"success": success}

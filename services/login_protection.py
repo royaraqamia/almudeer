@@ -35,6 +35,8 @@ class LoginProtection:
     def _init_redis(self):
         """Try to connect to Redis if available."""
         redis_url = os.getenv("REDIS_URL")
+        environment = os.getenv("ENVIRONMENT", "development")
+        
         if redis_url:
             try:
                 import redis
@@ -44,6 +46,20 @@ class LoginProtection:
             except Exception as e:
                 logger.warning(f"Redis not available for login protection: {e}")
                 self._redis_client = None
+                # SECURITY WARNING: Running in production without Redis
+                if environment == "production":
+                    logger.error(
+                        "CRITICAL: Login protection running in-memory mode in PRODUCTION! "
+                        "Lockout state will not be synced across instances. "
+                        "Configure REDIS_URL environment variable."
+                    )
+        else:
+            # SECURITY WARNING: Running in production without Redis
+            if environment == "production":
+                logger.error(
+                    "CRITICAL: REDIS_URL not set in PRODUCTION! Login protection using in-memory mode. "
+                    "Lockout state will not be synced across instances."
+                )
     
     def _get_key(self, identifier: str) -> str:
         """Get Redis key for identifier."""

@@ -35,6 +35,18 @@ class StoryViewerDetails(BaseModel):
     viewer_name: Optional[str]
     viewed_at: datetime
 
+class HighlightCreate(BaseModel):
+    title: str
+    cover_media_path: Optional[str] = None
+    story_ids: List[int] = []
+
+class HighlightResponse(BaseModel):
+    id: int
+    user_id: str
+    title: str
+    cover_media_path: Optional[str]
+    created_at: datetime
+
 class StoriesListResponse(BaseModel):
     success: bool
     stories: List[StoryResponse]

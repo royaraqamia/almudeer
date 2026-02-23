@@ -1340,6 +1340,7 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
                 SET is_read = TRUE
                 WHERE license_key_id = ?
                 AND ({sender_where})
+                AND (is_read IS NOT TRUE)
             """
         else:
             query = f"""
@@ -1347,6 +1348,7 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
                 SET is_read = 1
                 WHERE license_key_id = ?
                 AND ({sender_where})
+                AND (is_read = 0 OR is_read IS NULL)
             """
             
         await execute_sql(db, query, params)
@@ -2361,7 +2363,7 @@ async def upsert_conversation_state(
         # Optimization: Combined Counts and Latest Message
         stats_query = f"""
             SELECT 
-                (SELECT COUNT(*) FROM inbox_messages WHERE license_key_id = ? AND ({in_where}) AND deleted_at IS NULL AND (is_read = 0 OR is_read IS NULL OR is_read IS FALSE)) as unread_count,
+                (SELECT COUNT(*) FROM inbox_messages WHERE license_key_id = ? AND ({in_where}) AND deleted_at IS NULL AND (is_read IS NOT TRUE)) as unread_count,
                 (SELECT COUNT(*) FROM inbox_messages WHERE license_key_id = ? AND ({in_where}) AND deleted_at IS NULL) as count_in,
                 (SELECT COUNT(*) FROM outbox_messages WHERE license_key_id = ? AND ({out_where}) AND deleted_at IS NULL) as count_out
         """

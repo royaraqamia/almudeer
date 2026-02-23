@@ -23,28 +23,21 @@ logger = get_logger(__name__)
 # ============ Configuration ============
 
 def _get_jwt_secret_key() -> str:
-    """Get JWT secret key from environment, fail fast in production if not set."""
+    """Get JWT secret key from environment. FAILS FAST if not set."""
     key = os.getenv("JWT_SECRET_KEY")
     if key:
         return key
     
-    # In production, we MUST have a stable secret key
-    if os.getenv("ENVIRONMENT", "development") == "production":
-        logger.error("JWT_SECRET_KEY is NOT set in production environment!")
-        raise ValueError(
-            "JWT_SECRET_KEY must be set in production! "
-            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
-        )
-    
-    # Development only: Check for a local .env file or fallback
-    logger.warning(
-        "JWT_SECRET_KEY not set in environment. "
-        "Falling back to a potentially unstable key. "
-        "Run 'python scripts/generate_secrets.py' to stabilize your development environment."
+    # SECURITY: No fallback - fail fast in ALL environments
+    # This prevents accidental use of weak secrets
+    logger.error(
+        "JWT_SECRET_KEY is NOT set! "
+        "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
     )
-    
-    # Fallback for dev: Use a stable key to prevent session invalidation on restarts
-    return "mudeer_stable_dev_secret_key_777"
+    raise ValueError(
+        "JWT_SECRET_KEY must be set! "
+        "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+    )
 
 
 @dataclass

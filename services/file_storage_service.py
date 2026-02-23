@@ -119,6 +119,50 @@ class FileStorageService:
             logger.error(f"Failed to save file async: {e}")
             raise
 
+    def delete_file(self, path_or_url: str) -> bool:
+        """
+        Delete a file from storage by its relative path or public URL.
+        
+        Args:
+            path_or_url: Relative path (e.g. 'stories/file.pkg') or public URL
+            
+        Returns:
+            bool: True if deleted successfully, False otherwise
+        """
+        if not path_or_url:
+            return False
+            
+        try:
+            relative_path = path_or_url
+            
+            # If it's a URL, extract the part after the prefix
+            if "://" in path_or_url or path_or_url.startswith("/"):
+                if self.url_prefix in path_or_url:
+                    relative_path = path_or_url.split(self.url_prefix)[-1].lstrip("/")
+                elif "/static/" in path_or_url: # Fallback for old style URLs
+                    relative_path = path_or_url.split("/static/")[-1].lstrip("/")
+                    # Handle if the prefix was /static/ instead of /static/uploads
+                    if relative_path.startswith("uploads/"):
+                        relative_path = relative_path.replace("uploads/", "", 1)
+            
+            # Construct absolute path
+            abs_path = os.path.join(self.upload_dir, relative_path)
+            
+            # Security check: ensure path is inside upload_dir
+            if not os.path.abspath(abs_path).startswith(os.path.abspath(self.upload_dir)):
+                logger.warning(f"Security: Attempted to delete file outside upload directory: {abs_path}")
+                return False
+                
+            if os.path.exists(abs_path):
+                os.remove(abs_path)
+                logger.info(f"Deleted file from storage: {abs_path}")
+                return True
+                
+            return False
+        except Exception as e:
+            logger.error(f"Error deleting file {path_or_url}: {e}")
+            return False
+
 # Singleton instance
 _instance = None
 

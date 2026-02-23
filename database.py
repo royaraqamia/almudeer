@@ -295,7 +295,7 @@ async def _init_sqlite_tables(db):
             device_name VARCHAR(255),
             location VARCHAR(255),
             user_agent TEXT,
-            FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
+            FOREIGN KEY (license_key_id) REFERENCES license_keys(id) ON DELETE CASCADE
         )
     """)
 
@@ -518,13 +518,33 @@ async def _init_postgresql_tables(conn):
         pass
 
     # Add foreign key to device_sessions after license_keys is created
+    # SECURITY: Add CASCADE DELETE to clean up sessions when license is deleted
     await conn.execute(adapt_sql_for_db("""
         DO $$
         BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'device_sessions_license_key_id_fkey') THEN
                 ALTER TABLE device_sessions
                 ADD CONSTRAINT device_sessions_license_key_id_fkey
-                FOREIGN KEY (license_key_id) REFERENCES license_keys(id);
+                FOREIGN KEY (license_key_id) REFERENCES license_keys(id) ON DELETE CASCADE;
+            END IF;
+        END
+        $$;
+    """))
+    
+    # Migration: If constraint exists without CASCADE, recreate it with CASCADE
+    await conn.execute(adapt_sql_for_db("""
+        DO $$
+        BEGIN
+            -- Check if the constraint exists but doesn't have CASCADE
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint 
+                WHERE conname = 'device_sessions_license_key_id_fkey' 
+                AND confdeltype != 'c'::"char"  -- 'c' means CASCADE
+            ) THEN
+                ALTER TABLE device_sessions DROP CONSTRAINT device_sessions_license_key_id_fkey;
+                ALTER TABLE device_sessions
+                ADD CONSTRAINT device_sessions_license_key_id_fkey
+                FOREIGN KEY (license_key_id) REFERENCES license_keys(id) ON DELETE CASCADE;
             END IF;
         END
         $$;
@@ -575,8 +595,9 @@ async def generate_license_key(
     username: Optional[str] = None
 ) -> str:
     """Generate a new license key and store it in the database"""
-    # Generate a readable license key format: MUDEER-XXXX-XXXX-XXXX
-    raw_key = f"MUDEER-{secrets.token_hex(2).upper()}-{secrets.token_hex(2).upper()}-{secrets.token_hex(2).upper()}"
+    # SECURITY: Generate high-entropy license key format: MUDEER-XXXXXXXX-XXXXXXXX-XXXXXXXX
+    # Each segment is 8 hex chars (4 bytes = 32 bits), total = 96 bits of entropy + prefix
+    raw_key = f"MUDEER-{secrets.token_hex(4).upper()}-{secrets.token_hex(4).upper()}-{secrets.token_hex(4).upper()}"
     key_hash = hash_license_key(raw_key)
     
     # Generate a unique referral code (short)

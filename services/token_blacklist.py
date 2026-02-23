@@ -29,6 +29,8 @@ class TokenBlacklist:
     def _init_redis(self):
         """Try to connect to Redis if available."""
         redis_url = os.getenv("REDIS_URL")
+        environment = os.getenv("ENVIRONMENT", "development")
+        
         if redis_url:
             try:
                 import redis
@@ -38,8 +40,21 @@ class TokenBlacklist:
             except Exception as e:
                 logger.warning(f"Redis not available for token blacklist: {e}")
                 self._redis_client = None
+                # SECURITY WARNING: Running in production without Redis
+                if environment == "production":
+                    logger.error(
+                        "CRITICAL: Token blacklist running in-memory mode in PRODUCTION! "
+                        "Blacklisted tokens will not be synced across instances and will be lost on restart. "
+                        "Configure REDIS_URL environment variable."
+                    )
         else:
             logger.info("Token blacklist using in-memory storage (tokens won't persist across restarts)")
+            # SECURITY WARNING: Running in production without Redis
+            if environment == "production":
+                logger.error(
+                    "CRITICAL: REDIS_URL not set in PRODUCTION! Token blacklist using in-memory mode. "
+                    "Blacklisted tokens will not be synced across instances and will be lost on restart."
+                )
     
     def blacklist_token(self, jti: str, expires_at: datetime) -> bool:
         """
@@ -110,8 +125,9 @@ class TokenBlacklist:
                 
         except Exception as e:
             logger.error(f"Failed to check token blacklist: {e}")
-            # Fail open (allow) to prevent lockouts on Redis failure
-            return False
+            # SECURITY: Fail closed - assume blacklisted on error to prevent
+            # potentially revoked tokens from being accepted during outages
+            return True
     
     def _cleanup_expired(self):
         """Remove expired entries from memory store."""

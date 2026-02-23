@@ -27,14 +27,19 @@ async def resolve_location(ip: str) -> str:
     
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            # Note: ip-api.com is free for non-commercial use, 45 requests per minute
-            response = await client.get(f"http://ip-api.com/json/{ip}?fields=status,message,country,city")
+            # SECURITY: Use HTTPS to prevent MITM attacks on location data
+            # ip-api.com free tier does NOT support HTTPS, so we use ipapi.co instead
+            # ipapi.co free tier: 1000 requests/month, HTTPS supported
+            response = await client.get(f"https://ipapi.co/{ip}/json/")
             if response.status_code == 200:
                 data = response.json()
-                if data.get("status") == "success":
-                    location = f"{data.get('city')}, {data.get('country')}"
-                    _geoip_cache[ip] = location
-                    return location
+                if not data.get("error"):
+                    city = data.get("city", "")
+                    country = data.get("country_name", "")
+                    if city or country:
+                        location = f"{city}, {country}".strip(", ")
+                        _geoip_cache[ip] = location
+                        return location
     except Exception as e:
         logger.debug(f"GeoIP resolution failed for {ip}: {e}")
     
