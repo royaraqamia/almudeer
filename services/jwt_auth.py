@@ -293,6 +293,26 @@ async def refresh_access_token(
     jti = payload.get("jti")
     family_id = payload.get("family_id")
     license_id = payload.get("license_id")
+    family_id = payload.get("family_id")
+
+    # Real-time Session Revocation Check
+    if family_id:
+        from db_helper import get_db, fetch_one
+        try:
+            async with get_db() as db:
+                session = await fetch_one(db, "SELECT is_revoked FROM device_sessions WHERE family_id = ?", [family_id])
+                if session and session.get("is_revoked"):
+                    logger.warning(f"Rejecting access token for revoked session: {family_id}")
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Session has been revoked",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error checking session revocation: {e}")
+            pass
     
     if not license_id or not jti:
         return None
@@ -395,6 +415,26 @@ async def get_current_user(
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    # Real-time Session Revocation Check (Specific to this device/session)
+    family_id = payload.get("family_id")
+    if family_id:
+        from db_helper import get_db, fetch_one
+        try:
+            async with get_db() as db:
+                session = await fetch_one(db, "SELECT is_revoked FROM device_sessions WHERE family_id = ?", [family_id])
+                if session and session.get("is_revoked"):
+                    logger.warning(f"Blocking access token for revoked session: {family_id}")
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Session has been revoked",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error checking session revocation in get_current_user: {e}")
+            pass
     
     # Senior Engineering Hardening: Atomic Validation via Database Layer
     license_id = payload.get("license_id")
