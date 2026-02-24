@@ -152,7 +152,8 @@ async def get_tasks(
             query += " AND (updated_at > ? OR synced_at > ?)"
             params.extend([since, since])
             
-        query += " ORDER BY created_at DESC"
+        # Unified Sorting: Active/Completed -> order_index -> newest
+        query += " ORDER BY is_completed ASC, order_index ASC, created_at DESC"
         
         if limit is not None:
             query += f" LIMIT {limit} OFFSET {offset}"
@@ -203,7 +204,7 @@ def _parse_comment_row(row: dict) -> dict:
     return row
 
 async def create_task(license_id: int, task_data: dict) -> dict:
-    """Create or update a task atomically (Upsert)"""
+    """Create or update a task atomically (Upsert) with LWW"""
     async with get_db() as db:
         # Convert list to JSON string if needed
         import json
@@ -254,22 +255,20 @@ async def create_task(license_id: int, task_data: dict) -> dict:
             task_data.get('assigned_to'),
             json.dumps(task_data.get('attachments', [])),
             task_data.get('visibility', 'shared'),
-            task_data.get('updated_at', datetime.utcnow().isoformat()), # Insert specific updated_at to respect client LWW
+            task_data.get('updated_at', datetime.utcnow().isoformat()),
             license_id  # For the WHERE clause in ON CONFLICT
         ))
         await commit_db(db)
         return await get_task(license_id, task_data['id'])
 
 async def update_task(license_id: int, task_id: str, task_data: dict) -> Optional[dict]:
-    """Update a task"""
+    """Update a task with LWW conflict resolution"""
     fields = []
     values = []
     
-    # helper to add field if present
     import json
     for key, val in task_data.items():
-        if val is not None and key not in ['id', 'license_key_id']:
-            # Handle special field types for database
+        if val is not None and key not in ['id', 'license_key_id', 'updated_at']:
             if key == 'sub_tasks' and isinstance(val, list):
                 val = json.dumps(val)
             if key == 'attachments' and isinstance(val, list):
@@ -281,11 +280,15 @@ async def update_task(license_id: int, task_id: str, task_data: dict) -> Optiona
     if not fields:
         return await get_task(license_id, task_id)
         
-    fields.append("updated_at = CURRENT_TIMESTAMP")
+    updated_at = task_data.get('updated_at', datetime.utcnow().isoformat())
+    fields.append("updated_at = ?")
+    values.append(updated_at)
+    
     values.append(license_id)
     values.append(task_id)
+    values.append(updated_at) # For the LWW check in WHERE
     
-    query = f"UPDATE tasks SET {', '.join(fields)} WHERE license_key_id = ? AND id = ?"
+    query = f"UPDATE tasks SET {', '.join(fields)} WHERE license_key_id = ? AND id = ? AND (updated_at IS NULL OR ? >= updated_at)"
     
     async with get_db() as db:
         await execute_sql(db, query, tuple(values))

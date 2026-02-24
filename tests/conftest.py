@@ -15,6 +15,7 @@ os.environ["DB_TYPE"] = "sqlite"
 os.environ["DATABASE_PATH"] = "test_almudeer.db"
 os.environ["ADMIN_KEY"] = "test-admin-key"
 os.environ["ENCRYPTION_KEY"] = "test-encryption-key-for-tests"
+os.environ["JWT_SECRET_KEY"] = "test-jwt-secret-key-at-least-thirty-two-chars-long"
 
 # Add backend to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

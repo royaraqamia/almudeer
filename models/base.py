@@ -152,11 +152,17 @@ async def init_enhanced_tables():
                 reply_to_id INTEGER,
                 reply_to_sender_name TEXT,
                 is_forwarded BOOLEAN DEFAULT FALSE,
+                delivery_status TEXT DEFAULT 'pending', -- Updated: Real-time status tracking
                 created_at {TIMESTAMP_NOW},
                 FOREIGN KEY (inbox_message_id) REFERENCES inbox_messages(id),
                 FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
             )
         """)
+        
+        # Migration for delivery_status
+        try:
+            await execute_sql(db, "ALTER TABLE outbox_messages ADD COLUMN delivery_status TEXT DEFAULT 'pending'")
+        except: pass
         
         # Telegram Phone Sessions (MTProto for user accounts)
         await execute_sql(db, f"""

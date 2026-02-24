@@ -117,36 +117,45 @@ async def upload_file(
     elif content_type.startswith("video/"):
         item_type = "video"
         
-    # Save file using storage service
-    try:
-        # Save file asynchronously
-        relative_path, public_url = await file_storage.save_upload_file_async(
-            upload_file=file,
-            filename=file.filename,
-            mime_type=content_type,
-            subfolder="library"
-        )
-        
-        file_size = len(content)
-        
-        # Add to DB
-        item = await add_library_item(
-            license_id=license["license_id"],
-            user_id=user_id,
-            item_type=item_type,
-            customer_id=customer_id,
-            title=sanitize_string(title or file.filename),
-            file_path=public_url,
-            file_size=file_size,
-            mime_type=content_type
-        )
-        
-        return {"success": True, "item": item}
-    except ValueError as e:
-        # DB level errors (e.g. limit reached)
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"حدث خطأ أثناء الرفع: {str(e)}")
+        # Save file using storage service
+        try:
+            # We need the file size for both storage limit check and DB record
+            await file.seek(0, 2)
+            file_size = file.tell()
+            await file.seek(0)
+
+            # Check storage limit BEFORE saving to disk
+            from models.library import get_storage_usage, MAX_STORAGE_PER_LICENSE
+            current_usage = await get_storage_usage(license["license_id"])
+            if current_usage + file_size > MAX_STORAGE_PER_LICENSE:
+                raise ValueError("تجاوزت حد التخزين المسموح به")
+
+            # Save file asynchronously
+            relative_path, public_url = await file_storage.save_upload_file_async(
+                upload_file=file,
+                filename=file.filename,
+                mime_type=content_type,
+                subfolder="library"
+            )
+            
+            # Add to DB
+            item = await add_library_item(
+                license_id=license["license_id"],
+                user_id=user_id,
+                item_type=item_type,
+                customer_id=customer_id,
+                title=sanitize_string(title or file.filename),
+                file_path=public_url,
+                file_size=file_size,
+                mime_type=content_type
+            )
+            
+            return {"success": True, "item": item}
+        except ValueError as e:
+            # DB level errors (e.g. limit reached)
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"حدث خطأ أثناء الرفع: {str(e)}")
 
 @router.patch("/{item_id}")
 async def update_item(

@@ -183,7 +183,7 @@ class TestChatActions:
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.post(
                     "/api/integrations/conversations/user123/send",
-                    json={"message": "Reply text"}
+                    data={"message": "Reply text"}
                 )
                 
                 assert response.status_code == 200

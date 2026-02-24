@@ -84,13 +84,10 @@ async def add_library_item(
 ) -> dict:
     """Add a new item to the library."""
     
-    # Check storage limit
+    # Check storage limit (already checked in route for uploads, but good for other entry points)
     current_usage = await get_storage_usage(license_id)
     if current_usage + (file_size or 0) > MAX_STORAGE_PER_LICENSE:
         raise ValueError("تجاوزت حد التخزين المسموح به")
-
-    if file_size and file_size > MAX_FILE_SIZE:
-        raise ValueError(f"حجم الملف كبير جداً (الحد الأقصى {MAX_FILE_SIZE / 1024 / 1024}MB)")
 
     now = datetime.utcnow()
     ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
@@ -161,6 +158,11 @@ async def delete_library_item(license_id: int, item_id: int, user_id: Optional[s
         if not item:
             return False
             
+        # Physical file deletion
+        if item.get("file_path"):
+            from services.file_storage_service import get_file_storage
+            get_file_storage().delete_file(item["file_path"])
+
         update_query = "UPDATE library_items SET deleted_at = ? WHERE id = ? AND license_key_id = ?"
         update_params = [ts_value, item_id, license_id]
         if user_id:

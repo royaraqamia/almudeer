@@ -258,7 +258,8 @@ async def update_existing_task(
                 from models.tasks import create_task
                 await create_task(license_id, cloned_task)
                 
-                # Note: The broadcast_task_sync handles sending an update to everyone to pull down this newly created task
+                # Broadcaster: Notify all clients to pull the newly spawned task
+                background_tasks.add_task(broadcast_task_sync, license_id, task_id=new_task_id, change_type="create")
                 
     return result
 

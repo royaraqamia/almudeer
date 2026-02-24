@@ -955,28 +955,31 @@ async def get_conversation_messages_cursor(
     # Parse cursor if provided
     cursor_created_at = None
     cursor_id = None
+    cursor_direction = None
     if cursor:
         try:
             # Decode base64 cursor
             decoded = base64.b64decode(cursor).decode('utf-8')
-            parts = decoded.rsplit('_', 1)
-            if len(parts) == 2:
+            parts = decoded.rsplit('_', 2)
+            if len(parts) >= 2:
                 # Parse timestamp to datetime object
-                # asyncpg requires datetime object, not string
                 try:
                     cursor_created_at = datetime.fromisoformat(parts[0])
-                    # Ensure naive UTC if needed (similar to save_inbox_message)
+                    # Ensure naive UTC
                     if cursor_created_at.tzinfo is not None:
                         cursor_created_at = cursor_created_at.astimezone(timezone.utc).replace(tzinfo=None)
                 except ValueError:
-                    # Fallback or treat as invalid
                     cursor_created_at = None
                 
                 cursor_id = int(parts[1])
                 
+                if len(parts) == 3:
+                    cursor_direction = parts[2] # 'i' or 'o'
+                
                 # If parsing failed, invalidate cursor
                 if cursor_created_at is None:
                     cursor_id = None
+                    cursor_direction = None
                     
         except Exception:
             pass  # Invalid cursor, start from beginning
@@ -1106,20 +1109,38 @@ async def get_conversation_messages_cursor(
         where_clauses = []
         
         if cursor_created_at and cursor_id:
+             # Use a robust tie-breaking filter that handles potential ID collisions between tables
+             # by including direction in the cursor if necessary, or just using a strict inequality.
+             # 'incoming' sorts before 'outgoing' if same TS and same ID (unlikely but possible).
+             d_val = 1 if cursor_direction == 'i' else 2
+             
              if direction == "older":
-                 where_clauses.append("(effective_ts < ? OR (effective_ts = ? AND id < ?))")
-                 full_params.extend([cursor_created_at, cursor_created_at, cursor_id])
+                 # (effective_ts, direction_rank, id) < (cursor_ts, cursor_d_rank, cursor_id)
+                 where_clauses.append("""
+                    (effective_ts < ?) OR 
+                    (effective_ts = ? AND (
+                        (CASE WHEN direction = 'incoming' THEN 1 ELSE 2 END < ?) OR
+                        (CASE WHEN direction = 'incoming' THEN 1 ELSE 2 END = ? AND id < ?)
+                    ))
+                 """)
+                 full_params.extend([cursor_created_at, cursor_created_at, d_val, d_val, cursor_id])
              else:
-                 where_clauses.append("(effective_ts > ? OR (effective_ts = ? AND id > ?))")
-                 full_params.extend([cursor_created_at, cursor_created_at, cursor_id])
+                 where_clauses.append("""
+                    (effective_ts > ?) OR 
+                    (effective_ts = ? AND (
+                        (CASE WHEN direction = 'incoming' THEN 1 ELSE 2 END > ?) OR
+                        (CASE WHEN direction = 'incoming' THEN 1 ELSE 2 END = ? AND id > ?)
+                    ))
+                 """)
+                 full_params.extend([cursor_created_at, cursor_created_at, d_val, d_val, cursor_id])
                  
         if where_clauses:
             final_query += " WHERE " + " AND ".join(where_clauses)
             
         if direction == "older":
-            final_query += " ORDER BY effective_ts DESC, id DESC"
+            final_query += " ORDER BY effective_ts DESC, (CASE WHEN direction = 'incoming' THEN 1 ELSE 2 END) DESC, id DESC"
         else:
-            final_query += " ORDER BY effective_ts ASC, id ASC"
+            final_query += " ORDER BY effective_ts ASC, (CASE WHEN direction = 'incoming' THEN 1 ELSE 2 END) ASC, id ASC"
             
         final_query += " LIMIT ?"
         full_params.append(limit + 1)
@@ -1159,7 +1180,8 @@ async def get_conversation_messages_cursor(
             ts = last_msg.get("effective_ts")
             if hasattr(ts, 'isoformat'):
                 ts = ts.isoformat()
-            cursor_str = f"{ts}_{last_msg['id']}"
+            d = 'i' if last_msg['direction'] == 'incoming' else 'o'
+            cursor_str = f"{ts}_{last_msg['id']}_{d}"
             next_cursor = base64.b64encode(cursor_str.encode('utf-8')).decode('utf-8')
             
         # Fetch presence info for the peer
