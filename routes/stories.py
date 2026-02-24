@@ -267,6 +267,11 @@ async def view_story(
     license: dict = Depends(get_license_from_header)
 ):
     """Mark a story as viewed by a contact."""
+    # Sanitize viewer_contact to prevent injection
+    viewer_contact = sanitize_string(viewer_contact, max_length=100)
+    if viewer_name:
+        viewer_name = sanitize_string(viewer_name, max_length=200)
+    
     # Verify the story belongs to this license key
     async with get_db() as db:
         story = await fetch_one(db, "SELECT id FROM stories WHERE id = ? AND license_key_id = ?", [story_id, license["license_id"]])
@@ -454,16 +459,31 @@ async def batch_view_stories(
     max_batch_size = 50
     story_ids = data.story_ids[:max_batch_size]
     
-    # Verify all stories belong to this license
+    # Validate all IDs are integers to prevent SQL injection via type confusion
+    valid_ids = []
+    for sid in story_ids:
+        try:
+            valid_ids.append(int(sid))
+        except (ValueError, TypeError):
+            pass  # Skip invalid IDs
+    
+    if not valid_ids:
+        return {"success": True, "processed_count": 0}
+    
+    # Sanitize viewer_contact
+    viewer_contact = sanitize_string(data.viewer_contact, max_length=100)
+    viewer_name = sanitize_string(data.viewer_name, max_length=200) if data.viewer_name else None
+    
+    # Verify all stories belong to this license using parameterized queries
     async with get_db() as db:
-        placeholders = ','.join(['?' for _ in story_ids])
+        placeholders = ','.join(['?' for _ in valid_ids])
         query = f"""
             SELECT id FROM stories 
             WHERE id IN ({placeholders}) 
             AND license_key_id = ?
             AND deleted_at IS NULL
         """
-        valid_stories = await fetch_all(db, query, story_ids + [license["license_id"]])
+        valid_stories = await fetch_all(db, query, valid_ids + [license["license_id"]])
         valid_ids = [row['id'] for row in valid_stories]
     
     if not valid_ids:
@@ -471,8 +491,8 @@ async def batch_view_stories(
     
     success = await mark_stories_viewed_batch(
         valid_ids, 
-        data.viewer_contact, 
-        data.viewer_name,
+        viewer_contact, 
+        viewer_name,
         license["license_id"]
     )
     
@@ -484,8 +504,8 @@ async def batch_view_stories(
                 license["license_id"],
                 WebSocketMessage(event="story_viewed", data={
                     "story_id": story_id,
-                    "viewer_contact": data.viewer_contact,
-                    "viewer_name": data.viewer_name
+                    "viewer_contact": viewer_contact,
+                    "viewer_name": viewer_name
                 })
             )
     

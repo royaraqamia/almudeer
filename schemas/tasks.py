@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 
@@ -15,20 +15,34 @@ class Attachment(BaseModel):
     file_size: Optional[int] = None
 
 class TaskBase(BaseModel):
-    title: str = Field(..., min_length=1)
-    description: Optional[str] = None
+    title: str = Field(..., min_length=1, max_length=500)
+    description: Optional[str] = Field(default=None, max_length=5000)
     is_completed: bool = False
     due_date: Optional[datetime] = None
     alarm_enabled: bool = False
     alarm_time: Optional[datetime] = None
-    recurrence: Optional[str] = None
+    recurrence: Optional[str] = Field(default=None, description="daily, weekly, monthly")
     sub_tasks: Optional[List[SubTask]] = []
-    category: Optional[str] = None
+    category: Optional[str] = Field(default=None, max_length=100)
     order_index: float = 0.0
     created_by: Optional[str] = None
     assigned_to: Optional[str] = None
     attachments: Optional[List[Attachment]] = []
     visibility: str = "shared" # shared, private
+
+    @field_validator('recurrence')
+    @classmethod
+    def validate_recurrence(cls, v):
+        if v is not None and v.lower() not in ('daily', 'weekly', 'monthly'):
+            raise ValueError('recurrence must be daily, weekly, or monthly')
+        return v
+        
+    @field_validator('visibility')
+    @classmethod
+    def validate_visibility(cls, v):
+        if v not in ('shared', 'private'):
+            raise ValueError('visibility must be shared or private')
+        return v
 
 class TaskCreate(TaskBase):
     id: str = Field(..., description="UUID from client")

@@ -137,10 +137,13 @@ async def get_tasks(
     offset: Optional[int] = 0
 ) -> List[dict]:
     """Get tasks for a license. Private tasks only visible to creator."""
+    if license_id <= 0:
+        return []
+        
     async with get_db() as db:
         query = """
             SELECT * FROM tasks 
-            WHERE (license_key_id = ? OR license_key_id = 0)
+            WHERE license_key_id = ?
             AND (visibility = 'shared' OR created_by = ?)
         """
         params = [license_id, user_id]
