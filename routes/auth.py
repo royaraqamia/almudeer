@@ -218,52 +218,5 @@ async def logout(
 
 # ============ Session Management ============
 
-@router.get("/sessions")
-async def get_active_sessions(user: dict = Depends(get_current_user)):
-    """Get all active sessions for the current user."""
-    license_id = user.get("license_id")
-    if not license_id:
-        return {"success": True, "sessions": []}
-        
-    from database import DB_TYPE
-    from db_helper import get_db, fetch_all
-    
-    current_time_sql = "NOW()" if DB_TYPE == "postgresql" else "CURRENT_TIMESTAMP"
-    
-    async with get_db() as db:
-        rows = await fetch_all(db, f"""
-            SELECT family_id, device_fingerprint, ip_address, created_at, last_used_at 
-            FROM device_sessions 
-            WHERE license_key_id = ? 
-            AND is_revoked = {'FALSE' if DB_TYPE == 'postgresql' else '0'} 
-            AND expires_at > {current_time_sql}
-            ORDER BY last_used_at DESC
-        """, [license_id])
-        return {
-            "success": True,
-            "sessions": [dict(row) for row in rows]
-        }
-
-
-class RevokeSessionRequest(BaseModel):
-    family_id: str
-
-
-@router.post("/sessions/revoke")
-async def revoke_session(data: RevokeSessionRequest, user: dict = Depends(get_current_user)):
-    """Revoke a specific device session."""
-    license_id = user.get("license_id")
-    if not license_id:
-        raise HTTPException(status_code=400, detail="Invalid user session")
-        
-    from database import DB_TYPE
-    from db_helper import get_db, execute_sql, commit_db
-    
-    async with get_db() as db:
-        if DB_TYPE == "postgresql":
-            await execute_sql(db, "UPDATE device_sessions SET is_revoked = TRUE WHERE family_id = ? AND license_key_id = ?", [data.family_id, license_id])
-        else:
-            await execute_sql(db, "UPDATE device_sessions SET is_revoked = 1 WHERE family_id = ? AND license_key_id = ?", [data.family_id, license_id])
-        await commit_db(db)
-        
-    return {"success": True, "message": "تم تسجيل الخروج من الجهاز بنجاح"}
+# Removed: Public session management endpoints. 
+# Internal session tracking (device_sessions) is preserved for JWT security (RTR).
