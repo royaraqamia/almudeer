@@ -12,18 +12,28 @@ logger = get_logger(__name__)
 
 # Cache for GeoIP to avoid redundant API calls
 # In production, this should be moved to Redis
-_geoip_cache = {}
+# MEDIUM FIX #6: Added TTL to prevent stale data
+_geoip_cache: dict[str, tuple[str, datetime]] = {}
+_GEOIP_CACHE_TTL = timedelta(hours=24)  # Cache for 24 hours
 
 async def resolve_location(ip: str) -> str:
     """
     Resolve IP address to a human-readable location (City, Country).
     Uses ip-api.com (Free tier: 45 requests/min).
+    
+    MEDIUM FIX #6: Added TTL-based caching to reduce API calls
     """
     if not ip or ip in ("127.0.0.1", "localhost", "::1"):
         return "Local Network"
     
+    # Check cache with TTL
     if ip in _geoip_cache:
-        return _geoip_cache[ip]
+        cached_value, cached_time = _geoip_cache[ip]
+        if datetime.utcnow() - cached_time < _GEOIP_CACHE_TTL:
+            return cached_value
+        else:
+            # Cache expired, remove it
+            del _geoip_cache[ip]
     
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
@@ -38,7 +48,7 @@ async def resolve_location(ip: str) -> str:
                     country = data.get("country_name", "")
                     if city or country:
                         location = f"{city}, {country}".strip(", ")
-                        _geoip_cache[ip] = location
+                        _geoip_cache[ip] = (location, datetime.utcnow())
                         return location
     except Exception as e:
         logger.debug(f"GeoIP resolution failed for {ip}: {e}")

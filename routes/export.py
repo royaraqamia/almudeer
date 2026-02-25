@@ -97,7 +97,7 @@ async def get_export_data(license_id: int, start: datetime, end: datetime):
             """
             SELECT * FROM customers 
             WHERE license_key_id = ?
-            ORDER BY total_messages DESC
+            ORDER BY name ASC
             """,
             [license_id],
         )
@@ -136,7 +136,7 @@ def generate_csv(data: dict, data_type: str) -> str:
     output.write('\ufeff')
     
     if data_type == "customers":
-        fieldnames = ["id", "name", "phone", "email", "company", "total_messages", "is_vip", "created_at"]
+        fieldnames = ["id", "name", "phone", "email", "company", "is_vip", "created_at"]
         writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
         writer.writeheader()
         for customer in data.get("customers", []):
@@ -275,13 +275,11 @@ def generate_html_report(data: dict, license_name: str = "شركتك") -> str:
         <table>
             <tr>
                 <th>الاسم</th>
-                <th>الرسائل</th>
                 <th>VIP</th>
             </tr>
             {''.join(f'''
             <tr>
                 <td>{c.get('name', 'بدون اسم')}</td>
-                <td>{c.get('total_messages', 0)}</td>
                 <td>{'⭐' if c.get('is_vip') else '-'}</td>
             </tr>
             ''' for c in customers[:10])}

@@ -208,14 +208,14 @@ async def create_token_pair(
                     if DB_TYPE == "postgresql":
                         await execute_sql(db, """
                             UPDATE device_sessions 
-                            SET refresh_token_jti = ?, last_used_at = NOW(), expires_at = ?, ip_address = COALESCE(?, ip_address), device_secret_hash = COALESCE(?, device_secret_hash),
+                            SET refresh_token_jti = ?, last_used_at = NOW(), expires_at = ?, ip_address = COALESCE(?, ip_address), device_secret_hash = ?,
                                 device_name = COALESCE(?, device_name), location = COALESCE(?, location), user_agent = COALESCE(?, user_agent)
                             WHERE family_id = ?
                         """, [refresh_jti, expires_db, ip_address, device_secret_hash, device_name, location, user_agent, family_id])
                     else:
                         await execute_sql(db, """
                             UPDATE device_sessions 
-                            SET refresh_token_jti = ?, last_used_at = CURRENT_TIMESTAMP, expires_at = ?, ip_address = COALESCE(?, ip_address), device_secret_hash = COALESCE(?, device_secret_hash),
+                            SET refresh_token_jti = ?, last_used_at = CURRENT_TIMESTAMP, expires_at = ?, ip_address = COALESCE(?, ip_address), device_secret_hash = ?,
                                 device_name = COALESCE(?, device_name), location = COALESCE(?, location), user_agent = COALESCE(?, user_agent)
                             WHERE family_id = ?
                         """, [refresh_jti, expires_db.isoformat(), ip_address, device_secret_hash, device_name, location, user_agent, family_id])
@@ -315,6 +315,18 @@ async def refresh_access_token(
             pass
     
     if not license_id or not jti:
+        return None
+    
+    # CRITICAL FIX #1: Add token version check to prevent refresh after revocation
+    # This ensures that even with a valid refresh token, if the token version has
+    # changed (e.g., admin forced logout), the refresh will fail
+    from database import validate_license_by_id
+    validation = await validate_license_by_id(
+        license_id, 
+        required_version=payload.get("v")
+    )
+    if not validation.get("valid"):
+        logger.warning(f"Token version mismatch or account inactive for license {license_id} during refresh")
         return None
         
     if not family_id:

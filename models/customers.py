@@ -1,5 +1,5 @@
 """
-Al-Mudeer - Customer and Analytics Models
+Al-Mudeer - Customer Models
 Customer profiles, lead scoring, analytics, preferences, notifications, and team management
 """
 
@@ -112,7 +112,6 @@ async def get_or_create_customer(
             "phone": phone,
             "email": email,
             "contact": contact_val,
-            "total_messages": 0,
             "is_vip": False,
             "has_whatsapp": has_whatsapp,
             "has_telegram": has_telegram
@@ -274,8 +273,8 @@ async def get_customer_for_message(
     return dict(row) if row else None
 
 
-async def increment_customer_messages(customer_id: int):
-    """Increment customer message count and update last contact (SQLite & PostgreSQL compatible)."""
+async def update_last_contact(customer_id: int):
+    """Update last contact time for a customer."""
     now = datetime.utcnow()
     
     if DB_TYPE == "postgresql":
@@ -286,12 +285,7 @@ async def increment_customer_messages(customer_id: int):
     async with get_db() as db:
         await execute_sql(
             db,
-            """
-            UPDATE customers SET 
-                total_messages = total_messages + 1,
-                last_contact_at = ?
-            WHERE id = ?
-            """,
+            "UPDATE customers SET last_contact_at = ? WHERE id = ?",
             [ts_value, customer_id]
         )
         await commit_db(db)
@@ -564,8 +558,7 @@ async def create_smart_notification(
 async def delete_customer(license_id: int, customer_id: int) -> bool:
     """
     Delete a customer and clean up related data:
-    1. Associated Purchases: Deleted (DB Cascade)
-    2. Inbox Messages: Links in customer_messages deleted
+    1. Inbox Messages: Links in customer_messages deleted
     3. Library Items: Soft deleted
     4. Orders: Unlinked (customer_contact set to NULL)
     """
@@ -605,7 +598,7 @@ async def delete_customer(license_id: int, customer_id: int) -> bool:
             [customer_id]
         )
 
-        # 4. Finally delete the customer (this will cascade to purchases if configured)
+        # 4. Finally delete the customer
         await execute_sql(
             db,
             "DELETE FROM customers WHERE id = ? AND license_key_id = ?",

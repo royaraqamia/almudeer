@@ -164,14 +164,24 @@ async def get_current_user_info(user: dict = Depends(get_current_user)):
     }
 
 
+class LogoutRequest(BaseModel):
+    """Logout request model"""
+    revoke_all_sessions: bool = False
+
+
 @router.post("/logout")
 async def logout(
     request: Request,
+    data: LogoutRequest = None,
     user: dict = Depends(get_current_user)
 ):
     """
     Logout and invalidate the current token.
+    
+    Args:
+        revoke_all_sessions: If True, revoke ALL sessions for this user (logout from all devices)
     """
+    data = data or LogoutRequest()
     
     # Get the token from the Authorization header
     auth_header = request.headers.get("Authorization", "")
@@ -185,6 +195,7 @@ async def logout(
             payload = jwt.decode(token, config.secret_key, algorithms=[config.algorithm])
             jti = payload.get("jti")
             exp = payload.get("exp")
+            family_id = payload.get("family_id")
             
             if jti and exp:
                 from datetime import datetime
@@ -193,15 +204,22 @@ async def logout(
                 from database import DB_TYPE
                 from db_helper import get_db, execute_sql, commit_db
                 
-                family_id = payload.get("family_id")
-                if family_id:
-                    async with get_db() as db:
-                        if DB_TYPE == "postgresql":
-                            await execute_sql(db, "UPDATE device_sessions SET is_revoked = TRUE WHERE family_id = ?", [family_id])
-                        else:
-                            await execute_sql(db, "UPDATE device_sessions SET is_revoked = 1 WHERE family_id = ?", [family_id])
-                        await commit_db(db)
-                        logger.info(f"Device session revoked for family: {family_id}")
+                # LOW FIX #8: Revoke all sessions if requested
+                if data.revoke_all_sessions and user.get("license_id"):
+                    if DB_TYPE == "postgresql":
+                        await execute_sql(db, "UPDATE device_sessions SET is_revoked = TRUE WHERE license_key_id = ?", [user.get("license_id")])
+                    else:
+                        await execute_sql(db, "UPDATE device_sessions SET is_revoked = 1 WHERE license_key_id = ?", [user.get("license_id")])
+                    await commit_db(db)
+                    logger.info(f"All sessions revoked for user: {user.get('user_id')}")
+                elif family_id:
+                    # Revoke only current session
+                    if DB_TYPE == "postgresql":
+                        await execute_sql(db, "UPDATE device_sessions SET is_revoked = TRUE WHERE family_id = ?", [family_id])
+                    else:
+                        await execute_sql(db, "UPDATE device_sessions SET is_revoked = 1 WHERE family_id = ?", [family_id])
+                    await commit_db(db)
+                    logger.info(f"Device session revoked for family: {family_id}")
 
                 blacklist_token(jti, expires_at)
                 

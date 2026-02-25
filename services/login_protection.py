@@ -58,7 +58,9 @@ class LoginProtection:
             if environment == "production":
                 logger.error(
                     "CRITICAL: REDIS_URL not set in PRODUCTION! Login protection using in-memory mode. "
-                    "Lockout state will not be synced across instances."
+                    "Lockout state will not be synced across instances. "
+                    "ACTION REQUIRED: Set REDIS_URL environment variable. "
+                    "Example: REDIS_URL=redis://localhost:6379/0"
                 )
     
     def _get_key(self, identifier: str) -> str:

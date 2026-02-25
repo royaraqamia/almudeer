@@ -45,7 +45,9 @@ class TokenBlacklist:
                     logger.error(
                         "CRITICAL: Token blacklist running in-memory mode in PRODUCTION! "
                         "Blacklisted tokens will not be synced across instances and will be lost on restart. "
-                        "Configure REDIS_URL environment variable."
+                        "ACTION REQUIRED: Set REDIS_URL environment variable. "
+                        "Example: REDIS_URL=redis://localhost:6379/0 "
+                        "This is a security risk - logged out users may retain access!"
                     )
         else:
             logger.info("Token blacklist using in-memory storage (tokens won't persist across restarts)")
@@ -53,7 +55,9 @@ class TokenBlacklist:
             if environment == "production":
                 logger.error(
                     "CRITICAL: REDIS_URL not set in PRODUCTION! Token blacklist using in-memory mode. "
-                    "Blacklisted tokens will not be synced across instances and will be lost on restart."
+                    "Blacklisted tokens will not be synced across instances and will be lost on restart. "
+                    "ACTION REQUIRED: Set REDIS_URL environment variable. "
+                    "Example: REDIS_URL=redis://localhost:6379/0"
                 )
     
     def blacklist_token(self, jti: str, expires_at: datetime) -> bool:

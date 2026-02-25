@@ -473,7 +473,7 @@ async def regenerate_subscription_key(
                 )
             
             # Generate new key with same format
-            raw_key = f"MUDEER-{secrets.token_hex(2).upper()}-{secrets.token_hex(2).upper()}-{secrets.token_hex(2).upper()}"
+            raw_key = f"MUDEER-{secrets.token_hex(4).upper()}-{secrets.token_hex(4).upper()}-{secrets.token_hex(4).upper()}"
             key_hash = hash_license_key(raw_key)
             encrypted_key = encrypt_sensitive_data(raw_key)
             

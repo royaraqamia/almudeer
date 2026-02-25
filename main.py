@@ -84,7 +84,6 @@ try:
         whatsapp_router,
         export_router, 
         notifications_router, 
-        purchases_router, 
         library_router,
         stories_router,
         tasks,
@@ -147,7 +146,6 @@ async def lifespan(app: FastAPI):
         await init_database()
         
         # Import necessary functions for parallelization
-        from models.purchases import init_ifc_ledger
         from services.notification_service import init_notification_tables
         from services.push_service import log_vapid_status, ensure_push_subscription_table
         from models.stories import init_stories_tables
@@ -155,13 +153,10 @@ async def lifespan(app: FastAPI):
         from migrations.fix_customers_serial import fix_customers_serial
         from migrations.backfill_queue_table import create_backfill_queue_table
         from migrations.task_queue_table import create_task_queue_table
-        from migrations.purchases_table import create_purchases_table
-        from migrations.edit_delete_message import ensure_message_edit_delete_schema
 
         # Parallelize independent table initializations to speed up startup
         init_tasks = [
             init_enhanced_tables(),
-            init_ifc_ledger(),
             init_notification_tables(),
             init_customers_and_analytics(),
             init_tasks_table(),
@@ -171,7 +166,6 @@ async def lifespan(app: FastAPI):
             fix_customers_serial(),
             create_backfill_queue_table(),
             create_task_queue_table(),
-            create_purchases_table(),
             ensure_message_edit_delete_schema(),
             init_stories_tables()
         ]
@@ -416,7 +410,6 @@ app.include_router(whatsapp_router)
 
 app.include_router(export_router)          # Export & Reports
 app.include_router(notifications_router)   # Smart Notifications & Integrations
-app.include_router(purchases_router)       # Customer Purchases
 app.include_router(knowledge_router)       # Knowledge Base Documents & Uploads
 app.include_router(library_router)         # Library of Everything
 app.include_router(tasks_router)           # Task Management
@@ -424,17 +417,6 @@ app.include_router(subscription_router)    # Subscription Key Management
 app.include_router(stories_router)         # Stories Feature
 app.include_router(global_assets_router)   # Admin Global Assets
 
-# JWT Authentication routes
-from routes.auth import router as auth_router
-app.include_router(auth_router)
-
-
-# Voice message routes
-try:
-    from routes.voice import router as voice_router
-    app.include_router(voice_router)
-except Exception as e:
-    logger.warning(f"Voice router not loaded: {e}")
 
 # Browser routes (scraper, link preview)
 try:
