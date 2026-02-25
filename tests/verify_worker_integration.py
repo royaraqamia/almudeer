@@ -26,7 +26,6 @@ async def test_worker_notification_trigger():
              patch("workers.execute_sql", new_callable=AsyncMock) as mock_execute_sql, \
              patch("workers.commit_db", new_callable=AsyncMock) as mock_commit_db, \
              patch("workers.get_or_create_customer", new_callable=AsyncMock) as mock_get_customer, \
-             patch("workers.increment_customer_messages", new_callable=AsyncMock) as mock_inc_msg, \
              patch("workers.MessagePoller._increment_user_rate_limit", new_callable=MagicMock) as mock_rate_limit, \
              patch("workers.MessagePoller._is_duplicate_content", return_value=False), \
              patch("workers.apply_filters", return_value=True):

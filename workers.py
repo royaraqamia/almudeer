@@ -69,7 +69,6 @@ from models import (
     get_telegram_phone_session_data,
     get_telegram_phone_session,
     get_or_create_customer,
-    increment_customer_messages,
     update_telegram_phone_session_sync_time,
     deactivate_telegram_phone_session,
 )

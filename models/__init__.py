@@ -77,7 +77,6 @@ from .customers import (
     delete_customer,
     get_recent_conversation,
     get_customer_for_message,
-    increment_customer_messages,
     # Notifications
     create_notification,
     get_notifications,
@@ -184,7 +183,6 @@ __all__ = [
     "delete_customer",
     "get_recent_conversation",
     "get_customer_for_message",
-    "increment_customer_messages",
     # Preferences
     "get_preferences",
     "update_preferences",

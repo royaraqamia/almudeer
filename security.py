@@ -333,6 +333,7 @@ def verify_password(password: str, hashed_password: str, salt: str) -> bool:
 def validate_license_key_format(key: str) -> bool:
     """
     Validate license key format.
+    Supports both old format (4 chars) and new format (8 chars).
     
     Args:
         key: License key to validate
@@ -343,9 +344,11 @@ def validate_license_key_format(key: str) -> bool:
     if not key:
         return False
     
-    # Format: MUDEER-XXXX-XXXX-XXXX
-    pattern = r'^MUDEER-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}$'
-    return bool(re.match(pattern, key))
+    # Old: MUDEER-XXXX-XXXX-XXXX (4 hex chars per segment)
+    # New: MUDEER-XXXXXXXX-XXXXXXXX-XXXXXXXX (8 hex chars per segment)
+    old_pattern = r'^MUDEER-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}$'
+    new_pattern = r'^MUDEER-[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}$'
+    return bool(re.match(old_pattern, key) or re.match(new_pattern, key))
 
 
 def rate_limit_key(identifier: str, action: str = "default") -> str:
