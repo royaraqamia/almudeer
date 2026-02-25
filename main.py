@@ -65,7 +65,6 @@ from schemas import (
 # from agent import process_message (AI removed)
 from models import (
     init_enhanced_tables,
-    init_enhanced_tables,
     init_customers_and_analytics,
     get_preferences,
     get_recent_conversation,
@@ -153,6 +152,7 @@ async def lifespan(app: FastAPI):
         from migrations.fix_customers_serial import fix_customers_serial
         from migrations.backfill_queue_table import create_backfill_queue_table
         from migrations.task_queue_table import create_task_queue_table
+        from migrations.edit_delete_message import ensure_message_edit_delete_schema
 
         # Parallelize independent table initializations to speed up startup
         init_tasks = [
