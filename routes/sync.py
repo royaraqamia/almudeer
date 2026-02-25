@@ -259,30 +259,6 @@ async def _process_operation(op: SyncOperation, license_id: int, background_task
                 server_state={"customer_id": customer.get("id")}
             )
             
-        elif op.type == "add_purchase":
-            customer_id = op.payload.get("customer_id")
-            product_name = op.payload.get("product_name")
-            amount = op.payload.get("amount")
-            currency = op.payload.get("currency", "SYP")
-            notes = op.payload.get("notes")
-            payment_type = op.payload.get("payment_type", "spot")
-            
-            from models.purchases import create_purchase
-            purchase = await create_purchase(
-                license_id=license_id,
-                customer_id=customer_id,
-                product_name=product_name,
-                amount=amount,
-                currency=currency,
-                notes=notes,
-                payment_type=payment_type
-            )
-            return SyncResult(
-                operation_id=op.id, 
-                success=True, 
-                server_state={"purchase_id": purchase.get("id")}
-            )
-            
         else:
             return SyncResult(
                 operation_id=op.id,
