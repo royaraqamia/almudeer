@@ -108,8 +108,35 @@ async def ensure_chat_features_schema():
                     logger.debug(f"Forward column {col_name}: {e}")
         
         logger.info("✅ Message forwarding columns verified")
-        
-        # ============ 4. Delivery Receipt Columns (Real WhatsApp/Telegram receipts) ============
+
+        # ============ 4. Message Retry Columns (for failed sends) ============
+        retry_columns = [
+            ("retry_count", "INTEGER DEFAULT 0"),
+            ("last_retry_at", "TIMESTAMP"),
+            ("next_retry_at", "TIMESTAMP"),
+            ("retry_error", "TEXT"),
+        ]
+
+        for col_name, col_type in retry_columns:
+            try:
+                if DB_TYPE == "postgresql":
+                    await execute_sql(db, f"""
+                        ALTER TABLE outbox_messages
+                        ADD COLUMN IF NOT EXISTS {col_name} {col_type}
+                    """)
+                else:
+                    await execute_sql(db, f"""
+                        ALTER TABLE outbox_messages
+                        ADD COLUMN {col_name} {col_type}
+                    """)
+                await commit_db(db)
+            except Exception as e:
+                if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                    logger.debug(f"Retry column {col_name}: {e}")
+
+        logger.info("✅ Message retry columns verified")
+
+        # ============ 5. Delivery Receipt Columns (Real WhatsApp/Telegram receipts) ============
         delivery_columns = [
             ("platform_message_id", "TEXT"),       # WhatsApp/Telegram message ID
             ("delivery_status", "TEXT"),           # sent, delivered, read, failed

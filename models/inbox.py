@@ -762,78 +762,64 @@ async def get_inbox_status_counts(license_id: int) -> dict:
 async def _get_sender_aliases(db, license_id: int, sender_contact: str) -> tuple:
     """
     Get all sender_contact and sender_id variants for a given sender.
-    This handles the case where the same Telegram user may have messages
-    stored with different identifiers (phone, username, or user ID).
-    
-    Returns:
-        Tuple of (all_contacts: set, all_ids: set)
+    Optimized to use strict equality first and fallback to LIKE only if no ID is found,
+    reducing the cost of scanning large message tables.
     """
-    # Handle None sender_contact
     if not sender_contact:
         return set(), set()
     
-    # Handle tg: prefix
     check_ids = [sender_contact]
     if sender_contact.startswith("tg:"):
         check_ids.append(sender_contact[3:])
     
+    # Track results
+    all_contacts = set([sender_contact])
+    all_ids = set()
+    for cid in check_ids:
+        if cid.isdigit(): all_ids.add(cid)
+
     placeholders = ", ".join(["?" for _ in check_ids])
     
-    # Query for all aliases across both tables
-    params = [license_id]
-    params.extend(check_ids)  # sender_contact IN
-    params.extend(check_ids)  # sender_id IN
-    params.append(f"%{sender_contact}%")  # LIKE
-    
-    # Use UNION to search both tables
+    # 1. First Pass: Strict match (Fast)
     query = f"""
         SELECT sender_contact, sender_id 
         FROM inbox_messages 
         WHERE license_key_id = ?
-        AND (sender_contact IN ({placeholders}) OR sender_id IN ({placeholders}) OR sender_contact LIKE ?)
+        AND (sender_contact IN ({placeholders}) OR sender_id IN ({placeholders}))
         
         UNION
         
         SELECT recipient_email as sender_contact, recipient_id as sender_id
         FROM outbox_messages
         WHERE license_key_id = ?
-        AND (recipient_email IN ({placeholders}) OR recipient_id IN ({placeholders}) OR recipient_email LIKE ?)
+        AND (recipient_email IN ({placeholders}) OR recipient_id IN ({placeholders}))
     """
-    # Duplicate params for the second SELECT in UNION
-    union_params = params + params
-    
-    aliases = await fetch_all(db, query, union_params)
-    
-    # Build comprehensive identifier sets
-    all_contacts = set([sender_contact])
-    all_ids = set()
-    
-    # Seed IDs from input if it looks like a Telegram ID
-    for cid in check_ids:
-        if cid.isdigit():
-            all_ids.add(cid)
+    params = [license_id] + check_ids + check_ids + [license_id] + check_ids + check_ids
+    aliases = await fetch_all(db, query, params)
 
+    # 2. Add found aliases to sets
     for row in aliases:
-        if row.get("sender_contact"):
-            all_contacts.add(row["sender_contact"])
-            # If it's a tg: prefixed ID, extract the ID too
-            if row["sender_contact"].startswith("tg:") and row["sender_contact"][3:].isdigit():
-                all_ids.add(row["sender_contact"][3:])
-        if row.get("sender_id"):
-            sid = str(row["sender_id"])
-            all_ids.add(sid)
-            # Ensure tg: prefixed version is in contacts for thorough matching
-            all_contacts.add(f"tg:{sid}")
+        if row.get("sender_contact"): all_contacts.add(row["sender_contact"])
+        if row.get("sender_id"): all_ids.add(str(row["sender_id"]))
 
-    # --- SECOND PASS: Find cross-linked aliases (Hop-2) ---
-    # e.g. if we found ID '123' from contact '@alice', now find all other contacts listed for ID '123'
+    # 3. Only if we have NO numeric IDs and it doesn't look like a standard identifier,
+    # use LIKE as a last resort for loose matching (e.g. partial phone numbers)
+    if not all_ids and len(sender_contact) > 5:
+        like_query = """
+            SELECT sender_contact, sender_id FROM inbox_messages 
+            WHERE license_key_id = ? AND sender_contact LIKE ? LIMIT 10
+        """
+        like_aliases = await fetch_all(db, like_query, [license_id, f"%{sender_contact}%"])
+        for row in like_aliases:
+            if row.get("sender_contact"): all_contacts.add(row["sender_contact"])
+            if row.get("sender_id"): all_ids.add(str(row["sender_id"]))
+
+    # 4. Hop-2 expansion for cross-linked identities
     if all_contacts or all_ids:
         pass2_contacts = list(all_contacts)
         pass2_ids = list(all_ids)
-        
-        # Build query for anything matching what we ALREADY found
-        placeholders_c = ", ".join(["?" for _ in pass2_contacts]) if pass2_contacts else "'__PLACEHOLDER__'"
-        placeholders_i = ", ".join(["?" for _ in pass2_ids]) if pass2_ids else "'__PLACEHOLDER__'"
+        placeholders_c = ", ".join(["?" for _ in pass2_contacts]) if pass2_contacts else "'__NONE__'"
+        placeholders_i = ", ".join(["?" for _ in pass2_ids]) if pass2_ids else "'__NONE__'"
         
         query2 = f"""
             SELECT sender_contact, sender_id FROM inbox_messages 
@@ -843,15 +829,10 @@ async def _get_sender_aliases(db, license_id: int, sender_contact: str) -> tuple
             WHERE license_key_id = ? AND (recipient_email IN ({placeholders_c}) OR recipient_id IN ({placeholders_i}))
         """
         params2 = [license_id] + pass2_contacts + pass2_ids + [license_id] + pass2_contacts + pass2_ids
-        
         aliases2 = await fetch_all(db, query2, params2)
         for row in aliases2:
-            if row.get("sender_contact"):
-                all_contacts.add(row["sender_contact"])
-            if row.get("sender_id"):
-                sid = str(row["sender_id"])
-                all_ids.add(sid)
-                all_contacts.add(f"tg:{sid}")
+            if row.get("sender_contact"): all_contacts.add(row["sender_contact"])
+            if row.get("sender_id"): all_ids.add(str(row["sender_id"]))
 
     return tuple(all_contacts), tuple(all_ids)
 
@@ -1930,47 +1911,104 @@ async def soft_delete_conversation(license_id: int, sender_contact: str) -> dict
     """
     Soft delete an entire conversation (both inbox and outbox messages).
     Then updates conversation state (which should effectively remove it).
+    
+    FIX: Also cleans up attachments from disk/S3 to prevent storage bloat.
     """
     from datetime import datetime, timezone
     now = datetime.utcnow()
     ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
-    
+
     async with get_db() as db:
         # Get all aliases for this sender to ensure we clear EVERYTHING
         all_contacts, all_ids = await _get_sender_aliases(db, license_id, sender_contact)
         
+        # FIX: Collect attachment paths before soft delete for cleanup
+        attachment_paths = []
+        
+        # Collect inbox attachments
+        if all_contacts:
+            contact_placeholders = ", ".join(["?" for _ in all_contacts])
+            inbox_atts = await fetch_all(
+                db,
+                f"SELECT attachments FROM inbox_messages WHERE license_key_id = ? AND sender_contact IN ({contact_placeholders}) AND deleted_at IS NULL AND attachments IS NOT NULL",
+                [license_id] + list(all_contacts)
+            )
+        else:
+            inbox_atts = await fetch_all(
+                db,
+                "SELECT attachments FROM inbox_messages WHERE license_key_id = ? AND sender_contact = ? AND deleted_at IS NULL AND attachments IS NOT NULL",
+                [license_id, sender_contact]
+            )
+        
+        for row in inbox_atts:
+            if row.get("attachments"):
+                import json
+                try:
+                    atts = json.loads(row["attachments"]) if isinstance(row["attachments"], str) else row["attachments"]
+                    for att in atts:
+                        if att.get("local_path"):
+                            attachment_paths.append(att["local_path"])
+                except:
+                    pass
+        
+        # Collect outbox attachments
+        if all_contacts:
+            contact_placeholders = ", ".join(["?" for _ in all_contacts])
+            outbox_atts = await fetch_all(
+                db,
+                f"SELECT attachments FROM outbox_messages WHERE license_key_id = ? AND (recipient_email IN ({contact_placeholders}) OR recipient_id IN ({contact_placeholders})) AND deleted_at IS NULL AND attachments IS NOT NULL",
+                [license_id] + list(all_contacts) + list(all_contacts)
+            )
+        else:
+            outbox_atts = await fetch_all(
+                db,
+                "SELECT attachments FROM outbox_messages WHERE license_key_id = ? AND (recipient_email = ? OR recipient_id = ?) AND deleted_at IS NULL AND attachments IS NOT NULL",
+                [license_id, sender_contact, sender_contact]
+            )
+        
+        for row in outbox_atts:
+            if row.get("attachments"):
+                import json
+                try:
+                    atts = json.loads(row["attachments"]) if isinstance(row["attachments"], str) else row["attachments"]
+                    for att in atts:
+                        if att.get("local_path"):
+                            attachment_paths.append(att["local_path"])
+                except:
+                    pass
+
         # Build conditions for inbox
         in_conditions = []
         in_params = [ts_value, license_id]
-        
+
         if all_contacts:
             contact_placeholders = ", ".join(["?" for _ in all_contacts])
             in_conditions.append(f"sender_contact IN ({contact_placeholders})")
             in_params.extend(list(all_contacts))
-        
+
         if all_ids:
             id_placeholders = ", ".join(["?" for _ in all_ids])
             in_conditions.append(f"sender_id IN ({id_placeholders})")
             in_params.extend(list(all_ids))
-            
+
         in_where = " OR ".join(in_conditions) if in_conditions else "1=0"
 
         # Params for outbox: recipient_email/id
         out_conditions = []
         out_params = [ts_value, license_id]
-        
+
         if all_contacts:
             contact_placeholders = ", ".join(["?" for _ in all_contacts])
             out_conditions.append(f"recipient_email IN ({contact_placeholders})")
             out_params.extend(list(all_contacts))
-        
+
         if all_ids:
             id_placeholders = ", ".join(["?" for _ in all_ids])
             out_conditions.append(f"recipient_id IN ({id_placeholders})")
             out_params.extend(list(all_ids))
-            
+
         out_where = " OR ".join(out_conditions) if out_conditions else "1=0"
-        
+
         # Diagnostic logging
         from logging_config import get_logger
         logger = get_logger(__name__)
@@ -1980,7 +2018,7 @@ async def soft_delete_conversation(license_id: int, sender_contact: str) -> dict
         res_in = await execute_sql(
             db,
             f"""
-            UPDATE inbox_messages 
+            UPDATE inbox_messages
             SET deleted_at = ?
             WHERE license_key_id = ?
             AND ({in_where})
@@ -1988,12 +2026,12 @@ async def soft_delete_conversation(license_id: int, sender_contact: str) -> dict
             """,
             in_params
         )
-        
+
         # Update Outbox
         await execute_sql(
             db,
             f"""
-            UPDATE outbox_messages 
+            UPDATE outbox_messages
             SET deleted_at = ?
             WHERE license_key_id = ?
             AND ({out_where})
@@ -2003,12 +2041,23 @@ async def soft_delete_conversation(license_id: int, sender_contact: str) -> dict
         )
         # Note: postgres connection.execute doesn't always return rowcount easily via this helper
         # but the query should execute.
-        
+
         await commit_db(db)
         logger.info(f"[CLEAR] Soft delete completed for {sender_contact}")
-        
-        await commit_db(db)
-        
+
+        # FIX: Clean up attachments from disk
+        if attachment_paths:
+            from services.file_storage_service import get_file_storage
+            storage = get_file_storage()
+            cleaned_count = 0
+            for path in attachment_paths:
+                try:
+                    await storage.delete_file_async(path)
+                    cleaned_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to delete attachment {path}: {e}")
+            logger.info(f"[CLEAR] Cleaned up {cleaned_count}/{len(attachment_paths)} attachments for {sender_contact}")
+
         # Explicitly delete ALL conversation entries for discovered personas
         if all_contacts:
             placeholders_ic = ", ".join(["?" for _ in all_contacts])
@@ -2346,16 +2395,44 @@ async def search_messages(
 # ============ Conversation Optimization (Denormalized) ============
 
 async def upsert_conversation_state(
-    license_id: int, 
-    sender_contact: str, 
+    license_id: int,
+    sender_contact: str,
     sender_name: Optional[str] = None,
-    channel: Optional[str] = None
+    channel: Optional[str] = None,
+    use_lock: bool = True
 ):
     """
     Recalculate and update the cached conversation state in `inbox_conversations`.
     Optimized: Combines multiple queries into a single pull where possible.
+    
+    FIX: Added distributed lock to prevent race conditions in multi-device scenarios.
+    
+    Args:
+        license_id: The license ID
+        sender_contact: The contact identifier
+        sender_name: Optional sender name
+        channel: Optional channel type
+        use_lock: Whether to use distributed lock (default True for safety)
     """
     from db_helper import DB_TYPE
+    
+    # FIX: Use distributed lock to prevent race conditions
+    if use_lock:
+        from services.distributed_lock import DistributedLock
+        lock_key = f"conversation_state:{license_id}:{sender_contact}"
+        lock = DistributedLock(lock_id=license_id, lock_name=lock_key)
+        
+        try:
+            acquired = await lock.acquire()
+            if not acquired:
+                # Lock already held - another process is updating this conversation
+                # Skip to prevent race condition (the other process will handle it)
+                logger.debug(f"Skipping conversation state update - lock held: {lock_key}")
+                return
+            # Proceed with lock held
+        except Exception as e:
+            logger.error(f"Error acquiring conversation lock: {e}")
+            # Continue without lock to avoid blocking (degraded but functional)
     
     async with get_db() as db:
         # 1. Get Stats and Aliases
@@ -2467,7 +2544,13 @@ async def upsert_conversation_state(
         sql = f"INSERT INTO inbox_conversations ({cols}) VALUES ({placeholders}) ON CONFLICT (license_key_id, sender_contact) DO UPDATE SET {update_cols}"
         await execute_sql(db, sql, params)
         await commit_db(db)
-
+    
+    # FIX: Release the distributed lock
+    if use_lock and 'lock' in locals():
+        try:
+            await lock.release()
+        except Exception as e:
+            logger.error(f"Error releasing conversation lock: {e}")
 
 
 def _parse_message_row(row: Optional[dict]) -> Optional[dict]:
@@ -2485,10 +2568,98 @@ def _parse_message_row(row: Optional[dict]) -> Optional[dict]:
             msg["attachments"] = json.loads(msg["attachments"])
         except:
             msg["attachments"] = []
-    
+
     # Normalize status for outgoing messages in consistent UI format
     # 'approved' means it's ready to go, and usually shown as 'sending' in UI
     if msg.get("direction") == "outgoing" and msg.get("status") == "approved":
         msg["status"] = "sending"
-        
+
     return msg
+
+
+async def search_messages_in_conversation(
+    license_id: int,
+    sender_contact: str,
+    query: str,
+    limit: int = 50,
+    offset: int = 0
+) -> List[dict]:
+    """
+    Search for messages within a specific conversation.
+    Uses full-text search if available, fallback to LIKE query.
+    Returns matching messages sorted by timestamp (newest first).
+    
+    Args:
+        license_id: The license ID
+        sender_contact: The contact to search within
+        query: Search query string
+        limit: Maximum number of results
+        offset: Pagination offset
+    
+    Returns:
+        List of matching messages with direction info
+    """
+    if not query or not sender_contact:
+        return []
+    
+    results = []
+    async with get_db() as db:
+        # Search in inbox_messages
+        inbox_query = """
+            SELECT 
+                id, body, sender_name, sender_contact, 
+                received_at as created_at, channel, attachments,
+                'incoming' as direction
+            FROM inbox_messages
+            WHERE license_key_id = ? 
+              AND sender_contact = ?
+              AND deleted_at IS NULL
+              AND (
+                  body LIKE ? 
+                  OR sender_name LIKE ?
+              )
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """
+        search_pattern = f"%{query}%"
+        inbox_rows = await fetch_all(
+            db, 
+            inbox_query, 
+            [license_id, sender_contact, search_pattern, search_pattern, limit, offset]
+        )
+        
+        for row in inbox_rows:
+            results.append(_parse_message_row(dict(row)))
+        
+        # Search in outbox_messages
+        outbox_query = """
+            SELECT 
+                id, body, 
+                COALESCE(recipient_email, recipient_id) as sender_name,
+                COALESCE(recipient_email, recipient_id) as sender_contact,
+                created_at, channel, attachments,
+                'outgoing' as direction
+            FROM outbox_messages
+            WHERE license_key_id = ? 
+              AND (recipient_email = ? OR recipient_id = ?)
+              AND deleted_at IS NULL
+              AND body LIKE ?
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """
+        outbox_rows = await fetch_all(
+            db,
+            outbox_query,
+            [license_id, sender_contact, sender_contact, search_pattern, limit, offset]
+        )
+        
+        for row in outbox_rows:
+            results.append(_parse_message_row(dict(row)))
+        
+        # Sort by timestamp (newest first)
+        results.sort(
+            key=lambda x: x.get('created_at', '') or '',
+            reverse=True
+        )
+    
+    return results

@@ -75,15 +75,16 @@ import logging
 logger = logging.getLogger("startup")
 try:
     from routes import (
-        system_router, 
-        email_router, 
-        telegram_router, 
-        chat_router, 
+        system_router,
+        email_router,
+        telegram_router,
+        chat_router,
         features_router,
         whatsapp_router,
-        export_router, 
-        notifications_router, 
+        export_router,
+        notifications_router,
         library_router,
+        keyboard_router,
         stories_router,
         tasks,
         global_assets
@@ -412,6 +413,7 @@ app.include_router(export_router)          # Export & Reports
 app.include_router(notifications_router)   # Smart Notifications & Integrations
 app.include_router(knowledge_router)       # Knowledge Base Documents & Uploads
 app.include_router(library_router)         # Library of Everything
+app.include_router(keyboard_router)        # Keyboard Macros & Optimized Data
 app.include_router(tasks_router)           # Task Management
 app.include_router(subscription_router)    # Subscription Key Management
 app.include_router(stories_router)         # Stories Feature

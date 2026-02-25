@@ -294,8 +294,44 @@ class TestWhatsAppAPIMethods:
             mock_client.return_value.__aenter__.return_value = mock_instance
             
             result = await service.mark_as_read("wamid.123")
-            
             assert result is True or result is not None
+
+class TestWhatsAppTemplates:
+    """Tests for WhatsApp template fetching and caching"""
+    
+    @pytest.mark.asyncio
+    async def test_get_templates_caching(self):
+        """Test that get_templates caches results and reduces API calls"""
+        from services.whatsapp_service import WhatsAppService
+        
+        service = WhatsAppService(
+            phone_number_id="12345",
+            access_token="token"
+        )
+        
+        templates_data = [{"name": "hello_world", "status": "APPROVED"}]
+        
+        with patch('services.whatsapp_service.httpx.AsyncClient') as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get = AsyncMock(return_value=MagicMock(
+                status_code=200,
+                json=lambda: {"data": templates_data}
+            ))
+            mock_client.return_value.__aenter__.return_value = mock_instance
+            
+            # First call - should hit API
+            result1 = await service.get_templates("biz_123")
+            assert result1["success"] is True
+            assert result1["cached"] is False
+            assert result1["data"] == templates_data
+            assert mock_instance.get.call_count == 1
+            
+            # Second call - should hit cache
+            result2 = await service.get_templates("biz_123")
+            assert result2["success"] is True
+            assert result2["cached"] is True
+            assert result2["data"] == templates_data
+            assert mock_instance.get.call_count == 1  # Still 1
 
 
 # ============ Config Storage ============

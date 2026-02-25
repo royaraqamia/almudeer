@@ -136,14 +136,18 @@ async def update_existing_task(
     """Update a task with optional file attachments"""
     license_id = user["license_id"]
     
-    # Get current task
-    current_task = await get_task(license_id, task_id)
+    # Get current task (with visibility check)
+    current_task = await get_task(license_id, task_id, user["user_id"])
     if not current_task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    # Protection for Private Tasks
-    if current_task.get("visibility") == "private" and current_task.get("created_by") != user["user_id"]:
-        raise HTTPException(status_code=403, detail="هذه المهمة خاصة، لا تملك صلاحية تعديلها")
+    # RBAC: Check edit permissions
+    from models.tasks import can_edit_task
+    if not can_edit_task(current_task, user["user_id"]):
+        raise HTTPException(
+            status_code=403,
+            detail="ليس لديك صلاحية تعديل هذه المهمة"
+        )
         
     update_data = {}
     if task_json:
@@ -217,7 +221,24 @@ async def update_existing_task(
                 # Spawn a cloned task for the next occurrence
                 import uuid
                 new_task_id = str(uuid.uuid4())
-                
+
+                # FIX: Properly reset all subtasks to incomplete state
+                def reset_subtask(subtask):
+                    """Ensure subtask is a dict with is_completed=False"""
+                    if isinstance(subtask, dict):
+                        return {**subtask, "is_completed": False}
+                    elif isinstance(subtask, str):
+                        # Handle JSON string subtasks (edge case)
+                        try:
+                            import json
+                            st_dict = json.loads(subtask)
+                            return {**st_dict, "is_completed": False}
+                        except:
+                            return {"id": str(uuid.uuid4()), "title": str(subtask), "is_completed": False}
+                    else:
+                        # Fallback for any other type
+                        return {"id": str(uuid.uuid4()), "title": str(subtask), "is_completed": False}
+
                 # Clone parameters
                 cloned_task = {
                     "id": new_task_id,
@@ -228,8 +249,7 @@ async def update_existing_task(
                     "priority": current_task.get("priority", "medium"),
                     "color": current_task.get("color"),
                     "sub_tasks": [
-                        {**st, "is_completed": False} 
-                        if isinstance(st, dict) else st 
+                        reset_subtask(st)
                         for st in current_task.get("sub_tasks", [])
                     ],
                     "alarm_enabled": current_task.get("alarm_enabled", False),
@@ -271,14 +291,18 @@ async def delete_existing_task(
 ):
     """Delete a task"""
     license_id = user["license_id"]
-    
-    current_task = await get_task(license_id, task_id)
+
+    current_task = await get_task(license_id, task_id, user["user_id"])
     if not current_task:
         raise NotFoundError(resource="Task", resource_id=task_id)
 
-    # Protection for Private Tasks
-    if current_task.get("visibility") == "private" and current_task.get("created_by") != user["user_id"]:
-        raise HTTPException(status_code=403, detail="هذه المهمة خاصة، لا تملك صلاحية حذفها")
+    # RBAC: Only owners can delete tasks
+    from models.tasks import can_delete_task
+    if not can_delete_task(current_task, user["user_id"]):
+        raise HTTPException(
+            status_code=403,
+            detail="ليس لديك صلاحية حذف هذه المهمة"
+        )
         
     success = await delete_task(license_id, task_id)
     if not success:
@@ -299,17 +323,25 @@ async def create_comment(
 ):
     """Add a comment to a task with optional file attachments"""
     license_id = user["license_id"]
-    
+
     try:
         data = json.loads(comment_json)
         comment = TaskCommentCreate(**data)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid comment data: {str(e)}")
-    
-    # Check if task exists
-    task_obj = await get_task(license_id, task_id)
+
+    # Check if task exists (with visibility check)
+    task_obj = await get_task(license_id, task_id, user["user_id"])
     if not task_obj:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    # RBAC: Check comment permissions
+    from models.tasks import can_comment_on_task
+    if not can_comment_on_task(task_obj, user["user_id"]):
+        raise HTTPException(
+            status_code=403,
+            detail="ليس لديك صلاحية التعليق على هذه المهمة"
+        )
 
     # Process Attachments
     processed_attachments = comment.attachments or []
@@ -362,6 +394,12 @@ async def list_comments(
 ):
     """List comments for a task"""
     license_id = user["license_id"]
+    
+    # FIX: Check task visibility before returning comments
+    task_obj = await get_task(license_id, task_id, user["user_id"])
+    if not task_obj:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
     return await get_task_comments(license_id, task_id)
 
 @router.post("/{task_id}/typing")
@@ -372,11 +410,18 @@ async def send_typing_indicator(
 ):
     """Broadcast typing status for a task"""
     from services.websocket_manager import broadcast_task_typing_indicator
+    license_id = user["license_id"]
+    
+    # FIX: Check task visibility before broadcasting typing indicator
+    task_obj = await get_task(license_id, task_id, user["user_id"])
+    if not task_obj:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
     data = await request.json()
     is_typing = data.get("is_typing", False)
-    
+
     await broadcast_task_typing_indicator(
-        license_id=user["license_id"],
+        license_id=license_id,
         task_id=task_id,
         user_id=user["user_id"],
         user_name=user.get("name") or user["user_id"],

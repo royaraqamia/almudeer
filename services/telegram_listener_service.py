@@ -306,11 +306,22 @@ class TelegramListenerService:
                         
                     channel_message_id = str(event.message.id)
                     reply_to_platform_id = str(event.message.reply_to.reply_to_msg_id) if (event.message.reply_to and hasattr(event.message.reply_to, 'reply_to_msg_id')) else None
-                    
-                    # 3. Check for Duplicates (Basic check)
-                    # Ideally we use Redis, but here we query DB via `models`
+
+                    # FIX: Proper Deduplication using Redis (prevents duplicates on service restart)
+                    # Use a Redis key with TTL to track recently processed messages
+                    from services.websocket_manager import RedisPubSubManager
+                    redis_mgr = RedisPubSubManager()
+                    if await redis_mgr.initialize():
+                        processed_key = f"almudeer:telegram:processed:{license_id}:{channel_message_id}"
+                        already_processed = await redis_mgr._redis_client.exists(processed_key)
+                        if already_processed:
+                            logger.debug(f"Skipping duplicate Telegram message {channel_message_id} for license {license_id}")
+                            return
+                        # Mark as processed with 24-hour TTL (covers service restart scenarios)
+                        await redis_mgr._redis_client.setex(processed_key, 86400, "1")
+
+                    # 3. Check for Duplicates in DB (fallback if Redis unavailable)
                     from models import get_inbox_messages
-                    # A better way is to rely on `save_inbox_message` ignoring duplicates or returning existing ID
                     
                     # NEW: Handle Outgoing Sync
                     if event.out:

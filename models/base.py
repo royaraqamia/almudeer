@@ -345,11 +345,26 @@ async def init_enhanced_tables():
             CREATE INDEX IF NOT EXISTS idx_library_license_customer
             ON library_items(license_key_id, customer_id)
         """)
-        
+
         await execute_sql(db, """
             CREATE INDEX IF NOT EXISTS idx_library_user
             ON library_items(license_key_id, user_id)
         """)
+
+        # Issue #5: Index for soft-delete filtering (performance optimization)
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_library_deleted_at
+            ON library_items(deleted_at)
+        """)
+
+        # Issue #5: Composite index for active items query optimization
+        if DB_TYPE == "postgresql":
+            # PostgreSQL supports partial indexes
+            await execute_sql(db, """
+                CREATE INDEX IF NOT EXISTS idx_library_active_items
+                ON library_items(license_key_id, deleted_at)
+                WHERE deleted_at IS NULL
+            """)
 
         # Migration for user_id column
         try:

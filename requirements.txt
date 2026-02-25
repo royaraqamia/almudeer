@@ -83,3 +83,11 @@ agora-token-builder>=1.0.0
 
 # Web Scraping & Link Previews
 beautifulsoup4==4.12.3
+
+# File Security (Optional but recommended for production)
+# Issue #27: File content validation
+python-magic==0.4.27
+
+# Security utilities
+# Issue #28: Path traversal protection (secure_filename)
+werkzeug==3.0.1

@@ -15,6 +15,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from pydantic import BaseModel, Field
 from models.task_queue import enqueue_task
+from rate_limiting import limiter, RateLimits
 
 from models import (
     get_inbox_messages,
@@ -118,6 +119,33 @@ async def search_user_messages(
 ):
     return await search_messages(license["license_id"], query, sender_contact, limit, offset)
 
+@router.get("/conversations/{sender_contact:path}/search")
+async def search_within_conversation(
+    sender_contact: str,
+    query: str,
+    limit: int = 50,
+    offset: int = 0,
+    license: dict = Depends(get_license_from_header)
+):
+    """
+    Search for messages within a specific conversation.
+    Returns matching messages with context (previous/next messages).
+    """
+    from models.inbox import search_messages_in_conversation
+    results = await search_messages_in_conversation(
+        license["license_id"],
+        sender_contact,
+        query,
+        limit,
+        offset
+    )
+    return {
+        "results": results,
+        "total": len(results),
+        "has_more": len(results) == limit,
+        "sender_contact": sender_contact
+    }
+
 @router.get("/conversations/{sender_contact:path}/messages")
 async def get_conversation_messages_paginated(
     sender_contact: str,
@@ -160,6 +188,7 @@ async def get_conversation_detail(
     }
 
 @router.post("/conversations/{sender_contact:path}/typing")
+@limiter.limit(RateLimits.SEND_MESSAGE)  # Use SEND_MESSAGE rate limit (30/minute)
 async def send_typing_indicator(
     sender_contact: str,
     request: Request,
@@ -168,7 +197,7 @@ async def send_typing_indicator(
     from services.websocket_manager import broadcast_typing_indicator, RedisPubSubManager
     data = await request.json()
     is_typing = data.get("is_typing", False)
-    
+
     # [Senior Optimization] Persist in Redis for multi-device/multi-worker consistency
     redis_mgr = RedisPubSubManager()
     if await redis_mgr.initialize():
@@ -182,6 +211,7 @@ async def send_typing_indicator(
     return {"success": True}
 
 @router.post("/conversations/{sender_contact:path}/recording")
+@limiter.limit(RateLimits.SEND_MESSAGE)  # Use SEND_MESSAGE rate limit (30/minute)
 async def send_recording_indicator(
     sender_contact: str,
     request: Request,
@@ -288,6 +318,7 @@ async def send_chat_message(
         is_forwarded=is_forwarded
     )
     
+    # Standardize: pass license_id if needed, though approve_outbox_message fetches internally from outbox_id
     await approve_outbox_message(outbox_id, body)
     
     # Instant Send: Trigger Redis wake-up
@@ -356,14 +387,13 @@ async def cleanup_inbox_status_route(license: dict = Depends(get_license_from_he
 @router.patch("/messages/{message_id}/edit")
 async def edit_message_route(message_id: int, request: Request, license: dict = Depends(get_license_from_header)):
     from models.inbox import edit_outbox_message
-    from services.websocket_manager import broadcast_message_edited
     data = await request.json()
     new_body = data.get("body", "").strip()
     if not new_body: raise HTTPException(status_code=400, detail="النص فارغ")
     
     try:
+        # edit_outbox_message already handles websocket broadcasting
         result = await edit_outbox_message(message_id, license["license_id"], new_body)
-        await broadcast_message_edited(license["license_id"], message_id, new_body, result["edited_at"])
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -375,10 +405,9 @@ async def delete_message_route(
     license: dict = Depends(get_license_from_header)
 ):
     from models.inbox import soft_delete_message
-    from services.websocket_manager import broadcast_message_deleted
     try:
+        # soft_delete_message already handles websocket broadcasting
         result = await soft_delete_message(message_id, license["license_id"], msg_type=type)
-        await broadcast_message_deleted(license["license_id"], message_id)
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -386,26 +415,30 @@ async def delete_message_route(
 # --- Conversations Actions ---
 
 @router.delete("/conversations/{sender_contact:path}/clear")
+@limiter.limit("5/minute")  # Rate limit to prevent mass deletion attacks
 async def clear_conversation_route(
     sender_contact: str,
+    request: Request,
     license: dict = Depends(get_license_from_header)
 ):
     from models.inbox import clear_conversation_messages
     from services.websocket_manager import broadcast_chat_cleared
-    
+
     result = await clear_conversation_messages(license["license_id"], sender_contact)
     # Broadcast event so UI updates instantly
     await broadcast_chat_cleared(license["license_id"], sender_contact)
     return result
 
 @router.delete("/conversations/{sender_contact:path}")
+@limiter.limit("5/minute")  # Rate limit to prevent mass deletion attacks
 async def delete_conversation_route(
     sender_contact: str,
+    request: Request,
     license: dict = Depends(get_license_from_header)
 ):
     from models.inbox import soft_delete_conversation
     from services.websocket_manager import broadcast_conversation_deleted
-    
+
     result = await soft_delete_conversation(license["license_id"], sender_contact)
     # Broadcast event so UI removes it instantly
     await broadcast_conversation_deleted(license["license_id"], sender_contact)
@@ -415,21 +448,30 @@ class BatchDeleteRequest(BaseModel):
     sender_contacts: List[str]
 
 @router.delete("/conversations")
+@limiter.limit("3/minute")  # Stricter limit for batch delete
 async def delete_multiple_conversations_route(
-    request: BatchDeleteRequest,
+    request: Request,
+    batch_request: BatchDeleteRequest,
     license: dict = Depends(get_license_from_header)
 ):
     from models.inbox import soft_delete_conversation
     from services.websocket_manager import broadcast_conversation_deleted
-    
-    if not request.sender_contacts:
+
+    if not batch_request.sender_contacts:
         raise HTTPException(status_code=400, detail="قائمة المحادثات فارغة")
-        
-    for contact in request.sender_contacts:
+
+    # Limit batch size to prevent abuse
+    if len(batch_request.sender_contacts) > 50:
+        raise HTTPException(
+            status_code=400,
+            detail="الحد الأقصى لعدد المحادثات التي يمكن حذفها دفعة واحدة هو 50"
+        )
+
+    for contact in batch_request.sender_contacts:
         await soft_delete_conversation(license["license_id"], contact)
         await broadcast_conversation_deleted(license["license_id"], contact)
-        
-    return {"success": True, "count": len(request.sender_contacts), "message": "تم حذف المحادثات بنجاح"}
+
+    return {"success": True, "count": len(batch_request.sender_contacts), "message": "تم حذف المحادثات بنجاح"}
 
 
 @router.post("/inbox/{message_id}/read")

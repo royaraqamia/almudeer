@@ -29,6 +29,7 @@ class TaskBase(BaseModel):
     assigned_to: Optional[str] = None
     attachments: Optional[List[Attachment]] = []
     visibility: str = "shared" # shared, private
+    role: Optional[str] = None  # owner, assignee, viewer (computed, not stored)
 
     @field_validator('recurrence')
     @classmethod
@@ -36,7 +37,7 @@ class TaskBase(BaseModel):
         if v is not None and v.lower() not in ('daily', 'weekly', 'monthly'):
             raise ValueError('recurrence must be daily, weekly, or monthly')
         return v
-        
+
     @field_validator('visibility')
     @classmethod
     def validate_visibility(cls, v):

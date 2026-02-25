@@ -9,6 +9,10 @@ import os
 import uuid
 from datetime import datetime, timedelta
 
+import ipaddress
+import socket
+from urllib.parse import urlparse, urljoin
+
 from dependencies import get_current_user, get_license_from_header
 from models.library import add_library_item
 from services.file_storage_service import get_file_storage
@@ -58,16 +62,33 @@ class ScrapeRequest(BaseModel):
         
         # Validate URL format
         try:
-            from urllib.parse import urlparse
             parsed = urlparse(v)
             if not parsed.scheme or not parsed.netloc:
                 raise ValueError('Invalid URL format')
             
-            # Check for blocked patterns
+            # Check for blocked patterns in hostname
             host = parsed.netloc.lower()
+            if ":" in host:
+                host = host.split(":")[0]
+
             for pattern in BLOCKED_URL_PATTERNS:
-                if host.startswith(pattern) or host.endswith(pattern):
+                if host == pattern or host.endswith(f".{pattern}"):
                     raise ValueError(f'URL pattern blocked: {pattern}')
+            
+            # Robust SSRF Protection: Resolve DNS and check IP ranges
+            try:
+                ip_address = socket.gethostbyname(host)
+                ip = ipaddress.ip_address(ip_address)
+                
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                    raise ValueError(f'Access to private/reserved IP {ip_address} is blocked')
+            except socket.gaierror:
+                # DNS resolution failure is handled during the actual request
+                pass
+            except Exception as e:
+                if isinstance(e, ValueError): raise
+                # Ignore other IP validation errors, let httpx handle it
+                pass
                     
         except Exception as e:
             if isinstance(e, ValueError):
@@ -187,16 +208,45 @@ async def scrape_url(url: str, include_images: bool = True) -> tuple[str, str, l
             if src not in images:
                 images.append(src)
 
-    article = soup.find("article") or soup.find("main") or soup.find("body")
+    article = soup.find("article") or soup.find("main")
+    
+    # Heuristic-based extraction if standard tags missing
+    if not article:
+        # Look for class/id containing 'content' or 'article' or 'post'
+        potential_containers = soup.find_all(lambda tag: tag.name in ['div', 'section'] and 
+            (any(s in str(tag.get('class', [])).lower() for s in ['content', 'article', 'post', 'body-text']) or
+             any(s in str(tag.get('id', '')).lower() for s in ['content', 'article', 'post', 'body-text'])))
+        
+        if potential_containers:
+            # Pick the one with the most text
+            article = max(potential_containers, key=lambda t: len(t.get_text()))
+    
+    if not article:
+        article = soup.find("body")
+
     if article:
-        for element in article.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "li"]):
+        # Pre-process elements for better spacing
+        for element in article.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "div", "br"]):
             element.insert_after("\n")
+            
         content = article.get_text(separator="\n", strip=True)
     else:
         content = soup.get_text(separator="\n", strip=True)
 
-    lines = [line.strip() for line in content.split("\n") if line.strip()]
-    content = "\n\n".join(lines[:2000])  # Limit to 2000 lines
+    # Clean up excessive newlines while preserving structure
+    lines = [line.strip() for line in content.split("\n")]
+    cleaned_lines = []
+    last_was_empty = False
+    
+    for line in lines:
+        if line:
+            cleaned_lines.append(line)
+            last_was_empty = False
+        elif not last_was_empty:
+            cleaned_lines.append("")
+            last_was_empty = True
+            
+    content = "\n".join(cleaned_lines[:3000])  # Increased limit slightly
 
     # Truncate if still too large
     if len(content) > MAX_CONTENT_SIZE:

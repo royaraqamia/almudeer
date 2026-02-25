@@ -108,6 +108,23 @@ class WhatsAppService:
 
     async def get_templates(self, business_account_id: str) -> Dict:
         """Fetch pre-approved message templates from Meta Business Account"""
+        # Simple TTL caching (1 hour) to reduce API calls
+        if not hasattr(self, "_templates_cache"):
+            self._templates_cache = {}
+        
+        now = datetime.utcnow().timestamp()
+        cache_key = f"{business_account_id}_{self.access_token}"
+        
+        if cache_key in self._templates_cache:
+            ttl = 3600  # 1 hour
+            cached_data, timestamp = self._templates_cache[cache_key]
+            if now - timestamp < ttl:
+                return {
+                    "success": True,
+                    "data": cached_data,
+                    "cached": True
+                }
+
         url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{business_account_id}/message_templates"
         
         async with httpx.AsyncClient() as client:
@@ -122,9 +139,13 @@ class WhatsAppService:
                     "error": response.text
                 }
             
+            data = response.json().get("data", [])
+            self._templates_cache[cache_key] = (data, now)
+            
             return {
                 "success": True,
-                "data": response.json().get("data", [])
+                "data": data,
+                "cached": False
             }
     
     async def mark_as_read(self, message_id: str) -> bool:

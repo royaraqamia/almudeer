@@ -1,5 +1,5 @@
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db
 from models.base import ID_PK, TIMESTAMP_NOW
 
@@ -119,15 +119,42 @@ async def init_tasks_table():
             print("Migrated tasks: added attachments")
         except Exception:
             pass
-        
+
         # Indexes for performance
         await execute_sql(db, """
             CREATE INDEX IF NOT EXISTS idx_tasks_license_completed
             ON tasks(license_key_id, is_completed)
         """)
-        
+
+        # FIX: Additional composite indexes for common query patterns
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_tasks_license_assigned_completed
+            ON tasks(license_key_id, assigned_to, is_completed)
+        """)
+
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_tasks_license_visibility_created
+            ON tasks(license_key_id, visibility, created_by)
+        """)
+
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_tasks_license_due_date
+            ON tasks(license_key_id, due_date)
+        """)
+
+        # Index for task comments lookup
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_task_comments_task_created
+            ON task_comments(task_id, created_at)
+        """)
+
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_task_comments_license_task
+            ON task_comments(license_key_id, task_id)
+        """)
+
         await commit_db(db)
-        print("Tasks table initialized")
+        print("Tasks table initialized with optimized indexes")
 
 async def get_tasks(
     license_id: int, 
@@ -161,14 +188,25 @@ async def get_tasks(
         rows = await fetch_all(db, query, tuple(params))
         return [_parse_task_row(dict(row)) for row in rows]
 
-async def get_task(license_id: int, task_id: str) -> Optional[dict]:
-    """Get a specific task (check both license and global)"""
+async def get_task(license_id: int, task_id: str, user_id: Optional[str] = None) -> Optional[dict]:
+    """Get a specific task (check both license and global). Respects private visibility."""
     async with get_db() as db:
         row = await fetch_one(db, """
-            SELECT * FROM tasks 
+            SELECT * FROM tasks
             WHERE (license_key_id = ? OR license_key_id = 0) AND id = ?
         """, (license_id, task_id))
-        return _parse_task_row(dict(row)) if row else None
+        
+        if not row:
+            return None
+        
+        # FIX: Check private task visibility
+        task_dict = dict(row)
+        if task_dict.get('visibility') == 'private':
+            # Private tasks only visible to creator
+            if not user_id or task_dict.get('created_by') != user_id:
+                return None
+        
+        return _parse_task_row(task_dict) if row else None
 
 def _parse_task_row(row: dict) -> dict:
     """Helper to parse JSON fields"""
@@ -191,6 +229,52 @@ def _parse_task_row(row: dict) -> dict:
 
     return row
 
+def compute_task_role(task: dict, user_id: str) -> str:
+    """
+    Compute user's role/permission level for a task.
+    Returns: 'owner', 'assignee', or 'viewer'
+    """
+    if task.get('created_by') == user_id:
+        return 'owner'
+    if task.get('assigned_to') == user_id:
+        return 'assignee'
+    return 'viewer'
+
+def can_edit_task(task: dict, user_id: str) -> bool:
+    """
+    Check if user can edit a task based on role and visibility.
+    - Owner: always can edit
+    - Assignee: can edit shared tasks, update status, add comments
+    - Viewer: read-only
+    """
+    role = compute_task_role(task, user_id)
+    if role == 'owner':
+        return True
+    if role == 'assignee' and task.get('visibility') != 'private':
+        return True
+    return False
+
+def can_delete_task(task: dict, user_id: str) -> bool:
+    """
+    Check if user can delete a task.
+    Only owners can delete tasks.
+    """
+    return compute_task_role(task, user_id) == 'owner'
+
+def can_comment_on_task(task: dict, user_id: str) -> bool:
+    """
+    Check if user can comment on a task.
+    - Owner: always can comment
+    - Assignee: can comment on shared tasks
+    - Viewer: cannot comment
+    """
+    role = compute_task_role(task, user_id)
+    if role == 'owner':
+        return True
+    if role == 'assignee' and task.get('visibility') != 'private':
+        return True
+    return False
+
 def _parse_comment_row(row: dict) -> dict:
     """Helper to parse JSON fields for comments"""
     import json
@@ -208,13 +292,39 @@ async def create_task(license_id: int, task_data: dict) -> dict:
     async with get_db() as db:
         # Convert list to JSON string if needed
         import json
+        
+        # FIX: Normalize timezone-aware timestamps to UTC for consistent LWW comparison
+        def normalize_timestamp(ts):
+            """Convert any timestamp to UTC datetime for consistent comparison"""
+            if ts is None:
+                return datetime.utcnow()
+            if isinstance(ts, datetime):
+                # If timezone-aware, convert to UTC
+                if ts.tzinfo is not None:
+                    return ts.astimezone(timezone.utc).replace(tzinfo=None)
+                return ts
+            if isinstance(ts, str):
+                try:
+                    # Parse ISO format string
+                    parsed = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                    # Convert to UTC if timezone-aware
+                    if parsed.tzinfo is not None:
+                        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+                    return parsed
+                except:
+                    return datetime.utcnow()
+            return datetime.utcnow()
+        
         sub_tasks_val = task_data.get('sub_tasks')
         if isinstance(sub_tasks_val, list):
             sub_tasks_val = json.dumps(sub_tasks_val)
-            
+
+        # Normalize updated_at to UTC
+        updated_at = normalize_timestamp(task_data.get('updated_at'))
+
         await execute_sql(db, """
             INSERT INTO tasks (
-                id, license_key_id, title, description, is_completed, due_date, 
+                id, license_key_id, title, description, is_completed, due_date,
                 priority, color, sub_tasks, alarm_enabled, alarm_time, recurrence,
                 category, order_index, created_by, assigned_to, attachments, visibility, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
@@ -255,7 +365,7 @@ async def create_task(license_id: int, task_data: dict) -> dict:
             task_data.get('assigned_to'),
             json.dumps(task_data.get('attachments', [])),
             task_data.get('visibility', 'shared'),
-            task_data.get('updated_at', datetime.utcnow().isoformat()),
+            updated_at,
             license_id  # For the WHERE clause in ON CONFLICT
         ))
         await commit_db(db)
@@ -265,35 +375,56 @@ async def update_task(license_id: int, task_id: str, task_data: dict) -> Optiona
     """Update a task with LWW conflict resolution"""
     fields = []
     values = []
-    
+
     import json
+    
+    # FIX: Normalize timezone-aware timestamps to UTC for consistent LWW comparison
+    def normalize_timestamp(ts):
+        """Convert any timestamp to UTC datetime for consistent comparison"""
+        if ts is None:
+            return datetime.utcnow()
+        if isinstance(ts, datetime):
+            if ts.tzinfo is not None:
+                return ts.astimezone(timezone.utc).replace(tzinfo=None)
+            return ts
+        if isinstance(ts, str):
+            try:
+                parsed = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                if parsed.tzinfo is not None:
+                    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+                return parsed
+            except:
+                return datetime.utcnow()
+        return datetime.utcnow()
+    
     for key, val in task_data.items():
         if val is not None and key not in ['id', 'license_key_id', 'updated_at']:
             if key == 'sub_tasks' and isinstance(val, list):
                 val = json.dumps(val)
             if key == 'attachments' and isinstance(val, list):
                 val = json.dumps(val)
-                
+
             fields.append(f"{key} = ?")
             values.append(val)
-            
+
     if not fields:
-        return await get_task(license_id, task_id)
-        
-    updated_at = task_data.get('updated_at', datetime.utcnow().isoformat())
+        return await get_task(license_id, task_id, None)
+
+    # Normalize updated_at to UTC
+    updated_at = normalize_timestamp(task_data.get('updated_at'))
     fields.append("updated_at = ?")
     values.append(updated_at)
-    
+
     values.append(license_id)
     values.append(task_id)
     values.append(updated_at) # For the LWW check in WHERE
-    
+
     query = f"UPDATE tasks SET {', '.join(fields)} WHERE license_key_id = ? AND id = ? AND (updated_at IS NULL OR ? >= updated_at)"
-    
+
     async with get_db() as db:
         await execute_sql(db, query, tuple(values))
         await commit_db(db)
-        return await get_task(license_id, task_id)
+        return await get_task(license_id, task_id, None)
 
 async def delete_task(license_id: int, task_id: str) -> bool:
     """Delete a task"""

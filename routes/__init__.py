@@ -9,6 +9,7 @@ from .whatsapp import router as whatsapp_router
 from .export import router as export_router
 from .notifications import router as notifications_router
 from .library import router as library_router
+from .keyboard import router as keyboard_router
 from .stories import router as stories_router
 
 # Subscription router is imported directly in main.py to avoid circular imports
@@ -24,6 +25,7 @@ __all__ = [
     'export_router',
     'notifications_router',
     'library_router',
+    'keyboard_router',
     'stories_router'
 ]
 
