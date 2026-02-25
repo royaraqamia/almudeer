@@ -259,6 +259,18 @@ async def _process_operation(op: SyncOperation, license_id: int, background_task
                 server_state={"customer_id": customer.get("id")}
             )
             
+        elif op.type in ["sync_quran_progress", "sync_athkar_counts"]:
+            # These are stored in user_preferences as JSON blobs
+            from models.preferences import update_preferences
+            key = "quran_progress" if op.type == "sync_quran_progress" else "athkar_stats"
+            data = op.payload.get("data")
+            
+            if data is not None:
+                success = await update_preferences(license_id, **{key: json.dumps(data)})
+                return SyncResult(operation_id=op.id, success=success)
+            else:
+                return SyncResult(operation_id=op.id, success=False, error="Missing data payload")
+                
         else:
             return SyncResult(
                 operation_id=op.id,

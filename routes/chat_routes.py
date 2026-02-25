@@ -491,6 +491,65 @@ async def mark_conversation_read_route(
     return {"success": True, "count": count}
 
 
+# ============ Advanced Conversation Features ============
+
+@router.post("/conversations/{sender_contact:path}/archive")
+async def archive_conversation(
+    sender_contact: str,
+    request: Request,
+    license: dict = Depends(get_license_from_header)
+):
+    """Archive a conversation (hide without deleting)"""
+    from models.inbox import archive_conversation as archive_conv
+    data = await request.json()
+    is_archived = data.get("is_archived", True)
+    
+    result = await archive_conv(license["license_id"], sender_contact, is_archived)
+    return result
+
+
+@router.post("/messages/{message_id}/pin")
+async def pin_message(
+    message_id: int,
+    request: Request,
+    license: dict = Depends(get_license_from_header)
+):
+    """Pin or unpin a message"""
+    from models.inbox import pin_message as pin_msg
+    data = await request.json()
+    is_pinned = data.get("is_pinned", True)
+    
+    result = await pin_msg(message_id, license["license_id"], is_pinned)
+    return result
+
+
+@router.post("/conversations/{sender_contact:path}/forward")
+async def forward_message(
+    sender_contact: str,
+    request: Request,
+    license: dict = Depends(get_license_from_header)
+):
+    """Forward a message to another conversation or channel"""
+    from models.inbox import forward_message as fwd_msg
+    from pydantic import BaseModel
+    
+    class ForwardRequest(BaseModel):
+        message_id: int
+        target_contact: str
+        target_channel: str
+    
+    data = await request.json()
+    forward_req = ForwardRequest(**data)
+    
+    result = await fwd_msg(
+        license["license_id"],
+        forward_req.message_id,
+        forward_req.target_contact,
+        forward_req.target_channel
+    )
+    return result
+
+
 # --- Internal Background Tasks Implementation (Original core_integrations.py logic) ---
 
     # AI analysis removed

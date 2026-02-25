@@ -233,12 +233,20 @@ async def lifespan(app: FastAPI):
             logger.info("Message polling workers started")
         except Exception as e:
             logger.warning(f"Failed to start message polling workers: {e}")
-        
+
         try:
             await start_subscription_reminders()
             logger.info("Subscription reminder worker started")
         except Exception as e:
             logger.warning(f"Failed to start subscription reminder worker: {e}")
+
+        # Start metrics collection (monitoring)
+        try:
+            from services.metrics_service import start_metrics_collection
+            await start_metrics_collection(interval_seconds=60)
+            logger.info("Metrics collection started (60s interval)")
+        except Exception as e:
+            logger.warning(f"Failed to start metrics collection: {e}")
         
         # Start FCM token cleanup worker (daily)
         try:
@@ -363,6 +371,16 @@ async def root():
         "version": "1.0.0",
         "docs": "/docs"
     }
+
+# Metrics endpoint (monitoring dashboard)
+@app.get("/metrics", tags=["System"])
+async def metrics_endpoint():
+    """
+    System health and performance metrics.
+    For monitoring dashboards and alerting systems.
+    """
+    from services.metrics_service import get_metrics_endpoint
+    return await get_metrics_endpoint()
 
 # Rate Limiting
 limiter = Limiter(key_func=get_remote_address)
@@ -641,21 +659,51 @@ async def handle_websocket_connection(websocket: WebSocket, license_key: str):
 
 
 @app.websocket("/ws")
-async def websocket_endpoint_query(websocket: WebSocket, license: str = Query(None)):
+async def websocket_endpoint(websocket: WebSocket):
     """
-    WebSocket endpoint supporting query parameter: /ws?license=KEY
+    WebSocket endpoint supporting multiple authentication methods:
+    1. Header: X-License-Key or Authorization header (most secure)
+    2. Query parameter: /ws?license=KEY (legacy, for backward compatibility)
+    3. Path parameter: /ws/KEY (legacy, for backward compatibility)
+    
+    FIX: Prioritize header-based auth for better security (prevents URL logging of keys)
     """
-    if not license:
-        await websocket.close(code=4003, reason="License key required")
+    # Method 1: Try header-based authentication first (most secure)
+    license_key = websocket.headers.get("X-License-Key")
+    
+    # Method 2: Try Authorization header
+    if not license_key:
+        auth_header = websocket.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            license_key = auth_header[7:].strip()
+    
+    # Method 3: Fallback to query parameter (legacy)
+    if not license_key:
+        # Note: Can't use Query() in WebSocket, need to parse manually
+        from urllib.parse import parse_qs, urlparse
+        parsed = urlparse(str(websocket.url))
+        query_params = parse_qs(parsed.query)
+        license_key = query_params.get("license", [None])[0]
+    
+    if not license_key:
+        await websocket.close(code=4003, reason="License key required (use X-License-Key header, Authorization header, or ?license=KEY query param)")
         return
-    await handle_websocket_connection(websocket, license)
+    
+    await handle_websocket_connection(websocket, license_key)
 
 
 @app.websocket("/ws/{license_key}")
-async def websocket_endpoint(websocket: WebSocket, license_key: str):
+async def websocket_endpoint_path(websocket: WebSocket, license_key: str):
     """
     WebSocket endpoint supporting path parameter: /ws/KEY
+    Legacy endpoint for backward compatibility.
+    Note: Header-based auth is preferred for security.
     """
+    # Check if header is provided (overrides path for security)
+    header_license = websocket.headers.get("X-License-Key")
+    if header_license:
+        license_key = header_license
+    
     await handle_websocket_connection(websocket, license_key)
 
 

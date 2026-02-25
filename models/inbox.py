@@ -2544,13 +2544,204 @@ async def upsert_conversation_state(
         sql = f"INSERT INTO inbox_conversations ({cols}) VALUES ({placeholders}) ON CONFLICT (license_key_id, sender_contact) DO UPDATE SET {update_cols}"
         await execute_sql(db, sql, params)
         await commit_db(db)
-    
+
     # FIX: Release the distributed lock
     if use_lock and 'lock' in locals():
         try:
             await lock.release()
         except Exception as e:
             logger.error(f"Error releasing conversation lock: {e}")
+
+
+# ============ Advanced Conversation Features ============
+
+async def archive_conversation(
+    license_id: int,
+    sender_contact: str,
+    is_archived: bool
+) -> dict:
+    """
+    Archive or unarchive a conversation.
+    Archived conversations are hidden from the main inbox but not deleted.
+    """
+    from datetime import datetime, timezone
+    
+    async with get_db() as db:
+        now = datetime.now(timezone.utc)
+        ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
+        
+        if is_archived:
+            await execute_sql(
+                db,
+                """
+                UPDATE inbox_conversations
+                SET is_archived = TRUE, archived_at = ?
+                WHERE license_key_id = ? AND sender_contact = ?
+                """,
+                [ts_value, license_id, sender_contact]
+            )
+        else:
+            await execute_sql(
+                db,
+                """
+                UPDATE inbox_conversations
+                SET is_archived = FALSE, archived_at = NULL
+                WHERE license_key_id = ? AND sender_contact = ?
+                """,
+                [license_id, sender_contact]
+            )
+        
+        await commit_db(db)
+    
+    return {
+        "success": True,
+        "message": "تمت أرشفة المحادثة" if is_archived else "تمت إعادة المحادثة",
+        "message_en": "Conversation archived" if is_archived else "Conversation unarchived",
+        "is_archived": is_archived
+    }
+
+
+async def pin_message(
+    message_id: int,
+    license_id: int,
+    is_pinned: bool
+) -> dict:
+    """
+    Pin or unpin a message.
+    Pinned messages appear at the top of the conversation.
+    """
+    from datetime import datetime, timezone
+    
+    async with get_db() as db:
+        # Verify message exists and belongs to license
+        msg = await fetch_one(
+            db,
+            "SELECT id FROM inbox_messages WHERE id = ? AND license_key_id = ?",
+            [message_id, license_id]
+        )
+        
+        if not msg:
+            raise ValueError("الرسالة غير موجودة")
+        
+        now = datetime.now(timezone.utc)
+        ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
+        
+        if is_pinned:
+            await execute_sql(
+                db,
+                """
+                UPDATE inbox_messages
+                SET is_pinned = TRUE, pinned_at = ?
+                WHERE id = ?
+                """,
+                [ts_value, message_id]
+            )
+        else:
+            await execute_sql(
+                db,
+                """
+                UPDATE inbox_messages
+                SET is_pinned = FALSE, pinned_at = NULL
+                WHERE id = ?
+                """,
+                [message_id]
+            )
+        
+        await commit_db(db)
+    
+    return {
+        "success": True,
+        "message": "تم تثبيت الرسالة" if is_pinned else "تم إزالة التثبيت",
+        "message_en": "Message pinned" if is_pinned else "Message unpinned",
+        "is_pinned": is_pinned
+    }
+
+
+async def forward_message(
+    license_id: int,
+    message_id: int,
+    target_contact: str,
+    target_channel: str
+) -> dict:
+    """
+    Forward a message to another conversation or channel.
+    Creates a copy of the message with forward metadata.
+    """
+    from datetime import datetime, timezone
+    
+    async with get_db() as db:
+        # Get original message
+        original = await fetch_one(
+            db,
+            """
+            SELECT body, attachments, sender_name
+            FROM inbox_messages
+            WHERE id = ? AND license_key_id = ?
+            """,
+            [message_id, license_id]
+        )
+        
+        if not original:
+            raise ValueError("الرسالة غير موجودة")
+        
+        # Get original sender info for forward attribution
+        original_sender = original.get("sender_name", "Unknown")
+        
+        # Create forwarded message
+        now = datetime.now(timezone.utc)
+        ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
+        
+        # Prepare forward body with attribution
+        forward_body = f"↪️ Forwarded from {original_sender}:\n\n{original.get('body', '')}"
+        
+        await execute_sql(
+            db,
+            """
+            INSERT INTO inbox_messages
+            (license_key_id, channel, sender_name, sender_contact, body,
+             attachments, received_at, is_forwarded, forwarded_from, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, ?, 'analyzed')
+            """,
+            [
+                license_id,
+                target_channel,
+                original_sender,  # Show original sender
+                target_contact,
+                forward_body,
+                original.get("attachments"),
+                ts_value,
+                original.get("sender_name")
+            ]
+        )
+        
+        await commit_db(db)
+        
+        # Update conversation state for target
+        await upsert_conversation_state(license_id, target_contact)
+        
+        # Broadcast to target conversation
+        try:
+            from services.websocket_manager import broadcast_new_message
+            await broadcast_new_message(license_id, {
+                "id": message_id,
+                "sender_contact": target_contact,
+                "body": forward_body,
+                "channel": target_channel,
+                "timestamp": now.isoformat(),
+                "status": "analyzed",
+                "direction": "incoming",
+                "is_forwarded": True,
+                "forwarded_from": original_sender,
+            })
+        except Exception as e:
+            from logging_config import get_logger
+            get_logger(__name__).warning(f"Forward broadcast failed: {e}")
+    
+    return {
+        "success": True,
+        "message": "تمت إعادة توجيه الرسالة",
+        "message_en": "Message forwarded successfully"
+    }
 
 
 def _parse_message_row(row: Optional[dict]) -> Optional[dict]:

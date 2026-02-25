@@ -136,7 +136,57 @@ async def ensure_chat_features_schema():
 
         logger.info("✅ Message retry columns verified")
 
-        # ============ 5. Delivery Receipt Columns (Real WhatsApp/Telegram receipts) ============
+        # ============ 5. Message Archiving Columns ============
+        archive_columns = [
+            ("is_archived", "BOOLEAN DEFAULT FALSE" if DB_TYPE == "postgresql" else "INTEGER DEFAULT 0"),
+            ("archived_at", "TIMESTAMP"),
+        ]
+
+        for col_name, col_type in archive_columns:
+            try:
+                if DB_TYPE == "postgresql":
+                    await execute_sql(db, f"""
+                        ALTER TABLE inbox_conversations
+                        ADD COLUMN IF NOT EXISTS {col_name} {col_type}
+                    """)
+                else:
+                    await execute_sql(db, f"""
+                        ALTER TABLE inbox_conversations
+                        ADD COLUMN {col_name} {col_type}
+                    """)
+                await commit_db(db)
+            except Exception as e:
+                if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                    logger.debug(f"Archive column {col_name}: {e}")
+
+        logger.info("✅ Message archiving columns verified")
+
+        # ============ 6. Message Pinning Columns ============
+        pin_columns = [
+            ("is_pinned", "BOOLEAN DEFAULT FALSE" if DB_TYPE == "postgresql" else "INTEGER DEFAULT 0"),
+            ("pinned_at", "TIMESTAMP"),
+        ]
+
+        for col_name, col_type in pin_columns:
+            try:
+                if DB_TYPE == "postgresql":
+                    await execute_sql(db, f"""
+                        ALTER TABLE inbox_messages
+                        ADD COLUMN IF NOT EXISTS {col_name} {col_type}
+                    """)
+                else:
+                    await execute_sql(db, f"""
+                        ALTER TABLE inbox_messages
+                        ADD COLUMN {col_name} {col_type}
+                    """)
+                await commit_db(db)
+            except Exception as e:
+                if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                    logger.debug(f"Pin column {col_name}: {e}")
+
+        logger.info("✅ Message pinning columns verified")
+
+        # ============ 7. Delivery Receipt Columns (Real WhatsApp/Telegram receipts) ============
         delivery_columns = [
             ("platform_message_id", "TEXT"),       # WhatsApp/Telegram message ID
             ("delivery_status", "TEXT"),           # sent, delivered, read, failed

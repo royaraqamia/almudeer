@@ -93,6 +93,9 @@ async def update_preferences(license_id: int, **kwargs) -> bool:
         'preferred_languages',
         'reply_length',
         'formality_level',
+        # Quran & Athkar Sync
+        'quran_progress',
+        'athkar_stats',
     ]
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     
