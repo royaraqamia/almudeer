@@ -92,6 +92,10 @@ _ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 # Admin IP whitelist for additional security
 _ADMIN_IP_WHITELIST = os.getenv("ADMIN_IP_WHITELIST", "")  # Comma-separated IPs
 
+# Maximum APK file size in MB (prevent DoS and bandwidth abuse)
+# Set to 150MB to accommodate future app growth with safety margin
+_MAX_APK_SIZE_MB = int(os.getenv("MAX_APK_SIZE_MB", "150"))
+
 
 def check_https(request: Request) -> bool:
     """
@@ -201,8 +205,11 @@ class RateLimiter:
     """
     Simple in-memory rate limiter using sliding window.
     Thread-safe for concurrent requests.
-    """
     
+    Supports device ID-based rate limiting to prevent bypass via IP rotation.
+    Falls back to IP+User-Agent hash if device ID not provided.
+    """
+
     def __init__(self, max_requests: int, window_seconds: int):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
@@ -210,16 +217,37 @@ class RateLimiter:
         self._lock = threading.Lock()
         self._call_count = 0  # Counter for periodic cleanup
 
-    def is_allowed(self, identifier: str) -> tuple[bool, int]:
+    def is_allowed(self, client_ip: str, device_id: Optional[str] = None, user_agent: Optional[str] = None) -> tuple[bool, int]:
         """
-        Check if request is allowed for given identifier.
+        Check if request is allowed.
         
+        Priority for identifier:
+        1. Device ID (if provided) - most reliable
+        2. IP + User-Agent hash (fallback)
+        3. IP only (legacy fallback)
+
+        Args:
+            client_ip: Client IP address
+            device_id: Optional device ID from X-Device-ID header
+            user_agent: Optional User-Agent header
+
         Returns:
             Tuple of (is_allowed, remaining_requests)
         """
+        # Generate identifier based on available data
+        if device_id:
+            # Primary: Use device ID (most reliable)
+            identifier = f"device:{device_id}"
+        elif user_agent:
+            # Fallback: IP + User-Agent hash (harder to spoof than IP alone)
+            identifier = f"ip_ua:{hashlib.sha256(f'{client_ip}:{user_agent}'.encode()).hexdigest()}"
+        else:
+            # Legacy: IP only
+            identifier = f"ip:{client_ip}"
+        
         now = time.time()
         window_start = now - self.window_seconds
-        
+
         with self._lock:
             # Periodic cleanup: every 100 calls, purge stale entries
             self._call_count += 1
@@ -230,19 +258,19 @@ class RateLimiter:
             # Get existing requests for this identifier
             if identifier not in self._requests:
                 self._requests[identifier] = []
-            
+
             # Remove expired requests
             self._requests[identifier] = [
                 ts for ts in self._requests[identifier] if ts > window_start
             ]
-            
+
             # Check if under limit
             current_count = len(self._requests[identifier])
             remaining = self.max_requests - current_count
-            
+
             if current_count >= self.max_requests:
                 return False, 0
-            
+
             # Record this request
             self._requests[identifier].append(now)
             return True, remaining - 1
@@ -455,52 +483,56 @@ _ETAG_CACHE_TTL = 60  # Cache TTL in seconds
 
 def _get_version_etag_sync() -> str:
     """Get current ETag based on version configuration (sync version for ETag generation).
-    
+
     This function now uses proper caching to avoid async calls and potential deadlocks.
     The cache is refreshed by the async _refresh_etag_cache() which should be called
     periodically or after admin changes.
+    
+    If cache is stale, it returns a time-based ETag that will change when cache refreshes.
     """
     import json
     global _ETAG_DATA_CACHE
-    
+
     try:
         current_time = time.time()
-        
+
         # Try to get from cache first
         changelog_data = _ETAG_DATA_CACHE.get("changelog")
         update_config = _ETAG_DATA_CACHE.get("update_config")
         min_build = _ETAG_DATA_CACHE.get("min_build_number", 1)
-        
+
         # Check if cache is stale
         cache_age = current_time - _ETAG_DATA_CACHE.get("min_build_mtime", 0)
-        
-        # If cache is very old (> TTL), use default values
-        # This avoids blocking - we don't try to do async calls here
+
+        # If cache is very old (> TTL), use stale marker in ETag
+        # This ensures clients will refetch when cache is refreshed
         if cache_age > _ETAG_CACHE_TTL:
-            # Return a time-based ETag that will change when cache refreshes
+            # Return a time-based ETag that changes when cache refreshes
+            # The stale marker ensures clients don't use outdated cached responses
             return _generate_version_etag(
                 min_build,
-                f"stale_{int(current_time)}",
+                f"stale_{int(current_time / _ETAG_CACHE_TTL)}",
                 "stale"
             )
-        
+
         if changelog_data is None:
             changelog_str = json.dumps({"version": _APP_VERSION})
         else:
             changelog_str = json.dumps(changelog_data, sort_keys=True)
-        
+
         if update_config is None:
             update_config_str = json.dumps({"priority": "normal"})
         else:
             update_config_str = json.dumps(update_config, sort_keys=True)
-        
+
         return _generate_version_etag(
             min_build,
             hashlib.md5(changelog_str.encode()).hexdigest()[:8],
             hashlib.md5(update_config_str.encode()).hexdigest()[:8]
         )
-    except:
-        return _generate_version_etag(1, "", "")
+    except Exception as e:
+        logger.warning(f"ETag generation failed: {e}")
+        return _generate_version_etag(1, "error", "error")
 
 
 async def _refresh_etag_cache():
@@ -522,37 +554,58 @@ async def _refresh_etag_cache():
 # Alias for backward compatibility
 _get_version_etag = _get_version_etag_sync
 
-def _refresh_apk_cache():
-    """Refresh the APK metadata cache if the file has changed."""
+def _refresh_apk_cache(force: bool = False):
+    """Refresh APK cache if file changed or forced.
+    
+    Checks both mtime and size for reliable change detection.
+    Can be forced via admin endpoint to invalidate cache manually.
+    """
     if not os.path.exists(_APK_FILE):
         with _APK_CACHE_LOCK:
             _APK_CACHE["sha256"] = None
             _APK_CACHE["size_mb"] = None
             _APK_CACHE["mtime"] = 0
+            _APK_CACHE["size_bytes"] = 0
         return
 
     try:
         current_mtime = os.path.getmtime(_APK_FILE)
-        
-        # Only recalculate if file mtime changed
-        if current_mtime > _APK_CACHE["mtime"]:
+        current_size = os.path.getsize(_APK_FILE)
+
+        # Check both mtime AND size for better change detection
+        # This catches file replacements that preserve mtime
+        should_refresh = (
+            force or
+            current_mtime != _APK_CACHE.get("mtime", 0) or
+            current_size != _APK_CACHE.get("size_bytes", -1)
+        )
+
+        if should_refresh:
             with _APK_CACHE_LOCK:
-                # Double check inside lock
-                if current_mtime > _APK_CACHE["mtime"]:
-                    # Get size
-                    size_bytes = os.path.getsize(_APK_FILE)
-                    _APK_CACHE["size_mb"] = round(size_bytes / (1024 * 1024), 1)
+                # Double-check inside lock (thread-safe)
+                if (force or
+                    current_mtime != _APK_CACHE.get("mtime", 0) or
+                    current_size != _APK_CACHE.get("size_bytes", -1)):
                     
-                    # Calculate hash
+                    # Get size
+                    _APK_CACHE["size_bytes"] = current_size
+                    _APK_CACHE["size_mb"] = round(current_size / (1024 * 1024), 1)
+
+                    # Calculate hash with chunked reading for memory efficiency
                     sha256_hash = hashlib.sha256()
                     with open(_APK_FILE, "rb") as f:
-                        for chunk in iter(lambda: f.read(4096), b""):
+                        for chunk in iter(lambda: f.read(8192), b""):
                             sha256_hash.update(chunk)
-                    
+
                     _APK_CACHE["sha256"] = sha256_hash.hexdigest()
                     _APK_CACHE["mtime"] = current_mtime
-    except (OSError, IOError):
-        pass
+                    
+                    logger.info(f"APK cache refreshed: size={_APK_CACHE['size_mb']}MB, hash={_APK_CACHE['sha256'][:16]}...")
+    except (OSError, IOError) as e:
+        logger.error(f"Failed to refresh APK cache: {e}")
+        with _APK_CACHE_LOCK:
+            _APK_CACHE["sha256"] = None
+            _APK_CACHE["size_mb"] = None
 
 def _get_apk_sha256() -> Optional[str]:
     """
@@ -760,40 +813,60 @@ async def check_app_version(
     - armeabi_v7a: Older ARM devices (32-bit)
     - x86_64: Emulators and some tablets
     - universal: All architectures (larger file)
-    
+
     Supports ETag caching: Send If-None-Match header with previous ETag
     to receive 304 Not Modified if nothing changed.
+    
+    Rate limiting: Uses device ID (X-Device-ID header) if available,
+    otherwise falls back to IP+User-Agent hash to prevent bypass via IP rotation.
     """
     client_ip = _get_client_ip(request)
+    device_id = request.headers.get("X-Device-ID")
     
-    # Rate limiting: protect against abuse and retry storms
-    allowed, remaining = _rate_limiter.is_allowed(client_ip)
+    # Rate limiting: use device ID if available, otherwise IP
+    # This prevents bypass via IP rotation (airplane mode, mobile networks)
+    allowed, remaining = _rate_limiter.is_allowed(client_ip, device_id=device_id)
     if not allowed:
-        logger.warning(f"Rate limited version check from IP: {client_ip}")
+        logger.warning(f"Rate limited version check from IP: {client_ip}, device_id: {device_id}")
         from fastapi.responses import JSONResponse
         return JSONResponse(
             status_code=429,
             content={"detail": "Too many requests. Please try again later."},
             headers={"Retry-After": str(_RATE_LIMIT_WINDOW)},
         )
-    
-    logger.info(f"Version check request: build={app_build_number}, platform={platform}, arch={arch}, version={current_version}, ip={client_ip}")
-    
+
+    logger.info(f"Version check request: build={app_build_number}, platform={platform}, arch={arch}, version={current_version}, ip={client_ip}, device_id={device_id}")
+
     # Get version check result
     result = await _get_app_version_logic(current_version, platform, client_ip, app_build_number, language, arch)
-    
+
+    # Log update availability for analytics
+    if result.get("update_required"):
+        logger.info(
+            f"FORCE_UPDATE_AVAILABLE: build={app_build_number}, "
+            f"min_build={result.get('min_build_number')}, "
+            f"device_id={device_id}"
+        )
+    elif result.get("update_available"):
+        logger.info(
+            f"SOFT_UPDATE_AVAILABLE: build={app_build_number}, "
+            f"min_build={result.get('min_build_number')}, "
+            f"device_id={device_id}"
+        )
+
     # Generate ETag for response
     response_etag = _generate_response_etag(result)
-    
+
     # Check if client has cached version
     if if_none_match and if_none_match == response_etag:
         from fastapi.responses import Response
+        logger.debug(f"Cache hit (ETag match): device_id={device_id}")
         return Response(status_code=304, headers={"ETag": response_etag})
-    
+
     # Add ETag to response
     if isinstance(result, dict):
         result["etag"] = response_etag
-    
+
     from fastapi.responses import JSONResponse
     return JSONResponse(
         content=result,
@@ -1200,15 +1273,28 @@ async def get_update_analytics(
     
     events: List[Dict[str, Any]] = []
     events = await get_update_events(1000)
-    
+
     # Calculate summary
     total_views = sum(1 for e in events if e.get("event") == "viewed")
     total_updates = sum(1 for e in events if e.get("event") == "clicked_update")
     total_later = sum(1 for e in events if e.get("event") == "clicked_later")
     total_installed = sum(1 for e in events if e.get("event") == "installed")
-    
+    total_rollbacks = sum(1 for e in events if e.get("event") == "rolled_back")
+
     adoption_rate = round((total_updates / total_views * 100), 1) if total_views > 0 else 0
-    
+    rollback_rate = round((total_rollbacks / total_installed * 100), 2) if total_installed > 0 else 0
+
+    # Rollback statistics
+    rollback_details = []
+    for e in events:
+        if e.get("event") == "rolled_back":
+            rollback_details.append({
+                "from_build": e.get("from_build"),
+                "to_build": e.get("to_build"),
+                "device_type": e.get("device_type"),
+                "timestamp": str(e.get("timestamp", ""))
+            })
+
     # Device type breakdown
     by_device_type = {
         "android": {
@@ -1216,27 +1302,122 @@ async def get_update_analytics(
             "updates": sum(1 for e in events if e.get("event") == "clicked_update" and e.get("device_type") == "android"),
             "later": sum(1 for e in events if e.get("event") == "clicked_later" and e.get("device_type") == "android"),
             "installed": sum(1 for e in events if e.get("event") == "installed" and e.get("device_type") == "android"),
+            "rollbacks": sum(1 for e in events if e.get("event") == "rolled_back" and e.get("device_type") == "android"),
         },
         "ios": {
             "views": sum(1 for e in events if e.get("event") == "viewed" and e.get("device_type") == "ios"),
             "updates": sum(1 for e in events if e.get("event") == "clicked_update" and e.get("device_type") == "ios"),
             "later": sum(1 for e in events if e.get("event") == "clicked_later" and e.get("device_type") == "ios"),
             "installed": sum(1 for e in events if e.get("event") == "installed" and e.get("device_type") == "ios"),
+            "rollbacks": sum(1 for e in events if e.get("event") == "rolled_back" and e.get("device_type") == "ios"),
         },
     }
-    
+
     return {
         "total_views": total_views,
         "total_updates": total_updates,
         "total_later": total_later,
         "total_installed": total_installed,
+        "total_rollbacks": total_rollbacks,
         "adoption_rate": adoption_rate,
+        "rollback_rate": rollback_rate,
+        "rollback_details": rollback_details[:20],  # Last 20 rollbacks
         "by_device_type": by_device_type,
         "recent_events": events[:50],
     }
 
 
 # ============ APK Download ============
+
+@router.get("/apk", summary="Redirect to latest APK download (short URL)")
+async def redirect_to_apk(
+    request: Request,
+    arch: Optional[str] = Query(None, description="Device architecture override")
+):
+    """
+    Redirect /apk to the correct APK download URL based on device architecture.
+    
+    Users can access: https://almudeer.royaraqamia.com/apk
+    This will redirect them to the correct APK for their device.
+    
+    Architecture detection:
+    1. Query parameter: ?arch=arm64_v8a (explicit override)
+    2. User-Agent header (automatic detection)
+    3. Fallback to universal APK
+    
+    Benefits:
+    - Short, memorable URL for users
+    - Automatic architecture detection
+    - Can switch CDN without updating users
+    - Track download analytics
+    """
+    # Get user architecture from query or User-Agent
+    device_arch = arch or _detect_device_arch(request)
+    
+    # Get architecture-specific CDN URL
+    cdn_url = _get_architecture_cdn_url(device_arch)
+    
+    logger.info(f"APK redirect: arch={device_arch}, url={cdn_url}")
+    
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=cdn_url, status_code=302)
+
+
+def _detect_device_arch(request: Request) -> str:
+    """
+    Detect device architecture from User-Agent header.
+    
+    Returns: 'arm64_v8a', 'armeabi_v7a', 'x86_64', or 'universal'
+    """
+    user_agent = request.headers.get("User-Agent", "").lower()
+    
+    # Android User-Agent patterns
+    if "android" in user_agent:
+        # Check for 64-bit ARM (most modern devices)
+        if any(pattern in user_agent for pattern in ["arm64", "aarch64", "armv8"]):
+            return "arm64_v8a"
+        
+        # Check for 32-bit ARM (older devices)
+        if any(pattern in user_agent for pattern in ["armv7", "armeabi"]):
+            return "armeabi_v7a"
+        
+        # Check for x86_64 (tablets, emulators)
+        if "x86_64" in user_agent or "x64" in user_agent:
+            return "x86_64"
+        
+        # Default to ARM64 for most Android devices (safe assumption in 2026)
+        return "arm64_v8a"
+    
+    # iOS - return universal or iOS-specific
+    if "iphone" in user_agent or "ipad" in user_agent:
+        return "universal"
+    
+    # Desktop/Unknown - return universal
+    return "universal"
+
+
+def _get_architecture_cdn_url(arch: str) -> str:
+    """
+    Get CDN URL for specific architecture.
+    
+    Falls back to universal APK if architecture-specific URL not configured.
+    """
+    # Architecture-specific URLs from environment
+    arch_urls = {
+        "arm64_v8a": os.getenv("APK_CDN_URL_ARM64", ""),
+        "armeabi_v7a": os.getenv("APK_CDN_URL_ARMV7", ""),
+        "x86_64": os.getenv("APK_CDN_URL_X86", ""),
+        "universal": _APK_CDN_URL if _APK_CDN_URL else _APP_DOWNLOAD_URL,
+    }
+    
+    # Try architecture-specific URL first
+    url = arch_urls.get(arch, "")
+    if url:
+        return url
+    
+    # Fallback to universal
+    return arch_urls["universal"]
+
 
 @router.head("/download/almudeer.apk", summary="Check APK file info (HEAD)")
 async def head_apk():
@@ -1249,8 +1430,17 @@ async def head_apk():
             status_code=404,
             detail="APK file not found. Please contact support."
         )
-    
+
     file_size = os.path.getsize(_APK_FILE)
+    max_size_bytes = _MAX_APK_SIZE_MB * 1024 * 1024
+    
+    if file_size > max_size_bytes:
+        logger.error(f"APK file too large: {file_size} bytes (max: {max_size_bytes})")
+        raise HTTPException(
+            status_code=500,
+            detail="APK file exceeds size limit. Please contact support."
+        )
+
     return Response(
         headers={
             "Content-Length": str(file_size),
@@ -1266,13 +1456,26 @@ async def download_apk():
     """
     Download the Al-Mudeer mobile app APK.
     Returns the APK file with proper headers for browser download.
+    
+    Security: Validates file size before serving to prevent DoS.
     """
     if not os.path.exists(_APK_FILE):
         raise HTTPException(
             status_code=404,
             detail="APK file not found. Please contact support."
         )
+
+    # Validate file size
+    file_size = os.path.getsize(_APK_FILE)
+    max_size_bytes = _MAX_APK_SIZE_MB * 1024 * 1024
     
+    if file_size > max_size_bytes:
+        logger.error(f"APK file too large: {file_size} bytes (max: {max_size_bytes})")
+        raise HTTPException(
+            status_code=500,
+            detail="APK file exceeds size limit. Please contact support."
+        )
+
     return FileResponse(
         path=_APK_FILE,
         filename="almudeer.apk",
@@ -1485,4 +1688,36 @@ async def batch_update_config(
     return {
         "success": True,
         "results": results,
+    }
+
+
+@router.post("/api/admin/invalidate-apk-cache", summary="Invalidate APK cache (admin only)")
+async def invalidate_apk_cache(
+    request: Request,
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")
+):
+    """
+    Force invalidate and refresh the APK cache.
+    
+    Use this endpoint after uploading a new APK file to ensure
+    the backend immediately picks up the new file's hash and size.
+    
+    Requires: X-Admin-Key header (and IP whitelist if configured)
+    """
+    if not _check_admin_access(request, x_admin_key):
+        raise HTTPException(
+            status_code=403,
+            detail=_MESSAGES["ar"]["admin_required"]
+        )
+
+    # Force refresh the cache
+    _refresh_apk_cache(force=True)
+
+    logger.info("APK cache invalidated by admin")
+
+    return {
+        "success": True,
+        "message": "APK cache invalidated and refreshed",
+        "sha256": _APK_CACHE.get("sha256"),
+        "size_mb": _APK_CACHE.get("size_mb"),
     }
