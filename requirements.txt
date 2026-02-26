@@ -91,3 +91,6 @@ python-magic==0.4.27
 # Security utilities
 # Issue #28: Path traversal protection (secure_filename)
 werkzeug==3.0.1
+
+# System Metrics
+psutil>=5.9.0
