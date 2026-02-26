@@ -361,16 +361,12 @@ app = FastAPI(
 # Register structured error handlers
 register_error_handlers(app)
 
-# Root endpoint fix
+# Root endpoint - Redirect to APK download
 @app.get("/", tags=["System"])
 async def root():
-    """Root endpoint returning basic system info"""
-    return {
-        "name": "Al-Mudeer API",
-        "status": "online",
-        "version": "1.0.0",
-        "docs": "/docs"
-    }
+    """Root endpoint redirecting to APK download"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/apk")
 
 # Metrics endpoint (monitoring dashboard)
 @app.get("/metrics", tags=["System"])
