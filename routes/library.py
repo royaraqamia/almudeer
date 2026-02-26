@@ -21,6 +21,7 @@ import os
 import uuid
 import shutil
 import logging
+from datetime import datetime, timezone
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Request
 from pydantic import BaseModel, Field, validator
@@ -39,10 +40,19 @@ from models.library import (
     MAX_FILE_SIZE,
     _invalidate_storage_cache
 )
-from db_helper import get_db, fetch_all
+from db_helper import get_db, fetch_all, fetch_one
 from services.file_storage_service import get_file_storage
 from security import sanitize_string
 from rate_limiting import limiter
+from schemas.library import (
+    ShareItemRequest,
+    ShareItemResponse,
+    ListSharesResponse,
+    ShareInfo,
+    SharedWithMeResponse,
+    RemoveShareResponse,
+    UpdateSharePermissionRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -637,16 +647,17 @@ async def download_item(
     Issue #37: New endpoint for secure file downloads.
     FIX: Added download audit logging for compliance.
     ISSUE-001: Now tracks analytics in library_analytics table.
+    P3-14: Allows users with read/edit/admin share permission to download.
     """
     from fastapi.responses import FileResponse
-    from models.library import get_library_item
+    from models.library import get_library_item, verify_share_permission
     from models.library_advanced import track_item_access
     import os
 
     user_id = user.get("user_id") if user else None
 
-    # Get the item with ownership validation
-    item = await get_library_item(license["license_id"], item_id, user_id=user_id)
+    # Get the item (owner check only)
+    item = await get_library_item(license["license_id"], item_id, user_id=None)
 
     if not item:
         raise HTTPException(
@@ -655,6 +666,38 @@ async def download_item(
                 "code": ErrorCode.ITEM_NOT_FOUND,
                 "message_ar": "العنصر غير موجود",
                 "message_en": "Item not found"
+            }
+        )
+
+    # P3-14: Check if user is owner OR has share permission
+    if user_id:
+        is_owner = item.get("created_by") == user_id
+        if not is_owner:
+            async with get_db() as db:
+                has_permission = await verify_share_permission(
+                    db=db,
+                    item_id=item_id,
+                    user_id=user_id,
+                    license_id=license["license_id"],
+                    required_permission="read"
+                )
+            if not has_permission:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "FORBIDDEN",
+                        "message_ar": "لا تملك صلاحية تحميل هذا العنصر",
+                        "message_en": "You don't have permission to download this item"
+                    }
+                )
+    else:
+        # No user authenticated
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "UNAUTHORIZED",
+                "message_ar": "يجب تسجيل الدخول",
+                "message_en": "Authentication required"
             }
         )
 
@@ -992,5 +1035,509 @@ async def empty_trash(
         
         # Invalidate storage cache
         await _invalidate_storage_cache(license["license_id"])
-    
+
     return {"success": True, "message": "Trash emptied successfully"}
+
+
+# ============================================================================
+# P3-14: LIBRARY SHARING ENDPOINTS
+# ============================================================================
+
+@router.post("/{item_id}/share")
+@limiter.limit("10/minute")  # Rate limiting to prevent spam
+async def share_library_item(
+    request: Request,
+    item_id: int,
+    share_data: ShareItemRequest,
+    license: dict = Depends(get_license_from_header),
+    user: dict = Depends(get_current_user_optional)
+):
+    """
+    Share a library item with another user.
+    
+    P3-14: Share library items with other users with read/edit/admin permissions.
+    Rate limited to 10 requests/minute to prevent spam.
+    """
+    from models.library_advanced import share_item
+    from models.library import get_library_item
+    
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "UNAUTHORIZED",
+                "message_ar": "يجب تسجيل الدخول لمشاركة العناصر",
+                "message_en": "Authentication required to share items"
+            }
+        )
+    
+    user_id = user.get("user_id")
+    
+    # Verify item exists and user owns it
+    item = await get_library_item(license["license_id"], item_id, user_id=user_id)
+    if not item:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "ITEM_NOT_FOUND",
+                "message_ar": "العنصر غير موجود أو لا تملك صلاحية مشاركته",
+                "message_en": "Item not found or you don't have permission to share it"
+            }
+        )
+    
+    # Verify user is the owner (created_by)
+    if item.get("created_by") != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "FORBIDDEN",
+                "message_ar": "لا يمكنك مشاركة هذا العنصر، أنت لست المالك",
+                "message_en": "You cannot share this item, you are not the owner"
+            }
+        )
+    
+    try:
+        result = await share_item(
+            item_id=item_id,
+            license_id=license["license_id"],
+            shared_with_user_id=share_data.shared_with_user_id,
+            permission=share_data.permission,
+            created_by=user_id,
+            expires_in_days=share_data.expires_in_days
+        )
+        
+        # Track analytics
+        from models.library_advanced import track_item_access
+        await track_item_access(
+            item_id=item_id,
+            license_id=license["license_id"],
+            user_id=user_id,
+            action='share',
+            metadata={
+                'shared_with': share_data.shared_with_user_id,
+                'permission': share_data.permission
+            }
+        )
+        
+        return {
+            "success": True,
+            "share": result,
+            "message": "تمت المشاركة بنجاح"
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "SHARE_FAILED",
+                "message_ar": str(e),
+                "message_en": str(e)
+            }
+        )
+    except Exception as e:
+        logger.error(f"Share failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "INTERNAL_ERROR",
+                "message_ar": "حدث خطأ أثناء المشاركة",
+                "message_en": "An error occurred while sharing"
+            }
+        )
+
+
+@router.get("/{item_id}/shares")
+@limiter.limit("30/minute")
+async def list_item_shares(
+    request: Request,
+    item_id: int,
+    license: dict = Depends(get_license_from_header),
+    user: dict = Depends(get_current_user_optional)
+):
+    """
+    List all shares for a specific item (owner only).
+    
+    Returns all users the item is shared with and their permissions.
+    """
+    from models.library import get_library_item
+    
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "UNAUTHORIZED",
+                "message_ar": "يجب تسجيل الدخول",
+                "message_en": "Authentication required"
+            }
+        )
+    
+    user_id = user.get("user_id")
+    
+    # Verify item exists and user owns it
+    item = await get_library_item(license["license_id"], item_id, user_id=user_id)
+    if not item:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "ITEM_NOT_FOUND",
+                "message_ar": "العنصر غير موجود",
+                "message_en": "Item not found"
+            }
+        )
+    
+    # Only owner can view shares
+    if item.get("created_by") != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "FORBIDDEN",
+                "message_ar": "لا يمكنك عرض مشاركات هذا العنصر",
+                "message_en": "You don't have permission to view shares for this item"
+            }
+        )
+    
+    async with get_db() as db:
+        rows = await fetch_all(
+            db,
+            """
+            SELECT * FROM library_shares
+            WHERE item_id = ? AND license_key_id = ? AND deleted_at IS NULL
+            ORDER BY created_at DESC
+            """,
+            [item_id, license["license_id"]]
+        )
+        
+        shares = [dict(row) for row in rows]
+    
+    return {
+        "success": True,
+        "shares": shares,
+        "total": len(shares)
+    }
+
+
+@router.get("/shared-with-me")
+@limiter.limit("30/minute")
+async def get_shared_with_me(
+    request: Request,
+    license: dict = Depends(get_license_from_header),
+    user: dict = Depends(get_current_user_optional),
+    permission: Optional[str] = Query(None, description="Filter by permission: read, edit, admin")
+):
+    """
+    Get all items shared with the current user.
+    
+    P3-14: Returns items that other users have shared with the authenticated user.
+    """
+    from models.library_advanced import get_shared_items
+    
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "UNAUTHORIZED",
+                "message_ar": "يجب تسجيل الدخول",
+                "message_en": "Authentication required"
+            }
+        )
+    
+    user_id = user.get("user_id")
+    
+    try:
+        items = await get_shared_items(
+            license_id=license["license_id"],
+            user_id=user_id,
+            permission=permission
+        )
+        
+        return {
+            "success": True,
+            "items": items,
+            "total": len(items)
+        }
+    except Exception as e:
+        logger.error(f"Failed to get shared items: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "INTERNAL_ERROR",
+                "message_ar": "فشل جلب العناصر المشتركة",
+                "message_en": "Failed to get shared items"
+            }
+        )
+
+
+@router.delete("/shares/{share_id}")
+@limiter.limit("10/minute")
+async def remove_library_share(
+    request: Request,
+    share_id: int,
+    license: dict = Depends(get_license_from_header),
+    user: dict = Depends(get_current_user_optional)
+):
+    """
+    Remove a share (revoke access).
+    
+    P3-14: Revoke sharing access for a specific user.
+    Only the share creator or item owner can remove a share.
+    """
+    from models.library_advanced import remove_share
+    
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "UNAUTHORIZED",
+                "message_ar": "يجب تسجيل الدخول",
+                "message_en": "Authentication required"
+            }
+        )
+    
+    user_id = user.get("user_id")
+    
+    # Verify share exists and user has permission to remove it
+    async with get_db() as db:
+        share = await fetch_one(
+            db,
+            """
+            SELECT ls.*, li.created_by as item_owner
+            FROM library_shares ls
+            INNER JOIN library_items li ON ls.item_id = li.id
+            WHERE ls.id = ? AND ls.license_key_id = ?
+            """,
+            [share_id, license["license_id"]]
+        )
+        
+        if not share:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "SHARE_NOT_FOUND",
+                    "message_ar": "المشاركة غير موجودة",
+                    "message_en": "Share not found"
+                }
+            )
+        
+        # Only share creator or item owner can remove share
+        if share.get("created_by") != user_id and share.get("item_owner") != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "FORBIDDEN",
+                    "message_ar": "لا تملك صلاحية إزالة هذه المشاركة",
+                    "message_en": "You don't have permission to remove this share"
+                }
+            )
+    
+    try:
+        success = await remove_share(share_id, license["license_id"], revoked_by=user_id)
+        
+        if success:
+            return {
+                "success": True,
+                "message": "تم إزالة المشاركة بنجاح"
+            }
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "SHARE_NOT_FOUND",
+                    "message_ar": "المشاركة غير موجودة",
+                    "message_en": "Share not found"
+                }
+            )
+    except Exception as e:
+        logger.error(f"Failed to remove share: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "INTERNAL_ERROR",
+                "message_ar": "فشل إزالة المشاركة",
+                "message_en": "Failed to remove share"
+            }
+        )
+
+
+@router.patch("/shares/{share_id}/permission")
+@limiter.limit("10/minute")
+async def update_share_permission(
+    request: Request,
+    share_id: int,
+    permission_data: UpdateSharePermissionRequest,
+    license: dict = Depends(get_license_from_header),
+    user: dict = Depends(get_current_user_optional)
+):
+    """
+    Update the permission level for a share.
+    
+    P3-14: Change permission from read to edit or vice versa.
+    Only the share creator or item owner can update permissions.
+    """
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "UNAUTHORIZED",
+                "message_ar": "يجب تسجيل الدخول",
+                "message_en": "Authentication required"
+            }
+        )
+    
+    user_id = user.get("user_id")
+    now = datetime.now(timezone.utc)
+    
+    # Verify share exists and user has permission to update it
+    async with get_db() as db:
+        share = await fetch_one(
+            db,
+            """
+            SELECT ls.*, li.created_by as item_owner
+            FROM library_shares ls
+            INNER JOIN library_items li ON ls.item_id = li.id
+            WHERE ls.id = ? AND ls.license_key_id = ? AND ls.deleted_at IS NULL
+            """,
+            [share_id, license["license_id"]]
+        )
+        
+        if not share:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "SHARE_NOT_FOUND",
+                    "message_ar": "المشاركة غير موجودة",
+                    "message_en": "Share not found"
+                }
+            )
+        
+        # Only share creator or item owner can update permission
+        if share.get("created_by") != user_id and share.get("item_owner") != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "FORBIDDEN",
+                    "message_ar": "لا تملك صلاحية تعديل هذه المشاركة",
+                    "message_en": "You don't have permission to update this share"
+                }
+            )
+        
+        # Update permission
+        await execute_sql(
+            db,
+            "UPDATE library_shares SET permission = ?, updated_at = ? WHERE id = ? AND license_key_id = ?",
+            [permission_data.permission, now, share_id, license["license_id"]]
+        )
+        await commit_db(db)
+    
+    return {
+        "success": True,
+        "message": "تم تحديث الصلاحية بنجاح",
+        "permission": permission_data.permission
+    }
+
+
+# ============================================================================
+# P5: ANALYTICS & MONITORING
+# ============================================================================
+
+@router.get("/analytics/summary")
+@limiter.limit("30/minute")
+async def get_library_analytics_summary(
+    request: Request,
+    license: dict = Depends(get_license_from_header),
+    user: Optional[dict] = Depends(get_current_user_optional),
+    days: int = Query(default=30, ge=1, le=90)
+):
+    """
+    Get analytics summary for library sharing and usage.
+    
+    P5-1: Analytics dashboard for library sharing metrics.
+    """
+    from models.library_advanced import get_library_statistics, get_item_analytics
+    
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "UNAUTHORIZED",
+                "message_ar": "يجب تسجيل الدخول",
+                "message_en": "Authentication required"
+            }
+        )
+    
+    try:
+        # Get overall library statistics
+        stats = await get_library_statistics(
+            license_id=license["license_id"],
+            days=days
+        )
+        
+        async with get_db() as db:
+            # Get share-specific metrics
+            share_stats = await fetch_all(
+                db,
+                """
+                SELECT 
+                    COUNT(*) as total_shares,
+                    COUNT(DISTINCT item_id) as shared_items,
+                    COUNT(DISTINCT shared_with_user_id) as unique_recipients,
+                    AVG(CASE WHEN deleted_at IS NULL THEN 1 ELSE 0 END) * 100 as active_share_percentage
+                FROM library_shares
+                WHERE license_key_id = ?
+                AND created_at >= datetime('now', ?)
+                """,
+                [license["license_id"], f'-{days} days']
+            )
+            
+            # Get most shared items
+            most_shared = await fetch_all(
+                db,
+                """
+                SELECT li.id, li.title, li.type, COUNT(ls.id) as share_count
+                FROM library_items li
+                INNER JOIN library_shares ls ON li.id = ls.item_id
+                WHERE li.license_key_id = ?
+                AND ls.created_at >= datetime('now', ?)
+                AND li.deleted_at IS NULL
+                GROUP BY li.id, li.title, li.type
+                ORDER BY share_count DESC
+                LIMIT 10
+                """,
+                [license["license_id"], f'-{days} days']
+            )
+            
+            # Get sharing activity over time
+            activity_trend = await fetch_all(
+                db,
+                """
+                SELECT DATE(created_at) as date, COUNT(*) as share_count
+                FROM library_shares
+                WHERE license_key_id = ?
+                AND created_at >= datetime('now', ?)
+                GROUP BY DATE(created_at)
+                ORDER BY date DESC
+                """,
+                [license["license_id"], f'-{days} days']
+            )
+        
+        return {
+            "success": True,
+            "period_days": days,
+            "overall_stats": stats,
+            "share_metrics": {
+                "total_shares": share_stats[0]["total_shares"] if share_stats else 0,
+                "shared_items": share_stats[0]["shared_items"] if share_stats else 0,
+                "unique_recipients": share_stats[0]["unique_recipients"] if share_stats else 0,
+                "active_share_percentage": round(share_stats[0]["active_share_percentage"], 2) if share_stats else 0
+            },
+            "most_shared_items": [dict(row) for row in most_shared],
+            "sharing_trend": [dict(row) for row in activity_trend]
+        }
+    except Exception as e:
+        logger.error(f"Analytics summary failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "INTERNAL_ERROR",
+                "message_ar": "فشل جلب الإحصائيات",
+                "message_en": "Failed to get analytics"
+            }
+        )

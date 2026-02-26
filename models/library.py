@@ -27,6 +27,79 @@ logger = logging.getLogger(__name__)
 
 # Default limits (can be configured via env)
 MAX_STORAGE_PER_LICENSE = int(os.getenv("MAX_STORAGE_PER_LICENSE", 100 * 1024 * 1024))  # 100MB
+
+
+async def verify_share_permission(
+    db,
+    item_id: int,
+    user_id: str,
+    license_id: int,
+    required_permission: str
+) -> bool:
+    """
+    Verify if a user has the required permission for a shared item.
+    
+    P3-14: Share permission enforcement.
+    
+    Args:
+        db: Database connection
+        item_id: Library item ID
+        user_id: User ID to check permission for
+        license_id: License key ID
+        required_permission: Required permission level ('read' or 'edit' or 'admin')
+    
+    Returns:
+        bool: True if user has the required permission, False otherwise
+    
+    Permission hierarchy:
+        - admin: can read, edit, and manage shares
+        - edit: can read and edit
+        - read: can only read
+    """
+    # Check if user is the owner
+    item = await fetch_one(
+        db,
+        "SELECT created_by FROM library_items WHERE id = ? AND license_key_id = ?",
+        [item_id, license_id]
+    )
+    
+    if not item:
+        return False
+    
+    # Owner always has full access
+    if item.get("created_by") == user_id:
+        return True
+    
+    # Check share permissions
+    share = await fetch_one(
+        db,
+        """
+        SELECT permission FROM library_shares
+        WHERE item_id = ? 
+        AND shared_with_user_id = ? 
+        AND license_key_id = ? 
+        AND deleted_at IS NULL
+        AND (expires_at IS NULL OR expires_at > ?)
+        """,
+        [item_id, user_id, license_id, datetime.now(timezone.utc)]
+    )
+    
+    if not share:
+        return False
+    
+    share_permission = share.get("permission", "read")
+    
+    # Permission hierarchy check
+    if required_permission == "read":
+        return share_permission in ("read", "edit", "admin")
+    elif required_permission == "edit":
+        return share_permission in ("edit", "admin")
+    elif required_permission == "admin":
+        return share_permission == "admin"
+    
+    return False
+
+
 MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", 20 * 1024 * 1024))  # 20MB
 
 # Issue #2: Application-level lock for SQLite storage operations
@@ -296,6 +369,7 @@ async def update_library_item(
 
     Issue #4: Timezone-aware timestamps.
     FIX: Added storage cache invalidation when file_size is updated.
+    P3-14: Enforces share permissions - only owner or users with edit/admin permission can update.
     """
     allowed_fields = ['title', 'content', 'customer_id', 'file_size']
     updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
@@ -303,54 +377,81 @@ async def update_library_item(
     if not updates:
         return False
 
-    # Issue #4: Use timezone-aware datetime
-    now = datetime.now(timezone.utc)
-    ts_value = now
-    updates['updated_at'] = ts_value
-
-    set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
-    query = f"UPDATE library_items SET {set_clause} WHERE id = ? AND license_key_id = ?"
-    values = list(updates.values()) + [item_id, license_id]
-
-    if user_id:
-        query += " AND user_id = ?"
-        values.append(user_id)
-
     async with get_db() as db:
+        # P3-14: Check share permissions if user_id is provided
+        if user_id:
+            # First check if user is owner
+            owner_check = await fetch_one(
+                db,
+                "SELECT created_by FROM library_items WHERE id = ? AND license_key_id = ?",
+                [item_id, license_id]
+            )
+            
+            if not owner_check:
+                return False
+            
+            # If not owner, check share permission
+            if owner_check.get("created_by") != user_id:
+                has_permission = await verify_share_permission(
+                    db, item_id, user_id, license_id, "edit"
+                )
+                if not has_permission:
+                    logger.warning(
+                        f"User {user_id} denied edit permission for item {item_id}"
+                    )
+                    return False
+
+        # Issue #4: Use timezone-aware datetime
+        now = datetime.now(timezone.utc)
+        ts_value = now
+        updates['updated_at'] = ts_value
+
+        set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
+        query = f"UPDATE library_items SET {set_clause} WHERE id = ? AND license_key_id = ?"
+        values = list(updates.values()) + [item_id, license_id]
+
         await execute_sql(db, query, values)
         await commit_db(db)
-        
+
         # FIX: Invalidate storage cache if file_size was updated
         if 'file_size' in updates:
             await _invalidate_storage_cache(license_id)
-        
+
         return True
 
 
 async def delete_library_item(license_id: int, item_id: int, user_id: Optional[str] = None) -> bool:
     """
     Soft delete a library item.
-    
+
     Issue #4: Timezone-aware timestamps.
     Issue #7: Validates user ownership when user_id is provided.
+    P3-14: Enforces share permissions - only owner or users with admin permission can delete.
     """
     # Issue #4: Use timezone-aware datetime
     now = datetime.now(timezone.utc)
     ts_value = now
 
     async with get_db() as db:
-        check_query = "SELECT file_path FROM library_items WHERE id = ? AND license_key_id = ?"
+        check_query = "SELECT file_path, created_by FROM library_items WHERE id = ? AND license_key_id = ?"
         check_params = [item_id, license_id]
-        
-        # Issue #7: Make user_id check mandatory when provided
-        if user_id:
-            check_query += " AND user_id = ?"
-            check_params.append(user_id)
 
         item = await fetch_one(db, check_query, check_params)
         if not item:
             logger.warning(f"Delete failed: item {item_id} not found or access denied")
             return False
+        
+        # P3-14: Check share permissions if user_id is provided and user is not owner
+        if user_id and item.get("created_by") != user_id:
+            # Check if user has admin permission for this item
+            has_permission = await verify_share_permission(
+                db, item_id, user_id, license_id, "admin"
+            )
+            if not has_permission:
+                logger.warning(
+                    f"User {user_id} denied delete permission for item {item_id}"
+                )
+                return False
 
         # Physical file deletion
         if item.get("file_path"):
@@ -363,17 +464,13 @@ async def delete_library_item(license_id: int, item_id: int, user_id: Optional[s
 
         update_query = "UPDATE library_items SET deleted_at = ? WHERE id = ? AND license_key_id = ?"
         update_params = [ts_value, item_id, license_id]
-        
-        if user_id:
-            update_query += " AND user_id = ?"
-            update_params.append(user_id)
 
         await execute_sql(db, update_query, update_params)
         await commit_db(db)
-        
+
         # Invalidate storage cache
         await _invalidate_storage_cache(license_id)
-        
+
         return True
 
 

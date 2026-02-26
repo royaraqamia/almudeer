@@ -300,7 +300,20 @@ async def update_existing_task(
     result = await update_task(license_id, task_id, update_data)
     if not result:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
+    # P4-2: Send notification if visibility changed
+    if update_data.get("visibility") and update_data["visibility"] != current_task.get("visibility"):
+        from workers import create_task_visibility_changed_notification
+        background_tasks.add_task(
+            create_task_visibility_changed_notification,
+            license_id,
+            task_id,
+            current_task.get("title", "Task"),
+            user.get("name") or user["user_id"],
+            current_task.get("assigned_to") or current_task.get("created_by"),
+            update_data["visibility"]
+        )
+
     # Trigger real-time sync across other devices
     background_tasks.add_task(broadcast_task_sync, license_id, task_id=task_id, change_type="update")
     

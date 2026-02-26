@@ -4,6 +4,63 @@ from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db
 from models.base import ID_PK, TIMESTAMP_NOW
 from utils.timestamps import normalize_timestamp, generate_stable_id
 
+async def verify_task_access(
+    db,
+    task_id: str,
+    user_id: str,
+    license_id: int,
+    required_action: str = 'view'
+) -> bool:
+    """
+    Verify if a user has access to a task based on visibility and role.
+    
+    P4-1: Consolidated task visibility and permission check.
+    
+    Args:
+        db: Database connection
+        task_id: Task ID
+        user_id: User ID requesting access
+        license_id: License key ID
+        required_action: Action required ('view', 'edit', 'delete', 'comment')
+    
+    Returns:
+        bool: True if user has access, False otherwise
+    
+    Access rules:
+        - Owner (created_by): Full access to all actions
+        - Assignee: Can view, edit, comment on shared tasks
+        - Others: Can only view shared tasks
+    """
+    # Get task
+    task = await fetch_one(
+        db,
+        "SELECT * FROM tasks WHERE id = ? AND license_key_id = ?",
+        [task_id, license_id]
+    )
+    
+    if not task:
+        return False
+    
+    # Owner always has full access
+    if task.get("created_by") == user_id:
+        return True
+    
+    # For non-owners, task must be shared
+    if task.get("visibility") != "shared":
+        return False
+    
+    # Assignee can edit and comment
+    if task.get("assigned_to") == user_id:
+        if required_action in ("view", "edit", "comment"):
+            return True
+        return False
+    
+    # Others can only view shared tasks
+    if required_action == "view":
+        return True
+    
+    return False
+
 async def init_task_comments_table():
     """Initialize task_comments table"""
     async with get_db() as db:
@@ -224,22 +281,28 @@ async def get_tasks(
 
 async def get_task(license_id: int, task_id: str, user_id: str) -> Optional[dict]:
     """Get a specific task (check both license and global). Respects private visibility.
-    
-    FIX SEC-001: Visibility check is now in the SQL query itself to prevent bypass.
+
+    P4-1: Uses verify_task_access for permission checking.
     """
     async with get_db() as db:
-        # FIX: Push visibility check INTO the query for security
+        # First check if task exists
         row = await fetch_one(db, """
             SELECT * FROM tasks
-            WHERE (license_key_id = ? OR license_key_id = 0) 
+            WHERE (license_key_id = ? OR license_key_id = 0)
             AND id = ?
-            AND (visibility = 'shared' OR created_by = ?)
-        """, (license_id, task_id, user_id))
+        """, (license_id, task_id))
 
         if not row:
             return None
+        
+        # P4-1: Use consolidated access check
+        task_dict = dict(row)
+        has_access = await verify_task_access(db, task_id, user_id, license_id, 'view')
+        
+        if not has_access:
+            return None
 
-        return _parse_task_row(dict(row))
+        return _parse_task_row(task_dict)
 
 def _parse_task_row(row: dict) -> dict:
     """Helper to parse JSON fields and normalize types"""

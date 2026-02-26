@@ -93,6 +93,7 @@ try:
     from routes.global_assets import router as global_assets_router
     from routes.knowledge import router as knowledge_router
     from routes.library_attachments import router as library_attachments_router
+    from routes.devices import router as devices_router
     # Reactions router removed
     logger.info("Successfully imported modular routes")
 except ImportError as e:
@@ -502,6 +503,7 @@ app.include_router(notifications_router)   # Smart Notifications & Integrations
 app.include_router(knowledge_router)       # Knowledge Base Documents & Uploads
 app.include_router(library_router)         # Library of Everything
 app.include_router(library_attachments_router)  # Library Attachments (P3-12)
+app.include_router(devices_router)         # Device Pairing (P3-1/Nearby)
 app.include_router(keyboard_router)        # Keyboard Macros & Optimized Data
 app.include_router(tasks_router)           # Task Management
 app.include_router(subscription_router)    # Subscription Key Management
