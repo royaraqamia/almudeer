@@ -19,6 +19,47 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# WORKER STATUS
+# ============================================================================
+
+# Global status tracking for background workers
+_worker_status = {
+    "email_polling": {
+        "status": "running",
+        "last_check": None,
+        "items_processed": 0
+    },
+    "telegram_polling": {
+        "status": "running",
+        "last_check": None,
+        "items_processed": 0
+    }
+}
+
+
+def get_worker_status():
+    """
+    Get the current status of background workers.
+
+    Returns:
+        dict: Status of email and telegram polling workers
+    """
+    return _worker_status
+
+
+def update_worker_status(worker_type: str, status: dict):
+    """
+    Update the status of a specific worker.
+
+    Args:
+        worker_type: Type of worker ('email_polling' or 'telegram_polling')
+        status: Status dictionary to update
+    """
+    if worker_type in _worker_status:
+        _worker_status[worker_type].update(status)
+
+
+# ============================================================================
 # P3-14: SHARE EXPIRATION CLEANUP
 # ============================================================================
 
