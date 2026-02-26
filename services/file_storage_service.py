@@ -4,13 +4,14 @@ Handles saving media files to the local filesystem and generating accessible URL
 
 Fixes applied:
 - Issue #28: Path traversal vulnerability prevention with secure_filename
+- Security: File size and type validation
 """
 
 import os
 import re
 import uuid
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,78 @@ UPLOAD_URL_PREFIX = os.getenv("UPLOAD_URL_PREFIX", "/static/uploads")
 
 # Issue #28: Secure filename pattern (alphanumeric, dash, underscore, dot)
 SECURE_FILENAME_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]*$')
+
+# SECURITY: File size limits (in bytes)
+MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", "10485760"))  # 10MB default
+MAX_IMAGE_SIZE = int(os.getenv("MAX_IMAGE_SIZE", "5242880"))  # 5MB for images
+
+# SECURITY: Allowed MIME types
+ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
+ALLOWED_DOCUMENT_TYPES = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/plain',
+    'text/csv',
+]
+ALLOWED_AUDIO_TYPES = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4']
+ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/mpeg', 'video/quicktime']
+
+
+def is_allowed_file_type(mime_type: str, file_type: str = "file") -> bool:
+    """
+    SECURITY: Validate if the file type is allowed.
+    
+    Args:
+        mime_type: MIME type of the file
+        file_type: Category of file (image, document, audio, video, file)
+        
+    Returns:
+        True if allowed, False otherwise
+    """
+    if file_type == "image":
+        return mime_type in ALLOWED_IMAGE_TYPES
+    elif file_type == "document":
+        return mime_type in ALLOWED_DOCUMENT_TYPES
+    elif file_type == "audio":
+        return mime_type in ALLOWED_AUDIO_TYPES
+    elif file_type == "video":
+        return mime_type in ALLOWED_VIDEO_TYPES
+    else:
+        # Generic file - allow common types
+        return mime_type in (ALLOWED_IMAGE_TYPES + ALLOWED_DOCUMENT_TYPES + 
+                            ALLOWED_AUDIO_TYPES + ALLOWED_VIDEO_TYPES)
+
+
+def validate_file_upload(filename: str, mime_type: str, file_size: int, file_type: str = "file") -> Tuple[bool, str]:
+    """
+    SECURITY: Validate file upload for size and type.
+    
+    Args:
+        filename: Original filename
+        mime_type: MIME type of the file
+        file_size: Size of the file in bytes
+        file_type: Category of file (image, document, audio, video, file)
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    # Check file size
+    max_size = MAX_IMAGE_SIZE if file_type == "image" else MAX_FILE_SIZE
+    if file_size > max_size:
+        return False, f"File size exceeds limit of {max_size // 1024 // 1024}MB"
+    
+    # Check file type
+    if not is_allowed_file_type(mime_type, file_type):
+        return False, f"File type '{mime_type}' is not allowed"
+    
+    # Check filename
+    if not filename or len(filename) > 255:
+        return False, "Invalid filename"
+    
+    return True, ""
 
 
 def secure_filename(filename: str) -> str:

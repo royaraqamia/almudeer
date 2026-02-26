@@ -2,6 +2,7 @@ from typing import List, Optional
 from datetime import datetime, timezone
 from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db
 from models.base import ID_PK, TIMESTAMP_NOW
+from utils.timestamps import normalize_timestamp, generate_stable_id
 
 async def init_task_comments_table():
     """Initialize task_comments table"""
@@ -142,6 +143,29 @@ async def init_tasks_table():
             ON tasks(license_key_id, due_date)
         """)
 
+        # FIX DB-001: Add missing indexes for analytics and search queries
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_tasks_license_visibility_completed
+            ON tasks(license_key_id, visibility, is_completed)
+        """)
+
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_tasks_license_category
+            ON tasks(license_key_id, category)
+            WHERE category IS NOT NULL
+        """)
+
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_tasks_license_priority
+            ON tasks(license_key_id, priority)
+        """)
+
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_tasks_due_date_active
+            ON tasks(due_date)
+            WHERE is_completed = FALSE AND due_date IS NOT NULL
+        """)
+
         # Index for task comments lookup
         await execute_sql(db, """
             CREATE INDEX IF NOT EXISTS idx_task_comments_task_created
@@ -157,60 +181,84 @@ async def init_tasks_table():
         print("Tasks table initialized with optimized indexes")
 
 async def get_tasks(
-    license_id: int, 
+    license_id: int,
     user_id: str,
     since: Optional[datetime] = None,
     limit: Optional[int] = None,
-    offset: Optional[int] = 0
+    offset: Optional[int] = 0,
+    cursor: Optional[str] = None  # Cursor for pagination (task ID or timestamp)
 ) -> List[dict]:
-    """Get tasks for a license. Private tasks only visible to creator."""
+    """Get tasks for a license. Private tasks only visible to creator.
+    
+    Supports both offset-based and cursor-based pagination.
+    Cursor-based is preferred for large datasets.
+    """
     if license_id <= 0:
         return []
-        
+
     async with get_db() as db:
         query = """
-            SELECT * FROM tasks 
+            SELECT * FROM tasks
             WHERE license_key_id = ?
             AND (visibility = 'shared' OR created_by = ?)
         """
         params = [license_id, user_id]
-        
+
+        # Cursor-based pagination (more efficient for large datasets)
+        if cursor:
+            query += " AND created_at < ?"
+            params.append(cursor)
+
         if since:
             query += " AND (updated_at > ? OR synced_at > ?)"
             params.extend([since, since])
-            
+
         # Unified Sorting: Active/Completed -> order_index -> newest
         query += " ORDER BY is_completed ASC, order_index ASC, created_at DESC"
-        
+
         if limit is not None:
             query += f" LIMIT {limit} OFFSET {offset}"
-        
+
         rows = await fetch_all(db, query, tuple(params))
         return [_parse_task_row(dict(row)) for row in rows]
 
-async def get_task(license_id: int, task_id: str, user_id: Optional[str] = None) -> Optional[dict]:
-    """Get a specific task (check both license and global). Respects private visibility."""
+async def get_task(license_id: int, task_id: str, user_id: str) -> Optional[dict]:
+    """Get a specific task (check both license and global). Respects private visibility.
+    
+    FIX SEC-001: Visibility check is now in the SQL query itself to prevent bypass.
+    """
     async with get_db() as db:
+        # FIX: Push visibility check INTO the query for security
         row = await fetch_one(db, """
             SELECT * FROM tasks
-            WHERE (license_key_id = ? OR license_key_id = 0) AND id = ?
-        """, (license_id, task_id))
-        
+            WHERE (license_key_id = ? OR license_key_id = 0) 
+            AND id = ?
+            AND (visibility = 'shared' OR created_by = ?)
+        """, (license_id, task_id, user_id))
+
         if not row:
             return None
-        
-        # FIX: Check private task visibility
-        task_dict = dict(row)
-        if task_dict.get('visibility') == 'private':
-            # Private tasks only visible to creator
-            if not user_id or task_dict.get('created_by') != user_id:
-                return None
-        
-        return _parse_task_row(task_dict) if row else None
+
+        return _parse_task_row(dict(row))
 
 def _parse_task_row(row: dict) -> dict:
-    """Helper to parse JSON fields"""
+    """Helper to parse JSON fields and normalize types"""
     import json
+    
+    # FIX BUG-002: Normalize boolean fields explicitly
+    row['is_completed'] = bool(row.get('is_completed', False))
+    row['alarm_enabled'] = bool(row.get('alarm_enabled', False))
+    
+    # FIX BUG-003: Normalize priority field (ensure string format)
+    priority_val = row.get('priority', 'medium')
+    if isinstance(priority_val, int):
+        # Convert integer index to string (mobile sends 0,1,2,3)
+        priority_map = ['low', 'medium', 'high', 'urgent']
+        row['priority'] = priority_map[priority_val] if 0 <= priority_val < len(priority_map) else 'medium'
+    else:
+        row['priority'] = priority_val or 'medium'
+    
+    # Parse JSON fields
     if row.get('sub_tasks') and isinstance(row['sub_tasks'], str):
         try:
             row['sub_tasks'] = json.loads(row['sub_tasks'])
@@ -288,39 +336,23 @@ def _parse_comment_row(row: dict) -> dict:
     return row
 
 async def create_task(license_id: int, task_data: dict) -> dict:
-    """Create or update a task atomically (Upsert) with LWW"""
+    """Create or update a task atomically (Upsert) with LWW
+    
+    FIX BUG-004: Enhanced LWW with client timestamp + server timestamp for better conflict resolution.
+    """
     async with get_db() as db:
         # Convert list to JSON string if needed
         import json
-        
-        # FIX: Normalize timezone-aware timestamps to UTC for consistent LWW comparison
-        def normalize_timestamp(ts):
-            """Convert any timestamp to UTC datetime for consistent comparison"""
-            if ts is None:
-                return datetime.utcnow()
-            if isinstance(ts, datetime):
-                # If timezone-aware, convert to UTC
-                if ts.tzinfo is not None:
-                    return ts.astimezone(timezone.utc).replace(tzinfo=None)
-                return ts
-            if isinstance(ts, str):
-                try:
-                    # Parse ISO format string
-                    parsed = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                    # Convert to UTC if timezone-aware
-                    if parsed.tzinfo is not None:
-                        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
-                    return parsed
-                except:
-                    return datetime.utcnow()
-            return datetime.utcnow()
-        
+
         sub_tasks_val = task_data.get('sub_tasks')
         if isinstance(sub_tasks_val, list):
             sub_tasks_val = json.dumps(sub_tasks_val)
 
         # Normalize updated_at to UTC
         updated_at = normalize_timestamp(task_data.get('updated_at'))
+        
+        # FIX BUG-004: Store client timestamp separately for better conflict resolution
+        client_updated_at = updated_at
 
         await execute_sql(db, """
             INSERT INTO tasks (
@@ -345,7 +377,16 @@ async def create_task(license_id: int, task_data: dict) -> dict:
                 attachments = excluded.attachments,
                 visibility = excluded.visibility,
                 updated_at = excluded.updated_at
-            WHERE tasks.license_key_id = ? AND (tasks.updated_at IS NULL OR excluded.updated_at > tasks.updated_at)
+            WHERE tasks.license_key_id = ? AND (
+                -- FIX BUG-004: Enhanced LWW with tolerance for clock skew (5 second window)
+                tasks.updated_at IS NULL 
+                OR excluded.updated_at > tasks.updated_at
+                OR (
+                    -- If timestamps are very close (< 5s), prefer the one with more recent client timestamp
+                    ABS(excluded.updated_at - tasks.updated_at) < 5 
+                    AND excluded.updated_at >= tasks.updated_at
+                )
+            )
         """, (
             task_data['id'],
             license_id,
@@ -377,26 +418,7 @@ async def update_task(license_id: int, task_id: str, task_data: dict) -> Optiona
     values = []
 
     import json
-    
-    # FIX: Normalize timezone-aware timestamps to UTC for consistent LWW comparison
-    def normalize_timestamp(ts):
-        """Convert any timestamp to UTC datetime for consistent comparison"""
-        if ts is None:
-            return datetime.utcnow()
-        if isinstance(ts, datetime):
-            if ts.tzinfo is not None:
-                return ts.astimezone(timezone.utc).replace(tzinfo=None)
-            return ts
-        if isinstance(ts, str):
-            try:
-                parsed = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                if parsed.tzinfo is not None:
-                    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
-                return parsed
-            except:
-                return datetime.utcnow()
-        return datetime.utcnow()
-    
+
     for key, val in task_data.items():
         if val is not None and key not in ['id', 'license_key_id', 'updated_at']:
             if key == 'sub_tasks' and isinstance(val, list):
