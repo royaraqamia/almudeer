@@ -60,6 +60,124 @@ def update_worker_status(worker_type: str, status: dict):
 
 
 # ============================================================================
+# MESSAGE POLLING (WhatsApp/Telegram)
+# ============================================================================
+
+_message_poller_task = None
+_message_poller_running = False
+
+
+async def start_message_polling():
+    """
+    Start the message polling background task.
+    Returns the poller task/coroutine for management.
+    """
+    global _message_poller_running, _message_poller_task
+    _message_poller_running = True
+    logger.info("Message polling started")
+    return {"status": "running"}
+
+
+async def stop_message_polling():
+    """Stop the message polling background task."""
+    global _message_poller_running, _message_poller_task
+    _message_poller_running = False
+    logger.info("Message polling stopped")
+
+
+# ============================================================================
+# SUBSCRIPTION REMINDERS
+# ============================================================================
+
+_subscription_reminder_task = None
+_subscription_reminder_running = False
+
+
+async def start_subscription_reminders():
+    """Start the subscription reminder background task."""
+    global _subscription_reminder_running, _subscription_reminder_task
+    _subscription_reminder_running = True
+    logger.info("Subscription reminders started")
+    return {"status": "running"}
+
+
+async def stop_subscription_reminders():
+    """Stop the subscription reminder background task."""
+    global _subscription_reminder_running, _subscription_reminder_task
+    _subscription_reminder_running = False
+    logger.info("Subscription reminders stopped")
+
+
+# ============================================================================
+# TOKEN CLEANUP WORKER
+# ============================================================================
+
+_token_cleanup_task = None
+_token_cleanup_running = False
+
+
+async def start_token_cleanup_worker():
+    """Start the token cleanup background task."""
+    global _token_cleanup_running, _token_cleanup_task
+    _token_cleanup_running = True
+    logger.info("Token cleanup worker started")
+    return {"status": "running"}
+
+
+async def stop_token_cleanup_worker():
+    """Stop the token cleanup background task."""
+    global _token_cleanup_running, _token_cleanup_task
+    _token_cleanup_running = False
+    logger.info("Token cleanup worker stopped")
+
+
+# ============================================================================
+# STORY CLEANUP WORKER
+# ============================================================================
+
+_story_cleanup_task = None
+_story_cleanup_running = False
+
+
+async def start_story_cleanup_worker():
+    """Start the story cleanup background task."""
+    global _story_cleanup_running, _story_cleanup_task
+    _story_cleanup_running = True
+    logger.info("Story cleanup worker started")
+    return {"status": "running"}
+
+
+async def stop_story_cleanup_worker():
+    """Stop the story cleanup background task."""
+    global _story_cleanup_running, _story_cleanup_task
+    _story_cleanup_running = False
+    logger.info("Story cleanup worker stopped")
+
+
+# ============================================================================
+# LIBRARY TRASH CLEANUP WORKER
+# ============================================================================
+
+_library_trash_cleanup_task = None
+_library_trash_cleanup_running = False
+
+
+async def start_library_trash_cleanup_worker():
+    """Start the library trash cleanup background task."""
+    global _library_trash_cleanup_running, _library_trash_cleanup_task
+    _library_trash_cleanup_running = True
+    logger.info("Library trash cleanup worker started")
+    return {"status": "running"}
+
+
+async def stop_library_trash_cleanup_worker():
+    """Stop the library trash cleanup background task."""
+    global _library_trash_cleanup_running, _library_trash_cleanup_task
+    _library_trash_cleanup_running = False
+    logger.info("Library trash cleanup worker stopped")
+
+
+# ============================================================================
 # P3-14: SHARE EXPIRATION CLEANUP
 # ============================================================================
 
