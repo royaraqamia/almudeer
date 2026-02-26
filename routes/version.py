@@ -58,6 +58,7 @@ _APK_VARIANTS = {
 
 # CDN URLs for architecture-specific APKs (optional)
 _APK_CDN_VARIANTS = {
+    "universal": os.getenv("APK_CDN_URL_UNIVERSAL", ""),
     "arm64_v8a": os.getenv("APK_CDN_URL_ARM64", ""),
     "armeabi_v7a": os.getenv("APK_CDN_URL_ARMV7", ""),
     "x86_64": os.getenv("APK_CDN_URL_X86", ""),
@@ -1336,85 +1337,96 @@ async def redirect_to_apk(
 ):
     """
     Redirect /apk to the correct APK download URL based on device architecture.
-    
+
     Users can access: https://almudeer.royaraqamia.com/apk
     This will redirect them to the correct APK for their device.
-    
+
     Architecture detection:
     1. Query parameter: ?arch=arm64_v8a (explicit override)
     2. User-Agent header (automatic detection)
-    3. Fallback to universal APK
-    
+    3. Fallback to universal APK for non-Android devices
+
     Benefits:
     - Short, memorable URL for users
-    - Automatic architecture detection
+    - Automatic architecture detection for Android
+    - Universal APK fallback for PC/iOS users
     - Can switch CDN without updating users
     - Track download analytics
     """
     # Get user architecture from query or User-Agent
-    device_arch = arch or _detect_device_arch(request)
-    
+    if arch:
+        # Explicit architecture override - assume Android
+        device_arch = arch
+        is_android = True
+    else:
+        device_arch, is_android = _detect_device_arch(request)
+
     # Get architecture-specific CDN URL
     cdn_url = _get_architecture_cdn_url(device_arch)
-    
-    logger.info(f"APK redirect: arch={device_arch}, url={cdn_url}")
-    
+
+    # Log download event
+    device_type = "android" if is_android else "desktop/ios"
+    logger.info(f"APK redirect: arch={device_arch}, device={device_type}, url={cdn_url}")
+
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url=cdn_url, status_code=302)
 
 
-def _detect_device_arch(request: Request) -> str:
+def _detect_device_arch(request: Request) -> tuple[str, bool]:
     """
     Detect device architecture from User-Agent header.
-    
-    Returns: 'arm64_v8a', 'armeabi_v7a', 'x86_64', or 'universal'
+
+    Returns:
+        Tuple of (architecture, is_android)
+        - architecture: 'arm64_v8a', 'armeabi_v7a', 'x86_64', or 'universal'
+        - is_android: True if device is Android, False otherwise
     """
     user_agent = request.headers.get("User-Agent", "").lower()
-    
+
     # Android User-Agent patterns
     if "android" in user_agent:
         # Check for 64-bit ARM (most modern devices)
         if any(pattern in user_agent for pattern in ["arm64", "aarch64", "armv8"]):
-            return "arm64_v8a"
-        
+            return "arm64_v8a", True
+
         # Check for 32-bit ARM (older devices)
         if any(pattern in user_agent for pattern in ["armv7", "armeabi"]):
-            return "armeabi_v7a"
-        
+            return "armeabi_v7a", True
+
         # Check for x86_64 (tablets, emulators)
         if "x86_64" in user_agent or "x64" in user_agent:
-            return "x86_64"
-        
+            return "x86_64", True
+
         # Default to ARM64 for most Android devices (safe assumption in 2026)
-        return "arm64_v8a"
-    
-    # iOS - return universal or iOS-specific
+        return "arm64_v8a", True
+
+    # iOS - not supported for APK download
     if "iphone" in user_agent or "ipad" in user_agent:
-        return "universal"
-    
-    # Desktop/Unknown - return universal
-    return "universal"
+        return "universal", False
+
+    # Desktop/Unknown (Windows, Mac, Linux) - return universal for manual download
+    return "universal", False
 
 
 def _get_architecture_cdn_url(arch: str) -> str:
     """
     Get CDN URL for specific architecture.
-    
+
     Falls back to universal APK if architecture-specific URL not configured.
     """
     # Architecture-specific URLs from environment
     arch_urls = {
+        "universal": os.getenv("APK_CDN_URL_UNIVERSAL", ""),
         "arm64_v8a": os.getenv("APK_CDN_URL_ARM64", ""),
         "armeabi_v7a": os.getenv("APK_CDN_URL_ARMV7", ""),
         "x86_64": os.getenv("APK_CDN_URL_X86", ""),
-        "universal": _APK_CDN_URL if _APK_CDN_URL else _APP_DOWNLOAD_URL,
     }
-    
+
     # Try architecture-specific URL first
     url = arch_urls.get(arch, "")
     if url:
         return url
-    
+
     # Fallback to universal
     return arch_urls["universal"]
 
