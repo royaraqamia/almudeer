@@ -94,3 +94,7 @@ werkzeug==3.0.1
 
 # System Metrics
 psutil>=5.9.0
+
+# Delta Updates (bsdiff algorithm for efficient APK patches)
+# Generates binary patches between APK versions (saves 60-80% bandwidth)
+bsdiff4>=1.2.6

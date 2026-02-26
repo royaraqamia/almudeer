@@ -291,7 +291,68 @@ async def lifespan(app: FastAPI):
             await ws_manager.cleanup_stale_presence()
         except Exception as e:
             logger.warning(f"Presence cleanup on startup: {e}")
-        
+
+        # Refresh APK cache on startup to ensure fresh hash/size after deployment
+        try:
+            from routes.version import _refresh_apk_cache
+            _refresh_apk_cache(force=True)
+            logger.info("APK cache refreshed on startup")
+        except Exception as e:
+            logger.warning(f"APK cache refresh on startup: {e}")
+
+        # CRITICAL FIX #5: Start periodic rate limiter cleanup task
+        # Prevents memory leak from stale rate limit entries
+        async def cleanup_rate_limiter_periodically():
+            """Clean up stale rate limiter entries every 5 minutes."""
+            from routes.version import _rate_limiter
+            while True:
+                await asyncio.sleep(300)  # Every 5 minutes
+                try:
+                    _rate_limiter.cleanup_old_entries()
+                    logger.debug("Rate limiter stale entries cleaned")
+                except Exception as e:
+                    logger.warning(f"Rate limiter cleanup failed: {e}")
+
+        # CRITICAL FIX #1: Start periodic ETag cache refresh task
+        # Ensures cache is refreshed proactively instead of on-demand
+        async def refresh_etag_cache_periodically():
+            """Refresh ETag cache every 5 minutes to keep it fresh."""
+            from routes.version import _refresh_etag_cache
+            while True:
+                await asyncio.sleep(300)  # Every 5 minutes
+                try:
+                    await _refresh_etag_cache()
+                    logger.debug("ETag cache refreshed proactively")
+                except Exception as e:
+                    logger.warning(f"ETag cache refresh failed: {e}")
+
+        # CDN Health Check - Periodic monitoring of CDN availability
+        async def check_cdn_health_periodically():
+            """Check CDN health every 2 minutes and log warnings."""
+            from routes.version import _CDN_HEALTH_CACHE, _verify_cdn_health, _APK_CDN_VARIANTS
+            while True:
+                await asyncio.sleep(120)  # Every 2 minutes
+                try:
+                    for arch, url in _APK_CDN_VARIANTS.items():
+                        if url:
+                            is_healthy = await _verify_cdn_health(url, timeout=5.0)
+                            _CDN_HEALTH_CACHE[arch] = {
+                                "healthy": is_healthy,
+                                "last_check": asyncio.get_event_loop().time()
+                            }
+                            if not is_healthy:
+                                logger.warning(f"⚠️ CDN unhealthy for {arch}: {url[:50]}...")
+                            else:
+                                logger.debug(f"✅ CDN healthy for {arch}")
+                except Exception as e:
+                    logger.warning(f"CDN health check failed: {e}")
+
+        # Start background cleanup tasks
+        asyncio.create_task(cleanup_rate_limiter_periodically())
+        asyncio.create_task(refresh_etag_cache_periodically())
+        asyncio.create_task(check_cdn_health_periodically())
+        logger.info("Background cleanup tasks started")
+
         print("Al-Mudeer Premium Backend Ready!")
         print("Customers & Notifications tables initialized")
         print("Background workers active for automatic message processing")

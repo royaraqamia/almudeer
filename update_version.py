@@ -80,7 +80,7 @@ async def update_version(args):
                 "changelog_en": [args.notes_en] if args.notes_en else [],
                 "release_notes_url": ""
             }
-            
+
             # The API expects JSON body for lists
             response = await client.post(
                 f"{base_url}/api/app/set-changelog",
@@ -92,6 +92,20 @@ async def update_version(args):
         except httpx.HTTPStatusError as e:
             print(f"❌ Failed to set changelog: {e.response.text}")
             sys.exit(1)
+
+        # 3. Invalidate APK Cache (NEW - ensures fresh hash/size after deployment)
+        print(f"🔄 Invalidating APK cache...")
+        try:
+            response = await client.post(
+                f"{base_url}/api/admin/invalidate-apk-cache",
+                headers=headers,
+            )
+            response.raise_for_status()
+            result = response.json()
+            print(f"✅ APK cache invalidated: SHA256={result.get('sha256', 'N/A')[:16]}..., size={result.get('size_mb', 'N/A')}MB")
+        except httpx.HTTPStatusError as e:
+            print(f"⚠️  Failed to invalidate APK cache: {e.response.text}")
+            # Non-fatal, continue
 
 
 def main():

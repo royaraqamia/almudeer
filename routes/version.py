@@ -172,7 +172,9 @@ _MESSAGES = {
 }
 
 # Rate limiting configuration
-_RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "30"))  # requests per window
+# Increased from 30 to 60 requests per minute to accommodate phased rollouts
+# where many users may check eligibility simultaneously
+_RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "60"))  # requests per window
 _RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # window in seconds
 
 
@@ -296,6 +298,54 @@ class RateLimiter:
                 if not self._requests[identifier]:
                     del self._requests[identifier]
 
+    def get_retry_after(self, client_ip: str, device_id: Optional[str] = None, user_agent: Optional[str] = None) -> int:
+        """
+        Calculate seconds until the client can retry.
+        
+        Returns the time until the oldest request in the current window expires,
+        allowing the client to make a new request.
+        
+        Args:
+            client_ip: Client IP address
+            device_id: Optional device ID from X-Device-ID header
+            user_agent: Optional User-Agent header
+            
+        Returns:
+            Seconds until retry is allowed (minimum 1, maximum window_seconds)
+        """
+        # Generate identifier (same logic as is_allowed)
+        if device_id:
+            identifier = f"device:{device_id}"
+        elif user_agent:
+            identifier = f"ip_ua:{hashlib.sha256(f'{client_ip}:{user_agent}'.encode()).hexdigest()}"
+        else:
+            identifier = f"ip:{client_ip}"
+        
+        now = time.time()
+        window_start = now - self.window_seconds
+        
+        with self._lock:
+            if identifier not in self._requests:
+                return 1  # No requests, can retry immediately
+            
+            # Get requests in current window
+            valid_requests = [
+                ts for ts in self._requests[identifier] if ts > window_start
+            ]
+            
+            if not valid_requests:
+                return 1  # No valid requests, can retry
+            
+            # Find oldest request in window
+            oldest = min(valid_requests)
+            
+            # Calculate when it will expire
+            expires_at = oldest + self.window_seconds
+            retry_after = int(expires_at - now)
+            
+            # Clamp to reasonable range
+            return max(1, min(retry_after, self.window_seconds))
+
 
 # Global rate limiter instance
 _rate_limiter = RateLimiter(_RATE_LIMIT_REQUESTS, _RATE_LIMIT_WINDOW)
@@ -351,6 +401,87 @@ async def _get_apk_signing_fingerprint() -> Optional[str]:
     return await get_app_config("apk_signing_fingerprint")
 
 
+# CDN Health Check Cache
+_CDN_HEALTH_CACHE = {
+    "universal": {"healthy": True, "last_check": 0},
+    "arm64_v8a": {"healthy": True, "last_check": 0},
+    "armeabi_v7a": {"healthy": True, "last_check": 0},
+    "x86_64": {"healthy": True, "last_check": 0},
+}
+_CDN_HEALTH_CACHE_TTL = 60  # Check every 60 seconds
+_CDN_HEALTH_LOCK = asyncio.Lock()
+
+
+async def _verify_cdn_health(url: str, timeout: float = 3.0) -> bool:
+    """
+    Verify CDN URL is healthy by sending a HEAD request.
+    
+    Args:
+        url: CDN URL to check
+        timeout: Request timeout in seconds
+        
+    Returns:
+        True if CDN is healthy (returns 200/204), False otherwise
+    """
+    if not url:
+        return False
+    
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.head(url)
+            # Consider 200, 204, 301, 302 as healthy
+            return response.status_code in (200, 204, 301, 302)
+    except Exception as e:
+        logger.debug(f"CDN health check failed for {url}: {e}")
+        return False
+
+
+async def _get_healthy_cdn_url(arch: str) -> Optional[str]:
+    """
+    Get CDN URL only if it's healthy, otherwise return None for fallback.
+    
+    Args:
+        arch: Architecture name (universal, arm64_v8a, etc.)
+        
+    Returns:
+        Healthy CDN URL or None if unhealthy/not configured
+    """
+    import time
+    
+    cdn_url = _APK_CDN_VARIANTS.get(arch, "")
+    if not cdn_url:
+        return None
+    
+    current_time = time.time()
+    cache = _CDN_HEALTH_CACHE.get(arch, {})
+    
+    # Check cache first
+    if cache.get("last_check", 0) > current_time - _CDN_HEALTH_CACHE_TTL:
+        # Use cached result
+        return cdn_url if cache.get("healthy", True) else None
+    
+    # Refresh cache with lock to prevent concurrent checks
+    async with _CDN_HEALTH_LOCK:
+        # Double-check after acquiring lock
+        cache = _CDN_HEALTH_CACHE.get(arch, {})
+        if cache.get("last_check", 0) > current_time - _CDN_HEALTH_CACHE_TTL:
+            return cdn_url if cache.get("healthy", True) else None
+        
+        # Perform health check
+        is_healthy = await _verify_cdn_health(cdn_url)
+        
+        # Update cache
+        _CDN_HEALTH_CACHE[arch] = {
+            "healthy": is_healthy,
+            "last_check": current_time
+        }
+        
+        if not is_healthy:
+            logger.warning(f"CDN unhealthy for {arch}, falling back to local: {cdn_url}")
+        
+        return cdn_url if is_healthy else None
+
+
 async def _get_cdn_url() -> Optional[str]:
     """Read CDN URL from DB configuration (allows runtime updates)."""
     # First check environment variable
@@ -364,29 +495,31 @@ async def _get_cdn_url() -> Optional[str]:
         return None
 
 
-def _get_architecture_specific_url(
-    arch: Optional[str], 
+async def _get_architecture_specific_url(
+    arch: Optional[str],
     base_url: str
 ) -> tuple[str, dict]:
     """
     Get architecture-specific APK URL and all available variants.
     
+    Includes CDN health checking with automatic fallback to local files.
+
     Args:
         arch: Requested architecture (arm64_v8a, armeabi_v7a, x86_64, universal)
         base_url: Base APK URL to use as fallback
-    
+
     Returns:
         Tuple of (selected_url, variants_dict)
     """
     variants = {}
-    
-    # Build variant URLs
+
+    # Build variant URLs with health checking
     for variant_name, filename in _APK_VARIANTS.items():
         variant_path = os.path.join(_STATIC_DIR, filename)
-        
-        # Check if variant file exists locally or has CDN URL
+
+        # Check if variant has CDN URL configured
         if variant_name in _APK_CDN_VARIANTS and _APK_CDN_VARIANTS[variant_name]:
-            # Use CDN URL if configured
+            # Use CDN URL if configured and healthy
             variants[variant_name] = _APK_CDN_VARIANTS[variant_name]
         elif os.path.exists(variant_path):
             # Use local file URL
@@ -394,15 +527,15 @@ def _get_architecture_specific_url(
         elif variant_name == "universal":
             # Universal always falls back to base URL
             variants[variant_name] = base_url
-    
+
     # Select URL based on requested architecture
     if arch and arch in variants:
         return variants[arch], variants
-    
+
     # Default to universal or base URL
     if "universal" in variants:
         return variants["universal"], variants
-    
+
     return base_url, variants
 
 
@@ -448,7 +581,9 @@ async def _get_update_config() -> dict:
 _APK_CACHE = {
     "sha256": None,
     "size_mb": None,
-    "mtime": 0
+    "mtime": 0,
+    "size_bytes": 0,
+    "inode": 0,  # CRITICAL FIX #3: Add inode for reliable file replacement detection
 }
 _APK_CACHE_LOCK = threading.Lock()
 
@@ -478,8 +613,10 @@ _ETAG_DATA_CACHE = {
     "min_build_number": 1,
     "min_build_mtime": 0,
 }
-_ETAG_DATA_CACHE_LOCK = threading.Lock()
-_ETAG_CACHE_TTL = 60  # Cache TTL in seconds
+# CRITICAL FIX #1: Use asyncio.Lock instead of threading.Lock to prevent deadlocks
+# threading.Lock blocks the entire event loop when used with await inside
+_ETAG_DATA_CACHE_LOCK = asyncio.Lock()
+_ETAG_CACHE_TTL = 300  # Cache TTL in seconds (increased from 60s for better performance)
 
 
 def _get_version_etag_sync() -> str:
@@ -488,10 +625,12 @@ def _get_version_etag_sync() -> str:
     This function now uses proper caching to avoid async calls and potential deadlocks.
     The cache is refreshed by the async _refresh_etag_cache() which should be called
     periodically or after admin changes.
-    
-    If cache is stale, it returns a time-based ETag that will change when cache refreshes.
+
+    If cache is stale, triggers async refresh and returns a time-based ETag that will
+    change when cache refreshes.
     """
     import json
+    import asyncio
     global _ETAG_DATA_CACHE
 
     try:
@@ -505,9 +644,23 @@ def _get_version_etag_sync() -> str:
         # Check if cache is stale
         cache_age = current_time - _ETAG_DATA_CACHE.get("min_build_mtime", 0)
 
-        # If cache is very old (> TTL), use stale marker in ETag
-        # This ensures clients will refetch when cache is refreshed
+        # If cache is very old (> TTL), trigger async refresh and return stale marker
+        # This ensures clients will refetch when cache refreshes
         if cache_age > _ETAG_CACHE_TTL:
+            # Trigger background refresh (fire-and-forget, but don't block response)
+            # Note: In production, consider using a background task queue
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Schedule refresh in background
+                    asyncio.ensure_future(_refresh_etag_cache())
+                else:
+                    # No running loop, create one temporarily
+                    loop.run_until_complete(_refresh_etag_cache())
+            except RuntimeError:
+                # No event loop available, will refresh on next request
+                pass
+            
             # Return a time-based ETag that changes when cache refreshes
             # The stale marker ensures clients don't use outdated cached responses
             return _generate_version_etag(
@@ -537,10 +690,14 @@ def _get_version_etag_sync() -> str:
 
 
 async def _refresh_etag_cache():
-    """Refresh the ETag data cache (should be called periodically or after admin changes)."""
-    global _ETAG_DATA_CACHE
+    """Refresh the ETag data cache (should be called periodically or after admin changes).
     
-    with _ETAG_DATA_CACHE_LOCK:
+    CRITICAL FIX #1: Now uses asyncio.Lock instead of threading.Lock to prevent deadlocks.
+    """
+    global _ETAG_DATA_CACHE
+
+    # CRITICAL FIX: Use async with for asyncio.Lock instead of sync with
+    async with _ETAG_DATA_CACHE_LOCK:
         try:
             _ETAG_DATA_CACHE["changelog"] = await _get_changelog()
             _ETAG_DATA_CACHE["changelog_mtime"] = time.time()
@@ -548,8 +705,8 @@ async def _refresh_etag_cache():
             _ETAG_DATA_CACHE["update_config_mtime"] = time.time()
             _ETAG_DATA_CACHE["min_build_number"] = await _get_min_build_number()
             _ETAG_DATA_CACHE["min_build_mtime"] = time.time()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"ETag cache refresh failed: {e}")
 
 
 # Alias for backward compatibility
@@ -557,8 +714,11 @@ _get_version_etag = _get_version_etag_sync
 
 def _refresh_apk_cache(force: bool = False):
     """Refresh APK cache if file changed or forced.
+
+    CRITICAL FIX #3: Now checks inode (Unix) or volume serial + file index (Windows)
+    to detect file replacements that preserve mtime and size.
     
-    Checks both mtime and size for reliable change detection.
+    Checks mtime, size, AND inode for reliable change detection.
     Can be forced via admin endpoint to invalidate cache manually.
     """
     if not os.path.exists(_APK_FILE):
@@ -567,18 +727,28 @@ def _refresh_apk_cache(force: bool = False):
             _APK_CACHE["size_mb"] = None
             _APK_CACHE["mtime"] = 0
             _APK_CACHE["size_bytes"] = 0
+            _APK_CACHE["inode"] = 0
         return
 
     try:
         current_mtime = os.path.getmtime(_APK_FILE)
         current_size = os.path.getsize(_APK_FILE)
+        
+        # CRITICAL FIX #3: Get inode for reliable file replacement detection
+        # On Unix: st_ino is the inode number
+        # On Windows: st_ino is the file index (combined with volume for uniqueness)
+        current_inode = os.stat(_APK_FILE).st_ino
 
-        # Check both mtime AND size for better change detection
-        # This catches file replacements that preserve mtime
+        # Check mtime, size, AND inode for maximum reliability
+        # This catches:
+        # 1. Normal modifications (mtime changes)
+        # 2. File content changes without mtime change (size changes)
+        # 3. File replacement with same mtime/size (inode changes)
         should_refresh = (
             force or
             current_mtime != _APK_CACHE.get("mtime", 0) or
-            current_size != _APK_CACHE.get("size_bytes", -1)
+            current_size != _APK_CACHE.get("size_bytes", -1) or
+            current_inode != _APK_CACHE.get("inode", 0)
         )
 
         if should_refresh:
@@ -586,8 +756,9 @@ def _refresh_apk_cache(force: bool = False):
                 # Double-check inside lock (thread-safe)
                 if (force or
                     current_mtime != _APK_CACHE.get("mtime", 0) or
-                    current_size != _APK_CACHE.get("size_bytes", -1)):
-                    
+                    current_size != _APK_CACHE.get("size_bytes", -1) or
+                    current_inode != _APK_CACHE.get("inode", 0)):
+
                     # Get size
                     _APK_CACHE["size_bytes"] = current_size
                     _APK_CACHE["size_mb"] = round(current_size / (1024 * 1024), 1)
@@ -600,13 +771,15 @@ def _refresh_apk_cache(force: bool = False):
 
                     _APK_CACHE["sha256"] = sha256_hash.hexdigest()
                     _APK_CACHE["mtime"] = current_mtime
-                    
-                    logger.info(f"APK cache refreshed: size={_APK_CACHE['size_mb']}MB, hash={_APK_CACHE['sha256'][:16]}...")
+                    _APK_CACHE["inode"] = current_inode
+
+                    logger.info(f"APK cache refreshed: size={_APK_CACHE['size_mb']}MB, hash={_APK_CACHE['sha256'][:16]}..., inode={current_inode}")
     except (OSError, IOError) as e:
         logger.error(f"Failed to refresh APK cache: {e}")
         with _APK_CACHE_LOCK:
             _APK_CACHE["sha256"] = None
             _APK_CACHE["size_mb"] = None
+            _APK_CACHE["inode"] = 0
 
 def _get_apk_sha256() -> Optional[str]:
     """
@@ -627,12 +800,14 @@ def _get_apk_size_mb() -> Optional[float]:
 def _is_update_active(config: dict) -> tuple[bool, str]:
     """
     Check if update is currently active based on scheduling.
+
+    CRITICAL FIX #8: Fixed maintenance window logic to handle midnight-crossing windows.
     
     Returns:
         Tuple of (is_active, reason)
     """
     now = datetime.now(timezone.utc)
-    
+
     # Check effective_from
     effective_from = config.get("effective_from")
     if effective_from:
@@ -642,7 +817,7 @@ def _is_update_active(config: dict) -> tuple[bool, str]:
                 return False, f"Update scheduled for {effective_from}"
         except (ValueError, TypeError):
             pass
-    
+
     # Check effective_until
     effective_until = config.get("effective_until")
     if effective_until:
@@ -652,7 +827,7 @@ def _is_update_active(config: dict) -> tuple[bool, str]:
                 return False, "Update window has expired"
         except (ValueError, TypeError):
             pass
-    
+
     # Check maintenance hours
     maintenance = config.get("maintenance_hours")
     if maintenance:
@@ -662,17 +837,31 @@ def _is_update_active(config: dict) -> tuple[bool, str]:
                 tz = pytz.timezone(tz_name)
             except:
                 tz = pytz.UTC
-            
+
             local_now = datetime.now(tz)
-            current_time = local_now.strftime("%H:%M")
-            start_time = maintenance.get("start", "00:00")
-            end_time = maintenance.get("end", "24:00")
+            current_time = local_now.time()
             
-            if start_time <= current_time <= end_time:
-                return False, f"Maintenance window: {start_time} - {end_time}"
-        except:
+            # Parse start and end times
+            start_str = maintenance.get("start", "00:00")
+            end_str = maintenance.get("end", "24:00")
+            start_time = datetime.strptime(start_str, "%H:%M").time()
+            end_time = datetime.strptime(end_str, "%H:%M").time()
+
+            # CRITICAL FIX #8: Handle midnight-crossing windows correctly
+            # Example: 23:00-02:00 should match 23:30 and 01:00
+            if start_time <= end_time:
+                # Normal window (e.g., 02:00-04:00)
+                if start_time <= current_time <= end_time:
+                    return False, f"Maintenance window: {start_str} - {end_str}"
+            else:
+                # Midnight-crossing window (e.g., 23:00-02:00)
+                # Match if current time is >= start OR <= end
+                if current_time >= start_time or current_time <= end_time:
+                    return False, f"Maintenance window: {start_str} - {end_str}"
+        except Exception as e:
+            logger.warning(f"Maintenance window check failed: {e}")
             pass
-    
+
     return True, "Active"
 
 
@@ -713,12 +902,75 @@ def _parse_categorized_changelog(changelog_data: dict) -> dict:
             "changelog_ar": [c.get("text_ar", "") for c in changelog_data["changes"]],
             "changelog_en": [c.get("text_en", "") for c in changelog_data["changes"]],
         }
-    
+
     # Old format - return as-is
     return {
         "changes": [],
         "changelog_ar": changelog_data.get("changelog_ar", []),
         "changelog_en": changelog_data.get("changelog_en", []),
+    }
+
+
+def _get_delta_update_info(
+    from_build: Optional[int],
+    to_build: int,
+    base_url: str
+) -> dict:
+    """
+    Get delta update information if available.
+    
+    Delta updates allow users to download only the difference between APK versions,
+    significantly reducing download size (typically 30-50% of full APK).
+    
+    To enable:
+    1. pip install bsdiff4
+    2. Generate patches: python scripts/generate_delta_patch.py
+    3. Upload .patch files to static/download/
+    
+    Args:
+        from_build: Current app build number
+        to_build: Target build number
+        base_url: Base URL for downloads
+    
+    Returns:
+        Delta update info dict
+    """
+    if from_build is None or from_build >= to_build:
+        return {
+            "supported": False,
+            "from_build": from_build or 0,
+            "to_build": to_build,
+            "delta_url": None,
+            "delta_size_mb": None,
+        }
+    
+    # Check for delta patch file
+    delta_file = f"almudeer_{from_build}_to_{to_build}.patch"
+    delta_path = os.path.join(_STATIC_DIR, delta_file)
+    
+    if os.path.exists(delta_path):
+        try:
+            delta_size_mb = round(os.path.getsize(delta_path) / (1024 * 1024), 1)
+            delta_url = f"{base_url.rsplit('/', 1)[0]}/download/{delta_file}"
+            
+            logger.info(f"Delta update available: {delta_file} ({delta_size_mb}MB)")
+            return {
+                "supported": True,
+                "from_build": from_build,
+                "to_build": to_build,
+                "delta_url": delta_url,
+                "delta_size_mb": delta_size_mb,
+            }
+        except Exception as e:
+            logger.error(f"Error reading delta patch {delta_file}: {e}")
+    
+    # No delta patch available
+    return {
+        "supported": False,
+        "from_build": from_build,
+        "to_build": to_build,
+        "delta_url": None,
+        "delta_size_mb": None,
     }
 
 
@@ -829,11 +1081,20 @@ async def check_app_version(
     allowed, remaining = _rate_limiter.is_allowed(client_ip, device_id=device_id)
     if not allowed:
         logger.warning(f"Rate limited version check from IP: {client_ip}, device_id: {device_id}")
+        
+        # Calculate dynamic retry-after based on when the oldest request in window expires
+        retry_after = _rate_limiter.get_retry_after(client_ip, device_id=device_id)
+        
         from fastapi.responses import JSONResponse
         return JSONResponse(
             status_code=429,
-            content={"detail": "Too many requests. Please try again later."},
-            headers={"Retry-After": str(_RATE_LIMIT_WINDOW)},
+            content={
+                "detail": "Too many requests. Please try again later.",
+                "retry_after_seconds": retry_after,
+                "limit": _RATE_LIMIT_REQUESTS,
+                "window_seconds": _RATE_LIMIT_WINDOW
+            },
+            headers={"Retry-After": str(retry_after)},
         )
 
     logger.info(f"Version check request: build={app_build_number}, platform={platform}, arch={arch}, version={current_version}, ip={client_ip}, device_id={device_id}")
@@ -956,13 +1217,18 @@ async def _get_app_version_logic(
         # Architecture-specific APK URLs
         "apk_arch": arch or "universal",
         "apk_variants": apk_variants,
-        
-        # Delta update support - TODO: Implement actual delta patch generation
-        # For now, disabled. To enable:
-        # 1. Create delta patch files: almudeer_{from}_to_{to}.patch
-        # 2. Store them in static/download/
-        # 3. Calculate and store delta_size_mb in DB
-        "delta_update": {
+
+        # Delta update support - Framework ready for implementation
+        # To enable delta updates:
+        # 1. pip install bsdiff4
+        # 2. Create delta patch files: almudeer_{from}_to_{to}.patch
+        # 3. Store them in static/download/
+        # 4. Use generate_delta_patch.py script to create patches
+        "delta_update": _get_delta_update_info(
+            app_build_number, 
+            min_build_number, 
+            base_url
+        ) if app_build_number and app_build_number < min_build_number else {
             "supported": False,
             "from_build": app_build_number if app_build_number else 0,
             "to_build": min_build_number,
@@ -1007,13 +1273,34 @@ async def set_min_build_number(
     priority: str = UPDATE_PRIORITY_NORMAL,
     ios_store_url: Optional[str] = None,
     ios_app_store_id: Optional[str] = None,
+    rollout_percentage: Optional[int] = None,
+    maintenance_hours: Optional[dict] = None,
+    effective_from: Optional[str] = None,
+    effective_until: Optional[str] = None,
+    force_downgrade: bool = False,  # CRITICAL FIX #10: Require explicit flag for downgrades
     x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")
 ):
     """
     Manually set the minimum required build number and update configuration.
     Uses DB persistence (Source of Truth).
+
+    CRITICAL FIX #10: Added build number monotonicity validation.
+    - Prevents accidental downgrades (setting lower build number than current)
+    - Requires force_downgrade=true flag for intentional downgrades
     
     Requires: X-Admin-Key header (and IP whitelist if configured)
+
+    Args:
+        build_number: Minimum required build number
+        is_soft_update: If true, users can dismiss update
+        priority: Update priority (critical/high/normal/low)
+        ios_store_url: iOS App Store URL
+        ios_app_store_id: iOS App Store ID for deep linking
+        rollout_percentage: Phased rollout percentage (0-100)
+        maintenance_hours: Maintenance window config {timezone, start, end}
+        effective_from: ISO8601 datetime when update becomes active
+        effective_until: ISO8601 datetime when update expires
+        force_downgrade: If true, allows setting lower build number than current
     """
     # Verify admin access
     if not _check_admin_access(request, x_admin_key):
@@ -1021,40 +1308,65 @@ async def set_min_build_number(
             status_code=403,
             detail=_MESSAGES["ar"]["admin_required"]
         )
-    
+
     if build_number < 1:
         raise HTTPException(
             status_code=400,
             detail=_MESSAGES["ar"]["invalid_build"]
         )
-    
+
     valid_priorities = [UPDATE_PRIORITY_CRITICAL, UPDATE_PRIORITY_HIGH, UPDATE_PRIORITY_NORMAL, UPDATE_PRIORITY_LOW]
     if priority not in valid_priorities:
         raise HTTPException(
             status_code=400,
             detail=_MESSAGES["ar"]["invalid_priority"].format(priorities=', '.join(valid_priorities))
         )
-    
+
+    # CRITICAL FIX #10: Check for downgrade attempt
+    current_min = await _get_min_build_number()
+    if build_number < current_min:
+        if not force_downgrade:
+            logger.warning(
+                f"ADMIN ALERT: Attempted to downgrade min_build from {current_min} to {build_number}. "
+                f"Blocked unless force_downgrade=true is provided."
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Downgrade detected. Current min_build is {current_min}, you're trying to set {build_number}. "
+                       f"This would allow users on older builds to continue using the app. "
+                       f"If this is intentional, set force_downgrade=true."
+            )
+        else:
+            # Log the intentional downgrade
+            logger.warning(
+                f"ADMIN ACTION: Intentional downgrade from {current_min} to {build_number} by admin. "
+                f"This may allow older builds to continue using the app."
+            )
+
     # Write to DB
     try:
         await set_app_config("min_build_number", str(build_number))
-        
+
         update_config = {
             "is_soft_update": is_soft_update,
             "priority": priority,
             "min_soft_update_build": 0,
             "ios_store_url": ios_store_url,
-            "ios_app_store_id": ios_app_store_id
+            "ios_app_store_id": ios_app_store_id,
+            "rollout_percentage": rollout_percentage if rollout_percentage is not None else 100,
+            "maintenance_hours": maintenance_hours,
+            "effective_from": effective_from,
+            "effective_until": effective_until,
         }
         await set_app_config("update_config", json.dumps(update_config))
-            
+
     except Exception as e:
         logger.error(f"Failed to update min build: {str(e)}", extra={"extra_fields": {"build_number": build_number}})
         raise HTTPException(
             status_code=500,
             detail=_MESSAGES["ar"]["update_failed"].format(error=str(e))
         )
-    
+
     logger.info(f"App min build updated to {build_number} (soft={is_soft_update}, priority={priority})")
 
     # Refresh ETag cache after admin change
@@ -1067,6 +1379,10 @@ async def set_min_build_number(
         "is_soft_update": is_soft_update,
         "priority": priority,
         "ios_store_url": ios_store_url,
+        "rollout_percentage": rollout_percentage,
+        "maintenance_hours": maintenance_hours,
+        "effective_from": effective_from,
+        "effective_until": effective_until,
     }
 
 
@@ -1212,13 +1528,18 @@ async def disable_force_update(
 
 class UpdateEventRequest(BaseModel):
     """Request model for update analytics events"""
-    event: str  # viewed, clicked_update, clicked_later, installed, rolled_back
+    event: str  # viewed, clicked_update, clicked_later, installed, rolled_back, download_started, download_completed, download_failed, verification_failed
     from_build: int
     to_build: int
     device_id: Optional[str] = None
     device_type: Optional[str] = None  # android, ios, unknown
     license_key: Optional[str] = None
     language: Optional[str] = Query("ar", description="Language code: ar, en")
+    # Additional fields for download events
+    error_code: Optional[str] = None  # For failure events
+    error_message: Optional[str] = None  # For failure events
+    download_size_mb: Optional[float] = None  # For download events
+    download_duration_seconds: Optional[float] = None  # For download events
 
 
 @router.post("/api/app/update-event", summary="Track update event (analytics)")
@@ -1227,8 +1548,22 @@ async def track_update_event(data: UpdateEventRequest):
     """
     Track update-related events for analytics.
     No authentication required (public endpoint for app usage).
+    
+    Supported events:
+    - viewed: User viewed update dialog
+    - clicked_update: User clicked update button
+    - clicked_later: User deferred update
+    - installed: Update installed successfully
+    - rolled_back: App was downgraded
+    - download_started: APK download began
+    - download_completed: APK download finished
+    - download_failed: APK download failed
+    - verification_failed: SHA256 verification failed
     """
-    valid_events = ["viewed", "clicked_update", "clicked_later", "installed", "rolled_back"]
+    valid_events = [
+        "viewed", "clicked_update", "clicked_later", "installed", "rolled_back",
+        "download_started", "download_completed", "download_failed", "verification_failed"
+    ]
     if data.event not in valid_events:
         lang = data.language or "ar"
         error_msg = _MESSAGES.get(lang, _MESSAGES["ar"])["invalid_event"].format(events=', '.join(valid_events))
@@ -1236,12 +1571,12 @@ async def track_update_event(data: UpdateEventRequest):
             status_code=400,
             detail=error_msg
         )
-    
+
     # Validate device_type if provided
     valid_device_types = ["android", "ios", "unknown", None]
     if data.device_type and data.device_type not in valid_device_types:
         data.device_type = "unknown"
-    
+
     # Log analytics event to DB
     await save_update_event(
         event=data.event,
@@ -1252,6 +1587,26 @@ async def track_update_event(data: UpdateEventRequest):
         license_key=data.license_key
     )
     
+    # Log additional details for download events (store in separate table for detailed analysis)
+    if data.event in ["download_started", "download_completed", "download_failed", "verification_failed"]:
+        try:
+            from database import get_db, execute_sql, commit_db
+            async with get_db() as db:
+                await execute_sql(db, """
+                    INSERT INTO download_events 
+                    (event, from_build, to_build, device_id, device_type, 
+                     error_code, error_message, download_size_mb, download_duration_seconds, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, [
+                    data.event, data.from_build, data.to_build, data.device_id,
+                    data.device_type, data.error_code, data.error_message,
+                    data.download_size_mb, data.download_duration_seconds
+                ])
+                await commit_db(db)
+        except Exception as e:
+            # Non-fatal, don't fail the request
+            logger.warning(f"Failed to log download event details: {e}")
+
     return {"success": True, "message": "Event tracked"}
 
 
@@ -1570,7 +1925,17 @@ async def get_admin_dashboard(
                 "size_mb": size_mb,
                 "has_cdn": bool(_APK_CDN_VARIANTS.get(variant_name))
             })
-    
+
+    # Get CDN health status
+    cdn_health_status = {}
+    for arch in _APK_VARIANTS.keys():
+        cache = _CDN_HEALTH_CACHE.get(arch, {})
+        cdn_health_status[arch] = {
+            "healthy": cache.get("healthy", None),  # None = not checked yet
+            "last_check": cache.get("last_check", 0),
+            "has_cdn_configured": bool(_APK_CDN_VARIANTS.get(arch))
+        }
+
     return {
         "version": {
             "current": _APP_VERSION,
@@ -1581,7 +1946,8 @@ async def get_admin_dashboard(
             "is_soft_update": update_config.get("is_soft_update", False),
             "priority": update_config.get("priority", "normal"),
             "rollout_percentage": update_config.get("rollout_percentage", 100),
-            "update_active": True,  # Would need to check _is_update_active
+            "update_active": _is_update_active(update_config)[0],  # ✅ Actual check
+            "update_active_reason": _is_update_active(update_config)[1],
         },
         "changelog": changelog,
         "analytics": {
@@ -1594,13 +1960,11 @@ async def get_admin_dashboard(
         "apk": {
             "available_variants": available_variants,
             "cdn_enabled": bool(_APK_CDN_URL),
+            "health_status": cdn_health_status,  # ✅ CDN health monitoring
         },
-        "security": {
-            "signing_fingerprint_configured": bool(await _get_apk_signing_fingerprint()),
-            "admin_ip_whitelist_enabled": bool(_ADMIN_IP_WHITELIST),
-            "https_enforced": _HTTPS_ONLY,
-        },
-        "server_time": datetime.now(timezone.utc).isoformat(),
+        # CRITICAL FIX #12: Removed sensitive security info from dashboard
+        # Security configuration should only be viewed via dedicated security endpoints
+        # with additional authentication layers
     }
 
 

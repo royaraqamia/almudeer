@@ -280,8 +280,36 @@ async def _init_sqlite_tables(db):
         ON update_events(event, timestamp DESC)
     """)
     await db.execute("""
-        CREATE INDEX IF NOT EXISTS idx_update_events_build 
+        CREATE INDEX IF NOT EXISTS idx_update_events_build
         ON update_events(from_build, to_build)
+    """)
+
+    # Download Events table (for detailed download analytics)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS download_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event TEXT NOT NULL,
+            from_build INTEGER,
+            to_build INTEGER,
+            device_id TEXT,
+            device_type TEXT,
+            license_key TEXT,
+            error_code TEXT,
+            error_message TEXT,
+            download_size_mb REAL,
+            download_duration_seconds REAL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Create indexes for download_events
+    await db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_download_events_timestamp
+        ON download_events(timestamp DESC)
+    """)
+    await db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_download_events_event
+        ON download_events(event, timestamp DESC)
     """)
 
     # Knowledge Base Documents
