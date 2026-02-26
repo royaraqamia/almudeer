@@ -11,7 +11,8 @@ MAX_SUBTASKS = 100
 MAX_ATTACHMENTS = 20
 
 # File upload constraints
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+# FIX: Standardized with library.py to 20MB for consistency
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB (matches library MAX_FILE_SIZE)
 ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif']
 ALLOWED_FILE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'doc', 'docx']
 

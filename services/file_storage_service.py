@@ -25,7 +25,8 @@ UPLOAD_URL_PREFIX = os.getenv("UPLOAD_URL_PREFIX", "/static/uploads")
 SECURE_FILENAME_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]*$')
 
 # SECURITY: File size limits (in bytes)
-MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", "10485760"))  # 10MB default
+# FIX: Standardized with models/library.py to 20MB
+MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", "20971520"))  # 20MB default (matches library.py)
 MAX_IMAGE_SIZE = int(os.getenv("MAX_IMAGE_SIZE", "5242880"))  # 5MB for images
 
 # SECURITY: Allowed MIME types
@@ -286,7 +287,7 @@ class FileStorageService:
 
             # Issue #28: Sanitize relative path
             relative_path = secure_filename(relative_path)
-            
+
             # Construct absolute path
             abs_path = os.path.join(self.upload_dir, relative_path)
 
@@ -305,6 +306,43 @@ class FileStorageService:
         except Exception as e:
             logger.error(f"Error deleting file {path_or_url}: {e}")
             return False
+
+    def get_physical_path(self, path_or_url: str) -> str:
+        """
+        Get the absolute physical path for a file.
+        
+        Args:
+            path_or_url: Relative path (e.g. 'library/abc123.jpg') or public URL
+            
+        Returns:
+            Absolute filesystem path to the file
+            
+        Issue #37: Added for secure file download endpoint.
+        """
+        if not path_or_url:
+            raise ValueError("Path or URL cannot be empty")
+
+        relative_path = path_or_url
+
+        # If it's a URL, extract the part after the prefix
+        if "://" in path_or_url or path_or_url.startswith("/"):
+            if self.url_prefix in path_or_url:
+                relative_path = path_or_url.split(self.url_prefix)[-1].lstrip("/")
+            elif "/static/" in path_or_url:
+                relative_path = path_or_url.split("/static/")[-1].lstrip("/")
+                if relative_path.startswith("uploads/"):
+                    relative_path = relative_path.replace("uploads/", "", 1)
+
+        # Construct absolute path
+        abs_path = os.path.abspath(os.path.join(self.upload_dir, relative_path))
+
+        # Security check: ensure path is inside upload_dir (prevent path traversal)
+        abs_upload_dir = os.path.abspath(self.upload_dir)
+        if not abs_path.startswith(abs_upload_dir):
+            logger.warning(f"Security: Path traversal attempt detected: {path_or_url}")
+            raise ValueError("Invalid file path")
+
+        return abs_path
 
 # Singleton instance
 _instance = None

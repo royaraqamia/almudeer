@@ -269,10 +269,11 @@ async def get_keyboard_library(
     """
     try:
         license_id = license_info["id"]
-        
+
         from models.library import get_library_items
-        
-        items = get_library_items(
+
+        # FIX: Added await - get_library_items is async
+        items = await get_library_items(
             license_id=license_id,
             user_id=user_id,
             limit=limit,

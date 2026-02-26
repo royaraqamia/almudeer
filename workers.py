@@ -1677,6 +1677,107 @@ async def stop_story_cleanup_worker():
         _story_cleanup_task = None
         logger.info("Stopped Stories cleanup worker")
 
+
+# ============ Library Trash Auto-Delete Worker ============
+
+_library_trash_cleanup_task: Optional[asyncio.Task] = None
+LIBRARY_TRASH_AUTO_DELETE_DAYS = int(os.getenv("LIBRARY_TRASH_AUTO_DELETE_DAYS", "30"))
+
+
+async def cleanup_library_trash():
+    """
+    Permanently delete library items that have been in trash for more than AUTO_DELETE_DAYS.
+    This implements the auto-delete feature advertised in the trash API.
+    """
+    try:
+        from datetime import timedelta
+        from services.file_storage_service import get_fileStorage
+        import os
+        
+        file_storage = get_file_storage()
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=LIBRARY_TRASH_AUTO_DELETE_DAYS)
+        
+        async with get_db() as db:
+            # Find items to delete
+            items_to_delete = await fetch_all(
+                db,
+                """
+                SELECT id, file_path, license_key_id 
+                FROM library_items 
+                WHERE deleted_at IS NOT NULL 
+                AND deleted_at < ?
+                """,
+                [cutoff_date]
+            )
+            
+            if not items_to_delete:
+                return 0
+            
+            deleted_count = 0
+            for item in items_to_delete:
+                try:
+                    # Delete physical file if exists
+                    if item.get("file_path"):
+                        file_path = item["file_path"]
+                        # Extract relative path from URL
+                        if file_path.startswith("/static/uploads/"):
+                            relative_path = file_path[len("/static/uploads/"):]
+                            full_path = os.path.join(file_storage.upload_dir, relative_path)
+                            if os.path.exists(full_path):
+                                os.remove(full_path)
+                                logger.debug(f"Deleted file: {full_path}")
+                    
+                    # Permanently delete from database
+                    await execute_sql(
+                        db,
+                        "DELETE FROM library_items WHERE id = ?",
+                        [item["id"]]
+                    )
+                    deleted_count += 1
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to delete library item {item['id']}: {e}")
+            
+            await commit_db(db)
+            
+            if deleted_count > 0:
+                logger.info(f"Library Trash Cleanup: Permanently deleted {deleted_count} items older than {LIBRARY_TRASH_AUTO_DELETE_DAYS} days")
+            
+            return deleted_count
+            
+    except Exception as e:
+        logger.error(f"Error in library trash cleanup: {e}", exc_info=True)
+        return 0
+
+
+async def _library_trash_cleanup_loop():
+    """Background loop that runs once per day to clean up expired library trash."""
+    while True:
+        try:
+            await cleanup_library_trash()
+        except Exception as e:
+            logger.error(f"Error in library trash cleanup loop: {e}", exc_info=True)
+
+        # Wait 24 hours before next check (run at midnight with jitter)
+        await asyncio.sleep(24 * 60 * 60 + random.randint(0, 3600))
+
+
+async def start_library_trash_cleanup_worker():
+    """Start the library trash cleanup background task."""
+    global _library_trash_cleanup_task
+    if _library_trash_cleanup_task is None:
+        _library_trash_cleanup_task = asyncio.create_task(_library_trash_cleanup_loop())
+        logger.info(f"Started Library Trash cleanup worker (auto-delete after {LIBRARY_TRASH_AUTO_DELETE_DAYS} days)")
+
+
+async def stop_library_trash_cleanup_worker():
+    """Stop the library trash cleanup background task."""
+    global _library_trash_cleanup_task
+    if _library_trash_cleanup_task:
+        _library_trash_cleanup_task.cancel()
+        _library_trash_cleanup_task = None
+        logger.info("Stopped Library Trash cleanup worker")
+
 # ============ Task Queue Worker ============
 
 class TaskWorker:

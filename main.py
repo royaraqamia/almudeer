@@ -92,6 +92,7 @@ try:
     from routes.tasks import router as tasks_router
     from routes.global_assets import router as global_assets_router
     from routes.knowledge import router as knowledge_router
+    from routes.library_attachments import router as library_attachments_router
     # Reactions router removed
     logger.info("Successfully imported modular routes")
 except ImportError as e:
@@ -101,7 +102,7 @@ from routes.subscription import router as subscription_router
 from errors import AuthorizationError, register_error_handlers
 from security_config import SECURITY_HEADERS, ADMIN_KEY
 from security import sanitize_message, sanitize_string
-from workers import start_message_polling, stop_message_polling, start_subscription_reminders, stop_subscription_reminders, start_token_cleanup_worker, stop_token_cleanup_worker, start_story_cleanup_worker, stop_story_cleanup_worker
+from workers import start_message_polling, stop_message_polling, start_subscription_reminders, stop_subscription_reminders, start_token_cleanup_worker, stop_token_cleanup_worker, start_story_cleanup_worker, stop_story_cleanup_worker, start_library_trash_cleanup_worker, stop_library_trash_cleanup_worker
 from db_pool import db_pool
 from services.websocket_manager import get_websocket_manager, broadcast_new_message
 from services.pagination import paginate_inbox, paginate_crm, paginate_customers, PaginationParams
@@ -261,7 +262,14 @@ async def lifespan(app: FastAPI):
             logger.info("Stories cleanup worker started")
         except Exception as e:
             logger.warning(f"Failed to start Stories cleanup worker: {e}")
-        
+
+        # Start Library Trash cleanup worker (daily - auto-delete after 30 days)
+        try:
+            await start_library_trash_cleanup_worker()
+            logger.info("Library Trash cleanup worker started")
+        except Exception as e:
+            logger.warning(f"Failed to start Library Trash cleanup worker: {e}")
+
         # Initialize task queue worker
         try:
             from workers import TaskWorker
@@ -382,6 +390,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Error stopping Stories cleanup: {e}")
     try:
+        await stop_library_trash_cleanup_worker()
+        logger.info("Library Trash cleanup worker stopped")
+    except Exception as e:
+        logger.warning(f"Error stopping Library Trash cleanup: {e}")
+    try:
         if hasattr(app.state, "task_worker"):
             await app.state.task_worker.stop()
             logger.info("Persistent Task Queue Worker stopped")
@@ -488,6 +501,7 @@ app.include_router(export_router)          # Export & Reports
 app.include_router(notifications_router)   # Smart Notifications & Integrations
 app.include_router(knowledge_router)       # Knowledge Base Documents & Uploads
 app.include_router(library_router)         # Library of Everything
+app.include_router(library_attachments_router)  # Library Attachments (P3-12)
 app.include_router(keyboard_router)        # Keyboard Macros & Optimized Data
 app.include_router(tasks_router)           # Task Management
 app.include_router(subscription_router)    # Subscription Key Management

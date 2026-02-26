@@ -332,6 +332,12 @@ async def init_enhanced_tables():
                 file_path TEXT, -- For media/files
                 file_size INTEGER, -- In bytes
                 mime_type TEXT,
+                file_hash TEXT, -- For deduplication (P0-2)
+                version INTEGER DEFAULT 1, -- For versioning (P3-13)
+                is_shared INTEGER DEFAULT 0, -- For sharing (P3-14)
+                access_count INTEGER DEFAULT 0, -- For analytics (P3-15)
+                download_count INTEGER DEFAULT 0, -- For analytics (P3-15)
+                last_accessed_at TIMESTAMP, -- For analytics (P3-15)
                 created_at {TIMESTAMP_NOW},
                 updated_at {TIMESTAMP_NOW},
                 deleted_at TIMESTAMP,
@@ -357,6 +363,18 @@ async def init_enhanced_tables():
             ON library_items(deleted_at)
         """)
 
+        # Issue #33: Composite index for common query patterns (license + user + deleted + type)
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_library_active_user_type
+            ON library_items(license_key_id, user_id, deleted_at, type)
+        """)
+
+        # Issue #12: Index on type column for filtering
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_library_type
+            ON library_items(type)
+        """)
+
         # Issue #5: Composite index for active items query optimization
         if DB_TYPE == "postgresql":
             # PostgreSQL supports partial indexes
@@ -371,6 +389,35 @@ async def init_enhanced_tables():
             await execute_sql(db, "ALTER TABLE library_items ADD COLUMN user_id TEXT")
         except:
             pass
+
+        # FIX: Library Download Audit Logs
+        await execute_sql(db, f"""
+            CREATE TABLE IF NOT EXISTS library_download_logs (
+                id {ID_PK},
+                item_id INTEGER NOT NULL,
+                license_key_id INTEGER NOT NULL,
+                user_id TEXT,
+                downloaded_at {TIMESTAMP_NOW},
+                client_ip TEXT,
+                user_agent TEXT,
+                FOREIGN KEY (item_id) REFERENCES library_items(id),
+                FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
+            )
+        """)
+        
+        # Index for audit log queries
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_library_download_logs_item_id
+            ON library_download_logs(item_id)
+        """)
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_library_download_logs_license
+            ON library_download_logs(license_key_id)
+        """)
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_library_download_logs_downloaded_at
+            ON library_download_logs(downloaded_at)
+        """)
 
         # Stories tables initialization
         await init_stories_tables()
