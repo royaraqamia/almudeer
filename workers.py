@@ -194,7 +194,15 @@ class MessagePoller:
                     # WhatsApp uses webhooks, so no polling needed
                     
                     await self._retry_approved_outbox(license_id)
-                    
+
+                    # P0-1 FIX: Process conversation state retry queue
+                    # Ensures no state updates are lost due to lock contention
+                    try:
+                        from models.inbox import process_conversation_state_retry_queue
+                        await process_conversation_state_retry_queue(license_id, max_batch_size=10)
+                    except Exception as e:
+                        logger.error(f"Error processing conversation state retry queue: {e}")
+
                     # Poll Telegram delivery statuses (read receipts)
                     # We run this less frequently or just part of the loop
                     # Using create_task to run concurrently
@@ -281,66 +289,115 @@ class MessagePoller:
         pass
 
     async def _retry_approved_outbox(self, license_id: int):
-        """Retry sending messages that are approved but not yet sent"""
+        """
+        Retry sending messages that are approved but not yet sent.
+        P1-6 FIX: Added max retry limit to prevent infinite retry loops.
+        """
         try:
+            # P1-6 FIX: Maximum retry attempts before marking as permanently failed
+            MAX_RETRY_ATTEMPTS = 5
+            
             async with get_db() as db:
                 if DB_TYPE == "postgresql":
                     query = """
-                        SELECT id, channel 
-                        FROM outbox_messages 
-                        WHERE license_key_id = $1 
-                          AND status = 'approved' 
+                        SELECT id, channel, retry_count, updated_at
+                        FROM outbox_messages
+                        WHERE license_key_id = $1
+                          AND status = 'approved'
                           AND created_at > NOW() - INTERVAL '24 hours'
+                          AND (retry_count IS NULL OR retry_count < $2)
                         ORDER BY created_at ASC
                         LIMIT 10
                     """
+                    rows = await fetch_all(db, query, [license_id, MAX_RETRY_ATTEMPTS])
                 else:
                     query = """
-                        SELECT id, channel 
-                        FROM outbox_messages 
-                        WHERE license_key_id = ? 
-                          AND status = 'approved' 
+                        SELECT id, channel, retry_count, updated_at
+                        FROM outbox_messages
+                        WHERE license_key_id = ?
+                          AND status = 'approved'
                           AND created_at > datetime('now', '-24 hours')
+                          AND (retry_count IS NULL OR retry_count < ?)
                         ORDER BY created_at ASC
                         LIMIT 10
                     """
-                
-                rows = await fetch_all(db, query, [license_id])
-            
+                    rows = await fetch_all(db, query, [license_id, MAX_RETRY_ATTEMPTS])
+
             if not rows:
                 return
-            
+
             logger.info(f"License {license_id}: Retrying {len(rows)} approved outbox messages")
-            
+
             # Use a semaphore to limit concurrent sends (e.g., 5 at a time) to avoid flooding and memory spikes
             sem = asyncio.Semaphore(5)
-            
+
             async def process_outbox_item(msg):
                 outbox_id = msg["id"]
                 channel = msg["channel"]
-                
+                retry_count = msg.get("retry_count") or 0
+
                 async with sem:
                     try:
-                        # Use a distributed lock or local memory lock to avoid duplicate sends 
+                        # P1-6 FIX: Check if max retries exceeded
+                        if retry_count >= MAX_RETRY_ATTEMPTS:
+                            logger.warning(f"Outbox message {outbox_id} exceeded max retry attempts, marking as failed")
+                            await mark_outbox_failed(outbox_id, f"Max retry attempts ({MAX_RETRY_ATTEMPTS}) exceeded")
+                            return
+
+                        # Use a distributed lock or local memory lock to avoid duplicate sends
                         # if processing takes longer than the polling interval
                         lock_key = f"outbox_send_{outbox_id}"
                         if cache.get(lock_key):
                             return
-                        
+
                         # Set lock for 5 minutes
                         cache.set(lock_key, True, expire=300)
-                        
+
                         # Send the message
                         await self._send_message(outbox_id, license_id, channel)
-                        
+
                     except Exception as e:
                         logger.error(f"Error processing outbox {outbox_id}: {e}")
+                        # P1-6 FIX: Increment retry count on failure
+                        await self._increment_outbox_retry_count(outbox_id)
 
             # Process all approved messages in parallel (honoring the semaphore)
             await asyncio.gather(*(process_outbox_item(msg) for msg in rows))
-                    
+
         except Exception as e:
             logger.error(f"Error retrying approved outbox for license {license_id}: {e}")
+
+    async def _increment_outbox_retry_count(self, outbox_id: int):
+        """
+        P1-6 FIX: Increment retry count for a failed outbox message.
+        """
+        try:
+            async with get_db() as db:
+                if DB_TYPE == "postgresql":
+                    await execute_sql(
+                        db,
+                        """
+                        UPDATE outbox_messages
+                        SET retry_count = COALESCE(retry_count, 0) + 1,
+                            updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        [outbox_id]
+                    )
+                else:
+                    await execute_sql(
+                        db,
+                        """
+                        UPDATE outbox_messages
+                        SET retry_count = COALESCE(retry_count, 0) + 1,
+                            updated_at = datetime('now')
+                        WHERE id = ?
+                        """,
+                        [outbox_id]
+                    )
+                await commit_db(db)
+        except Exception as e:
+            logger.error(f"Failed to increment retry count for outbox {outbox_id}: {e}")
     
     async def _poll_email(self, license_id: int):
         """Poll email for new messages using Gmail API"""

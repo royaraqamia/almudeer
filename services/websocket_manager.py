@@ -320,11 +320,24 @@ class ConnectionManager:
         # Global presence tracking via Redis
         if self._pubsub.is_available:
             try:
-                # Increment global connection count for this license
+                # FIX P0-5: Use Lua script for atomic increment with floor at 0
+                # This prevents race conditions where DECR fires before INCR completes
+                increment_script = """
+                local new_count = redis.call('INCR', KEYS[1])
+                if new_count < 0 then
+                    redis.call('SET', KEYS[1], 0)
+                    new_count = 0
+                end
+                redis.call('EXPIRE', KEYS[1], ARGV[1])
+                return new_count
+                """
                 global_count_key = f"almudeer:presence:count:{license_id}"
-                new_count = await self._pubsub._redis_client.incr(global_count_key)
-                # Set TTL so stale keys auto-expire if server crashes (2 min)
-                await self._pubsub._redis_client.expire(global_count_key, 120)
+                new_count = await self._pubsub._redis_client.eval(
+                    increment_script,
+                    1,
+                    global_count_key,
+                    120  # TTL argument
+                )
 
                 # Update last_seen_at and ensure username is populated (safety net for old users)
                 from db_helper import get_db, execute_sql, commit_db, fetch_one
@@ -349,7 +362,7 @@ class ConnectionManager:
                     flag_set = await self._pubsub._redis_client.set(presence_flag_key, "1", nx=True, ex=30)
                     if flag_set:
                         should_broadcast = True
-                
+
                 if should_broadcast:
                     await broadcast_presence_update(license_id, is_online=True)
             except Exception as e:
@@ -372,7 +385,7 @@ class ConnectionManager:
                         lambda msg: self._handle_redis_message(license_id, msg)
                     )
             self._connections[license_id].add(websocket)
-        
+
         logger.info(f"WebSocket connected: license {license_id} (total: {self.connection_count})")
     
     async def refresh_last_seen(self, license_id: int):
@@ -418,12 +431,24 @@ class ConnectionManager:
                             # Unsubscribe from Redis channel locally
                             await self._pubsub.unsubscribe(license_id)
 
-                            # Decrement global connection count
-                            global_count_key = f"almudeer:presence:count:{license_id}"
-                            new_count = await self._pubsub._redis_client.decr(global_count_key)
-                            if new_count < 0:
-                                await self._pubsub._redis_client.set(global_count_key, 0)
+                            # FIX P0-5: Use Lua script for atomic decrement with floor at 0
+                            # This prevents race conditions where count goes negative
+                            decrement_script = """
+                            local new_count = redis.call('DECR', KEYS[1])
+                            if new_count < 0 then
+                                redis.call('SET', KEYS[1], 0)
                                 new_count = 0
+                            end
+                            redis.call('EXPIRE', KEYS[1], ARGV[1])
+                            return new_count
+                            """
+                            global_count_key = f"almudeer:presence:count:{license_id}"
+                            new_count = await self._pubsub._redis_client.eval(
+                                decrement_script,
+                                1,
+                                global_count_key,
+                                120  # TTL argument
+                            )
 
                             # Update last_seen_at
                             from db_helper import get_db, execute_sql, commit_db
@@ -461,25 +486,44 @@ class ConnectionManager:
         """Send message to local WebSocket connections only"""
         if license_id not in self._connections:
             return
-        
+
         dead_connections = []
         json_message = message.to_json()
-        
-        for connection in list(self._connections.get(license_id, [])):
+        connections = list(self._connections.get(license_id, []))
+
+        # FIX P1-3: Use asyncio.gather for parallel sends instead of sequential
+        # FIX P3: Add retry logic for transient failures
+        async def send_to_connection(connection, max_retries: int = 2):
             if connection.client_state != WebSocketState.CONNECTED:
                 logger.debug(f"Skipping send: WebSocket state is {connection.client_state}")
-                continue
-            
-            try:
-                await connection.send_text(json_message)
-            except RuntimeError as e:
-                # Catch "WebSocket is not connected" which can happen if state changes between check and send
-                logger.debug(f"Runtime error sending to WebSocket: {e}")
-                dead_connections.append(connection)
-            except Exception as e:
-                logger.debug(f"Failed to send to WebSocket: {e}")
-                dead_connections.append(connection)
-        
+                return False
+
+            # FIX P3: Retry logic with exponential backoff
+            for attempt in range(max_retries + 1):
+                try:
+                    await connection.send_text(json_message)
+                    return True
+                except RuntimeError as e:
+                    # WebSocket is not connected - don't retry
+                    logger.debug(f"Runtime error sending to WebSocket (attempt {attempt + 1}): {e}")
+                    dead_connections.append(connection)
+                    return False
+                except Exception as e:
+                    # Transient error - retry with backoff
+                    logger.debug(f"Failed to send to WebSocket (attempt {attempt + 1}/{max_retries + 1}): {e}")
+                    if attempt < max_retries:
+                        # Exponential backoff: 100ms, 200ms, ...
+                        await asyncio.sleep(0.1 * (2 ** attempt))
+                    else:
+                        # All retries exhausted
+                        dead_connections.append(connection)
+                        return False
+
+            return False
+
+        # Send to all connections in parallel
+        await asyncio.gather(*[send_to_connection(conn) for conn in connections], return_exceptions=True)
+
         # Clean up dead connections
         for conn in dead_connections:
             await self.disconnect(conn, license_id)
@@ -777,10 +821,36 @@ async def broadcast_chat_cleared(license_id: int, sender_contact: str):
     ))
 
 
-async def broadcast_typing_indicator(license_id: int, sender_contact: str, is_typing: bool):
-    """Broadcast typing indicator for a specific conversation to self and internal peers"""
+async def broadcast_conversation_read(license_id: int, sender_contact: str):
+    """
+    Broadcast when a conversation is marked as read.
+    Notifies other devices so they can update unread counts.
+    """
     manager = get_websocket_manager()
+    await manager.send_to_license(license_id, WebSocketMessage(
+        event="conversation_read",
+        data={
+            "sender_contact": sender_contact
+        }
+    ))
+
+
+async def broadcast_typing_indicator(license_id: int, sender_contact: str, is_typing: bool):
+    """
+    Broadcast typing indicator for a specific conversation to self and internal peers.
+    FIX P2-5: Includes rate limiting to prevent flooding (max 10 typing indicators/minute).
+    """
+    from services.rate_limiting import RateLimiter
     
+    # Rate limit typing indicators: max 10 per minute per license
+    rate_limiter = RateLimiter()
+    rate_limit_key = f"typing_indicator:{license_id}"
+    if not await rate_limiter.is_allowed(rate_limit_key, max_requests=10, period_seconds=60):
+        logger.warning(f"Rate limit exceeded for typing_indicator: license {license_id}")
+        return
+    
+    manager = get_websocket_manager()
+
     # 1. Broadcast to self (multi-device sync)
     await manager.send_to_license(license_id, WebSocketMessage(
         event="typing_indicator",
@@ -800,7 +870,7 @@ async def broadcast_typing_indicator(license_id: int, sender_contact: str, is_ty
             return
 
         username = user_row["username"]
-        
+
         # Check if the sender_contact (the person being typed to) is an internal user
         peer_row = await fetch_one(db, "SELECT id FROM license_keys WHERE username = ?", [sender_contact])
         if peer_row:

@@ -194,18 +194,23 @@ async def send_typing_indicator(
     request: Request,
     license: dict = Depends(get_license_from_header)
 ):
-    from services.websocket_manager import broadcast_typing_indicator, RedisPubSubManager
+    from services.websocket_manager import broadcast_typing_indicator
+    from utils.redis_pool import get_redis_client
+
     data = await request.json()
     is_typing = data.get("is_typing", False)
 
-    # [Senior Optimization] Persist in Redis for multi-device/multi-worker consistency
-    redis_mgr = RedisPubSubManager()
-    if await redis_mgr.initialize():
+    # P0-6: Use singleton Redis pool instead of creating new connection each time
+    redis = await get_redis_client()
+    if redis:
         key = f"typing:{license['license_id']}:{sender_contact}"
         if is_typing:
-            await redis_mgr._redis_client.setex(key, 10, "1")
+            # P2-10 FIX: Use EXPIRE to extend TTL on each typing event
+            # This prevents typing indicator from disappearing while user is still typing
+            await redis.set(key, "1")  # Set without TTL first
+            await redis.expire(key, 10)  # Then set/extend TTL by 10 seconds
         else:
-            await redis_mgr._redis_client.delete(key)
+            await redis.delete(key)
 
     await broadcast_typing_indicator(license["license_id"], sender_contact, is_typing)
     return {"success": True}
@@ -217,18 +222,22 @@ async def send_recording_indicator(
     request: Request,
     license: dict = Depends(get_license_from_header)
 ):
-    from services.websocket_manager import broadcast_recording_indicator, RedisPubSubManager
+    from services.websocket_manager import broadcast_recording_indicator
+    from utils.redis_pool import get_redis_client
+
     data = await request.json()
     is_recording = data.get("is_recording", False)
-    
-    # [Senior Optimization] Persist in Redis
-    redis_mgr = RedisPubSubManager()
-    if await redis_mgr.initialize():
+
+    # P0-6: Use singleton Redis pool
+    redis = await get_redis_client()
+    if redis:
         key = f"recording:{license['license_id']}:{sender_contact}"
         if is_recording:
-            await redis_mgr._redis_client.setex(key, 15, "1")
+            # P2-10 FIX: Use EXPIRE to extend TTL on each recording event
+            await redis.set(key, "1")
+            await redis.expire(key, 15)  # Extend TTL by 15 seconds
         else:
-            await redis_mgr._redis_client.delete(key)
+            await redis.delete(key)
 
     await broadcast_recording_indicator(license["license_id"], sender_contact, is_recording)
     return {"success": True}
@@ -255,24 +264,91 @@ async def send_chat_message(
     
     # Process Attachments
     processed_attachments = []
-    
+
+    # P0-3 FIX: Attachment validation constants
+    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB max file size
+    ALLOWED_MIME_TYPES = {
+        # Images
+        'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif',
+        # Videos
+        'video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska',
+        # Audio
+        'audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/aac', 'audio/ogg', 'audio/wav', 'audio/webm',
+        # Documents
+        'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'text/plain', 'text/csv', 'application/rtf',
+        # Archives
+        'application/zip', 'application/x-zip-compressed', 'application/x-rar-compressed', 'application/x-7z-compressed',
+    }
+    # Additional allowed extensions for MIME type inference
+    ALLOWED_EXTENSIONS = {
+        '.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif',
+        '.mp4', '.mov', '.avi', '.mkv', '.webm',
+        '.mp3', '.m4a', '.aac', '.ogg', '.wav', '.flac', '.amr',
+        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+        '.txt', '.csv', '.rtf',
+        '.zip', '.rar', '.7z', '.tar', '.gz'
+    }
+
     # 1. Handle Multipart Files (The new standard)
     if files:
         from services.file_storage_service import get_file_storage
         storage = get_file_storage()
+        
         for file in files:
+            # P0-3 FIX: Validate file size
+            file_size = 0
+            content = await file.read()
+            file_size = len(content)
+            await file.seek(0)  # Reset file pointer
+            
+            if file_size > MAX_FILE_SIZE:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"حجم الملف كبير جداً. الحد الأقصى هو {MAX_FILE_SIZE // (1024 * 1024)} ميجابايت"
+                )
+            
+            # P0-3 FIX: Validate MIME type
+            mime_type = file.content_type or ''
+            filename = file.filename or ''
+            ext = '.' + filename.split('.')[-1].lower() if '.' in filename else ''
+            
+            # Check if MIME type is explicitly allowed
+            is_allowed = mime_type.lower() in ALLOWED_MIME_TYPES
+            
+            # If MIME type is generic or missing, check extension
+            if not is_allowed and ext:
+                is_allowed = ext.lower() in ALLOWED_EXTENSIONS
+            
+            # Block dangerous file types regardless of extension
+            dangerous_extensions = {'.exe', '.bat', '.cmd', '.scr', '.pif', '.js', '.vbs', '.sh', '.php', '.asp', '.aspx'}
+            if ext.lower() in dangerous_extensions:
+                raise HTTPException(
+                    status_code=400,
+                    detail="نوع الملف غير مسموح به لأسباب أمنية"
+                )
+            
+            if not is_allowed:
+                raise HTTPException(
+                    status_code=400,
+                    detail="نوع الملف غير مدعوم. الأنواع المدعومة: صور، فيديو، صوت، مستندات، وأرشيف"
+                )
+            
             # We save to 'outbox' subfolder. These are NOT public yet.
             rel_path, _ = await storage.save_upload_file_async(
-                file, 
-                file.filename, 
-                file.content_type, 
+                file,
+                file.filename,
+                mime_type,
                 subfolder="outbox"
             )
             processed_attachments.append({
                 "type": "file",
                 "local_path": rel_path, # Store the disk path
                 "filename": file.filename,
-                "mime_type": file.content_type
+                "mime_type": mime_type,
+                "file_size": file_size
             })
             
     # 2. Handle metadata/legacy attachments if provided as JSON string
@@ -456,6 +532,7 @@ async def delete_multiple_conversations_route(
 ):
     from models.inbox import soft_delete_conversation
     from services.websocket_manager import broadcast_conversation_deleted
+    from db_helper import get_db, commit_db
 
     if not batch_request.sender_contacts:
         raise HTTPException(status_code=400, detail="قائمة المحادثات فارغة")
@@ -467,11 +544,31 @@ async def delete_multiple_conversations_route(
             detail="الحد الأقصى لعدد المحادثات التي يمكن حذفها دفعة واحدة هو 50"
         )
 
-    for contact in batch_request.sender_contacts:
-        await soft_delete_conversation(license["license_id"], contact)
+    # P0-5: Wrap in database transaction for atomicity
+    deleted_contacts = []
+    try:
+        async with get_db() as db:
+            for contact in batch_request.sender_contacts:
+                try:
+                    await soft_delete_conversation(license["license_id"], contact, db=db)
+                    deleted_contacts.append(contact)
+                except Exception as e:
+                    from logging_config import get_logger
+                    get_logger(__name__).warning(f"Failed to delete conversation {contact}: {e}")
+                    # Continue with other deletions - don't fail entire batch
+            
+            # Commit all deletions atomically
+            await commit_db(db)
+    except Exception as e:
+        from logging_config import get_logger
+        get_logger(__name__).error(f"Transaction failed for bulk delete: {e}")
+        raise HTTPException(status_code=500, detail="فشل حذف المحادثات")
+
+    # Broadcast deletions after successful commit
+    for contact in deleted_contacts:
         await broadcast_conversation_deleted(license["license_id"], contact)
 
-    return {"success": True, "count": len(batch_request.sender_contacts), "message": "تم حذف المحادثات بنجاح"}
+    return {"success": True, "count": len(deleted_contacts), "message": "تم حذف المحادثات بنجاح"}
 
 
 @router.post("/inbox/{message_id}/read")
@@ -488,10 +585,139 @@ async def mark_conversation_read_route(
 ):
     from models.inbox import mark_chat_read
     count = await mark_chat_read(license["license_id"], sender_contact)
+    
+    # P2-1: Broadcast read status to other devices
+    from services.websocket_manager import get_websocket_manager, WebSocketMessage
+    manager = get_websocket_manager()
+    await manager.send_to_license(
+        license["license_id"],
+        WebSocketMessage(
+            event="conversation_read",
+            data={
+                "sender_contact": sender_contact,
+                "read_count": count,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+    )
+    
     return {"success": True, "count": count}
 
 
 # ============ Advanced Conversation Features ============
+
+@router.get("/conversations/{sender_contact:path}/typing-status")
+async def get_typing_status(
+    sender_contact: str,
+    license: dict = Depends(get_license_from_header)
+):
+    """P2-3: Get current typing/recording status for a conversation"""
+    from utils.redis_pool import get_redis_client
+    
+    redis = await get_redis_client()
+    is_typing = False
+    is_recording = False
+    
+    if redis:
+        typing_key = f"typing:{license['license_id']}:{sender_contact}"
+        recording_key = f"recording:{license['license_id']}:{sender_contact}"
+        
+        is_typing = await redis.exists(typing_key)
+        is_recording = await redis.exists(recording_key)
+    
+    return {
+        "sender_contact": sender_contact,
+        "is_typing": is_typing,
+        "is_recording": is_recording
+    }
+
+@router.get("/conversations/{sender_contact:path}/draft")
+async def get_draft(
+    sender_contact: str,
+    license: dict = Depends(get_license_from_header)
+):
+    """P2-6: Get saved draft for a conversation (synced across devices)"""
+    from utils.redis_pool import get_redis_client
+
+    redis = await get_redis_client()
+    draft = ""
+    updated_at = None
+    expires_at = None
+    ttl_seconds = None
+
+    if redis:
+        draft_key = f"draft:{license['license_id']}:{sender_contact}"
+        draft = await redis.get(draft_key) or ""
+        if draft:
+            # Get TTL to know when it was last updated
+            ttl = await redis.ttl(draft_key)
+            if ttl > 0:
+                from datetime import datetime, timedelta
+                updated_at = (datetime.utcnow() + timedelta(seconds=ttl)).isoformat()
+                expires_at = (datetime.utcnow() + timedelta(seconds=ttl)).isoformat()
+                ttl_seconds = ttl
+
+    return {
+        "sender_contact": sender_contact,
+        "draft": draft,
+        "updated_at": updated_at,
+        "expires_at": expires_at,  # P2-8 FIX: Include expiry time
+        "ttl_seconds": ttl_seconds  # P2-8 FIX: Include remaining TTL
+    }
+
+@router.post("/conversations/{sender_contact:path}/draft")
+async def save_draft(
+    sender_contact: str,
+    request: Request,
+    license: dict = Depends(get_license_from_header)
+):
+    """P2-6: Save draft for a conversation (synced across devices)"""
+    from utils.redis_pool import get_redis_client
+    from services.websocket_manager import get_websocket_manager, WebSocketMessage
+
+    data = await request.json()
+    draft_text = data.get("draft", "")
+
+    redis = await get_redis_client()
+    if redis:
+        draft_key = f"draft:{license['license_id']}:{sender_contact}"
+        if draft_text.strip():
+            # P2-8 FIX: Save with 7-day TTL and broadcast expiry info
+            await redis.setex(draft_key, 604800, draft_text)
+            
+            # P2-8 FIX: Broadcast draft saved event with expiry info
+            manager = get_websocket_manager()
+            from datetime import datetime, timedelta
+            expires_at = (datetime.utcnow() + timedelta(seconds=604800)).isoformat()
+            await manager.send_to_license(
+                license["license_id"],
+                WebSocketMessage(
+                    event="draft_saved",
+                    data={
+                        "sender_contact": sender_contact,
+                        "draft": draft_text,
+                        "expires_at": expires_at,
+                        "ttl_seconds": 604800
+                    }
+                )
+            )
+        else:
+            # Delete empty drafts
+            await redis.delete(draft_key)
+            
+            # P2-8 FIX: Broadcast draft cleared event
+            manager = get_websocket_manager()
+            await manager.send_to_license(
+                license["license_id"],
+                WebSocketMessage(
+                    event="draft_cleared",
+                    data={
+                        "sender_contact": sender_contact
+                    }
+                )
+            )
+
+    return {"success": True, "draft": draft_text}
 
 @router.post("/conversations/{sender_contact:path}/archive")
 async def archive_conversation(

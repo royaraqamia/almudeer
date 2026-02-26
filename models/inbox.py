@@ -2,10 +2,51 @@
 Unified message inbox and outbox management
 """
 
+import hashlib
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Any
 
 from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db, DB_TYPE
+
+
+async def _check_message_deduplication(license_id: int, channel: str, sender_id: str, body: str, received_at: datetime) -> bool:
+    """
+    Check if message was already processed using Redis-based deduplication.
+    Returns True if message is duplicate (should be skipped), False if new.
+    """
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        return False  # No Redis, skip deduplication
+    
+    try:
+        import redis.asyncio as aioredis
+        redis_client = await aioredis.from_url(redis_url, decode_responses=True)
+        
+        # Generate unique message hash
+        timestamp_str = received_at.isoformat() if isinstance(received_at, datetime) else str(received_at)
+        msg_hash = hashlib.sha256(
+            f"{license_id}:{channel}:{sender_id}:{body}:{timestamp_str}".encode()
+        ).hexdigest()
+        
+        # Check if hash exists
+        key = f"msg_dedup:{msg_hash}"
+        exists = await redis_client.exists(key)
+        
+        if exists:
+            # Duplicate detected
+            await redis_client.close()
+            return True
+        
+        # Set with 5-minute TTL to allow for processing window
+        await redis_client.setex(key, 300, "1")
+        await redis_client.close()
+        return False
+        
+    except Exception as e:
+        from logging_config import get_logger
+        get_logger(__name__).warning(f"Redis deduplication failed: {e}")
+        return False  # Fail open - allow message if dedup fails
 
 
 async def save_inbox_message(
@@ -35,12 +76,12 @@ async def save_inbox_message(
     # Prevent saving messages from known bots and promotional senders
     # Added: Calendly, Submagic, IconScout per user request
     blocked_keywords = [
-        "bot", "api", 
+        "bot", "api",
         "no-reply", "noreply", "donotreply",
-        "newsletter", "bulletin", 
+        "newsletter", "bulletin",
         "calendly", "submagic", "iconscout"
     ]
-    
+
     def is_blocked(text: str) -> bool:
         if not text: return False
         text_lower = text.lower()
@@ -49,6 +90,16 @@ async def save_inbox_message(
     if is_blocked(sender_name) or is_blocked(sender_contact):
         # Return 0 to indicate no message was saved
         return 0
+    
+    # P0-1: Redis-based deduplication check
+    if sender_id and received_at:
+        is_duplicate = await _check_message_deduplication(
+            license_id, channel, sender_id, body, received_at
+        )
+        if is_duplicate:
+            from logging_config import get_logger
+            get_logger(__name__).debug(f"Duplicate message detected: {channel}:{sender_id}:{body[:50]}")
+            return 0  # Already processed
 
     # Normalize received_at to a UTC datetime; asyncpg prefers naive UTC
     if isinstance(received_at, str):
@@ -185,7 +236,7 @@ async def save_inbox_message(
         
         if message_id:
             # ---------------------------------------------------------
-            # Real-time Broadcast (WebSocket)
+            # Real-time Broadcast (WebSocket) - P0-2: Reliable Broadcast
             # ---------------------------------------------------------
             # This enables WhatsApp/Telegram-like instant message appearance in the mobile app.
             # Moved from update_inbox_analysis to ensure direct flow works.
@@ -195,15 +246,16 @@ async def save_inbox_message(
 
                 # 2. Fetch updated authoritative unread count
                 conv_row = await fetch_one(
-                    db, 
-                    "SELECT unread_count FROM inbox_conversations WHERE license_key_id = ? AND sender_contact = ?", 
+                    db,
+                    "SELECT unread_count FROM inbox_conversations WHERE license_key_id = ? AND sender_contact = ?",
                     [license_id, sender_contact]
                 )
                 unread_count = conv_row["unread_count"] if conv_row else 0
 
-                # 3. Broadcast to WebSocket
-                from services.websocket_manager import broadcast_new_message
-                await broadcast_new_message(
+                # 3. P0-2: Use reliable broadcast with retry mechanism
+                from services.reliable_broadcast import broadcast_new_message_reliable
+                # Fire-and-forget - don't block on broadcast
+                asyncio.create_task(broadcast_new_message_reliable(
                     license_id,
                     {
                         "id": message_id,
@@ -217,8 +269,9 @@ async def save_inbox_message(
                         "unread_count": unread_count,
                         "is_forwarded": bool(is_forwarded),
                         "attachments": attachments,
+                        "sequence": None,  # Will be set by reliable broadcast service
                     }
-                )
+                ))
             except Exception as e:
                 from logging_config import get_logger
                 get_logger(__name__).warning(f"WebSocket broadcast or state update failed in save_inbox_message: {e}")
@@ -407,52 +460,40 @@ async def approve_outbox_message(message_id: int, edited_body: str = None):
                 outbox_msg = await fetch_one(db, "SELECT recipient_email, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
                 if outbox_msg:
                     sender_contact = outbox_msg["recipient_email"] or outbox_msg["recipient_id"]
-            
+
             if sender_contact:
                 await upsert_conversation_state(message_row["license_key_id"], sender_contact)
 
-        # Broadcast the new outgoing message to all devices (including the sender's other devices)
+        # FIX P0-2: Broadcast initial "pending" status for optimistic UI
+        # Final "sent" or "failed" status will be broadcast by mark_outbox_sent/mark_outbox_failed
         try:
-            from services.websocket_manager import broadcast_new_message
-            
-            # Fetch the full message to broadcast
+            from services.websocket_manager import broadcast_message_status_update
 
-            # We can construct strictly what we need since we just updated it.
-            # But fetching is safer.
-            # We need license_id. It's in the args? No, it's not in args.
-            # It IS in the args for get_outbox... wait, approve_outbox_message signature is (message_id, edited_body).
-            # We don't have license_id here! We need to fetch it or pass it.
-            # We fetched message_row which has license_key_id.
-            
             if message_row:
                 lic_id = message_row["license_key_id"]
-                # Get full message details for broadcast
-                # We can reuse get_outbox_message_by_id logic or just query
                 msg_data = await fetch_one(db, "SELECT * FROM outbox_messages WHERE id = ?", [message_id])
                 if msg_data:
-                    # Format for frontend
                     import json
                     attachments = []
                     if msg_data.get("attachments") and isinstance(msg_data["attachments"], str):
                         try:
                             attachments = json.loads(msg_data["attachments"])
                         except: pass
-                        
+
                     evt_data = {
                         "id": msg_data["id"],
-                        "outbox_id": msg_data["id"],  # Include outbox_id for status tracking
+                        "outbox_id": msg_data["id"],
                         "channel": msg_data["channel"],
-                        "sender_contact": msg_data.get("recipient_email") or msg_data.get("recipient_id"), # It's outgoing, so contact is recipient
-                        "sender_name": None, # It's us
+                        "sender_contact": msg_data.get("recipient_email") or msg_data.get("recipient_id"),
+                        "sender_name": None,
                         "body": msg_data["body"],
-                        "status": "sending", # It is 'approved' in DB, but 'sending' for UI
+                        "status": "pending",  # Use "pending" instead of "sending"
                         "direction": "outgoing",
                         "timestamp": ts_value.isoformat() if hasattr(ts_value, 'isoformat') else str(ts_value),
                         "attachments": attachments,
                         "is_forwarded": bool(msg_data.get("is_forwarded", False))
                     }
-                    await broadcast_new_message(lic_id, evt_data)
-
+                    await broadcast_message_status_update(lic_id, evt_data)
         except Exception as e:
             from logging_config import get_logger
             get_logger(__name__).warning(f"Broadcast failed in approve_outbox: {e}")
@@ -762,16 +803,15 @@ async def get_inbox_status_counts(license_id: int) -> dict:
 async def _get_sender_aliases(db, license_id: int, sender_contact: str) -> tuple:
     """
     Get all sender_contact and sender_id variants for a given sender.
-    Optimized to use strict equality first and fallback to LIKE only if no ID is found,
-    reducing the cost of scanning large message tables.
+    P1-3: Optimized with early termination and UNION ALL for performance.
     """
     if not sender_contact:
         return set(), set()
-    
+
     check_ids = [sender_contact]
     if sender_contact.startswith("tg:"):
         check_ids.append(sender_contact[3:])
-    
+
     # Track results
     all_contacts = set([sender_contact])
     all_ids = set()
@@ -779,20 +819,22 @@ async def _get_sender_aliases(db, license_id: int, sender_contact: str) -> tuple
         if cid.isdigit(): all_ids.add(cid)
 
     placeholders = ", ".join(["?" for _ in check_ids])
-    
-    # 1. First Pass: Strict match (Fast)
+
+    # 1. First Pass: Strict match with LIMIT for early termination (P1-3)
     query = f"""
-        SELECT sender_contact, sender_id 
-        FROM inbox_messages 
+        SELECT sender_contact, sender_id
+        FROM inbox_messages
         WHERE license_key_id = ?
         AND (sender_contact IN ({placeholders}) OR sender_id IN ({placeholders}))
-        
-        UNION
-        
+        LIMIT 200
+
+        UNION ALL
+
         SELECT recipient_email as sender_contact, recipient_id as sender_id
         FROM outbox_messages
         WHERE license_key_id = ?
         AND (recipient_email IN ({placeholders}) OR recipient_id IN ({placeholders}))
+        LIMIT 200
     """
     params = [license_id] + check_ids + check_ids + [license_id] + check_ids + check_ids
     aliases = await fetch_all(db, query, params)
@@ -802,11 +844,10 @@ async def _get_sender_aliases(db, license_id: int, sender_contact: str) -> tuple
         if row.get("sender_contact"): all_contacts.add(row["sender_contact"])
         if row.get("sender_id"): all_ids.add(str(row["sender_id"]))
 
-    # 3. Only if we have NO numeric IDs and it doesn't look like a standard identifier,
-    # use LIKE as a last resort for loose matching (e.g. partial phone numbers)
-    if not all_ids and len(sender_contact) > 5:
+    # 3. P1-3: Early termination - skip LIKE if we already found aliases
+    if not all_ids and len(sender_contact) > 5 and len(all_contacts) < 10:
         like_query = """
-            SELECT sender_contact, sender_id FROM inbox_messages 
+            SELECT sender_contact, sender_id FROM inbox_messages
             WHERE license_key_id = ? AND sender_contact LIKE ? LIMIT 10
         """
         like_aliases = await fetch_all(db, like_query, [license_id, f"%{sender_contact}%"])
@@ -814,8 +855,8 @@ async def _get_sender_aliases(db, license_id: int, sender_contact: str) -> tuple
             if row.get("sender_contact"): all_contacts.add(row["sender_contact"])
             if row.get("sender_id"): all_ids.add(str(row["sender_id"]))
 
-    # 4. Hop-2 expansion for cross-linked identities
-    if all_contacts or all_ids:
+    # 4. Hop-2 expansion for cross-linked identities (P1-3: Limited to prevent runaway queries)
+    if (all_contacts or all_ids) and len(all_contacts) < 100:
         pass2_contacts = list(all_contacts)
         pass2_ids = list(all_ids)
         placeholders_c = ", ".join(["?" for _ in pass2_contacts]) if pass2_contacts else "'__NONE__'"
@@ -937,12 +978,19 @@ async def get_conversation_messages_cursor(
     cursor_created_at = None
     cursor_id = None
     cursor_direction = None
+    cursor_table_prefix = None
+    cursor_body_hash = None  # P1-4 FIX: Support body hash for edge case tie-breaking
+    
     if cursor:
         try:
             # Decode base64 cursor
             decoded = base64.b64decode(cursor).decode('utf-8')
-            parts = decoded.rsplit('_', 2)
-            if len(parts) >= 2:
+            # P1-4 FIX: New format is "{ts}_{table_prefix}_{id}_{direction}_{body_hash}"
+            # Previous format: "{ts}_{table_prefix}_{id}_{direction}"
+            # Old format: "{ts}_{id}_{direction}"
+            parts = decoded.rsplit('_', 4)  # Split into max 5 parts
+            
+            if len(parts) >= 3:
                 # Parse timestamp to datetime object
                 try:
                     cursor_created_at = datetime.fromisoformat(parts[0])
@@ -951,17 +999,31 @@ async def get_conversation_messages_cursor(
                         cursor_created_at = cursor_created_at.astimezone(timezone.utc).replace(tzinfo=None)
                 except ValueError:
                     cursor_created_at = None
-                
-                cursor_id = int(parts[1])
-                
-                if len(parts) == 3:
-                    cursor_direction = parts[2] # 'i' or 'o'
-                
+
+                # Check format version based on number of parts
+                if len(parts) == 5:
+                    # P1-4 FIX: New format with body hash
+                    cursor_table_prefix = parts[1]  # 'i' or 'o'
+                    cursor_id = int(parts[2])
+                    cursor_direction = parts[3]  # 'i' or 'o'
+                    cursor_body_hash = int(parts[4])  # Body hash for tie-breaking
+                elif len(parts) == 4:
+                    # Format with table prefix but no body hash
+                    cursor_table_prefix = parts[1]  # 'i' or 'o'
+                    cursor_id = int(parts[2])
+                    cursor_direction = parts[3]  # 'i' or 'o'
+                else:
+                    # Old format fallback
+                    cursor_id = int(parts[1])
+                    cursor_direction = parts[2] if len(parts) == 3 else None
+
                 # If parsing failed, invalidate cursor
                 if cursor_created_at is None:
                     cursor_id = None
                     cursor_direction = None
-                    
+                    cursor_table_prefix = None
+                    cursor_body_hash = None
+
         except Exception:
             pass  # Invalid cursor, start from beginning
     
@@ -1151,18 +1213,40 @@ async def get_conversation_messages_cursor(
             
             messages.append(msg)
             
-        # Sort for client (usually calls expect specific order, but usually oldest-first or newest-first logic in UI)
-        # Client usually reverses list if it expects "reverse: true" for chat list
-        # If we asked for "older", we got them DESC (Newest...Oldest). 
-        
+        # P1-4 FIX: Generate composite cursor with microsecond precision and table-specific ID
+        # This prevents edge case collisions when:
+        # - Messages have identical timestamps AND IDs from different tables
+        # - Direction changes mid-scroll causing ordering issues
         next_cursor = None
         if has_more and messages:
             last_msg = messages[-1]
             ts = last_msg.get("effective_ts")
             if hasattr(ts, 'isoformat'):
+                # P1-4 FIX: Ensure microsecond precision for better uniqueness
                 ts = ts.isoformat()
+            elif isinstance(ts, str):
+                # Ensure string timestamps are in ISO format
+                try:
+                    # Parse and re-format to ensure consistency
+                    dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                    ts = dt.isoformat()
+                except:
+                    pass
+            
+            # P1-4 FIX: Use composite cursor with:
+            # 1. Timestamp (microsecond precision)
+            # 2. Table prefix ('i' for inbox, 'o' for outbox) - prevents ID collisions
+            # 3. Message ID
+            # 4. Direction (for additional tie-breaking)
+            # Format: "{ts}_{table_prefix}_{id}_{direction}"
             d = 'i' if last_msg['direction'] == 'incoming' else 'o'
-            cursor_str = f"{ts}_{last_msg['id']}_{d}"
+            table_prefix = 'i' if last_msg['direction'] == 'incoming' else 'o'
+            
+            # P1-4 FIX: Add hash of message body for additional uniqueness in edge cases
+            # This handles the rare case of same timestamp, same ID, same direction
+            body_hash = hash(last_msg.get('body', '')[:50]) % 1000
+            
+            cursor_str = f"{ts}_{table_prefix}_{last_msg['id']}_{d}_{body_hash}"
             next_cursor = base64.b64encode(cursor_str.encode('utf-8')).decode('utf-8')
             
         # Fetch presence info for the peer
@@ -1313,33 +1397,33 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
     Mark all messages from a sender as 'read'.
     This clears the unread badge for the conversation.
     Returns the count of messages updated.
-    
+
     Uses comprehensive alias matching to find all messages from the same sender.
     """
     async with get_db() as db:
         # Get all aliases for this sender
         all_contacts, all_ids = await _get_sender_aliases(db, license_id, sender_contact)
-        
+
         # Build comprehensive WHERE clause
         conditions = []
         params = [license_id]
-        
+
         if all_contacts:
             contact_placeholders = ", ".join(["?" for _ in all_contacts])
             conditions.append(f"sender_contact IN ({contact_placeholders})")
             params.extend(list(all_contacts))
-        
+
         if all_ids:
             id_placeholders = ", ".join(["?" for _ in all_ids])
             conditions.append(f"sender_id IN ({id_placeholders})")
             params.extend(list(all_ids))
-        
+
         sender_where = " OR ".join(conditions) if conditions else "1=0"
-        
+
         # Update all messages from this sender to is_read=1
         if DB_TYPE == "postgresql":
             query = f"""
-                UPDATE inbox_messages 
+                UPDATE inbox_messages
                 SET is_read = TRUE
                 WHERE license_key_id = ?
                 AND ({sender_where})
@@ -1347,16 +1431,25 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
             """
         else:
             query = f"""
-                UPDATE inbox_messages 
+                UPDATE inbox_messages
                 SET is_read = 1
                 WHERE license_key_id = ?
                 AND ({sender_where})
                 AND (is_read = 0 OR is_read IS NULL)
             """
-            
+
         await execute_sql(db, query, params)
         await commit_db(db)
         await upsert_conversation_state(license_id, sender_contact)
+        
+        # FIX P0-9: Broadcast read receipt to other devices
+        try:
+            from services.websocket_manager import broadcast_conversation_read
+            await broadcast_conversation_read(license_id, sender_contact)
+        except Exception as e:
+            from logging_config import get_logger
+            get_logger(__name__).warning(f"Failed to broadcast read receipt: {e}")
+        
         return 1
 
 
@@ -1570,7 +1663,7 @@ async def save_synced_outbox_message(
     attachments_json = json.dumps(attachments) if attachments else None
 
     async with get_db() as db:
-        
+
         # ---------------------------------------------------------
         # Canonical Identity Lookup (Prevent Duplicates)
         # ---------------------------------------------------------
@@ -1580,9 +1673,9 @@ async def save_synced_outbox_message(
              existing_row = await fetch_one(
                 db,
                 """
-                SELECT sender_contact 
-                FROM inbox_messages 
-                WHERE license_key_id = ? AND sender_id = ? 
+                SELECT sender_contact
+                FROM inbox_messages
+                WHERE license_key_id = ? AND sender_id = ?
                 AND sender_contact IS NOT NULL AND sender_contact != ''
                 LIMIT 1
                 """,
@@ -1595,10 +1688,22 @@ async def save_synced_outbox_message(
                  if recipient_email and recipient_email != canonical: recipient_email = canonical
                  if recipient_id and recipient_id != canonical: recipient_id = canonical
 
+        # FIX P0-11: Check for duplicate using platform_message_id before inserting
+        # This prevents duplicate messages when Telegram listener restarts and re-fetches updates
+        if platform_message_id:
+            existing = await fetch_one(
+                db,
+                "SELECT id FROM outbox_messages WHERE license_key_id = ? AND channel = ? AND platform_message_id = ?",
+                [license_id, channel, platform_message_id]
+            )
+            if existing:
+                logger.info(f"Skipping duplicate outbox message: platform_message_id={platform_message_id}")
+                return existing["id"]  # Return existing ID to prevent duplicate
+
         await execute_sql(
             db,
             """
-            INSERT INTO outbox_messages 
+            INSERT INTO outbox_messages
                 (license_key_id, channel, recipient_id,
                  recipient_email, subject, body, attachments,
                  status, sent_at, created_at, is_forwarded, platform_message_id)
@@ -1622,7 +1727,7 @@ async def save_synced_outbox_message(
             [license_id],
         )
         await commit_db(db)
-        
+
         message_id = row["id"] if row else 0
         
         # Update conversation state
@@ -1907,21 +2012,32 @@ async def soft_delete_inbox_message(message_id: int, license_id: int) -> dict:
         }
 
 
-async def soft_delete_conversation(license_id: int, sender_contact: str) -> dict:
+async def soft_delete_conversation(license_id: int, sender_contact: str, db=None) -> dict:
     """
     Soft delete an entire conversation (both inbox and outbox messages).
     Then updates conversation state (which should effectively remove it).
-    
+
     FIX: Also cleans up attachments from disk/S3 to prevent storage bloat.
+    
+    Args:
+        license_id: License ID
+        sender_contact: Sender contact to delete
+        db: Optional database connection (for transaction wrapping)
     """
     from datetime import datetime, timezone
     now = datetime.utcnow()
     ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
 
-    async with get_db() as db:
+    # P0-5: Allow optional db parameter for transaction wrapping
+    should_close_db = False
+    if db is None:
+        db = await get_db()
+        should_close_db = True
+    
+    try:
         # Get all aliases for this sender to ensure we clear EVERYTHING
         all_contacts, all_ids = await _get_sender_aliases(db, license_id, sender_contact)
-        
+
         # FIX: Collect attachment paths before soft delete for cleanup
         attachment_paths = []
         
@@ -2045,18 +2161,33 @@ async def soft_delete_conversation(license_id: int, sender_contact: str) -> dict
         await commit_db(db)
         logger.info(f"[CLEAR] Soft delete completed for {sender_contact}")
 
-        # FIX: Clean up attachments from disk
-        if attachment_paths:
-            from services.file_storage_service import get_file_storage
-            storage = get_file_storage()
-            cleaned_count = 0
-            for path in attachment_paths:
+        # FIX P0-7: Use distributed lock for attachment cleanup to prevent race conditions
+        # when multiple devices delete the same conversation simultaneously
+        try:
+            from services.distributed_lock import DistributedLock
+            lock_key = f"attachment_cleanup_{license_id}_{sender_contact}"
+            lock = DistributedLock(lock_id=license_id, lock_name=lock_key)
+            
+            if await lock.acquire():
                 try:
-                    await storage.delete_file_async(path)
-                    cleaned_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to delete attachment {path}: {e}")
-            logger.info(f"[CLEAR] Cleaned up {cleaned_count}/{len(attachment_paths)} attachments for {sender_contact}")
+                    # Clean up attachments from disk
+                    if attachment_paths:
+                        from services.file_storage_service import get_file_storage
+                        storage = get_file_storage()
+                        cleaned_count = 0
+                        for path in attachment_paths:
+                            try:
+                                await storage.delete_file_async(path)
+                                cleaned_count += 1
+                            except Exception as e:
+                                logger.warning(f"Failed to delete attachment {path}: {e}")
+                        logger.info(f"[CLEAR] Cleaned up {cleaned_count}/{len(attachment_paths)} attachments for {sender_contact}")
+                finally:
+                    await lock.release()
+            else:
+                logger.warning(f"[CLEAR] Skipped attachment cleanup for {sender_contact} - lock held by another process")
+        except Exception as e:
+            logger.error(f"[CLEAR] Error during attachment cleanup: {e}")
 
         # Explicitly delete ALL conversation entries for discovered personas
         if all_contacts:
@@ -2073,8 +2204,32 @@ async def soft_delete_conversation(license_id: int, sender_contact: str) -> dict
                 [license_id, sender_contact]
             )
         await commit_db(db)
+        
+        # Explicitly delete ALL conversation entries for discovered personas
+        if all_contacts:
+            placeholders_ic = ", ".join(["?" for _ in all_contacts])
+            await execute_sql(
+                db,
+                f"DELETE FROM inbox_conversations WHERE license_key_id = ? AND sender_contact IN ({placeholders_ic})",
+                [license_id] + list(all_contacts)
+            )
+        else:
+            await execute_sql(
+                db,
+                "DELETE FROM inbox_conversations WHERE license_key_id = ? AND sender_contact = ?",
+                [license_id, sender_contact]
+            )
+        await commit_db(db)
+
+        return {"success": True, "message": "تم حذف المحادثة بنجاح"}
     
-    return {"success": True, "message": "تم حذف المحادثة بنجاح"}
+    finally:
+        # P0-5: Close db only if we created it
+        if should_close_db:
+            try:
+                await db.close()
+            except:
+                pass
 
 
 async def clear_conversation_messages(license_id: int, sender_contact: str) -> dict:
@@ -2404,9 +2559,10 @@ async def upsert_conversation_state(
     """
     Recalculate and update the cached conversation state in `inbox_conversations`.
     Optimized: Combines multiple queries into a single pull where possible.
-    
+
+    FIX P1-5: Added early exit optimization - skip if conversation doesn't exist
     FIX: Added distributed lock to prevent race conditions in multi-device scenarios.
-    
+
     Args:
         license_id: The license ID
         sender_contact: The contact identifier
@@ -2415,19 +2571,49 @@ async def upsert_conversation_state(
         use_lock: Whether to use distributed lock (default True for safety)
     """
     from db_helper import DB_TYPE
-    
-    # FIX: Use distributed lock to prevent race conditions
+
+    # FIX P1-5: Early exit - check if conversation exists before expensive operations
+    async with get_db() as db:
+        conv_exists = await fetch_one(
+            db,
+            "SELECT 1 FROM inbox_conversations WHERE license_key_id = ? AND sender_contact = ?",
+            [license_id, sender_contact]
+        )
+        if not conv_exists:
+            # Conversation doesn't exist, no need to update
+            return
+
+    # FIX P0-1: Use distributed lock with retry queue to prevent race conditions
+    # Instead of skipping when lock is held, queue for retry to ensure updates aren't lost
     if use_lock:
         from services.distributed_lock import DistributedLock
+        from utils.redis_pool import get_redis_client
+        
         lock_key = f"conversation_state:{license_id}:{sender_contact}"
         lock = DistributedLock(lock_id=license_id, lock_name=lock_key)
-        
+
         try:
             acquired = await lock.acquire()
             if not acquired:
                 # Lock already held - another process is updating this conversation
-                # Skip to prevent race condition (the other process will handle it)
-                logger.debug(f"Skipping conversation state update - lock held: {lock_key}")
+                # P0-1 FIX: Queue for retry instead of skipping to prevent lost updates
+                redis = await get_redis_client()
+                if redis:
+                    retry_key = f"conversation_state_retry:{license_id}"
+                    # Add to retry queue with sender_contact and timestamp
+                    await redis.lpush(
+                        retry_key,
+                        json.dumps({
+                            "sender_contact": sender_contact,
+                            "sender_name": sender_name,
+                            "channel": channel,
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "use_lock": use_lock
+                        })
+                    )
+                    # Keep queue bounded - remove old entries
+                    await redis.ltrim(retry_key, 0, 99)
+                    logger.debug(f"Queued conversation state update for retry: {sender_contact}")
                 return
             # Proceed with lock held
         except Exception as e:
@@ -2551,6 +2737,58 @@ async def upsert_conversation_state(
             await lock.release()
         except Exception as e:
             logger.error(f"Error releasing conversation lock: {e}")
+
+
+async def process_conversation_state_retry_queue(license_id: int, max_batch_size: int = 10) -> int:
+    """
+    P0-1 FIX: Process queued conversation state updates from retry queue.
+    Called periodically by background workers to ensure no updates are lost.
+    
+    Args:
+        license_id: The license ID to process retries for
+        max_batch_size: Maximum number of retries to process in one batch
+        
+    Returns:
+        Number of retries processed
+    """
+    from utils.redis_pool import get_redis_client
+    
+    redis = await get_redis_client()
+    if not redis:
+        return 0
+    
+    retry_key = f"conversation_state_retry:{license_id}"
+    processed = 0
+    
+    try:
+        for _ in range(max_batch_size):
+            # Get next retry from queue
+            retry_data = await redis.rpop(retry_key)
+            if not retry_data:
+                break
+            
+            data = json.loads(retry_data)
+            sender_contact = data.get("sender_contact")
+            sender_name = data.get("sender_name")
+            channel = data.get("channel")
+            
+            if sender_contact:
+                # Retry the update without lock to prevent infinite loop
+                # (if lock fails again, it will be re-queued)
+                await upsert_conversation_state(
+                    license_id,
+                    sender_contact,
+                    sender_name,
+                    channel,
+                    use_lock=False  # Don't re-acquire lock during retry processing
+                )
+                processed += 1
+                logger.debug(f"Processed conversation state retry: {sender_contact}")
+    
+    except Exception as e:
+        logger.error(f"Error processing conversation state retry queue: {e}")
+    
+    return processed
 
 
 # ============ Advanced Conversation Features ============

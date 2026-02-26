@@ -94,18 +94,27 @@ class DatabasePool:
         """Initialize PostgreSQL connection pool"""
         if not POSTGRES_AVAILABLE:
             raise ImportError("asyncpg is required for PostgreSQL. Install with: pip install asyncpg")
-        
+
         if not self.postgres_url:
             raise ValueError("DATABASE_URL environment variable required for PostgreSQL")
+
+        # P1-5: Configurable pool settings via environment variables
+        min_size = int(os.getenv("DB_POOL_MIN_SIZE", "10"))  # Keep 10 connections warm (increased from 5)
+        max_size = int(os.getenv("DB_POOL_MAX_SIZE", "50"))  # Allow up to 50 concurrent (increased from 30)
+        query_timeout = int(os.getenv("DB_QUERY_TIMEOUT", "60"))  # Configurable timeout
+        max_inactive_connection_lifetime = int(os.getenv("DB_MAX_IDLE", "300"))  # 5 minutes
         
         # Create connection pool with optimized settings for scalability
-        query_timeout = int(os.getenv("DB_QUERY_TIMEOUT", "60"))  # Configurable timeout (bumped to 60s)
         self.pool = await asyncpg.create_pool(
             self.postgres_url,
-            min_size=5,  # Keep 5 connections warm
-            max_size=30,  # Allow up to 30 concurrent (bumped from 20)
-            command_timeout=query_timeout,  # Configurable query timeout
-            statement_cache_size=100,  # Cache prepared statements
+            min_size=min_size,
+            max_size=max_size,
+            command_timeout=query_timeout,
+            statement_cache_size=100,
+            max_inactive_connection_lifetime=max_inactive_connection_lifetime,
+            # P1-5: Additional performance settings
+            max_queries=50000,  # Recycle connections after 50k queries
+            max_cached_statement_lifetime=300,  # Cache statements for 5 minutes
         )
         self.db_type = "postgresql"
     

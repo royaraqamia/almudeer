@@ -153,16 +153,22 @@ async def init_enhanced_tables():
                 reply_to_sender_name TEXT,
                 is_forwarded BOOLEAN DEFAULT FALSE,
                 delivery_status TEXT DEFAULT 'pending', -- Updated: Real-time status tracking
+                retry_count INTEGER DEFAULT 0, -- P1-6 FIX: Track retry attempts
                 created_at {TIMESTAMP_NOW},
                 FOREIGN KEY (inbox_message_id) REFERENCES inbox_messages(id),
                 FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
             )
         """)
-        
+
         # Migration for delivery_status
         try:
             await execute_sql(db, "ALTER TABLE outbox_messages ADD COLUMN delivery_status TEXT DEFAULT 'pending'")
         except: pass
+        
+        # P1-6 FIX: Migration for retry_count column
+        try:
+            await execute_sql(db, "ALTER TABLE outbox_messages ADD COLUMN retry_count INTEGER DEFAULT 0")
+        except: pass  # Column may already exist
         
         # Telegram Phone Sessions (MTProto for user accounts)
         await execute_sql(db, f"""

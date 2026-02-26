@@ -636,9 +636,11 @@ async def download_item(
 
     Issue #37: New endpoint for secure file downloads.
     FIX: Added download audit logging for compliance.
+    ISSUE-001: Now tracks analytics in library_analytics table.
     """
     from fastapi.responses import FileResponse
     from models.library import get_library_item
+    from models.library_advanced import track_item_access
     import os
 
     user_id = user.get("user_id") if user else None
@@ -697,12 +699,12 @@ async def download_item(
         from db_helper import execute_sql, get_db
         client_ip = request.client.host if request.client else "unknown"
         user_agent = request.headers.get("user-agent", "unknown")[:255]
-        
+
         async with get_db() as db:
             await execute_sql(
                 db,
                 """
-                INSERT INTO library_download_logs 
+                INSERT INTO library_download_logs
                 (item_id, license_key_id, user_id, downloaded_at, client_ip, user_agent)
                 VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
                 """,
@@ -713,12 +715,41 @@ async def download_item(
         # Don't fail the download if logging fails
         logger.warning(f"Failed to log download audit for item {item_id}: {e}")
 
+    # ISSUE-001: Track download in analytics table
+    try:
+        client_ip = request.client.host if request.client else "unknown"
+        user_agent = request.headers.get("user-agent", "unknown")[:255]
+        
+        await track_item_access(
+            item_id=item_id,
+            license_id=license["license_id"],
+            user_id=user_id,
+            action='download',
+            client_ip=client_ip,
+            user_agent=user_agent,
+            metadata={
+                'file_size': item.get('file_size'),
+                'mime_type': item.get('mime_type'),
+                'item_type': item.get('type')
+            }
+        )
+    except Exception as e:
+        # Don't fail download if analytics tracking fails
+        logger.warning(f"Failed to track download analytics for item {item_id}: {e}")
+
     # Return file with proper headers
-    return FileResponse(
+    response = FileResponse(
         path=physical_path,
         filename=item.get("title", "download"),
         media_type=item.get("mime_type", "application/octet-stream")
     )
+    
+    # SEC-001: Add Content Security Policy headers
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Content-Security-Policy"] = "default-src 'none'"
+    response.headers["X-Frame-Options"] = "DENY"
+    
+    return response
 
 
 @router.get("/usage/statistics")

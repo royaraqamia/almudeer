@@ -30,9 +30,9 @@ from models.stories import (
     add_story_to_highlight
 )
 from schemas.stories import (
-    StoryCreateText, 
-    StoriesListResponse, 
-    StoryResponse, 
+    StoryCreateText,
+    StoriesListResponse,
+    StoryResponse,
     StoryViewerDetails,
     StoryUpdate,
     HighlightCreate,
@@ -43,6 +43,7 @@ from schemas.stories import (
 from services.file_storage_service import get_file_storage
 from services.websocket_manager import get_websocket_manager, WebSocketMessage
 from security import sanitize_string
+from rate_limiting import limiter
 
 router = APIRouter(prefix="/api/stories", tags=["Stories"])
 
@@ -260,7 +261,9 @@ async def update_story_content(
     return story
 
 @router.post("/{story_id}/view")
+@limiter.limit("10/minute")  # ISSUE-005: Rate limit to prevent analytics pollution
 async def view_story(
+    request: Request,
     story_id: int,
     viewer_contact: str = Form(...),
     viewer_name: Optional[str] = Form(None),
@@ -271,15 +274,15 @@ async def view_story(
     viewer_contact = sanitize_string(viewer_contact, max_length=100)
     if viewer_name:
         viewer_name = sanitize_string(viewer_name, max_length=200)
-    
+
     # Verify the story belongs to this license key
     async with get_db() as db:
         story = await fetch_one(db, "SELECT id FROM stories WHERE id = ? AND license_key_id = ?", [story_id, license["license_id"]])
         if not story:
             raise HTTPException(status_code=404, detail="القصة غير موجودة")
-            
+
     success = await mark_story_viewed(story_id, viewer_contact, viewer_name)
-    
+
     if success:
         # Broadcast that this story was viewed
         manager = get_websocket_manager()
@@ -291,7 +294,7 @@ async def view_story(
                 "viewer_name": viewer_name
             })
         )
-        
+
     return {"success": success}
 
 @router.get("/{story_id}/viewers", response_model=List[StoryViewerDetails])
