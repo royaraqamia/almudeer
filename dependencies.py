@@ -5,6 +5,7 @@ These functions centralize repeated header-based auth logic without
 changing any response shapes that the frontend relies on.
 """
 
+import logging
 from fastapi import Header, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Dict, Optional
@@ -23,10 +24,19 @@ async def get_license_from_header(
     1. JWT Bearer token in 'Authorization' header
     2. Legacy 'X-License-Key' header
     """
+    logger = logging.getLogger(__name__)
+    
+    # Debug: Log what's received
+    logger.warning(f"Auth debug - auth present: {auth is not None}, auth.credentials: {auth.credentials[:30] if auth and auth.credentials else 'None'}..., x_license_key: {x_license_key[:20] if x_license_key else 'None'}...")
+    
     # 1. Try JWT first (Post-login state)
     if auth:
         from services.jwt_auth import verify_token_async, TokenType
-        payload = await verify_token_async(auth.credentials, TokenType.ACCESS)
+        try:
+            payload = await verify_token_async(auth.credentials, TokenType.ACCESS)
+        except Exception as e:
+            logger.error(f"JWT verification error: {e}")
+            payload = None
         
         if payload and payload.get("license_id"):
             # Pass the 'v' (version) claim for atomic validation
@@ -44,9 +54,12 @@ async def get_license_from_header(
                     status_code=status.HTTP_401_UNAUTHORIZED, 
                     detail=result.get("error", "جلسة العمل منتهية")
                 )
+        else:
+            logger.warning(f"JWT payload missing license_id or invalid: {payload}")
 
     # 2. Fallback to legacy license key (Pre-login or manual API usage)
     if not x_license_key:
+        logger.warning(f"No auth credentials provided. Auth: {auth is not None}, X-License-Key: {x_license_key is not None}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
             detail="مفتاح الاشتراك مطلوب للمتابعة"

@@ -254,8 +254,10 @@ async def get_library_items(
             # FIX: Also get items shared with the user
             if user_id and include_shared:
                 try:
+                    # Use table prefix to avoid column ambiguity with library_shares
+                    columns_prefixed = ", ".join(f"li.{col}" for col in (FULL_COLUMNS if include_content else LIST_VIEW_COLUMNS))
                     shared_query = f"""
-                        SELECT {columns} FROM library_items li
+                        SELECT {columns_prefixed} FROM library_items li
                         INNER JOIN library_shares ls ON li.id = ls.item_id
                         WHERE ls.shared_with_user_id = ?
                         AND ls.license_key_id = ?
