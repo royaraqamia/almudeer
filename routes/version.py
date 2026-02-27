@@ -1198,7 +1198,7 @@ async def _get_app_version_logic(
     # Build response
     # Get architecture-specific APK URL if available
     base_url = await _get_cdn_url() or _APP_DOWNLOAD_URL
-    apk_url, apk_variants = _get_architecture_specific_url(arch, base_url)
+    apk_url, apk_variants = await _get_architecture_specific_url(arch, base_url)
     
     response = {
         # Core flags
