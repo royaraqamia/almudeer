@@ -11,6 +11,7 @@ from .notifications import router as notifications_router
 from .library import router as library_router
 from .keyboard import router as keyboard_router
 from .stories import router as stories_router
+from .auth import router as auth_router
 
 # Subscription router is imported directly in main.py to avoid circular imports
 # from .subscription import router as subscription_router
@@ -26,6 +27,7 @@ __all__ = [
     'notifications_router',
     'library_router',
     'keyboard_router',
-    'stories_router'
+    'stories_router',
+    'auth_router'
 ]
 

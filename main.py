@@ -86,6 +86,7 @@ try:
         library_router,
         keyboard_router,
         stories_router,
+        auth_router,
         tasks,
         global_assets
     )
@@ -515,6 +516,7 @@ app.include_router(tasks_router)           # Task Management
 app.include_router(subscription_router)    # Subscription Key Management
 app.include_router(stories_router)         # Stories Feature
 app.include_router(global_assets_router)   # Admin Global Assets
+app.include_router(auth_router)             # Authentication (login, etc)
 
 
 # Browser routes (scraper, link preview)
