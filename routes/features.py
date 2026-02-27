@@ -234,6 +234,23 @@ async def get_quran_progress(license: dict = Depends(get_license_from_header)):
     return {"success": True, "progress": None}
 
 
+@router.get("/athkar/progress")
+async def get_athkar_progress(license: dict = Depends(get_license_from_header)):
+    """Get Athkar counts and misbaha for cross-device sync"""
+    prefs = await get_preferences(license["license_id"])
+    athkar_stats = prefs.get('athkar_stats')
+    
+    if athkar_stats:
+        import json
+        try:
+            data = json.loads(athkar_stats) if isinstance(athkar_stats, str) else athkar_stats
+            return {"success": True, "athkar": data}
+        except:
+            return {"success": True, "athkar": None}
+    
+    return {"success": True, "athkar": None}
+
+
 @router.patch("/preferences")
 async def update_user_preferences(
     data: PreferencesUpdate,
