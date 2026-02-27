@@ -5,6 +5,7 @@ Handles GeoIP resolution and User-Agent parsing to provide context for device se
 
 import httpx
 import re
+from datetime import datetime, timedelta
 from typing import Dict, Optional
 from logging_config import get_logger
 
