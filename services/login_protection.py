@@ -98,7 +98,11 @@ class LoginProtection:
             
         except Exception as e:
             logger.error(f"Error checking lockout: {e}")
-            # Fail open to prevent lockouts on errors
+            # SECURITY FIX: Fail closed in production, fail open in development
+            # In production, if we can't verify lockout status, assume locked for safety
+            environment = os.getenv("ENVIRONMENT", "development")
+            if environment == "production":
+                return True, 60  # Lock for 1 minute as safety measure
             return False, None
     
     def record_failed_attempt(self, identifier: str) -> Tuple[int, bool]:

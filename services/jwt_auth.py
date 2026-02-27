@@ -8,6 +8,7 @@ import secrets
 import hashlib
 import hmac
 import uuid
+import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
@@ -18,6 +19,40 @@ from starlette.concurrency import run_in_threadpool
 from logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+# ============ Session Revocation Cache ============
+# Short-lived cache to reduce DB load for session revocation checks
+
+class SessionRevocationCache:
+    """Simple in-memory cache for session revocation status"""
+    
+    def __init__(self, ttl_seconds: int = 10):
+        self._cache: Dict[str, Tuple[bool, float]] = {}  # family_id -> (is_revoked, expires_at)
+        self._ttl = ttl_seconds
+    
+    def get(self, family_id: str) -> Optional[bool]:
+        """Get cached revocation status. Returns None if not cached."""
+        if family_id in self._cache:
+            is_revoked, expires_at = self._cache[family_id]
+            if time.time() < expires_at:
+                return is_revoked
+            else:
+                del self._cache[family_id]
+        return None
+    
+    def set(self, family_id: str, is_revoked: bool):
+        """Cache revocation status"""
+        self._cache[family_id] = (is_revoked, time.time() + self._ttl)
+    
+    def invalidate(self, family_id: str):
+        """Invalidate cached entry"""
+        if family_id in self._cache:
+            del self._cache[family_id]
+
+
+# Global session revocation cache (10 second TTL)
+_session_revocation_cache = SessionRevocationCache(ttl_seconds=10)
 
 
 # ============ Configuration ============
@@ -122,15 +157,30 @@ def create_refresh_token(data: Dict[str, Any], family_id: str = None) -> Tuple[s
 
 async def create_access_token_async(data: Dict[str, Any], expires_delta: timedelta = None) -> Tuple[str, str, datetime]:
     """Async wrapper for create_access_token to avoid event loop blocking."""
-    return await run_in_threadpool(create_access_token, data, expires_delta)
+    # FIX: Use asyncio.to_thread for better performance in Python 3.9+
+    # This reduces thread pool saturation under high load
+    try:
+        import asyncio
+        return await asyncio.to_thread(create_access_token, data, expires_delta)
+    except AttributeError:
+        # Fallback for Python < 3.9
+        return await run_in_threadpool(create_access_token, data, expires_delta)
 
 async def create_refresh_token_async(data: Dict[str, Any], family_id: str = None) -> Tuple[str, str]:
     """Async wrapper for create_refresh_token to avoid event loop blocking."""
-    return await run_in_threadpool(create_refresh_token, data, family_id)
+    try:
+        import asyncio
+        return await asyncio.to_thread(create_refresh_token, data, family_id)
+    except AttributeError:
+        return await run_in_threadpool(create_refresh_token, data, family_id)
 
 async def verify_token_async(token: str, token_type: str = TokenType.ACCESS) -> Optional[Dict[str, Any]]:
     """Async wrapper for verify_token to avoid event loop blocking."""
-    return await run_in_threadpool(verify_token, token, token_type)
+    try:
+        import asyncio
+        return await asyncio.to_thread(verify_token, token, token_type)
+    except AttributeError:
+        return await run_in_threadpool(verify_token, token, token_type)
 
 
 async def create_token_pair(
@@ -374,8 +424,24 @@ async def refresh_access_token(
                 else:
                     await execute_sql(db, "UPDATE device_sessions SET is_revoked = 1 WHERE family_id = ?", [family_id])
                 await commit_db(db)
+                # Invalidate cache
+                _session_revocation_cache.invalidate(family_id)
                 return None
-                
+            
+            # FIX: Upgrade legacy sessions to bound sessions if device_secret provided
+            effective_device_hash = stored_hash
+            if not stored_hash and device_secret:
+                # This is a legacy session upgrading to device-bound
+                effective_device_hash = hashlib.sha256(device_secret.encode('utf-8')).hexdigest()
+                # Update the session with the new binding
+                await execute_sql(
+                    db,
+                    "UPDATE device_sessions SET device_secret_hash = ? WHERE family_id = ?",
+                    [effective_device_hash, family_id]
+                )
+                await commit_db(db)
+                logger.info(f"Upgraded legacy session {family_id} to device-bound")
+            
             # Valid rotation
             return await create_token_pair(
                 user_id=payload.get("sub"),
@@ -384,7 +450,7 @@ async def refresh_access_token(
                 device_fingerprint=device_fingerprint,
                 ip_address=ip_address,
                 family_id=family_id,
-                device_secret_hash=stored_hash, # Keep the binding alive on rotation
+                device_secret_hash=effective_device_hash, # Keep the binding alive on rotation
                 user_agent=user_agent
             )
             
@@ -429,24 +495,40 @@ async def get_current_user(
         )
     
     # Real-time Session Revocation Check (Specific to this device/session)
+    # FIX: Added caching to reduce DB load
     family_id = payload.get("family_id")
     if family_id:
-        from db_helper import get_db, fetch_one
-        try:
-            async with get_db() as db:
-                session = await fetch_one(db, "SELECT is_revoked FROM device_sessions WHERE family_id = ?", [family_id])
-                if session and session.get("is_revoked"):
-                    logger.warning(f"Blocking access token for revoked session: {family_id}")
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Session has been revoked",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error checking session revocation in get_current_user: {e}")
-            pass
+        # Check cache first
+        cached_revoked = _session_revocation_cache.get(family_id)
+        if cached_revoked is not None:
+            if cached_revoked:
+                logger.warning(f"Blocking access token for revoked session (cached): {family_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session has been revoked",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        else:
+            # Cache miss - check database and update cache
+            from db_helper import get_db, fetch_one
+            try:
+                async with get_db() as db:
+                    session = await fetch_one(db, "SELECT is_revoked FROM device_sessions WHERE family_id = ?", [family_id])
+                    is_revoked = session.get("is_revoked") if session else False
+                    _session_revocation_cache.set(family_id, is_revoked)
+                    
+                    if is_revoked:
+                        logger.warning(f"Blocking access token for revoked session: {family_id}")
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Session has been revoked",
+                            headers={"WWW-Authenticate": "Bearer"},
+                        )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error checking session revocation in get_current_user: {e}")
+                pass
     
     # Senior Engineering Hardening: Atomic Validation via Database Layer
     license_id = payload.get("license_id")

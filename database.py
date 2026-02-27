@@ -802,24 +802,46 @@ async def validate_license_by_id(license_id: int, required_version: Optional[int
     """
     Validate a license by its database ID (used for JWT-based auth).
     Includes caching and real-time version/status check.
+    
+    SECURITY: When required_version is provided (token validation), always fetch
+    fresh token_version from DB to prevent stale cache from allowing revoked tokens.
     """
     cache_key = f"lic_validation_id:{license_id}"
     
-    # 1. Try Cache
+    # SECURITY FIX: When validating a token (required_version provided), always 
+    # fetch fresh data from DB to ensure token_version is current.
+    # This prevents stale cache from allowing access after token_version increment.
+    if required_version is not None:
+        from db_helper import get_db, fetch_one
+        async with get_db() as db:
+            row = await fetch_one(db, "SELECT token_version, is_active FROM license_keys WHERE id = ?", [license_id])
+            if not row:
+                return {"valid": False, "error": "المشترك غير موجود"}
+            
+            # Critical security check: token version must match
+            current_token_version = row.get("token_version", 1)
+            if current_token_version > required_version:
+                logger.warning(f"Token version mismatch: token has v={required_version}, DB has v={current_token_version}")
+                return {"valid": False, "error": "جلسة العمل منتهية", "code": "SESSION_REVOKED"}
+            
+            # Check if account is active
+            if not row.get("is_active", True):
+                return {"valid": False, "error": "المشترك معطل", "code": "ACCOUNT_DEACTIVATED"}
+    
+    # 1. Try Cache (for non-security-critical fields)
     try:
         from cache import get_cached_license_validation
         cached = await get_cached_license_validation(cache_key)
         if cached:
-            # Atomic Security Checks on cached data
+            # Atomic Security Checks on cached data (account status)
+            # Note: token_version check above is authoritative
             if not cached.get("is_active", True):
                 return {"valid": False, "error": "المشترك معطل", "code": "ACCOUNT_DEACTIVATED"}
-            if required_version is not None and cached.get("token_version", 0) > required_version:
-                return {"valid": False, "error": "جلسة العمل منتهية", "code": "SESSION_REVOKED"}
             return cached
     except (ImportError, Exception):
         pass
 
-    # 2. Database Fallback
+    # 2. Database Fallback (full fetch)
     from db_helper import get_db, fetch_one
     async with get_db() as db:
         row = await fetch_one(db, "SELECT * FROM license_keys WHERE id = ?", [license_id])
@@ -841,8 +863,7 @@ async def validate_license_by_id(license_id: int, required_version: Optional[int
         # Atomic Security Checks on fresh data
         if not result.get("is_active", True):
              return {"valid": False, "error": "المشترك معطل", "code": "ACCOUNT_DEACTIVATED"}
-        if required_version is not None and result.get("token_version", 0) > required_version:
-            return {"valid": False, "error": "جلسة العمل منتهية", "code": "SESSION_REVOKED"}
+        # Note: token_version check done above for security-critical path
 
         # Cache the result
         try:

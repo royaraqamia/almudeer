@@ -97,6 +97,38 @@ async def login(data: LoginRequest, request: Request):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=detail_msg,
         )
+    
+    license_id = result.get("license_id")
+    
+    # SECURITY FIX: Validate device secret binding if session exists with device binding
+    # If there's an existing session with device_secret_hash, the client MUST provide matching hash
+    if data.device_secret_hash:
+        from db_helper import get_db, fetch_one
+        from database import DB_TYPE
+        try:
+            async with get_db() as db:
+                # Check for existing session with device binding
+                existing_session = await fetch_one(
+                    db, 
+                    "SELECT device_secret_hash FROM device_sessions WHERE license_key_id = ? AND device_secret_hash IS NOT NULL AND is_revoked = 0 ORDER BY last_used_at DESC LIMIT 1",
+                    [license_id]
+                )
+                if existing_session and existing_session.get("device_secret_hash"):
+                    stored_hash = existing_session["device_secret_hash"]
+                    import hashlib, hmac
+                    # Device has existing binding - verify it matches
+                    if not hmac.compare_digest(data.device_secret_hash, stored_hash):
+                        logger.warning(f"Device secret mismatch on login for license {license_id}")
+                        # Don't reveal that device binding exists - generic error
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="مفتاح الاشتراك غير صحيح",
+                        )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error checking device secret binding: {e}")
+            # Don't block login on validation error, but log it
         
     # On success, clear failed attempts
     record_successful_login(data.license_key)
@@ -157,11 +189,65 @@ async def refresh_token(data: RefreshRequest, request: Request):
 
 @router.get("/me")
 async def get_current_user_info(user: dict = Depends(get_current_user)):
-    """Get current user information"""
-    return {
-        "success": True,
-        "user": user,
-    }
+    """
+    Get current user information.
+    
+    Returns comprehensive user data from the database without issuing new tokens.
+    This is preferred over calling /login for user info as it doesn't rotate tokens.
+    """
+    from db_helper import get_db, fetch_one
+    
+    license_id = user.get("license_id")
+    if not license_id:
+        return {
+            "success": True,
+            "user": user,
+        }
+    
+    async with get_db() as db:
+        row = await fetch_one(db, "SELECT * FROM license_keys WHERE id = ?", [license_id])
+        if not row:
+            return {
+                "success": True,
+                "user": user,
+            }
+        
+        row_dict = dict(row)
+        
+        # Ensure license_key is present (decrypted)
+        if not row_dict.get("license_key") and row_dict.get("license_key_encrypted"):
+            from security import decrypt_sensitive_data
+            try:
+                row_dict["license_key"] = decrypt_sensitive_data(row_dict["license_key_encrypted"])
+            except Exception:
+                pass
+        
+        # Build user info response (snake_case for mobile app compatibility)
+        expires_at = row_dict.get("expires_at")
+        if expires_at:
+            if hasattr(expires_at, 'isoformat'):
+                expires_at_str = expires_at.isoformat()
+            else:
+                expires_at_str = str(expires_at)
+        else:
+            expires_at_str = None
+        
+        return {
+            "success": True,
+            "user": {
+                "license_id": row_dict.get("id"),
+                "full_name": row_dict.get("full_name") or row_dict.get("company_name"),
+                "profile_image_url": row_dict.get("profile_image_url"),
+                "created_at": str(row_dict.get("created_at")) if row_dict.get("created_at") else None,
+                "expires_at": expires_at_str,
+                "is_trial": bool(row_dict.get("is_trial", False)),
+                "referral_code": row_dict.get("referral_code"),
+                "referral_count": row_dict.get("referral_count", 0),
+                "username": row_dict.get("username"),
+                "license_key": row_dict.get("license_key"),
+                "is_active": bool(row_dict.get("is_active", True)),
+            }
+        }
 
 
 class LogoutRequest(BaseModel):
@@ -203,6 +289,7 @@ async def logout(
                 
                 from database import DB_TYPE
                 from db_helper import get_db, execute_sql, commit_db
+                from services.jwt_auth import _session_revocation_cache
                 
                 # LOW FIX #8: Revoke all sessions if requested
                 if data.revoke_all_sessions and user.get("license_id"):
@@ -219,6 +306,8 @@ async def logout(
                     else:
                         await execute_sql(db, "UPDATE device_sessions SET is_revoked = 1 WHERE family_id = ?", [family_id])
                     await commit_db(db)
+                    # Invalidate session revocation cache
+                    _session_revocation_cache.invalidate(family_id)
                     logger.info(f"Device session revoked for family: {family_id}")
 
                 blacklist_token(jti, expires_at)
