@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 from datetime import datetime, timezone
 
-revision: str = '20260226_019_add_share_features'
-down_revision: str = '018_add_library_analytics'
+revision: str = '022_add_share_features'
+down_revision: str = '021_add_composite_conversation_indexes'
 branch_labels = None
 depends_on = None
 

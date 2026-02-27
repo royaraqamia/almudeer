@@ -9,8 +9,8 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers
-revision = '20260226_019'
-down_revision = '20260226_018'
+revision = '019_add_chat_indexes'
+down_revision = '018_add_library_analytics'
 branch_labels = None
 depends_on = None
 

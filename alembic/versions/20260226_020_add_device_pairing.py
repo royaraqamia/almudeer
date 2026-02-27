@@ -11,8 +11,8 @@ from typing import Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = '020_add_device_pairing'
-down_revision: Union[str, None] = '019_add_share_features'
+revision: str = '023_add_device_pairing'
+down_revision: Union[str, None] = '022_add_share_features'
 branch_labels: Union[str, None] = None
 depends_on: Union[str, None] = None
 

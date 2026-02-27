@@ -8,8 +8,8 @@ import sqlalchemy as sa
 
 
 # Revision identifiers
-revision = '20260226_021_add_composite_conversation_indexes'
-down_revision = '20260226_020_add_performance_indexes'  # Update this to match your previous migration
+revision = '021_add_composite_conversation_indexes'
+down_revision = '020_add_performance_indexes'  # Update this to match your previous migration
 branch_labels = None
 depends_on = None
 
