@@ -10,6 +10,8 @@ class StoryCreateText(StoryBase):
     content: str
     type: str = "text"
     duration_hours: int = 24
+    visibility: str = "all"  # 'all', 'close_friends', 'custom'
+    hide_from_contacts: Optional[List[str]] = []  # List of contact IDs to hide from
 
 class StoryUpdate(BaseModel):
     title: Optional[str] = None
@@ -26,6 +28,14 @@ class StoryResponse(StoryBase):
     expires_at: datetime
     updated_at: datetime
     is_viewed: bool = False
+    # Repost fields
+    is_repost: bool = False
+    reposted_from_user_id: Optional[str] = None
+    reposted_from_user_name: Optional[str] = None
+    background_color: Optional[str] = None
+    # Privacy fields
+    visibility: str = "all"
+    hide_from_contacts: Optional[List[str]] = None
 
     class Config:
         from_attributes = True

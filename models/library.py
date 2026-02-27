@@ -166,15 +166,18 @@ async def get_library_items(
     search_term: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
-    include_content: bool = False  # Issue #30: Option to include content field
+    include_content: bool = False,  # Issue #30: Option to include content field
+    include_shared: bool = True  # FIX: Include items shared with the user
 ) -> List[dict]:
     """
     Get library items for a license + global items (0), optionally filtered.
+    Also includes items shared with the user (if include_shared=True).
 
     Issue #5: Query benefits from deleted_at index.
     Issue #21: Removed 'tools' category support.
     Issue #30: Selective column fetching for performance.
     P2-10: Uses FTS5 for search when available (much faster than LIKE).
+    FIX: Added include_shared option to include items shared with the user.
     """
     # Issue #30: Use selective columns for list views
     columns = ", ".join(FULL_COLUMNS) if include_content else ", ".join(LIST_VIEW_COLUMNS)
@@ -186,7 +189,7 @@ async def get_library_items(
             SELECT {columns} FROM library_items
             INNER JOIN library_items_fts ON library_items.id = library_items_fts.rowid
             WHERE library_items_fts MATCH ?
-            AND (license_key_id = ? OR license_key_id = 0)
+            AND (library_items.license_key_id = ? OR library_items.license_key_id = 0)
             AND library_items.deleted_at IS NULL
         """
         # Format search term for FTS5 (prefix match)
@@ -213,6 +216,10 @@ async def get_library_items(
             
         query += " ORDER BY library_items.created_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
+        
+        async with get_db() as db:
+            rows = await fetch_all(db, query, params)
+            return [dict(row) for row in rows]
     else:
         # No search - use regular query
         query = f"SELECT {columns} FROM library_items WHERE (license_key_id = ? OR license_key_id = 0) AND deleted_at IS NULL"
@@ -239,9 +246,54 @@ async def get_library_items(
         query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
-    async with get_db() as db:
-        rows = await fetch_all(db, query, params)
-        return [dict(row) for row in rows]
+        async with get_db() as db:
+            # Get owned items
+            rows = await fetch_all(db, query, params)
+            owned_items = [dict(row) for row in rows]
+            
+            # FIX: Also get items shared with the user
+            if user_id and include_shared:
+                try:
+                    shared_query = f"""
+                        SELECT {columns} FROM library_items li
+                        INNER JOIN library_shares ls ON li.id = ls.item_id
+                        WHERE ls.shared_with_user_id = ?
+                        AND ls.license_key_id = ?
+                        AND ls.deleted_at IS NULL
+                        AND li.deleted_at IS NULL
+                    """
+                    shared_params = [user_id, license_id]
+                    
+                    # Add type/category filters to shared query
+                    if category:
+                        if category == 'notes':
+                            shared_query += " AND li.type = 'note'"
+                        elif category == 'files':
+                            shared_query += " AND li.type IN ('image', 'audio', 'video', 'file')"
+                    elif item_type:
+                        shared_query += " AND li.type = ?"
+                        shared_params.append(item_type)
+                    
+                    shared_query += " ORDER BY li.created_at DESC LIMIT ? OFFSET ?"
+                    shared_params.extend([limit, offset])
+                    
+                    shared_rows = await fetch_all(db, shared_query, shared_params)
+                    shared_items = [dict(row) for row in shared_rows]
+                    
+                    # Combine and deduplicate by ID
+                    all_items = {item['id']: item for item in owned_items}
+                    for item in shared_items:
+                        if item['id'] not in all_items:
+                            all_items[item['id']] = item
+                    
+                    # Sort by created_at desc and apply pagination
+                    sorted_items = sorted(all_items.values(), key=lambda x: x.get('created_at', ''), reverse=True)
+                    return sorted_items
+                except Exception as e:
+                    logger.warning(f"Failed to fetch shared items: {e}")
+                    return owned_items
+            
+            return owned_items
 
 
 async def get_library_item(license_id: int, item_id: int, user_id: Optional[str] = None) -> Optional[dict]:

@@ -2,7 +2,9 @@
 Unified message inbox and outbox management
 """
 
+import asyncio
 import hashlib
+import json
 import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Any
@@ -2158,11 +2160,13 @@ async def soft_delete_conversation(license_id: int, sender_contact: str, db=None
         # Note: postgres connection.execute doesn't always return rowcount easily via this helper
         # but the query should execute.
 
-        await commit_db(db)
-        logger.info(f"[CLEAR] Soft delete completed for {sender_contact}")
+        # FIX: Move commit to after all operations for proper transaction handling
+        # This ensures atomic deletion of messages AND conversation entries
+        logger.info(f"[CLEAR] Soft delete started for {sender_contact}")
 
         # FIX P0-7: Use distributed lock for attachment cleanup to prevent race conditions
         # when multiple devices delete the same conversation simultaneously
+        attachment_cleanup_success = True
         try:
             from services.distributed_lock import DistributedLock
             lock_key = f"attachment_cleanup_{license_id}_{sender_contact}"
@@ -2188,7 +2192,10 @@ async def soft_delete_conversation(license_id: int, sender_contact: str, db=None
                 logger.warning(f"[CLEAR] Skipped attachment cleanup for {sender_contact} - lock held by another process")
         except Exception as e:
             logger.error(f"[CLEAR] Error during attachment cleanup: {e}")
+            # Don't fail the whole deletion if attachment cleanup fails
+            attachment_cleanup_success = False
 
+        # FIX: Delete conversation entries only ONCE (removed duplicate code)
         # Explicitly delete ALL conversation entries for discovered personas
         if all_contacts:
             placeholders_ic = ", ".join(["?" for _ in all_contacts])
@@ -2203,23 +2210,10 @@ async def soft_delete_conversation(license_id: int, sender_contact: str, db=None
                 "DELETE FROM inbox_conversations WHERE license_key_id = ? AND sender_contact = ?",
                 [license_id, sender_contact]
             )
-        await commit_db(db)
         
-        # Explicitly delete ALL conversation entries for discovered personas
-        if all_contacts:
-            placeholders_ic = ", ".join(["?" for _ in all_contacts])
-            await execute_sql(
-                db,
-                f"DELETE FROM inbox_conversations WHERE license_key_id = ? AND sender_contact IN ({placeholders_ic})",
-                [license_id] + list(all_contacts)
-            )
-        else:
-            await execute_sql(
-                db,
-                "DELETE FROM inbox_conversations WHERE license_key_id = ? AND sender_contact = ?",
-                [license_id, sender_contact]
-            )
+        # FIX: Single commit at the end for atomic transaction
         await commit_db(db)
+        logger.info(f"[CLEAR] Soft delete completed for {sender_contact}")
 
         return {"success": True, "message": "تم حذف المحادثة بنجاح"}
     
@@ -2228,8 +2222,8 @@ async def soft_delete_conversation(license_id: int, sender_contact: str, db=None
         if should_close_db:
             try:
                 await db.close()
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Error closing database: {e}")
 
 
 async def clear_conversation_messages(license_id: int, sender_contact: str) -> dict:
@@ -2585,6 +2579,10 @@ async def upsert_conversation_state(
 
     # FIX P0-1: Use distributed lock with retry queue to prevent race conditions
     # Instead of skipping when lock is held, queue for retry to ensure updates aren't lost
+    # FIX: Add logger import
+    from logging_config import get_logger
+    logger = get_logger(__name__)
+    
     if use_lock:
         from services.distributed_lock import DistributedLock
         from utils.redis_pool import get_redis_client

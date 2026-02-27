@@ -31,6 +31,22 @@ SCRAPE_TIMEOUT = 30.0
 _preview_cache = {}
 _cache_ttl = timedelta(minutes=15)
 
+def _clean_preview_cache():
+    """Clean old cache entries based on TTL"""
+    now = datetime.now()
+    expired_keys = [
+        k for k, v in _preview_cache.items()
+        if (now - v['timestamp']) > _cache_ttl
+    ]
+    for key in expired_keys:
+        del _preview_cache[key]
+    
+    if len(_preview_cache) > 100:
+        oldest_keys = sorted(_preview_cache.keys(), 
+                           key=lambda k: _preview_cache[k]['timestamp'])[:50]
+        for key in oldest_keys:
+            del _preview_cache[key]
+
 # Blocked URL patterns (internal networks, etc.)
 BLOCKED_URL_PATTERNS = [
     "localhost",
@@ -245,10 +261,9 @@ async def scrape_url(url: str, include_images: bool = True) -> tuple[str, str, l
         elif not last_was_empty:
             cleaned_lines.append("")
             last_was_empty = True
-            
-    content = "\n".join(cleaned_lines[:3000])  # Increased limit slightly
-
-    # Truncate if still too large
+    
+    # Direct truncation to MAX_CONTENT_SIZE without double processing
+    content = "\n".join(cleaned_lines)
     if len(content) > MAX_CONTENT_SIZE:
         content = content[:MAX_CONTENT_SIZE] + "\n\n[Content truncated due to size]"
 
@@ -397,17 +412,69 @@ async def scrape_and_save(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _validate_url_for_preview(url: str) -> str:
+    """Validate URL for preview endpoint with SSRF protection"""
+    if not url or not url.strip():
+        raise ValueError('URL cannot be empty')
+    
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+    
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if not parsed.scheme or not parsed.netloc:
+            raise ValueError('Invalid URL format')
+        
+        host = parsed.netloc.lower()
+        if ":" in host:
+            host = host.split(":")[0]
+
+        for pattern in BLOCKED_URL_PATTERNS:
+            if host == pattern or host.endswith(f".{pattern}"):
+                raise ValueError(f'URL pattern blocked: {pattern}')
+        
+        try:
+            ip_address = socket.gethostbyname(host)
+            ip = ipaddress.ip_address(ip_address)
+            
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                raise ValueError(f'Access to private/reserved IP {ip_address} is blocked')
+        except socket.gaierror:
+            pass
+        except Exception as e:
+            if isinstance(e, ValueError):
+                raise
+            pass
+                
+    except Exception as e:
+        if isinstance(e, ValueError):
+            raise
+        raise ValueError(f'Invalid URL: {str(e)}')
+    
+    return url
+
+
 @router.post("/preview", response_model=LinkPreviewResponse)
 @limiter.limit(RateLimits.API)
-async def get_link_preview(request: Request, preview_request: LinkPreviewRequest):
+async def get_link_preview(
+    request: Request,
+    preview_request: LinkPreviewRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """
     Generate a preview for a URL (title, description, image).
     Used for rich link previews in chat.
     Cached for 15 minutes.
+    Requires authentication.
     """
     url = preview_request.url
     
-    # Check cache
+    try:
+        url = _validate_url_for_preview(url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
     cached = _preview_cache.get(url)
     if cached and (datetime.now() - cached['timestamp']) < _cache_ttl:
         return LinkPreviewResponse(**cached['data'])
@@ -460,7 +527,6 @@ async def get_link_preview(request: Request, preview_request: LinkPreviewRequest
             site_name = og_site.get("content")
         if not site_name:
             from urllib.parse import urlparse
-
             site_name = urlparse(url).netloc
 
         result = LinkPreviewResponse(
@@ -470,24 +536,21 @@ async def get_link_preview(request: Request, preview_request: LinkPreviewRequest
             site_name=site_name,
         )
         
-        # Cache the result
         _preview_cache[url] = {
             'timestamp': datetime.now(),
             'data': result.model_dump()
         }
         
-        # Clean old cache entries
-        if len(_preview_cache) > 100:
-            oldest_keys = sorted(_preview_cache.keys(), 
-                               key=lambda k: _preview_cache[k]['timestamp'])[:50]
-            for key in oldest_keys:
-                del _preview_cache[key]
+        _clean_preview_cache()
 
         return result
 
-    except httpx.HTTPError as e:
-        logger.error(f"HTTP error generating preview for {url}: {e}")
-        return LinkPreviewResponse()
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=408, detail="Request timed out")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"HTTP error: {e.response.status_code}")
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=400, detail=f"Request failed: {str(e)}")
     except Exception as e:
         logger.error(f"Error generating preview for {url}: {e}")
-        return LinkPreviewResponse()
+        raise HTTPException(status_code=500, detail=f"Failed to generate preview: {str(e)}")

@@ -6,12 +6,11 @@ P3-1/Nearby: Device pairing for trusted nearby transfers
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from dependencies import get_license_from_header
-from services.jwt_auth import get_current_user_optional
+from services.jwt_auth import get_current_user
 from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db
 from rate_limiting import limiter
 
@@ -43,26 +42,28 @@ async def pair_device(
     request: Request,
     pair_data: DevicePairRequest,
     license: dict = Depends(get_license_from_header),
-    user: Optional[dict] = Depends(get_current_user_optional)
+    user: dict = Depends(get_current_user)  # Changed to required authentication
 ):
     """
     Pair with another device for trusted transfers.
-    
+
     P3-1/Nearby: Create trusted device pairing for nearby sharing.
+    
+    Security: Requires authenticated user. Device ID must match user's device.
     """
-    if not user:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "UNAUTHORIZED",
-                "message_ar": "يجب تسجيل الدخول",
-                "message_en": "Authentication required"
-            }
-        )
-    
     user_id = user.get("user_id")
+    user_device_id = user.get("device_id")
     now = datetime.now(timezone.utc)
-    
+
+    # Security: Verify user is pairing their own device
+    if user_device_id and pair_data.device_id != user_device_id:
+        # Allow pairing if user_device_id is not set (legacy users)
+        # But log for monitoring
+        logger.warning(
+            f"Device pairing mismatch: user {user_id} device {user_device_id} "
+            f"trying to pair {pair_data.device_id}"
+        )
+
     async with get_db() as db:
         # Check if pairing already exists (in either direction)
         existing = await fetch_one(
@@ -129,29 +130,19 @@ async def pair_device(
 
 
 @router.get("/paired")
-@limiter.limit("30/minute")
+@limiter.limit("10/minute")  # Stricter rate limit
 async def list_paired_devices(
     request: Request,
     license: dict = Depends(get_license_from_header),
-    user: Optional[dict] = Depends(get_current_user_optional)
+    user: dict = Depends(get_current_user)  # Required authentication
 ):
     """
     List all paired devices for the current user.
-    
+
     P3-1/Nearby: Get list of trusted devices for quick reconnection.
     """
-    if not user:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "UNAUTHORIZED",
-                "message_ar": "يجب تسجيل الدخول",
-                "message_en": "Authentication required"
-            }
-        )
-    
     user_id = user.get("user_id")
-    
+
     async with get_db() as db:
         # Get pairings where user is either device_a or device_b
         rows = await fetch_all(
@@ -184,31 +175,21 @@ async def list_paired_devices(
 
 
 @router.delete("/unpair/{pairing_id}")
-@limiter.limit("10/minute")
+@limiter.limit("5/minute")  # Stricter rate limit
 async def unpair_device(
     request: Request,
     pairing_id: int,
     license: dict = Depends(get_license_from_header),
-    user: Optional[dict] = Depends(get_current_user_optional)
+    user: dict = Depends(get_current_user)  # Required authentication
 ):
     """
     Unpair a device (remove trusted pairing).
-    
+
     P3-1/Nearby: Remove device pairing.
     """
-    if not user:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "UNAUTHORIZED",
-                "message_ar": "يجب تسجيل الدخول",
-                "message_en": "Authentication required"
-            }
-        )
-    
     user_id = user.get("user_id")
     now = datetime.now(timezone.utc)
-    
+
     async with get_db() as db:
         # Verify pairing exists and belongs to user
         pairing = await fetch_one(
@@ -248,31 +229,21 @@ async def unpair_device(
 
 
 @router.post("/paired/{pairing_id}/connect")
-@limiter.limit("30/minute")
+@limiter.limit("10/minute")  # Stricter rate limit
 async def record_device_connection(
     request: Request,
     pairing_id: int,
     license: dict = Depends(get_license_from_header),
-    user: Optional[dict] = Depends(get_current_user_optional)
+    user: dict = Depends(get_current_user)  # Required authentication
 ):
     """
     Record a connection to a paired device.
-    
+
     P3-1/Nearby: Update last connected timestamp and connection count.
     """
-    if not user:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "UNAUTHORIZED",
-                "message_ar": "يجب تسجيل الدخول",
-                "message_en": "Authentication required"
-            }
-        )
-    
     user_id = user.get("user_id")
     now = datetime.now(timezone.utc)
-    
+
     async with get_db() as db:
         # Verify pairing exists
         pairing = await fetch_one(

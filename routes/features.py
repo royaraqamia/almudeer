@@ -217,6 +217,23 @@ async def get_user_preferences(license: dict = Depends(get_license_from_header))
     return {"preferences": prefs}
 
 
+@router.get("/quran/progress")
+async def get_quran_progress(license: dict = Depends(get_license_from_header)):
+    """Get Quran reading progress for cross-device sync"""
+    prefs = await get_preferences(license["license_id"])
+    quran_progress = prefs.get('quran_progress')
+    
+    if quran_progress:
+        import json
+        try:
+            data = json.loads(quran_progress) if isinstance(quran_progress, str) else quran_progress
+            return {"success": True, "progress": data}
+        except:
+            return {"success": True, "progress": None}
+    
+    return {"success": True, "progress": None}
+
+
 @router.patch("/preferences")
 async def update_user_preferences(
     data: PreferencesUpdate,

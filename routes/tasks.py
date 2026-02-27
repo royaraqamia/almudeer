@@ -11,6 +11,7 @@ from services.websocket_manager import broadcast_task_sync, broadcast_notificati
 from services.fcm_mobile_service import send_fcm_to_user
 from rate_limiting import limiter, RateLimits
 from pydantic import BaseModel
+from constants.tasks import MAX_FILE_SIZE
 
 router = APIRouter(prefix="/api/tasks", tags=["Tasks"])
  
@@ -96,7 +97,7 @@ async def create_new_task(
         storage = get_file_storage()
         for file in files:
             # FIX SEC-003: Stream file with size limit to prevent memory exhaustion
-            MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB limit
+            # Use centralized constant from constants/tasks.py
             file_content = b''
             chunk_size = 8192
             
@@ -105,6 +106,7 @@ async def create_new_task(
                 if not chunk:
                     break
                 file_content += chunk
+                # FIX: Check size early and reject immediately to save memory
                 if len(file_content) > MAX_FILE_SIZE:
                     raise HTTPException(
                         status_code=400,
@@ -240,6 +242,18 @@ async def update_existing_task(
                 update_data['description'] = sanitize_description(update_data['description'])
             if 'category' in update_data and update_data['category']:
                 update_data['category'] = validate_category(update_data['category'])
+            
+            # FIX: Handle attachment removal - extract removed URLs before processing
+            removed_attachments = update_data.pop('removed_attachments', None)
+            if removed_attachments and isinstance(removed_attachments, list):
+                # Get current attachments (from DB if not in update_data)
+                current_attachments = update_data.get("attachments", current_task.get("attachments", []))
+                # Filter out removed URLs
+                kept_attachments = [
+                    att for att in current_attachments 
+                    if att.get("url") not in removed_attachments
+                ]
+                update_data["attachments"] = kept_attachments
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid update data: {str(e)}")
 
@@ -251,8 +265,7 @@ async def update_existing_task(
         processed_attachments = update_data.get("attachments", current_task.get("attachments", []))
 
         for file in files:
-            # FIX SEC-003: Stream file with size limit
-            MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB limit
+            # FIX SEC-003: Stream file with size limit - use centralized constant
             file_content = b''
             chunk_size = 8192
             
@@ -261,6 +274,7 @@ async def update_existing_task(
                 if not chunk:
                     break
                 file_content += chunk
+                # Check size early to reject immediately
                 if len(file_content) > MAX_FILE_SIZE:
                     raise HTTPException(
                         status_code=400,
@@ -391,7 +405,7 @@ async def update_existing_task(
                         stable_id = generate_stable_id(str(subtask))
                         return {"id": stable_id, "title": str(subtask), "is_completed": False}
 
-                # Clone parameters
+                # Clone parameters - FIX: preserve visibility
                 cloned_task = {
                     "id": new_task_id,
                     "title": current_task["title"],
@@ -411,6 +425,7 @@ async def update_existing_task(
                     "order_index": current_task.get("order_index", 0.0),
                     "created_by": current_task.get("created_by"),
                     "assigned_to": current_task.get("assigned_to"),
+                    "visibility": current_task.get("visibility", "shared"),  # FIX: preserve visibility
                 }
 
                 # Try to map alarm time if present
@@ -508,8 +523,7 @@ async def create_comment(
         import uuid
         storage = get_file_storage()
         for file in files:
-            # FIX SEC-003: Stream file with size limit
-            MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB limit
+            # FIX SEC-003: Stream file with size limit - use centralized constant
             file_content = b''
             chunk_size = 8192
             
@@ -518,6 +532,7 @@ async def create_comment(
                 if not chunk:
                     break
                 file_content += chunk
+                # Check size early to reject immediately
                 if len(file_content) > MAX_FILE_SIZE:
                     raise HTTPException(
                         status_code=400,
@@ -788,15 +803,33 @@ async def batch_delete_tasks(
         }
     )
 
+    # FIX: Return detailed info about partial successes/failures
     if deleted_count == 0:
         if auth_failures:
             raise HTTPException(
                 status_code=403,
-                detail=f"Permission denied for {len(auth_failures)} tasks"
+                detail={
+                    "message": f"Permission denied for {len(auth_failures)} tasks",
+                    "auth_failures": auth_failures,
+                    "skipped_tasks": skipped_tasks
+                }
             )
-        raise HTTPException(status_code=400, detail="No tasks were deleted")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "No tasks were deleted",
+                "skipped_tasks": skipped_tasks
+            }
+        )
 
-    return {"success": True, "deleted_count": deleted_count}
+    # Return success with details about what happened
+    return {
+        "success": True,
+        "deleted_count": deleted_count,
+        "deleted_tasks": task_ids[:deleted_count] if deleted_count <= len(task_ids) else task_ids,
+        "auth_failures": auth_failures,
+        "skipped_tasks": skipped_tasks
+    }
 
 
 # ============ Analytics Endpoint ============

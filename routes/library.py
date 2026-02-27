@@ -858,23 +858,39 @@ async def list_trash(
     List soft-deleted items in the trash (recoverable).
     
     Issue #26: Trash feature - list deleted items.
+    FIX: Added ownership validation - users only see their own deleted items.
     """
     from models.library import get_library_items
     
     user_id = user.get("user_id") if user else None
     
-    # Get deleted items (including global items with license_key_id=0)
+    # FIX: Only show items owned by this user (or global items)
     async with get_db() as db:
-        rows = await fetch_all(
-            db,
-            """
-            SELECT * FROM library_items 
-            WHERE license_key_id = ? AND deleted_at IS NOT NULL
-            ORDER BY deleted_at DESC
-            LIMIT 100
-            """,
-            [license["license_id"]]
-        )
+        # Global items (license_key_id=0) or user's own items
+        if user_id:
+            rows = await fetch_all(
+                db,
+                """
+                SELECT * FROM library_items 
+                WHERE license_key_id = ? AND deleted_at IS NOT NULL
+                AND (user_id = ? OR license_key_id = 0)
+                ORDER BY deleted_at DESC
+                LIMIT 100
+                """,
+                [license["license_id"], user_id]
+            )
+        else:
+            # No user - only show global items
+            rows = await fetch_all(
+                db,
+                """
+                SELECT * FROM library_items 
+                WHERE license_key_id = 0 AND deleted_at IS NOT NULL
+                ORDER BY deleted_at DESC
+                LIMIT 100
+                """,
+                []
+            )
         
         items = [dict(row) for row in rows]
     
@@ -895,20 +911,35 @@ async def restore_item(
     Restore a soft-deleted item from the trash.
     
     Issue #26: Trash feature - restore deleted items.
+    FIX: Added ownership validation - only owner can restore their items.
     """
+    from db_helper import execute_sql, commit_db
+    
     user_id = user.get("user_id") if user else None
     now = datetime.now(timezone.utc)
     
     async with get_db() as db:
-        # Verify item exists and belongs to license
-        item = await fetch_one(
-            db,
-            """
-            SELECT * FROM library_items 
-            WHERE id = ? AND license_key_id = ? AND deleted_at IS NOT NULL
-            """,
-            [item_id, license["license_id"]]
-        )
+        # FIX: Verify item exists, belongs to license, AND user owns it (or it's global)
+        if user_id:
+            item = await fetch_one(
+                db,
+                """
+                SELECT * FROM library_items 
+                WHERE id = ? AND license_key_id = ? AND deleted_at IS NOT NULL
+                AND (user_id = ? OR license_key_id = 0)
+                """,
+                [item_id, license["license_id"], user_id]
+            )
+        else:
+            # No user - only restore global items
+            item = await fetch_one(
+                db,
+                """
+                SELECT * FROM library_items 
+                WHERE id = ? AND license_key_id = 0 AND deleted_at IS NOT NULL
+                """,
+                [item_id]
+            )
         
         if not item:
             raise HTTPException(
@@ -948,19 +979,34 @@ async def delete_item_permanently(
     Permanently delete an item from the trash (cannot be undone).
     
     Issue #26: Trash feature - permanent deletion.
+    FIX: Added ownership validation - only owner can permanently delete their items.
     """
+    from db_helper import execute_sql, commit_db
+    
     user_id = user.get("user_id") if user else None
     
     async with get_db() as db:
-        # Verify item exists and belongs to license
-        item = await fetch_one(
-            db,
-            """
-            SELECT file_path FROM library_items 
-            WHERE id = ? AND license_key_id = ? AND deleted_at IS NOT NULL
-            """,
-            [item_id, license["license_id"]]
-        )
+        # FIX: Verify item exists, belongs to license, AND user owns it (or it's global)
+        if user_id:
+            item = await fetch_one(
+                db,
+                """
+                SELECT file_path FROM library_items 
+                WHERE id = ? AND license_key_id = ? AND deleted_at IS NOT NULL
+                AND (user_id = ? OR license_key_id = 0)
+                """,
+                [item_id, license["license_id"], user_id]
+            )
+        else:
+            # No user - only delete global items
+            item = await fetch_one(
+                db,
+                """
+                SELECT file_path FROM library_items 
+                WHERE id = ? AND license_key_id = 0 AND deleted_at IS NOT NULL
+                """,
+                [item_id]
+            )
         
         if not item:
             raise HTTPException(
@@ -1003,34 +1049,70 @@ async def empty_trash(
     Empty the entire trash (permanently delete all soft-deleted items).
     
     Issue #26: Trash feature - empty all trash.
+    FIX: Added ownership validation - only delete user's own items.
     """
+    from db_helper import execute_sql, commit_db
+    
     user_id = user.get("user_id") if user else None
     
     async with get_db() as db:
-        # Get all deleted items for this license
-        items = await fetch_all(
-            db,
-            """
-            SELECT id, file_path FROM library_items 
-            WHERE license_key_id = ? AND deleted_at IS NOT NULL
-            """,
-            [license["license_id"]]
-        )
+        # FIX: Only delete items owned by this user (or global items)
+        if user_id:
+            # Get all deleted items for this license that belong to the user
+            items = await fetch_all(
+                db,
+                """
+                SELECT id, file_path FROM library_items 
+                WHERE license_key_id = ? AND deleted_at IS NOT NULL
+                AND (user_id = ? OR license_key_id = 0)
+                """,
+                [license["license_id"], user_id]
+            )
+            
+            # Delete physical files
+            for item in items:
+                if item.get("file_path"):
+                    try:
+                        file_storage.delete_file(item["file_path"])
+                    except Exception as e:
+                        logger.error(f"Failed to delete physical file: {e}")
+            
+            # Permanently delete user's items from database
+            await execute_sql(
+                db,
+                """
+                DELETE FROM library_items 
+                WHERE license_key_id = ? AND deleted_at IS NOT NULL
+                AND (user_id = ? OR license_key_id = 0)
+                """,
+                [license["license_id"], user_id]
+            )
+        else:
+            # No user - only delete global items
+            items = await fetch_all(
+                db,
+                """
+                SELECT id, file_path FROM library_items 
+                WHERE license_key_id = 0 AND deleted_at IS NOT NULL
+                """,
+                []
+            )
+            
+            # Delete physical files
+            for item in items:
+                if item.get("file_path"):
+                    try:
+                        file_storage.delete_file(item["file_path"])
+                    except Exception as e:
+                        logger.error(f"Failed to delete physical file: {e}")
+            
+            # Permanently delete global items
+            await execute_sql(
+                db,
+                "DELETE FROM library_items WHERE license_key_id = 0 AND deleted_at IS NOT NULL",
+                []
+            )
         
-        # Delete physical files
-        for item in items:
-            if item.get("file_path"):
-                try:
-                    file_storage.delete_file(item["file_path"])
-                except Exception as e:
-                    logger.error(f"Failed to delete physical file: {e}")
-        
-        # Permanently delete all from database
-        await execute_sql(
-            db,
-            "DELETE FROM library_items WHERE license_key_id = ? AND deleted_at IS NOT NULL",
-            [license["license_id"]]
-        )
         await commit_db(db)
         
         # Invalidate storage cache

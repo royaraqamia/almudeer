@@ -113,6 +113,16 @@ from .stories import (
     get_story_viewers,
     delete_story,
     cleanup_expired_stories,
+    repost_story,
+    get_story_analytics,
+    update_highlight,
+    delete_highlight,
+    remove_story_from_highlight,
+    save_story_draft,
+    get_story_draft,
+    delete_story_draft,
+    search_stories,
+    export_stories,
 )
 
 # Re-export aiosqlite for backward compatibility
@@ -211,5 +221,15 @@ __all__ = [
     "get_story_viewers",
     "delete_story",
     "cleanup_expired_stories",
+    "repost_story",
+    "get_story_analytics",
+    "update_highlight",
+    "delete_highlight",
+    "remove_story_from_highlight",
+    "save_story_draft",
+    "get_story_draft",
+    "delete_story_draft",
+    "search_stories",
+    "export_stories",
 ]
 

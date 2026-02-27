@@ -139,18 +139,39 @@ _story_cleanup_task = None
 _story_cleanup_running = False
 
 
+async def _run_story_cleanup_loop():
+    """Run story cleanup every hour."""
+    from models.stories import cleanup_expired_stories
+    
+    while _story_cleanup_running:
+        try:
+            await cleanup_expired_stories()
+            logger.info("Story cleanup completed successfully")
+        except Exception as e:
+            logger.error(f"Story cleanup failed: {e}", exc_info=True)
+        # Run every hour (3600 seconds)
+        await asyncio.sleep(3600)
+
+
 async def start_story_cleanup_worker():
     """Start the story cleanup background task."""
     global _story_cleanup_running, _story_cleanup_task
     _story_cleanup_running = True
-    logger.info("Story cleanup worker started")
-    return {"status": "running"}
+    _story_cleanup_task = asyncio.create_task(_run_story_cleanup_loop())
+    logger.info("Story cleanup worker started (runs hourly)")
+    return {"status": "running", "task": _story_cleanup_task}
 
 
 async def stop_story_cleanup_worker():
     """Stop the story cleanup background task."""
     global _story_cleanup_running, _story_cleanup_task
     _story_cleanup_running = False
+    if _story_cleanup_task:
+        _story_cleanup_task.cancel()
+        try:
+            await _story_cleanup_task
+        except asyncio.CancelledError:
+            pass
     logger.info("Story cleanup worker stopped")
 
 

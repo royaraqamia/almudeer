@@ -24,6 +24,7 @@ class TaskBase(BaseModel):
     recurrence: Optional[str] = Field(default=None, description="daily, weekly, monthly")
     sub_tasks: Optional[List[SubTask]] = []
     category: Optional[str] = Field(default=None, max_length=100)
+    color: Optional[int] = Field(default=None, description="Hex color as integer (e.g. 0xFF0000 for red)")
     order_index: float = 0.0
     created_by: Optional[str] = None
     assigned_to: Optional[str] = None
@@ -59,10 +60,12 @@ class TaskUpdate(BaseModel):
     recurrence: Optional[str] = None
     sub_tasks: Optional[List[SubTask]] = None
     category: Optional[str] = None
+    color: Optional[int] = None  # FIX: Add color field
     order_index: Optional[float] = None
     assigned_to: Optional[str] = None
     attachments: Optional[List[Attachment]] = None
     visibility: Optional[str] = None
+    removed_attachments: Optional[List[str]] = None  # FIX: Add support for removing attachments
 
 class TaskResponse(TaskBase):
     id: str

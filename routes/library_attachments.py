@@ -103,11 +103,13 @@ async def upload_attachment(
         )
     
     # Check storage quota
+    # FIX: Use combined storage calculation - attachments ARE part of library storage
+    # The library_items table already includes attachment file_size via library_attachments
+    # So we only need to check total storage usage once
     current_usage = await get_storage_usage(license["license_id"])
-    attachment_usage = await get_attachment_storage_usage(license["license_id"])
     
     from models.library import MAX_STORAGE_PER_LICENSE
-    if current_usage + attachment_usage + file_size > MAX_STORAGE_PER_LICENSE:
+    if current_usage + file_size > MAX_STORAGE_PER_LICENSE:
         raise HTTPException(400, detail="Storage limit exceeded")
     
     # Save file
@@ -138,6 +140,10 @@ async def upload_attachment(
             file_hash=file_hash,
             created_by=user_id
         )
+        
+        # FIX: Invalidate storage cache after adding attachment
+        from models.library import _invalidate_storage_cache
+        await _invalidate_storage_cache(license["license_id"])
         
         return {
             "success": True,

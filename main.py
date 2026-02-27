@@ -94,6 +94,8 @@ try:
     from routes.knowledge import router as knowledge_router
     from routes.library_attachments import router as library_attachments_router
     from routes.devices import router as devices_router
+    from routes.transfers import router as transfers_router
+    from routes.qr_codes import router as qr_codes_router
     # Reactions router removed
     logger.info("Successfully imported modular routes")
 except ImportError as e:
@@ -156,6 +158,7 @@ async def lifespan(app: FastAPI):
         from migrations.backfill_queue_table import create_backfill_queue_table
         from migrations.task_queue_table import create_task_queue_table
         from migrations.edit_delete_message import ensure_message_edit_delete_schema
+        from models.qr_codes import init_qr_tables
 
         # Parallelize independent table initializations to speed up startup
         init_tasks = [
@@ -170,7 +173,8 @@ async def lifespan(app: FastAPI):
             create_backfill_queue_table(),
             create_task_queue_table(),
             ensure_message_edit_delete_schema(),
-            init_stories_tables()
+            init_stories_tables(),
+            init_qr_tables(),
         ]
         
         results = await asyncio.gather(*init_tasks, return_exceptions=True)
@@ -504,6 +508,8 @@ app.include_router(knowledge_router)       # Knowledge Base Documents & Uploads
 app.include_router(library_router)         # Library of Everything
 app.include_router(library_attachments_router)  # Library Attachments (P3-12)
 app.include_router(devices_router)         # Device Pairing (P3-1/Nearby)
+app.include_router(transfers_router)       # Transfer Management (P3-1/Nearby)
+app.include_router(qr_codes_router)          # QR Code Generation & Verification
 app.include_router(keyboard_router)        # Keyboard Macros & Optimized Data
 app.include_router(tasks_router)           # Task Management
 app.include_router(subscription_router)    # Subscription Key Management

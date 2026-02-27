@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 # P6-2: LRU Cache for shared items (max 100 entries, 5 minute TTL)
 _shared_items_cache: Dict[str, Dict[str, Any]] = {}
 _SHARED_ITEMS_CACHE_TTL = 300  # 5 minutes
+_MAX_CACHE_SIZE = 100  # Maximum number of cache entries to prevent memory leak
 
 
 async def _get_cached_shared_items(cache_key: str) -> Optional[List[dict]]:
@@ -30,7 +31,19 @@ async def _get_cached_shared_items(cache_key: str) -> Optional[List[dict]]:
 
 
 async def _cache_shared_items(cache_key: str, data: List[dict]):
-    """Cache shared items"""
+    """Cache shared items with size limit to prevent memory leak"""
+    # FIX: Enforce maximum cache size - evict oldest entries if at limit
+    if len(_shared_items_cache) >= _MAX_CACHE_SIZE:
+        # Find and remove oldest entries (simple eviction strategy)
+        oldest_key = None
+        oldest_timestamp = float('inf')
+        for key, entry in _shared_items_cache.items():
+            if entry["timestamp"] < oldest_timestamp:
+                oldest_timestamp = entry["timestamp"]
+                oldest_key = key
+        if oldest_key:
+            del _shared_items_cache[oldest_key]
+    
     _shared_items_cache[cache_key] = {
         "data": data,
         "timestamp": datetime.now(timezone.utc).timestamp()
@@ -127,9 +140,32 @@ async def restore_version(
     user_id: Optional[str] = None
 ) -> bool:
     """Restore an item to a previous version"""
+    from models.library import verify_share_permission  # Local import to avoid circular import
+    
     now = datetime.now(timezone.utc)
     
     async with get_db() as db:
+        # FIX: Verify user has permission to restore (owner or admin share)
+        if user_id:
+            # Check if user owns the item
+            owner_check = await fetch_one(
+                db,
+                "SELECT created_by FROM library_items WHERE id = ? AND license_key_id = ?",
+                [item_id, license_id]
+            )
+            
+            if not owner_check:
+                return False
+            
+            # If not owner, check share permission
+            if owner_check.get("created_by") != user_id:
+                has_permission = await verify_share_permission(
+                    db, item_id, user_id, license_id, "admin"
+                )
+                if not has_permission:
+                    logger.warning(f"User {user_id} denied restore permission for item {item_id}")
+                    return False
+        
         # Get version
         version = await fetch_one(
             db,
