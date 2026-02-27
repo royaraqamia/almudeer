@@ -38,12 +38,16 @@ async def get_license_from_header(
             logger.error(f"JWT verification error: {e}")
             payload = None
         
+        logger.warning(f"JWT payload result: {payload}")
+        
         if payload and payload.get("license_id"):
+            logger.warning(f"JWT has license_id: {payload.get('license_id')}, checking validity...")
             # Pass the 'v' (version) claim for atomic validation
             result = await validate_license_by_id(
                 payload["license_id"], 
                 required_version=payload.get("v")
             )
+            logger.warning(f"License validation result: {result}")
             if result.get("valid"):
                 # Add user_id to result for compatibility with routes that expect it
                 result["user_id"] = payload.get("sub")
