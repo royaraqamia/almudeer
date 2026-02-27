@@ -1,5 +1,5 @@
 """
-Al-Mudeer Constants
+Al-Mudeer Constants Package
 Application-wide constants and configuration values
 """
 
@@ -19,9 +19,9 @@ class Channels:
     TELEGRAM_BOT = "telegram_bot"
     TELEGRAM_PHONE = "telegram_phone"
     WHATSAPP = "whatsapp"
-    
+
     ALL = [EMAIL, TELEGRAM_BOT, TELEGRAM_PHONE, WHATSAPP]
-    
+
     DISPLAY_NAMES = {
         EMAIL: "البريد الإلكتروني",
         TELEGRAM_BOT: "روبوت تيليجرام",
@@ -44,9 +44,9 @@ class MessageStatus:
     FAILED = "failed"
     ARCHIVED = "archived"
     IGNORED = "ignored"
-    
+
     ALL = [PENDING, NEW, ANALYZED, DRAFT_READY, APPROVED, SENT, FAILED, ARCHIVED, IGNORED]
-    
+
     DISPLAY_NAMES = {
         # PENDING = before AI responds (قيد الانتظار)
         PENDING: "قيد الانتظار",
@@ -71,9 +71,9 @@ class IntentTypes:
     SUPPORT = "support"
     FEEDBACK = "feedback"
     GENERAL = "general"
-    
+
     ALL = [INQUIRY, ORDER, COMPLAINT, SUPPORT, FEEDBACK, GENERAL]
-    
+
     DISPLAY_NAMES = {
         INQUIRY: "استفسار",
         ORDER: "طلب",
@@ -91,9 +91,9 @@ class UrgencyLevels:
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
-    
+
     ALL = [LOW, MEDIUM, HIGH, CRITICAL]
-    
+
     DISPLAY_NAMES = {
         LOW: "منخفضة",
         MEDIUM: "متوسطة",
@@ -108,9 +108,9 @@ class Sentiments:
     POSITIVE = "positive"
     NEUTRAL = "neutral"
     NEGATIVE = "negative"
-    
+
     ALL = [POSITIVE, NEUTRAL, NEGATIVE]
-    
+
     DISPLAY_NAMES = {
         POSITIVE: "إيجابي",
         NEUTRAL: "محايد",
@@ -125,9 +125,9 @@ class TeamRoles:
     ADMIN = "admin"
     MEMBER = "member"
     VIEWER = "viewer"
-    
+
     ALL = [OWNER, ADMIN, MEMBER, VIEWER]
-    
+
     DISPLAY_NAMES = {
         OWNER: "المالك",
         ADMIN: "مدير",
@@ -143,9 +143,9 @@ class SubscriptionTiers:
     BASIC = "basic"
     PROFESSIONAL = "professional"
     ENTERPRISE = "enterprise"
-    
+
     ALL = [TRIAL, BASIC, PROFESSIONAL, ENTERPRISE]
-    
+
     LIMITS = {
         TRIAL: {"requests_per_day": 50, "channels": 1, "team_members": 1},
         BASIC: {"requests_per_day": 200, "channels": 2, "team_members": 3},
@@ -181,3 +181,28 @@ class ErrorCodes:
     EXTERNAL_SERVICE_ERROR = "EXTERNAL_SERVICE_ERROR"
     DATABASE_ERROR = "DATABASE_ERROR"
     INTERNAL_ERROR = "INTERNAL_ERROR"
+
+
+__all__ = [
+    'APP_NAME',
+    'APP_NAME_AR',
+    'APP_VERSION',
+    'APP_DESCRIPTION',
+    'APP_DESCRIPTION_AR',
+    'Channels',
+    'MessageStatus',
+    'IntentTypes',
+    'UrgencyLevels',
+    'Sentiments',
+    'TeamRoles',
+    'SubscriptionTiers',
+    'SECONDS_PER_MINUTE',
+    'SECONDS_PER_HOUR',
+    'SECONDS_PER_DAY',
+    'SECONDS_PER_WEEK',
+    'DEFAULT_PAGE_SIZE',
+    'MAX_PAGE_SIZE',
+    'DEFAULT_CACHE_TTL',
+    'DEFAULT_SESSION_TTL',
+    'ErrorCodes',
+]

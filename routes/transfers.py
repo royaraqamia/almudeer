@@ -284,8 +284,8 @@ async def get_transfer_details(
 async def report_transfer_issue(
     request: Request,
     transfer_id: int,
-    issue_type: str = Field(..., description="Type of issue: failed, incomplete, corrupted"),
-    description: Optional[str] = Field(None, description="Additional details"),
+    issue_type: str = Query(..., description="Type of issue: failed, incomplete, corrupted"),
+    description: Optional[str] = Query(None, description="Additional details"),
     license: dict = Depends(get_license_from_header),
     user: dict = Depends(get_current_user),
 ):

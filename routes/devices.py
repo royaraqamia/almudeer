@@ -6,6 +6,7 @@ P3-1/Nearby: Device pairing for trusted nearby transfers
 
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 

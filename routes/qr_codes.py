@@ -19,7 +19,8 @@ from models.qr_codes import (
     QRCodeType,
     QRCodePurpose,
 )
-from auth import get_current_user, get_license_key
+from services.jwt_auth import get_current_user
+from dependencies import get_license_from_header
 from database import get_db
 
 router = APIRouter(prefix="/qr", tags=["QR Codes"])
@@ -107,7 +108,7 @@ class QRAnalyticsResponse(BaseModel):
 async def create_qr_code(
     request: QRCodeGenerateRequest,
     current_user: dict = Depends(get_current_user),
-    license_key: dict = Depends(get_license_key),
+    license_key: dict = Depends(get_license_from_header),
     db: dict = Depends(get_db),
 ):
     """
@@ -177,7 +178,7 @@ async def verify_qr(
 @router.get("/{qr_code_id}", response_model=QRCodeResponse)
 async def get_qr(
     qr_code_id: int,
-    license_key: dict = Depends(get_license_key),
+    license_key: dict = Depends(get_license_from_header),
     db: dict = Depends(get_db),
 ):
     """
@@ -205,7 +206,7 @@ async def list_qr(
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     limit: int = Query(50, ge=1, le=100, description="Number of items to return"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
-    license_key: dict = Depends(get_license_key),
+    license_key: dict = Depends(get_license_from_header),
     db: dict = Depends(get_db),
 ):
     """
@@ -260,7 +261,7 @@ async def list_qr(
 @router.post("/{qr_code_id}/deactivate")
 async def deactivate_qr(
     qr_code_id: int,
-    license_key: dict = Depends(get_license_key),
+    license_key: dict = Depends(get_license_from_header),
     db: dict = Depends(get_db),
 ):
     """
@@ -282,7 +283,7 @@ async def deactivate_qr(
 @router.delete("/{qr_code_id}")
 async def delete_qr(
     qr_code_id: int,
-    license_key: dict = Depends(get_license_key),
+    license_key: dict = Depends(get_license_from_header),
     db: dict = Depends(get_db),
 ):
     """
@@ -305,7 +306,7 @@ async def delete_qr(
 async def get_qr_analytics_endpoint(
     qr_code_id: int,
     days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
-    license_key: dict = Depends(get_license_key),
+    license_key: dict = Depends(get_license_from_header),
     db: dict = Depends(get_db),
 ):
     """
