@@ -349,7 +349,8 @@ async def lifespan(app: FastAPI):
                 try:
                     for arch, url in _APK_CDN_VARIANTS.items():
                         if url:
-                            is_healthy = await _verify_cdn_health(url, timeout=5.0)
+                            # Use longer timeout for large APK files behind Cloudflare
+                            is_healthy = await _verify_cdn_health(url, timeout=10.0, retries=2)
                             _CDN_HEALTH_CACHE[arch] = {
                                 "healthy": is_healthy,
                                 "last_check": asyncio.get_event_loop().time()

@@ -27,6 +27,7 @@ import hashlib
 import time
 import threading
 import asyncio
+import httpx
 from datetime import datetime, timezone
 import pytz
 from database import (
@@ -413,28 +414,43 @@ _CDN_HEALTH_CACHE_TTL = 60  # Check every 60 seconds
 _CDN_HEALTH_LOCK = asyncio.Lock()
 
 
-async def _verify_cdn_health(url: str, timeout: float = 3.0) -> bool:
+async def _verify_cdn_health(url: str, timeout: float = 3.0, retries: int = 2) -> bool:
     """
     Verify CDN URL is healthy by sending a HEAD request.
-    
+
     Args:
         url: CDN URL to check
         timeout: Request timeout in seconds
-        
+        retries: Number of retry attempts on failure
+
     Returns:
         True if CDN is healthy (returns 200/204), False otherwise
     """
     if not url:
         return False
-    
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.head(url)
-            # Consider 200, 204, 301, 302 as healthy
-            return response.status_code in (200, 204, 301, 302)
-    except Exception as e:
-        logger.debug(f"CDN health check failed for {url}: {e}")
-        return False
+
+    attempt = 0
+    while attempt <= retries:
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.head(url)
+                # Consider 200, 204, 301, 302 as healthy
+                if response.status_code in (200, 204, 301, 302):
+                    return True
+                logger.debug(f"CDN health check returned {response.status_code} for {url}")
+                return False
+        except httpx.ReadTimeout:
+            # Cloudflare may be slow for large files - retry
+            attempt += 1
+            if attempt > retries:
+                logger.debug(f"CDN health check timed out after {retries} retries: {url}")
+                return False
+            await asyncio.sleep(0.5 * attempt)  # Backoff
+        except Exception as e:
+            logger.debug(f"CDN health check failed for {url}: {e}")
+            return False
+
+    return False
 
 
 async def _get_healthy_cdn_url(arch: str) -> Optional[str]:
