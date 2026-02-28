@@ -789,46 +789,56 @@ async def get_license_key_by_id(license_id: int) -> Optional[str]:
 async def validate_license_key(key: str) -> dict:
     """
     Validate a license key and return its details.
-    
+
     SECURITY FIX: Implements dual-hash verification for backward compatibility
     during migration from plain SHA-256 to HMAC-SHA256 with pepper.
-    
+
     1. First tries new peppered hash (HMAC-SHA256)
     2. If not found, falls back to old hash (plain SHA-256)
     3. If old hash matches, migrates to new hash automatically
     """
+    from logging_config import get_logger
+    logger = get_logger(__name__)
+
     # Try cache first
     try:
         from cache import get_cached_license_validation
         cached_result = await get_cached_license_validation(key)
         if cached_result is not None:
             return cached_result
-    except ImportError:
-        pass
+    except ImportError as e:
+        # SECURITY FIX #10: Log cache import failures for debugging
+        logger.debug(f"Cache module not available for license validation: {e}")
+    except Exception as e:
+        # Log other cache errors (e.g., Redis connection issues)
+        logger.warning(f"Cache error during license validation: {e}")
 
     from db_helper import get_db, fetch_one, execute_sql
     import hashlib
-    
+
     async with get_db() as db:
         # Try new peppered hash first (HMAC-SHA256 with pepper)
         new_hash = hash_license_key(key)
         row = await fetch_one(db, """
             SELECT * FROM license_keys WHERE key_hash = ?
         """, [new_hash])
-        
+
         if row:
             # Found with new hash - return result
             row_dict = dict(row)
             row_dict["license_key"] = key
             result = _build_license_result(row_dict)
-            
+
             # Cache the result (5 minutes TTL)
             try:
                 from cache import cache_license_validation
                 await cache_license_validation(key, result, ttl=300)
-            except ImportError:
-                pass
-            
+            except ImportError as e:
+                # SECURITY FIX #10: Log cache import failures
+                logger.debug(f"Cache module not available for caching: {e}")
+            except Exception as e:
+                logger.warning(f"Cache error during license caching: {e}")
+
             return result
         
         # Fallback to old hash for backward compatibility (plain SHA-256)
@@ -902,8 +912,11 @@ async def validate_license_by_id(license_id: int, required_version: Optional[int
             if not cached.get("is_active", True):
                 return {"valid": False, "error": "المشترك معطل", "code": "ACCOUNT_DEACTIVATED"}
             return cached
-    except (ImportError, Exception):
-        pass
+    except ImportError as e:
+        # SECURITY FIX #10: Log cache import failures
+        logger.debug(f"Cache module not available for ID validation: {e}")
+    except Exception as e:
+        logger.warning(f"Cache error during ID validation: {e}")
 
     # 2. Database Fallback (full fetch)
     from db_helper import get_db, fetch_one

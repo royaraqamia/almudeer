@@ -7,6 +7,7 @@ SECURITY FIXES:
 - Token validation before blacklisting on logout
 - Constant-time response delays to prevent timing attacks
 - Generic error messages to prevent username enumeration
+- Rate limiting on /api/auth/me to prevent token enumeration
 """
 
 import secrets
@@ -29,6 +30,7 @@ from database import validate_license_key
 from logging_config import get_logger
 from services.security_logger import get_security_logger
 from services.token_blacklist import blacklist_token
+from rate_limiting import limiter, RateLimits
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
@@ -239,15 +241,21 @@ async def refresh_token(data: RefreshRequest, request: Request):
 
 
 @router.get("/me")
-async def get_current_user_info(user: dict = Depends(get_current_user)):
+@limiter.limit(RateLimits.AUTH)  # SECURITY FIX #4: Rate limit to prevent token enumeration
+async def get_current_user_info(request: Request, user: dict = Depends(get_current_user)):
     """
     Get current user information.
-    
+
     Returns comprehensive user data from the database without issuing new tokens.
     This is preferred over calling /login for user info as it doesn't rotate tokens.
+    
+    SECURITY FIX #4: Rate limited to 5 requests/minute to prevent:
+    - Token enumeration attacks
+    - Server resource exhaustion
+    - Bypass of login rate limits via stolen tokens
     """
     from db_helper import get_db, fetch_one
-    
+
     license_id = user.get("license_id")
     if not license_id:
         return {
@@ -394,11 +402,17 @@ async def logout(
             security_logger.log_token_blacklisted(user.get('user_id'), jti)
 
             logger.info(f"User logged out and token blacklisted: {user.get('user_id')}")
-            
+
     except Exception as e:
-        # SECURITY FIX: Log but don't reveal details to prevent enumeration
-        logger.warning(f"Logout failed: {e}")
-        # Still return success for idempotency and to prevent enumeration
+        # SECURITY FIX #13: Log detailed error for debugging
+        logger.error(f"Logout DB error: {type(e).__name__}: {e}")
+        # SECURITY FIX #13: Return 503 error to inform user logout may not have completed
+        # This prevents silent failures where user thinks they logged out but session remains active
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="تعذر تسجيل الخروج بشكل كامل. يرجى المحاولة مرة أخرى.",
+            headers={"Retry-After": "5"},
+        )
 
     return {"success": True, "message": "Logged out successfully"}
 

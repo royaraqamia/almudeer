@@ -142,17 +142,22 @@ class TokenBlacklist:
                         else:
                             # Expired, remove it
                             del self._memory_store[jti]
-                    return False
+                    # SECURITY FIX #3: Fail closed in ALL environments
+                    # This prevents potentially revoked tokens from being accepted during outages
+                    # Development environments should use Redis for accurate security testing
+                    logger.warning(
+                        f"Token blacklist check failed (no Redis) - failing CLOSED (blocking token {jti[:8]}...). "
+                        "WARNING: This blocks ALL authenticated requests. "
+                        "For development, set REDIS_URL or understand that logout won't work without Redis."
+                    )
+                    return True
 
         except Exception as e:
             logger.error(f"Failed to check token blacklist: {e}")
-            # SECURITY FIX: In production, fail closed (assume blacklisted)
+            # SECURITY FIX #3: Fail closed in ALL environments
             # This prevents potentially revoked tokens from being accepted during outages
-            if self._environment == "production":
-                logger.warning("Token blacklist check failed in production - failing closed (blocking token)")
-                return True
-            # In development, fail open (allow token) to avoid blocking development
-            return False
+            logger.warning("Token blacklist check failed - failing closed (blocking token)")
+            return True
     
     def _cleanup_expired(self):
         """Remove expired entries from memory store."""

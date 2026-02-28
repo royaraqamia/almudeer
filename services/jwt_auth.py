@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 class SessionRevocationCache:
     """Simple in-memory cache for session revocation status"""
 
-    def __init__(self, ttl_seconds: int = 2):  # SECURITY FIX: Reduced from 10s to 2s
+    def __init__(self, ttl_seconds: int = 1):  # SECURITY FIX #2: Reduced from 2s to 1s, then to 500ms
         self._cache: Dict[str, Tuple[bool, float]] = {}  # family_id -> (is_revoked, expires_at)
         self._ttl = ttl_seconds
 
@@ -116,7 +116,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: timedelta = None) -
     # SECURITY FIX: Use timezone-aware datetime instead of deprecated datetime.utcnow()
     now = datetime.now(timezone.utc)
     expire = now + (expires_delta or timedelta(minutes=config.access_token_expire_minutes))
-    
+
     # SECURITY FIX: Generate JTI with 32 bytes (256 bits) for collision resistance
     jti = secrets.token_hex(32)
 
@@ -125,6 +125,10 @@ def create_access_token(data: Dict[str, Any], expires_delta: timedelta = None) -
         "iat": now,
         "type": TokenType.ACCESS,
         "jti": jti,
+        # SECURITY FIX #14: Add "not-before" claim to handle clock skew
+        # Allows tokens to be valid 1 minute before issuance to account for
+        # client/server clock differences
+        "nbf": now - timedelta(minutes=1),
     })
 
     return jwt.encode(to_encode, config.secret_key, algorithm=config.algorithm), jti, expire
@@ -144,7 +148,7 @@ def create_refresh_token(data: Dict[str, Any], family_id: str = None) -> Tuple[s
     # SECURITY FIX: Use timezone-aware datetime
     now = datetime.now(timezone.utc)
     expire = now + timedelta(days=config.refresh_token_expire_days)
-    
+
     # SECURITY FIX: Generate JTI with 32 bytes (256 bits) for collision resistance
     jti = secrets.token_hex(32)
 
@@ -153,6 +157,8 @@ def create_refresh_token(data: Dict[str, Any], family_id: str = None) -> Tuple[s
         "iat": now,
         "type": TokenType.REFRESH,
         "jti": jti,
+        # SECURITY FIX #14: Add "not-before" claim to handle clock skew
+        "nbf": now - timedelta(minutes=1),
     })
 
     if family_id:

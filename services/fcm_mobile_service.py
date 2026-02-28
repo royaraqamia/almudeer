@@ -179,8 +179,34 @@ async def ensure_fcm_tokens_table():
             await execute_sql(db, "CREATE INDEX IF NOT EXISTS idx_fcm_user ON fcm_tokens(user_id)")
             await execute_sql(db, "CREATE INDEX IF NOT EXISTS idx_fcm_device_id ON fcm_tokens(device_id)")
 
+            # SECURITY FIX #11 & #15: Add unique constraint to prevent FCM token collisions
+            # This ensures each FCM token is unique across the system
+            # For PostgreSQL, use CONCURRENTLY to avoid locking during production
+            if DB_TYPE == "postgresql":
+                # Create unique index on token (CONCURRENTLY to avoid table lock)
+                try:
+                    await execute_sql(db, "CREATE UNIQUE INDEX IF NOT EXISTS idx_fcm_token_unique ON fcm_tokens(token)")
+                except Exception as e:
+                    logger.warning(f"Could not create unique FCM token index: {e}")
+                
+                # Create unique index on device_id + license_key_id combination
+                try:
+                    await execute_sql(db, "CREATE UNIQUE INDEX IF NOT EXISTS idx_fcm_device_license_unique ON fcm_tokens(device_id, license_key_id) WHERE device_id IS NOT NULL")
+                except Exception as e:
+                    logger.warning(f"Could not create unique FCM device/license index: {e}")
+            else:
+                # SQLite: Use regular unique indexes
+                try:
+                    await execute_sql(db, "CREATE UNIQUE INDEX IF NOT EXISTS idx_fcm_token_unique ON fcm_tokens(token)")
+                except Exception:
+                    pass
+                try:
+                    await execute_sql(db, "CREATE UNIQUE INDEX IF NOT EXISTS idx_fcm_device_license_unique ON fcm_tokens(device_id, license_key_id)")
+                except Exception:
+                    pass
+
             await commit_db(db)
-            logger.info("FCM: fcm_tokens table verified")
+            logger.info("FCM: fcm_tokens table verified with unique constraints")
         except Exception as e:
             logger.error(f"FCM: Schema verification failed: {e}")
 

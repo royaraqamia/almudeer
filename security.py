@@ -39,9 +39,10 @@ _DEVICE_SECRET_PEPPER = os.getenv("DEVICE_SECRET_PEPPER")
 if not _DEVICE_SECRET_PEPPER:
     if os.getenv("ENVIRONMENT", "development") == "production":
         raise ValueError("DEVICE_SECRET_PEPPER must be set in production environment!")
-    # Generate a pepper for development only (will change on restart)
-    _DEVICE_SECRET_PEPPER = secrets.token_hex(32)
-    print("WARNING: Using auto-generated device secret pepper. Set DEVICE_SECRET_PEPPER in production!")
+    # SECURITY FIX #6: Use fixed pepper for development to prevent session invalidation on restart
+    # This is safe for development as long as .env is not committed to version control
+    _DEVICE_SECRET_PEPPER = "dev_device_secret_pepper_do_not_use_in_production_change_in_env"
+    print("WARNING: Using fixed development device secret pepper. Set DEVICE_SECRET_PEPPER in .env for production!")
 
 # SECURITY FIX: License Key Pepper
 # This is a server-side secret that is combined with license keys before hashing.
@@ -52,9 +53,10 @@ _LICENSE_KEY_PEPPER = os.getenv("LICENSE_KEY_PEPPER")
 if not _LICENSE_KEY_PEPPER:
     if os.getenv("ENVIRONMENT", "development") == "production":
         raise ValueError("LICENSE_KEY_PEPPER must be set in production environment!")
-    # Generate a pepper for development only (will change on restart)
-    _LICENSE_KEY_PEPPER = secrets.token_hex(32)
-    print("WARNING: Using auto-generated license key pepper. Set LICENSE_KEY_PEPPER in production!")
+    # SECURITY FIX #6: Use fixed pepper for development to prevent session invalidation on restart
+    # This is safe for development as long as .env is not committed to version control
+    _LICENSE_KEY_PEPPER = "dev_license_key_pepper_do_not_use_in_production_change_in_env"
+    print("WARNING: Using fixed development license key pepper. Set LICENSE_KEY_PEPPER in .env for production!")
 
 # Initialize Fernet cipher
 def _init_cipher():
