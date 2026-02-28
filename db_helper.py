@@ -102,3 +102,14 @@ async def commit_db(db):
     if DB_TYPE != "postgresql":
         await db.commit()
 
+
+async def rollback_db(db):
+    """Rollback database transaction (PostgreSQL only)"""
+    if DB_TYPE == "postgresql":
+        try:
+            await db.execute("ROLLBACK")
+        except Exception as e:
+            # Log but don't raise - rollback failure is secondary
+            from logging_config import get_logger
+            get_logger(__name__).warning(f"Rollback failed: {e}")
+

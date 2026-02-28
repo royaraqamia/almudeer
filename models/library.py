@@ -535,8 +535,8 @@ async def bulk_delete_items(license_id: int, item_ids: List[int], user_id: Optio
     Issue #4: Timezone-aware timestamps.
     Issue #7: Validates user ownership for each item when user_id is provided.
     Issue #32: SQL injection prevention - validates all item_ids are integers.
-    P0-4: Returns detailed result with deleted IDs and failed IDs for proper feedback.
-    FIX: Added transaction atomicity - all or nothing.
+    P0-3 FIX: Returns detailed result with deleted IDs and failed IDs for proper feedback.
+    P0-3 FIX: Added transaction atomicity with explicit rollback on failure.
     """
     if not item_ids:
         return {"deleted_count": 0, "deleted_ids": [], "failed_ids": []}
@@ -562,25 +562,25 @@ async def bulk_delete_items(license_id: int, item_ids: List[int], user_id: Optio
 
     async with get_db() as db:
         try:
-            # P0-4: Get list of actually existing/accessibile items BEFORE deleting
+            # P0-3 FIX: Get list of actually existing/accessible items BEFORE deleting
             id_placeholders = ",".join(["?"] * len(validated_item_ids))
-            
+
             # Issue #7: If user_id is provided, verify ownership for each item
             if user_id:
                 # Get IDs of items user actually owns
                 verify_query = f"SELECT id FROM library_items WHERE id IN ({id_placeholders}) AND license_key_id = ? AND user_id = ? AND deleted_at IS NULL"
                 verify_params = validated_item_ids + [license_id, user_id]
-                
+
                 result = await fetch_all(db, verify_query, verify_params)
                 accessible_ids = [row["id"] for row in result]
-                
+
                 if len(accessible_ids) != len(validated_item_ids):
                     failed_ids = [id for id in validated_item_ids if id not in accessible_ids]
                     logger.warning(
                         f"Bulk delete: User {user_id} tried to delete {len(validated_item_ids)} items "
                         f"but only owns {len(accessible_ids)}. Failed IDs: {failed_ids}"
                     )
-                
+
                 # Delete only the items the user owns
                 if accessible_ids:
                     delete_placeholders = ",".join(["?"] * len(accessible_ids))
@@ -593,10 +593,10 @@ async def bulk_delete_items(license_id: int, item_ids: List[int], user_id: Optio
                 # No user_id - get IDs of items that exist and aren't already deleted
                 verify_query = f"SELECT id FROM library_items WHERE id IN ({id_placeholders}) AND license_key_id = ? AND deleted_at IS NULL"
                 verify_params = validated_item_ids + [license_id]
-                
+
                 result = await fetch_all(db, verify_query, verify_params)
                 accessible_ids = [row["id"] for row in result]
-                
+
                 # Delete accessible items
                 if accessible_ids:
                     delete_placeholders = ",".join(["?"] * len(accessible_ids))
@@ -608,9 +608,9 @@ async def bulk_delete_items(license_id: int, item_ids: List[int], user_id: Optio
 
             await commit_db(db)
 
-            # P0-4: Calculate failed IDs
+            # P0-3 FIX: Calculate failed IDs
             failed_ids = [id for id in validated_item_ids if id not in accessible_ids]
-            
+
             # Invalidate storage cache only on success
             await _invalidate_storage_cache(license_id)
 
@@ -621,9 +621,17 @@ async def bulk_delete_items(license_id: int, item_ids: List[int], user_id: Optio
             }
 
         except Exception as e:
-            # FIX: Log error and return failure result
+            # P0-3 FIX: Explicit rollback on error
+            try:
+                from db_helper import rollback_db
+                await rollback_db(db)
+            except Exception as rollback_error:
+                logger.error(f"Rollback failed during bulk delete error: {rollback_error}")
+            
+            # Log error and return failure result
             logger.error(f"Bulk delete failed: {e}", exc_info=True)
-            # Transaction will be rolled back automatically by context manager
+            # Transaction will be rolled back automatically by context manager (SQLite)
+            # or explicitly above (PostgreSQL)
             return {
                 "deleted_count": 0,
                 "deleted_ids": [],

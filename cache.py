@@ -21,14 +21,18 @@ except ImportError:
 
 class CacheManager:
     """Unified cache manager supporting both in-memory and Redis"""
-    
+
     def __init__(self):
         self.redis_client: Optional[Any] = None
         self.use_redis = False
-        
-        # In-memory cache as fallback
-        self.memory_cache = TTLCache(maxsize=1000, ttl=300)  # 5 min TTL
-        
+
+        # P2-8 FIX: Standardized cache TTLs to match mobile app
+        # Active data (conversations, customers): 2 minutes
+        # Library data: 1 minute for near-real-time sync
+        # Integration data (templates, etc.): 10 minutes
+        # Default fallback: 2 minutes
+        self.memory_cache = TTLCache(maxsize=1000, ttl=120)  # 2 min TTL
+
         # Try to connect to Redis if available
         redis_url = os.getenv("REDIS_URL")
         if REDIS_AVAILABLE and redis_url:

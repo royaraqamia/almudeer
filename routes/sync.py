@@ -3,15 +3,101 @@ Sync routes for offline operation support.
 
 Provides batch sync endpoint for mobile clients to sync pending operations
 with idempotency key support to prevent duplicate processing.
+
+P0-1 FIX: Added atomic idempotency locking to prevent race conditions
+when concurrent requests use the same idempotency key.
 """
-from datetime import datetime, timezone
-from typing import List, Optional
+import asyncio
+import json
+from datetime import datetime, timezone, timedelta
+from typing import List, Optional, Dict, Tuple, Any
 from fastapi import APIRouter, Depends, Request, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from dependencies import get_license_from_header
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/sync", tags=["sync"])
+
+# P0-1 FIX: Async locks for atomic idempotency operations
+_idempotency_locks: Dict[str, asyncio.Lock] = {}
+_idempotency_lock_cleanup: Dict[str, datetime] = {}
+
+# In-memory idempotency key cache (in production, use Redis)
+# Key: idempotency_key, Value: (result, timestamp)
+_idempotency_cache: dict = {}
+IDEMPOTENCY_CACHE_TTL_HOURS = 24
+
+
+async def _cleanup_stale_locks():
+    """Clean up stale locks older than 30 seconds to prevent memory leaks."""
+    now = datetime.now(timezone.utc)
+    stale_locks = [
+        key for key, created in _idempotency_lock_cleanup.items()
+        if (now - created).total_seconds() > 30
+    ]
+    for key in stale_locks:
+        if key in _idempotency_locks and key in _idempotency_lock_cleanup:
+            del _idempotency_locks[key]
+            del _idempotency_lock_cleanup[key]
+
+
+async def _acquire_idempotency_lock(key: str) -> bool:
+    """
+    P0-1 FIX: Acquire lock for idempotency key atomically.
+    Returns True if lock acquired, False if another request is processing.
+    """
+    await _cleanup_stale_locks()
+    
+    if key not in _idempotency_locks:
+        _idempotency_locks[key] = asyncio.Lock()
+        _idempotency_lock_cleanup[key] = datetime.now(timezone.utc)
+    
+    try:
+        # Try to acquire lock without blocking (timeout after 5 seconds)
+        acquired = await asyncio.wait_for(_idempotency_locks[key].acquire(), timeout=5.0)
+        if acquired:
+            # Reset cleanup timer while lock is held
+            _idempotency_lock_cleanup[key] = datetime.now(timezone.utc) + timedelta(minutes=5)
+        return acquired
+    except asyncio.TimeoutError:
+        logger.warning(f"Timeout acquiring idempotency lock for key: {key}")
+        return False
+
+
+def _release_idempotency_lock(key: str):
+    """Release lock for idempotency key."""
+    if key in _idempotency_locks and _idempotency_locks[key].locked():
+        _idempotency_locks[key].release()
+
+
+def _check_idempotency(key: str) -> Optional[SyncResult]:
+    """Check if operation was already processed."""
+    if key in _idempotency_cache:
+        result, timestamp = _idempotency_cache[key]
+        age = (datetime.now(timezone.utc) - timestamp).total_seconds() / 3600
+        if age < IDEMPOTENCY_CACHE_TTL_HOURS:
+            return result
+        else:
+            del _idempotency_cache[key]
+    return None
+
+
+def _store_idempotency(key: str, result: SyncResult):
+    """Store operation result for idempotency."""
+    _idempotency_cache[key] = (result, datetime.now(timezone.utc))
+
+    # Clean old entries
+    if len(_idempotency_cache) > 10000:
+        cutoff = datetime.now(timezone.utc)
+        to_delete = [
+            k for k, (_, t) in _idempotency_cache.items()
+            if (cutoff - t).total_seconds() / 3600 > IDEMPOTENCY_CACHE_TTL_HOURS
+        ]
+        for k in to_delete:
+            del _idempotency_cache[k]
 
 
 class SyncOperation(BaseModel):
@@ -90,38 +176,70 @@ async def sync_batch(
 ):
     """
     Process a batch of offline operations with idempotency support.
-    
+
     Each operation includes an idempotency_key to prevent duplicate processing.
     Operations are processed in order.
+    
+    P0-1 FIX: Added atomic locking to prevent race conditions when concurrent
+    requests use the same idempotency key.
     """
     license_id = license_data.get("license_id")
     results: List[SyncResult] = []
-    
+
     for op in sync_request.operations:
         try:
-            # Check idempotency first (in-memory cache)
-            cached = _check_idempotency(op.idempotency_key)
-            if cached:
-                results.append(cached)
-                continue
+            # P0-1 FIX: Acquire lock for atomic idempotency check
+            lock_acquired = await _acquire_idempotency_lock(op.idempotency_key)
             
-            # Process operation
-            result = await _process_operation(op, license_id, background_tasks)
+            if not lock_acquired:
+                # Another request is processing this key - wait briefly and check cache
+                await asyncio.sleep(0.1)
+                cached = _check_idempotency(op.idempotency_key)
+                if cached:
+                    results.append(cached)
+                    continue
+                else:
+                    # Still processing - return conflict
+                    results.append(SyncResult(
+                        operation_id=op.id,
+                        success=False,
+                        error="Concurrent operation in progress",
+                        conflict=True,
+                    ))
+                    continue
             
-            _store_idempotency(op.idempotency_key, result)
-            results.append(result)
+            try:
+                # Check idempotency first (in-memory cache) - now atomic
+                cached = _check_idempotency(op.idempotency_key)
+                if cached:
+                    results.append(cached)
+                    continue
+
+                # Process operation
+                result = await _process_operation(op, license_id, background_tasks)
+
+                _store_idempotency(op.idempotency_key, result)
+                results.append(result)
             
+            finally:
+                # Always release lock
+                _release_idempotency_lock(op.idempotency_key)
+
         except Exception as e:
             # Log error but don't crash batch
-            print(f"Sync error op {op.id}: {e}")
+            logger.error(f"Sync error op {op.id}: {e}", exc_info=True)
             result = SyncResult(
                 operation_id=op.id,
                 success=False,
                 error=str(e),
             )
-            _store_idempotency(op.idempotency_key, result)
+            # Try to store result even on error (may fail if lock not held)
+            try:
+                _store_idempotency(op.idempotency_key, result)
+            except:
+                pass
             results.append(result)
-    
+
     return SyncResponse(
         results=results,
         processed_count=sum(1 for r in results if r.success),
@@ -316,26 +434,29 @@ async def get_delta_sync(
 ):
     """
     Get incremental updates for customers and conversations.
-    
+
     - `since`: ISO timestamp of last sync. If missing, returns recent active context.
     - `limit`: Maximum items to return per category.
+    
+    P2-11 FIX: Added proper error handling and logging for malformed timestamps.
     """
     license_id = license_data.get("license_id")
-    
+
     # If no timestamp provided, default to recent history (e.g., 30 days ago)
     # or just rely on limit to get "Active Context"
     if not since:
         since = datetime.now(timezone.utc) - timedelta(days=30)
     elif since.tzinfo is None:
-        # Assume UTC if naive
+        # P2-11 FIX: Log warning for naive timestamp and assume UTC
+        logger.warning(f"Delta sync received naive timestamp (no timezone): {since}. Assuming UTC.")
         since = since.replace(tzinfo=timezone.utc)
-        
+
     from models.customers import get_customers_delta
     from models.inbox import get_conversations_delta
-    
+
     customers = await get_customers_delta(license_id, since, limit)
     conversations = await get_conversations_delta(license_id, since, limit)
-    
+
     return DeltaSyncResponse(
         customers=customers,
         conversations=conversations,
