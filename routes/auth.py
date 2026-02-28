@@ -53,11 +53,24 @@ async def _apply_constant_time_delay():
 def _validate_content_type(request: Request) -> bool:
     """
     SECURITY FIX: Validate Content-Type header to prevent CSRF attacks.
+    CRITICAL FIX P1-11: Use strict MIME type matching to prevent bypass.
     """
-    content_type = request.headers.get("content-type", "")
-    # Allow application/json with optional charset
-    if "application/json" in content_type:
+    content_type = request.headers.get("content-type", "").strip().lower()
+    # Strict validation: must be exactly application/json or application/json; charset=utf-8
+    # Reject: text/plain, application/json-patch, etc.
+    if content_type == "application/json":
         return True
+    if content_type.startswith("application/json;"):
+        # Allow charset parameter
+        parts = content_type.split(";")
+        if len(parts) == 2 and parts[0].strip() == "application/json":
+            # Validate charset parameter format
+            charset_part = parts[1].strip()
+            if charset_part.startswith("charset="):
+                charset = charset_part[8:].strip().lower()
+                # Only allow utf-8 or utf-8 variants
+                if charset in ("utf-8", "utf8"):
+                    return True
     return False
 
 
@@ -122,6 +135,9 @@ async def login(data: LoginRequest, request: Request):
         if is_ip_locked and not is_key_locked:
             detail_msg = "تم حظر هذا الجهاز مؤقتًا بسبب كثرة المحاولات الفاشلة."
 
+        # SECURITY FIX P1-12: Apply constant-time delay to ALL error paths
+        await _apply_constant_time_delay()
+        
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"{detail_msg} حاول مرة أخرى بعد {remaining // 60} دقائق." if remaining > 60 else f"{detail_msg} حاول مرة أخرى بعد {remaining} ثانية.",
@@ -182,6 +198,9 @@ async def login(data: LoginRequest, request: Request):
             raise
         except Exception as e:
             logger.error(f"Error checking device secret binding: {e}")
+            # SECURITY FIX P1-12: Apply constant-time delay even on DB errors
+            # to prevent timing-based enumeration of error conditions
+            await _apply_constant_time_delay()
             # Don't block login on validation error, but log it
 
     # On success, clear failed attempts
@@ -408,9 +427,14 @@ async def logout(
         logger.error(f"Logout DB error: {type(e).__name__}: {e}")
         # SECURITY FIX #13: Return 503 error to inform user logout may not have completed
         # This prevents silent failures where user thinks they logged out but session remains active
+        # CRITICAL FIX: Include specific error code so mobile can handle appropriately
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="تعذر تسجيل الخروج بشكل كامل. يرجى المحاولة مرة أخرى.",
+            detail={
+                "error": "تعذر تسجيل الخروج بشكل كامل. يرجى المحاولة مرة أخرى.",
+                "error_code": "LOGOUT_INCOMPLETE",
+                "session_may_be_active": True,
+            },
             headers={"Retry-After": "5"},
         )
 
@@ -428,6 +452,8 @@ async def logout(
 class DeviceSecretRotateRequest(BaseModel):
     """Device secret rotation request"""
     new_device_secret: str
+    # CRITICAL FIX P1-16: Require current device secret for verification
+    current_device_secret: str
 
 
 @router.post("/rotate-device-secret")
@@ -438,17 +464,21 @@ async def rotate_device_secret(
 ):
     """
     Rotate the device secret for the current session.
-    
+
     SECURITY: This allows clients to periodically rotate device secrets,
     limiting the damage if a secret is compromised.
     
+    CRITICAL FIX P1-16: Now requires current_device_secret for verification
+    before allowing rotation. This prevents attackers with stolen access tokens
+    from rotating the device secret and locking out the legitimate user.
+
     The new secret must be provided by the client and will be bound to
-    the current session after verification.
+    the current session after verification of the current secret.
     """
-    from db_helper import get_db, execute_sql, commit_db
+    from db_helper import get_db, fetch_one, execute_sql, commit_db
     from database import DB_TYPE
     from security import hash_device_secret
-    
+
     try:
         family_id = user.get("family_id")
         if not family_id:
@@ -457,7 +487,7 @@ async def rotate_device_secret(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot rotate device secret for legacy session"
             )
-        
+
         # Validate new device secret format (64 hex chars = 256 bits)
         new_secret = data.new_device_secret
         if not new_secret or len(new_secret) != 64:
@@ -465,7 +495,7 @@ async def rotate_device_secret(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid device secret format. Must be 64 hex characters"
             )
-        
+
         # Ensure all characters are valid hex
         try:
             int(new_secret, 16)
@@ -474,32 +504,67 @@ async def rotate_device_secret(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Device secret must contain only hexadecimal characters"
             )
-        
+
+        # CRITICAL FIX P1-16: Validate current device secret before allowing rotation
+        current_secret = data.current_device_secret
+        if not current_secret or len(current_secret) != 64:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current device secret required for verification"
+            )
+
         async with get_db() as db:
+            # Fetch current session to verify current device secret
+            session = await fetch_one(
+                db,
+                "SELECT device_secret_hash FROM device_sessions WHERE family_id = ?",
+                [family_id]
+            )
+            
+            stored_hash = session.get("device_secret_hash") if session else None
+            
+            # If session has device binding, verify current secret matches
+            if stored_hash:
+                computed_hash = hash_device_secret(current_secret)
+                if not hmac.compare_digest(computed_hash, stored_hash):
+                    logger.warning(f"Device secret rotation failed: current secret mismatch for family {family_id}")
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Current device secret verification failed"
+                    )
+            else:
+                # Session doesn't have device binding - this is unusual
+                # For security, require the user to re-authenticate
+                logger.warning(f"Device secret rotation attempted for unbound session {family_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot rotate device secret for session without device binding"
+                )
+
             # Hash the new secret with pepper
             new_hash = hash_device_secret(new_secret)
-            
+
             # Update the session with the new device secret hash
             if DB_TYPE == "postgresql":
                 await execute_sql(
                     db,
-                    """UPDATE device_sessions 
-                       SET device_secret_hash = ?, 
-                           last_used_at = CURRENT_TIMESTAMP 
+                    """UPDATE device_sessions
+                       SET device_secret_hash = ?,
+                           last_used_at = CURRENT_TIMESTAMP
                        WHERE family_id = ?""",
                     [new_hash, family_id]
                 )
             else:
                 await execute_sql(
                     db,
-                    """UPDATE device_sessions 
-                       SET device_secret_hash = ?, 
-                           last_used_at = CURRENT_TIMESTAMP 
+                    """UPDATE device_sessions
+                       SET device_secret_hash = ?,
+                           last_used_at = CURRENT_TIMESTAMP
                        WHERE family_id = ?""",
                     [new_hash, family_id]
                 )
             await commit_db(db)
-        
+
         # Log the rotation
         security_logger = get_security_logger()
         security_logger.log_security_event(
@@ -507,14 +572,14 @@ async def rotate_device_secret(
             "device_secret_rotated",
             {"family_id": family_id}
         )
-        
+
         logger.info(f"Device secret rotated for user {user.get('user_id')}, family {family_id}")
-        
+
         return {
             "success": True,
             "message": "Device secret rotated successfully"
         }
-    
+
     except HTTPException:
         raise
     except Exception as e:

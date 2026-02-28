@@ -85,13 +85,19 @@ async def get_optional_license_from_header(
 ) -> Optional[Dict]:
     """
     Version of get_license_from_header that never raises.
+    
+    SECURITY FIX P1-17: Added token version validation for JWT-based auth.
     """
     # 1. Try JWT
     if auth:
         from services.jwt_auth import verify_token_async, TokenType
         payload = await verify_token_async(auth.credentials, TokenType.ACCESS)
         if payload and payload.get("license_id"):
-            result = await validate_license_by_id(payload["license_id"])
+            # Pass token version for validation
+            result = await validate_license_by_id(
+                payload["license_id"],
+                required_version=payload.get("v")
+            )
             if result.get("valid"):
                 result["user_id"] = payload.get("sub")
                 return result

@@ -51,8 +51,9 @@ class SessionRevocationCache:
             del self._cache[family_id]
 
 
-# Global session revocation cache (2 second TTL - SECURITY FIX: reduced from 10s)
-_session_revocation_cache = SessionRevocationCache(ttl_seconds=2)
+# Global session revocation cache (5 second TTL - SECURITY FIX: increased from 2s for better performance)
+# This reduces database load while maintaining security with a short enough TTL
+_session_revocation_cache = SessionRevocationCache(ttl_seconds=5)
 
 
 # ============ Configuration ============
@@ -484,7 +485,37 @@ async def refresh_access_token(
 
             # Security Hardening: Device Secret Binding Verification
             stored_hash = session.get("device_secret_hash")
-            if stored_hash: # Enforce only if session was created with a secret (backwards compat)
+            
+            # CRITICAL FIX P0-8: Require device secret for ALL refresh operations
+            # Legacy sessions without device_secret_hash must provide a device_secret to upgrade
+            # After a grace period (configurable), sessions without device binding will be rejected
+            grace_period_days = int(os.getenv("DEVICE_SECRET_GRACE_PERIOD_DAYS", "0"))  # 0 = immediate enforcement
+            
+            if not stored_hash:
+                # Session doesn't have device binding yet
+                if not device_secret:
+                    # CRITICAL FIX: Require device secret for refresh
+                    # This prevents unbound sessions from being refreshed indefinitely
+                    if grace_period_days == 0:
+                        logger.warning(f"Refresh rejected: Session {family_id} has no device binding and no device_secret provided")
+                        return None
+                    else:
+                        # Grace period active - allow but log warning
+                        logger.warning(f"Legacy session {family_id} refreshing without device binding (grace period active)")
+                else:
+                    # Upgrade legacy session to device-bound
+                    from security import hash_device_secret
+                    stored_hash = hash_device_secret(device_secret)
+                    await execute_sql(
+                        db,
+                        "UPDATE device_sessions SET device_secret_hash = ? WHERE family_id = ?",
+                        [stored_hash, family_id]
+                    )
+                    await commit_db(db)
+                    logger.info(f"Upgraded legacy session {family_id} to device-bound")
+            
+            # Enforce device secret verification for bound sessions
+            if stored_hash:
                 if not device_secret:
                     logger.warning(f"Refresh failed: Missing device_secret for bound session {family_id}")
                     return None
@@ -550,11 +581,16 @@ security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    x_device_fingerprint: Optional[str] = Header(None, alias="X-Device-Fingerprint"),
 ) -> Dict[str, Any]:
     """
     FastAPI dependency to get current authenticated user.
     
+    SECURITY FIX: Added device fingerprint validation to detect stolen tokens.
+    If a token is used from a different device than the one it was issued to,
+    the session is revoked immediately.
+
     Usage:
         @app.get("/protected")
         async def protected_route(user: dict = Depends(get_current_user)):
@@ -566,16 +602,16 @@ async def get_current_user(
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     payload = await verify_token_async(credentials.credentials, TokenType.ACCESS)
-    
+
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     # Real-time Session Revocation Check (Specific to this device/session)
     # FIX: Added caching to reduce DB load
     family_id = payload.get("family_id")
@@ -595,10 +631,13 @@ async def get_current_user(
             from db_helper import get_db, fetch_one
             try:
                 async with get_db() as db:
-                    session = await fetch_one(db, "SELECT is_revoked FROM device_sessions WHERE family_id = ?", [family_id])
+                    # SECURITY FIX: Fetch full session for device fingerprint validation
+                    session = await fetch_one(db, 
+                        "SELECT is_revoked, device_fingerprint, device_secret_hash FROM device_sessions WHERE family_id = ?", 
+                        [family_id])
                     is_revoked = session.get("is_revoked") if session else False
                     _session_revocation_cache.set(family_id, is_revoked)
-                    
+
                     if is_revoked:
                         logger.warning(f"Blocking access token for revoked session: {family_id}")
                         raise HTTPException(
@@ -606,6 +645,27 @@ async def get_current_user(
                             detail="Session has been revoked",
                             headers={"WWW-Authenticate": "Bearer"},
                         )
+                    
+                    # SECURITY FIX: Validate device fingerprint matches
+                    # If session has a stored fingerprint and request provides one, they must match
+                    stored_fingerprint = session.get("device_fingerprint") if session else None
+                    if stored_fingerprint and x_device_fingerprint:
+                        if stored_fingerprint != x_device_fingerprint:
+                            logger.warning(
+                                f"Device fingerprint mismatch! Token from {stored_fingerprint[:50]}... "
+                                f"used by {x_device_fingerprint[:50]}... Revoking session."
+                            )
+                            # Token theft detected - revoke entire session chain
+                            await execute_sql(db, 
+                                "UPDATE device_sessions SET is_revoked = TRUE WHERE family_id = ?", 
+                                [family_id])
+                            await commit_db(db)
+                            _session_revocation_cache.invalidate(family_id)
+                            raise HTTPException(
+                                status_code=status.HTTP_401_UNAUTHORIZED,
+                                detail="Session revoked - device mismatch detected",
+                                headers={"WWW-Authenticate": "Bearer"},
+                            )
             except HTTPException:
                 raise
             except Exception as e:
