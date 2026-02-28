@@ -73,7 +73,7 @@ def _release_idempotency_lock(key: str):
         _idempotency_locks[key].release()
 
 
-def _check_idempotency(key: str) -> Optional[SyncResult]:
+def _check_idempotency(key: str) -> Optional["SyncResult"]:
     """Check if operation was already processed."""
     if key in _idempotency_cache:
         result, timestamp = _idempotency_cache[key]
@@ -85,7 +85,7 @@ def _check_idempotency(key: str) -> Optional[SyncResult]:
     return None
 
 
-def _store_idempotency(key: str, result: SyncResult):
+def _store_idempotency(key: str, result: "SyncResult"):
     """Store operation result for idempotency."""
     _idempotency_cache[key] = (result, datetime.now(timezone.utc))
 
