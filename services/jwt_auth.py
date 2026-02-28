@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from jose import jwt, JWTError
 from starlette.concurrency import run_in_threadpool
+from fastapi import Header
 
 from logging_config import get_logger
 
