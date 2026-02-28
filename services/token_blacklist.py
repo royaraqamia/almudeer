@@ -266,10 +266,45 @@ class TokenBlacklist:
         expired = [jti for jti, exp in self._memory_store.items() if exp <= current_time]
         for jti in expired:
             del self._memory_store[jti]
-        
+
         if expired:
             logger.debug(f"Cleaned up {len(expired)} expired blacklist entries")
-    
+
+    # P1-6 FIX: Add cleanup method for database blacklist table
+    async def cleanup_expired_db_blacklist(self):
+        """
+        P1-6 FIX: Clean up expired entries from the database blacklist table.
+        This should be called periodically (e.g., daily) to prevent table bloat.
+
+        Usage: Add to a background task or cron job in main.py
+        """
+        try:
+            from db_helper import get_db, execute_sql, commit_db
+            from database import DB_TYPE
+
+            async with get_db() as db:
+                if DB_TYPE == "postgresql":
+                    result = await execute_sql(db, """
+                        DELETE FROM token_blacklist
+                        WHERE expires_at < NOW()
+                    """)
+                else:
+                    result = await execute_sql(db, """
+                        DELETE FROM token_blacklist
+                        WHERE expires_at < datetime('now')
+                    """)
+
+                await commit_db(db)
+
+                # Get count of deleted rows (if supported)
+                if hasattr(result, 'rowcount') and result.rowcount is not None:
+                    logger.info(f"P1-6: Cleaned up {result.rowcount} expired token blacklist entries")
+                else:
+                    logger.info("P1-6: Token blacklist cleanup completed")
+
+        except Exception as e:
+            logger.error(f"P1-6: Token blacklist cleanup failed: {e}")
+
     def get_stats(self) -> dict:
         """Get blacklist statistics."""
         if self._redis_client:
@@ -304,3 +339,17 @@ def blacklist_token(jti: str, expires_at: datetime) -> bool:
 def is_token_blacklisted(jti: str) -> bool:
     """Convenience function to check if a token is blacklisted."""
     return get_token_blacklist().is_blacklisted(jti)
+
+
+# P1-6 FIX: Add cleanup convenience function
+async def cleanup_token_blacklist() -> None:
+    """
+    P1-6 FIX: Clean up expired entries from the token blacklist.
+    Call this periodically (e.g., daily) to prevent database bloat.
+
+    Usage in main.py or scheduled task:
+        from services.token_blacklist import cleanup_token_blacklist
+        await cleanup_token_blacklist()
+    """
+    blacklist = get_token_blacklist()
+    await blacklist.cleanup_expired_db_blacklist()

@@ -247,6 +247,25 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Failed to start subscription reminder worker: {e}")
 
+        # P1-6 FIX: Start token blacklist cleanup background task
+        try:
+            async def cleanup_blacklist_periodically():
+                """Clean up expired token blacklist entries daily"""
+                from services.token_blacklist import cleanup_token_blacklist
+                while True:
+                    await asyncio.sleep(86400)  # 24 hours
+                    try:
+                        await cleanup_token_blacklist()
+                        logger.info("Token blacklist cleanup completed")
+                    except Exception as e:
+                        logger.error(f"Token blacklist cleanup failed: {e}")
+
+            # Start cleanup task in background
+            asyncio.create_task(cleanup_blacklist_periodically())
+            logger.info("Token blacklist cleanup task started (runs daily)")
+        except Exception as e:
+            logger.warning(f"Failed to start token blacklist cleanup task: {e}")
+
         # Start metrics collection (monitoring)
         try:
             from services.metrics_service import start_metrics_collection

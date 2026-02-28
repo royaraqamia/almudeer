@@ -52,9 +52,9 @@ class SessionRevocationCache:
             del self._cache[family_id]
 
 
-# Global session revocation cache (5 second TTL - SECURITY FIX: increased from 2s for better performance)
-# This reduces database load while maintaining security with a short enough TTL
-_session_revocation_cache = SessionRevocationCache(ttl_seconds=5)
+# Global session revocation cache (1 second TTL - P0-3 FIX: Reduced from 5s for faster revocation)
+# This reduces the window where revoked sessions can still access the system
+_session_revocation_cache = SessionRevocationCache(ttl_seconds=1)
 
 
 # ============ Configuration ============
@@ -647,18 +647,39 @@ async def get_current_user(
                             headers={"WWW-Authenticate": "Bearer"},
                         )
                     
-                    # SECURITY FIX: Validate device fingerprint matches
-                    # If session has a stored fingerprint and request provides one, they must match
+                    # P0-4 FIX: Enforce device fingerprint validation
+                    # If session has a stored fingerprint, client MUST provide matching fingerprint
                     stored_fingerprint = session.get("device_fingerprint") if session else None
-                    if stored_fingerprint and x_device_fingerprint:
+
+                    if stored_fingerprint:
+                        # P0-4 FIX: Require fingerprint on all requests for bound sessions
+                        if not x_device_fingerprint:
+                            logger.warning(
+                                f"Missing device fingerprint for session {family_id}. "
+                                "Token may be stolen or client is outdated."
+                            )
+                            # P0-4 FIX: Revoke session if fingerprint is missing
+                            # This prevents attackers from using stolen tokens without fingerprint
+                            await execute_sql(db,
+                                "UPDATE device_sessions SET is_revoked = TRUE WHERE family_id = ?",
+                                [family_id])
+                            await commit_db(db)
+                            _session_revocation_cache.invalidate(family_id)
+                            raise HTTPException(
+                                status_code=status.HTTP_401_UNAUTHORIZED,
+                                detail="Session revoked - device fingerprint required",
+                                headers={"WWW-Authenticate": "Bearer"},
+                            )
+
+                        # P0-4 FIX: Validate fingerprint matches
                         if stored_fingerprint != x_device_fingerprint:
                             logger.warning(
                                 f"Device fingerprint mismatch! Token from {stored_fingerprint[:50]}... "
                                 f"used by {x_device_fingerprint[:50]}... Revoking session."
                             )
                             # Token theft detected - revoke entire session chain
-                            await execute_sql(db, 
-                                "UPDATE device_sessions SET is_revoked = TRUE WHERE family_id = ?", 
+                            await execute_sql(db,
+                                "UPDATE device_sessions SET is_revoked = TRUE WHERE family_id = ?",
                                 [family_id])
                             await commit_db(db)
                             _session_revocation_cache.invalidate(family_id)

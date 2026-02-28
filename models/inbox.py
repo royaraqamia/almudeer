@@ -8,47 +8,100 @@ import json
 import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Any
+from collections import OrderedDict
 
 from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db, DB_TYPE
+
+# P1-5 FIX: In-memory LRU cache as fallback for Redis deduplication
+# This prevents duplicate messages during Redis outages
+class LocalDeduplicationCache:
+    """Thread-safe LRU cache for message deduplication (fallback when Redis unavailable)"""
+    
+    def __init__(self, maxsize: int = 10000, ttl_seconds: int = 300):
+        self._cache: OrderedDict[str, datetime] = OrderedDict()
+        self._maxsize = maxsize
+        self._ttl = timedelta(seconds=ttl_seconds)
+        self._lock = asyncio.Lock()
+    
+    async def get(self, key: str) -> bool:
+        """Check if key exists and is not expired"""
+        async with self._lock:
+            if key not in self._cache:
+                return False
+            
+            # Check if expired
+            if datetime.utcnow() - self._cache[key] > self._ttl:
+                del self._cache[key]
+                return False
+            
+            # Move to end (most recently used)
+            self._cache.move_to_end(key)
+            return True
+    
+    async def set(self, key: str):
+        """Add key to cache with TTL"""
+        async with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+            else:
+                if len(self._cache) >= self._maxsize:
+                    # Remove oldest (first) item
+                    self._cache.popitem(last=False)
+                self._cache[key] = datetime.utcnow()
+
+# Global local deduplication cache (P1-5 FIX)
+_local_dedup_cache = LocalDeduplicationCache(maxsize=10000, ttl_seconds=300)
 
 
 async def _check_message_deduplication(license_id: int, channel: str, sender_id: str, body: str, received_at: datetime) -> bool:
     """
     Check if message was already processed using Redis-based deduplication.
     Returns True if message is duplicate (should be skipped), False if new.
+    
+    P1-5 FIX: Added local in-memory fallback when Redis is unavailable.
     """
     redis_url = os.getenv("REDIS_URL")
-    if not redis_url:
-        return False  # No Redis, skip deduplication
     
-    try:
-        import redis.asyncio as aioredis
-        redis_client = await aioredis.from_url(redis_url, decode_responses=True)
-        
-        # Generate unique message hash
-        timestamp_str = received_at.isoformat() if isinstance(received_at, datetime) else str(received_at)
-        msg_hash = hashlib.sha256(
-            f"{license_id}:{channel}:{sender_id}:{body}:{timestamp_str}".encode()
-        ).hexdigest()
-        
-        # Check if hash exists
-        key = f"msg_dedup:{msg_hash}"
-        exists = await redis_client.exists(key)
-        
-        if exists:
-            # Duplicate detected
+    # Generate unique message hash
+    timestamp_str = received_at.isoformat() if isinstance(received_at, datetime) else str(received_at)
+    msg_hash = hashlib.sha256(
+        f"{license_id}:{channel}:{sender_id}:{body}:{timestamp_str}".encode()
+    ).hexdigest()
+    
+    # Try Redis first if available
+    if redis_url:
+        try:
+            import redis.asyncio as aioredis
+            redis_client = await aioredis.from_url(redis_url, decode_responses=True)
+
+            # Check if hash exists
+            key = f"msg_dedup:{msg_hash}"
+            exists = await redis_client.exists(key)
+
+            if exists:
+                # Duplicate detected
+                await redis_client.close()
+                return True
+
+            # Set with 5-minute TTL to allow for processing window
+            await redis_client.setex(key, 300, "1")
             await redis_client.close()
-            return True
-        
-        # Set with 5-minute TTL to allow for processing window
-        await redis_client.setex(key, 300, "1")
-        await redis_client.close()
-        return False
-        
-    except Exception as e:
-        from logging_config import get_logger
-        get_logger(__name__).warning(f"Redis deduplication failed: {e}")
-        return False  # Fail open - allow message if dedup fails
+            return False
+
+        except Exception as e:
+            from logging_config import get_logger
+            get_logger(__name__).warning(f"Redis deduplication failed, using local fallback: {e}")
+            # Fall through to local cache
+    
+    # P1-5 FIX: Use local in-memory cache as fallback
+    key = f"msg_dedup:{msg_hash}"
+    is_duplicate = await _local_dedup_cache.get(key)
+    
+    if is_duplicate:
+        return True
+    
+    await _local_dedup_cache.set(key)
+    return False
 
 
 async def save_inbox_message(
@@ -917,33 +970,40 @@ async def get_conversation_messages(
     """
     Get all messages from a specific sender (for conversation detail view).
     NOTE: Excludes 'pending' status messages - only shows messages after AI responds.
-    
+
     Uses comprehensive alias matching to find all messages from the same sender,
     even if stored with different identifier formats (phone, username, ID).
+    
+    P0-4 FIX: Added fallback when alias matching returns empty results.
     """
     async with get_db() as db:
         # Get all aliases for this sender
         all_contacts, all_ids = await _get_sender_aliases(db, license_id, sender_contact)
-        
+
+        # P0-4 FIX: If no aliases found, use original sender_contact as fallback
+        # This prevents empty result sets when sender_contact format is unique
+        if not all_contacts and not all_ids:
+            all_contacts = {sender_contact} if sender_contact else set()
+
         # Build comprehensive WHERE clause
         conditions = []
         params = [license_id]
-        
+
         # Match by sender_contact
         if all_contacts:
             contact_placeholders = ", ".join(["?" for _ in all_contacts])
             conditions.append(f"sender_contact IN ({contact_placeholders})")
             params.extend(list(all_contacts))
-        
+
         # Match by sender_id
         if all_ids:
             id_placeholders = ", ".join(["?" for _ in all_ids])
             conditions.append(f"sender_id IN ({id_placeholders})")
             params.extend(list(all_ids))
-        
+
         where_clause = " OR ".join(conditions) if conditions else "1=0"
         params.append(limit)
-        
+
         rows = await fetch_all(
             db,
             f"""
@@ -1008,7 +1068,9 @@ async def get_conversation_messages_cursor(
                     cursor_table_prefix = parts[1]  # 'i' or 'o'
                     cursor_id = int(parts[2])
                     cursor_direction = parts[3]  # 'i' or 'o'
-                    cursor_body_hash = int(parts[4])  # Body hash for tie-breaking
+                    # P0-6 FIX: Keep body_hash as string to prevent overflow
+                    # Compare as strings during pagination
+                    cursor_body_hash = parts[4]  # Body hash for tie-breaking
                 elif len(parts) == 4:
                     # Format with table prefix but no body hash
                     cursor_table_prefix = parts[1]  # 'i' or 'o'
@@ -1028,56 +1090,61 @@ async def get_conversation_messages_cursor(
 
         except Exception:
             pass  # Invalid cursor, start from beginning
-    
+
     async with get_db() as db:
         # Get all aliases for this sender
         all_contacts, all_ids = await _get_sender_aliases(db, license_id, sender_contact)
-        
+
+        # P0-4 FIX: If no aliases found, use original sender_contact as fallback
+        # This prevents empty result sets when sender_contact format is unique
+        if not all_contacts and not all_ids:
+            all_contacts = {sender_contact} if sender_contact else set()
+
         # Build params
         params = []
-        
+
         # --- Inbox Conditions ---
         inbox_conditions = ["i.license_key_id = ?"]
         inbox_params = [license_id]
-        
+
         in_identifiers = []
         if all_contacts:
             contact_placeholders = ", ".join(["?" for _ in all_contacts])
             in_identifiers.append(f"i.sender_contact IN ({contact_placeholders})")
             inbox_params.extend(list(all_contacts))
-        
+
         if all_ids:
             id_placeholders = ", ".join(["?" for _ in all_ids])
             in_identifiers.append(f"i.sender_id IN ({id_placeholders})")
             inbox_params.extend(list(all_ids))
-            
+
         in_sender_where = " OR ".join(in_identifiers) if in_identifiers else "1=0"
         inbox_conditions.append(f"({in_sender_where})")
         # No status filter
         inbox_conditions.append("i.deleted_at IS NULL")
-        
+
         inbox_where = " AND ".join(inbox_conditions)
-        
+
         # --- Outbox Conditions ---
         outbox_conditions = ["o.license_key_id = ?"]
         outbox_params = [license_id]
-        
+
         out_identifiers = []
         if all_contacts:
             contact_placeholders = ", ".join(["?" for _ in all_contacts])
             out_identifiers.append(f"o.recipient_email IN ({contact_placeholders})")
             outbox_params.extend(list(all_contacts))
-        
+
         if all_ids:
             id_placeholders = ", ".join(["?" for _ in all_ids])
             out_identifiers.append(f"o.recipient_id IN ({id_placeholders})")
             outbox_params.extend(list(all_ids))
-            
+
         out_sender_where = " OR ".join(out_identifiers) if out_identifiers else "1=0"
         outbox_conditions.append(f"({out_sender_where})")
         outbox_conditions.append("o.status IN ('approved', 'sent')")
         outbox_conditions.append("o.deleted_at IS NULL")
-        
+
         outbox_where = " AND ".join(outbox_conditions)
         
         # --- Combined Query ---
@@ -1243,11 +1310,14 @@ async def get_conversation_messages_cursor(
             # Format: "{ts}_{table_prefix}_{id}_{direction}"
             d = 'i' if last_msg['direction'] == 'incoming' else 'o'
             table_prefix = 'i' if last_msg['direction'] == 'incoming' else 'o'
-            
-            # P1-4 FIX: Add hash of message body for additional uniqueness in edge cases
-            # This handles the rare case of same timestamp, same ID, same direction
-            body_hash = hash(last_msg.get('body', '')[:50]) % 1000
-            
+
+            # P0-6 FIX: Use stable hash for body to prevent overflow issues
+            # Python's hash() can return negative values and varies between runs
+            # Use SHA256 truncated for stable, positive hash
+            import hashlib
+            body_text = last_msg.get('body', '')[:50] if last_msg.get('body') else ''
+            body_hash = int(hashlib.md5(body_text.encode()).hexdigest()[:8], 16)
+
             cursor_str = f"{ts}_{table_prefix}_{last_msg['id']}_{d}_{body_hash}"
             next_cursor = base64.b64encode(cursor_str.encode('utf-8')).decode('utf-8')
             

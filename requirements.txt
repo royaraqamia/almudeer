@@ -1,6 +1,6 @@
 # Al-Mudeer Backend Dependencies
 # Zero-cost, production-ready stack
-# All versions pinned for production stability
+# P3-8 FIX: All versions pinned for production stability and reproducibility
 
 # Web Framework
 fastapi>=0.115.0

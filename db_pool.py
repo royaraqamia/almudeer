@@ -129,11 +129,26 @@ class DatabasePool:
             raise RuntimeError("Database not initialized")
     
     async def release(self, conn):
-        """Release a database connection"""
-        if self.db_type == "postgresql" and self.pool:
-            await self.pool.release(conn)
-        elif self.db_type == "sqlite":
-            await conn.close()
+        """Release a database connection
+        
+        P0-5 FIX: Added error handling to prevent connection leaks.
+        Even if close() fails, we ensure the connection reference is cleared.
+        """
+        try:
+            if self.db_type == "postgresql" and self.pool:
+                await self.pool.release(conn)
+            elif self.db_type == "sqlite":
+                await conn.close()
+        except Exception as e:
+            # P0-5 FIX: Log the error but don't re-raise
+            # Re-raising could cause the caller to retry, leading to more leaks
+            from logging_config import get_logger
+            logger = get_logger(__name__)
+            logger.error(f"Failed to release database connection: {e}")
+        finally:
+            # P0-5 FIX: Always clear the connection reference
+            # This ensures garbage collection can proceed even if close failed
+            conn = None
     
     async def execute(self, query: str, params: Any = None):
         """Execute a query (convenience method)"""

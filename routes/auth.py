@@ -167,41 +167,72 @@ async def login(data: LoginRequest, request: Request):
 
     license_id = result.get("license_id")
 
-    # SECURITY FIX: Validate device secret binding if session exists with device binding
-    # If there's an existing session with device_secret_hash, the client MUST provide matching hash
-    if data.device_secret_hash:
-        from db_helper import get_db, fetch_one
-        from database import DB_TYPE
-        from security import hash_device_secret
-        try:
-            async with get_db() as db:
-                # Check for existing session with device binding
-                existing_session = await fetch_one(
-                    db,
-                    "SELECT device_secret_hash FROM device_sessions WHERE license_key_id = ? AND device_secret_hash IS NOT NULL AND is_revoked = 0 ORDER BY last_used_at DESC LIMIT 1",
-                    [license_id]
-                )
-                if existing_session and existing_session.get("device_secret_hash"):
-                    stored_hash = existing_session["device_secret_hash"]
-                    # Device has existing binding - verify it matches
-                    # SECURITY FIX: Use peppered hash comparison
-                    if not hmac.compare_digest(data.device_secret_hash, stored_hash):
-                        logger.warning(f"Device secret mismatch on login for license {license_id}")
-                        # SECURITY FIX: Apply constant-time delay
-                        await _apply_constant_time_delay()
-                        # Don't reveal that device binding exists - generic error
-                        raise HTTPException(
-                            status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="مفتاح الاشتراك غير صحيح",
-                        )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error checking device secret binding: {e}")
-            # SECURITY FIX P1-12: Apply constant-time delay even on DB errors
-            # to prevent timing-based enumeration of error conditions
-            await _apply_constant_time_delay()
-            # Don't block login on validation error, but log it
+    # P0-2 FIX: ALWAYS check for existing device binding, not just when device_secret_hash is provided
+    # This prevents attackers with stolen license keys from bypassing device binding
+    from db_helper import get_db, fetch_one
+    from database import DB_TYPE
+    from security import hash_device_secret
+
+    try:
+        async with get_db() as db:
+            # Check for existing non-revoked sessions with device binding
+            existing_session = await fetch_one(
+                db,
+                "SELECT device_secret_hash FROM device_sessions WHERE license_key_id = ? AND is_revoked = 0 ORDER BY last_used_at DESC LIMIT 1",
+                [license_id]
+            )
+
+            if existing_session and existing_session.get("device_secret_hash"):
+                stored_hash = existing_session["device_secret_hash"]
+
+                # P0-2 FIX: Require device secret for known licenses
+                if not data.device_secret_hash:
+                    logger.warning(f"Device secret required but not provided for license {license_id}")
+                    # P2-11 FIX: Log security event for audit trail
+                    security_logger = get_security_logger()
+                    security_logger.log_security_event(
+                        user_id=str(license_id),
+                        event_type="device_secret_missing",
+                        details={
+                            "ip_address": ip_address,
+                            "user_agent": request.headers.get("User-Agent", "Unknown"),
+                        }
+                    )
+                    await _apply_constant_time_delay()
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="مفتاح الاشتراك غير صحيح",
+                    )
+
+                # Device has existing binding - verify it matches
+                # SECURITY FIX: Use peppered hash comparison
+                if not hmac.compare_digest(data.device_secret_hash, stored_hash):
+                    logger.warning(f"Device secret mismatch on login for license {license_id}")
+                    # P2-11 FIX: Log security event for audit trail
+                    security_logger = get_security_logger()
+                    security_logger.log_security_event(
+                        user_id=str(license_id),
+                        event_type="device_secret_mismatch",
+                        details={
+                            "ip_address": ip_address,
+                            "user_agent": request.headers.get("User-Agent", "Unknown"),
+                        }
+                    )
+                    # SECURITY FIX: Apply constant-time delay
+                    await _apply_constant_time_delay()
+                    # Don't reveal that device binding exists - generic error
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="مفتاح الاشتراك غير صحيح",
+                    )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking device secret binding: {e}")
+        # SECURITY FIX P1-12: Apply constant-time delay even on DB errors
+        # to prevent timing-based enumeration of error conditions
+        await _apply_constant_time_delay()
+        # Don't block login on validation error, but log it
 
     # On success, clear failed attempts
     record_successful_login(data.license_key)
@@ -260,18 +291,21 @@ async def refresh_token(data: RefreshRequest, request: Request):
 
 
 @router.get("/me")
-@limiter.limit(RateLimits.AUTH)  # SECURITY FIX #4: Rate limit to prevent token enumeration
+@limiter.limit(RateLimits.USER_INFO)  # P2-13 FIX: Stricter rate limit (10/min) to prevent token enumeration
 async def get_current_user_info(request: Request, user: dict = Depends(get_current_user)):
     """
     Get current user information.
 
     Returns comprehensive user data from the database without issuing new tokens.
     This is preferred over calling /login for user info as it doesn't rotate tokens.
-    
-    SECURITY FIX #4: Rate limited to 5 requests/minute to prevent:
+
+    SECURITY FIX #4: Rate limited to prevent:
     - Token enumeration attacks
     - Server resource exhaustion
     - Bypass of login rate limits via stolen tokens
+
+    P2-13 FIX: Using stricter USER_INFO rate limit (10/min) instead of AUTH (5/min)
+    to allow reasonable usage while still preventing abuse.
     """
     from db_helper import get_db, fetch_one
 

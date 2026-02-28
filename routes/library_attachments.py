@@ -68,9 +68,14 @@ async def upload_attachment(
     license: dict = Depends(get_license_from_header),
     user: Optional[dict] = Depends(get_current_user_optional)
 ):
-    """Upload an attachment to a library item"""
-    user_id = user.get("user_id") if user else None
+    """Upload an attachment to a library item
     
+    P1-4 FIX: Added filename sanitization to prevent path traversal attacks.
+    """
+    import re  # P1-4 FIX: For filename sanitization
+    
+    user_id = user.get("user_id") if user else None
+
     # Verify parent item exists
     async with get_db() as db:
         item = await fetch_one(
@@ -78,10 +83,23 @@ async def upload_attachment(
             "SELECT id FROM library_items WHERE id = ? AND license_key_id = ? AND deleted_at IS NULL",
             [item_id, license["license_id"]]
         )
-        
+
         if not item:
             raise HTTPException(404, detail="Library item not found")
+
+    # P1-4 FIX: Sanitize filename to prevent path traversal attacks
+    original_filename = file.filename or "attachment"
+    # Remove path components (prevent ../../../etc/passwd)
+    safe_filename = os.path.basename(original_filename)
+    # Remove special characters that could cause issues
+    safe_filename = re.sub(r'[^\w\-_.\u0600-\u06FF]', '_', safe_filename)  # Allow Arabic chars
+    # Ensure filename is not empty after sanitization
+    if not safe_filename or safe_filename == '_':
+        safe_filename = f"attachment_{datetime.utcnow().timestamp()}"
     
+    # Store sanitized filename back to file object
+    file.filename = safe_filename
+
     # Get file size
     try:
         await file.seek(0, 2)
@@ -90,7 +108,7 @@ async def upload_attachment(
     except Exception as e:
         logger.error(f"Failed to get file size: {e}")
         raise HTTPException(400, detail="Failed to read file size")
-    
+
     # Validate file size
     if file_size > MAX_ATTACHMENT_SIZE:
         raise HTTPException(
@@ -101,22 +119,22 @@ async def upload_attachment(
                 "message_en": f"File size exceeds maximum limit ({MAX_ATTACHMENT_SIZE / 1024 / 1024}MB)"
             }
         )
-    
+
     # Check storage quota
     # FIX: Use combined storage calculation - attachments ARE part of library storage
     # The library_items table already includes attachment file_size via library_attachments
     # So we only need to check total storage usage once
     current_usage = await get_storage_usage(license["license_id"])
-    
+
     from models.library import MAX_STORAGE_PER_LICENSE
     if current_usage + file_size > MAX_STORAGE_PER_LICENSE:
         raise HTTPException(400, detail="Storage limit exceeded")
-    
-    # Save file
+
+    # Save file with sanitized filename
     try:
         relative_path, public_url = await file_storage.save_upload_file_async(
             upload_file=file,
-            filename=file.filename,
+            filename=safe_filename,  # P1-4 FIX: Use sanitized filename
             mime_type=file.content_type or "application/octet-stream",
             subfolder="library/attachments"
         )

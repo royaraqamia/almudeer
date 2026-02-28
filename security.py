@@ -38,7 +38,12 @@ _KEY_DERIVATION_SALT = os.getenv("ENCRYPTION_SALT", "").encode() or os.urandom(1
 _DEVICE_SECRET_PEPPER = os.getenv("DEVICE_SECRET_PEPPER")
 if not _DEVICE_SECRET_PEPPER:
     if os.getenv("ENVIRONMENT", "development") == "production":
-        raise ValueError("DEVICE_SECRET_PEPPER must be set in production environment!")
+        # P1-5 FIX: Fail fast in production - do not allow startup without pepper
+        import sys
+        raise ValueError(
+            "DEVICE_SECRET_PEPPER must be set in production environment! "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
     # SECURITY FIX #6: Use fixed pepper for development to prevent session invalidation on restart
     # This is safe for development as long as .env is not committed to version control
     _DEVICE_SECRET_PEPPER = "dev_device_secret_pepper_do_not_use_in_production_change_in_env"
@@ -52,7 +57,12 @@ if not _DEVICE_SECRET_PEPPER:
 _LICENSE_KEY_PEPPER = os.getenv("LICENSE_KEY_PEPPER")
 if not _LICENSE_KEY_PEPPER:
     if os.getenv("ENVIRONMENT", "development") == "production":
-        raise ValueError("LICENSE_KEY_PEPPER must be set in production environment!")
+        # P1-5 FIX: Fail fast in production - do not allow startup without pepper
+        import sys
+        raise ValueError(
+            "LICENSE_KEY_PEPPER must be set in production environment! "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
     # SECURITY FIX #6: Use fixed pepper for development to prevent session invalidation on restart
     # This is safe for development as long as .env is not committed to version control
     _LICENSE_KEY_PEPPER = "dev_license_key_pepper_do_not_use_in_production_change_in_env"
