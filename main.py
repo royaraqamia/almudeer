@@ -678,30 +678,52 @@ async def create_license(data: LicenseKeyCreate, _: None = Depends(verify_admin)
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-async def handle_websocket_connection(websocket: WebSocket, license_key: str):
-    """Shared WebSocket connection handler"""
-    # Validate license key (or JWT)
+async def handle_websocket_connection(websocket: WebSocket, credential: str):
+    """
+    Shared WebSocket connection handler supporting both license keys and JWT tokens.
+    
+    SECURITY FIX #11: WebSocket authentication now supports JWT tokens.
+    License keys in URL/query params are still supported for backward compatibility.
+    """
     from dependencies import resolve_license
-    try:
-        license_result = await resolve_license(license_key)
-    except Exception:
-        # Must accept before closing if we want to send a reason/code in modern ASGI
-        await websocket.accept()
-        await websocket.close(code=4001, reason="Invalid credential")
-        return
+    from services.jwt_auth import verify_token, TokenType
     
-    license_id = license_result["license_id"]
+    license_id = None
+    
+    # Try to validate as JWT token first
+    if credential.startswith("eyJ"):
+        # Looks like a JWT token - validate it
+        payload = verify_token(credential, TokenType.ACCESS)
+        if payload and payload.get("license_id"):
+            license_id = payload.get("license_id")
+            logger.debug(f"WebSocket authenticated via JWT for license {license_id}")
+        else:
+            # Invalid JWT
+            await websocket.accept()
+            await websocket.close(code=4001, reason="Invalid or expired token")
+            return
+    else:
+        # Treat as license key (legacy method)
+        try:
+            license_result = await resolve_license(credential)
+            license_id = license_result["license_id"]
+            logger.debug(f"WebSocket authenticated via license key for license {license_id}")
+        except Exception:
+            await websocket.accept()
+            await websocket.close(code=4001, reason="Invalid credential")
+            return
+
     manager = get_websocket_manager()
-    
+
     try:
         await manager.connect(websocket, license_id)
         while True:
             # Keep connection alive, handle pings
             data = await websocket.receive_text()
-            
+
             # Handle both simple "ping" string and JSON ping object
             is_ping = False
-            
+
             if data == "ping":
                 is_ping = True
             elif data.startswith("{") and '"ping"' in data:
@@ -715,10 +737,10 @@ async def handle_websocket_connection(websocket: WebSocket, license_key: str):
 
             if is_ping:
                 await websocket.send_text('{"event":"pong"}')
-                
+
                 # Refresh presence for primary account
                 await manager.refresh_last_seen(license_id)
-                
+
                 if manager.redis_enabled:
                     try:
                         key = f"almudeer:presence:count:{license_id}"
@@ -734,6 +756,7 @@ async def handle_websocket_connection(websocket: WebSocket, license_key: str):
         try:
             await manager.disconnect(websocket, license_id)
         except Exception:
+            # Do NOT re-raise, as that causes the "RuntimeError: WebSocket is not connected"
             pass
         # Do NOT re-raise, as that causes the "RuntimeError: WebSocket is not connected" 
         # when Starlette tries to send an error response to a closed/failed WS.
@@ -743,34 +766,44 @@ async def handle_websocket_connection(websocket: WebSocket, license_key: str):
 async def websocket_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint supporting multiple authentication methods:
-    1. Header: X-License-Key or Authorization header (most secure)
-    2. Query parameter: /ws?license=KEY (legacy, for backward compatibility)
-    3. Path parameter: /ws/KEY (legacy, for backward compatibility)
+    1. Authorization: Bearer <JWT_TOKEN> (preferred, most secure)
+    2. X-License-Key: <LICENSE_KEY> (legacy)
+    3. Query parameter: /ws?license=KEY (legacy, for backward compatibility)
+    4. Path parameter: /ws/KEY (legacy, for backward compatibility)
     
-    FIX: Prioritize header-based auth for better security (prevents URL logging of keys)
+    SECURITY FIX #11: JWT authentication is now the primary method.
+    License keys are still supported for backward compatibility.
     """
-    # Method 1: Try header-based authentication first (most secure)
-    license_key = websocket.headers.get("X-License-Key")
-    
-    # Method 2: Try Authorization header
-    if not license_key:
-        auth_header = websocket.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            license_key = auth_header[7:].strip()
-    
+    # Method 1: Try Authorization header with Bearer token (JWT)
+    credential = None
+    auth_header = websocket.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        credential = auth_header[7:].strip()
+        logger.debug("WebSocket auth: Using Authorization header")
+
+    # Method 2: Try X-License-Key header (legacy)
+    if not credential:
+        credential = websocket.headers.get("X-License-Key")
+        if credential:
+            logger.debug("WebSocket auth: Using X-License-Key header")
+
     # Method 3: Fallback to query parameter (legacy)
-    if not license_key:
-        # Note: Can't use Query() in WebSocket, need to parse manually
+    if not credential:
         from urllib.parse import parse_qs, urlparse
         parsed = urlparse(str(websocket.url))
         query_params = parse_qs(parsed.query)
-        license_key = query_params.get("license", [None])[0]
-    
-    if not license_key:
-        await websocket.close(code=4003, reason="License key required (use X-License-Key header, Authorization header, or ?license=KEY query param)")
+        credential = query_params.get("license", [None])[0]
+        if credential:
+            logger.debug("WebSocket auth: Using query parameter (legacy)")
+
+    if not credential:
+        await websocket.close(
+            code=4003,
+            reason="Authentication required (use Authorization: Bearer <token> header, X-License-Key header, or ?license=KEY query param)"
+        )
         return
-    
-    await handle_websocket_connection(websocket, license_key)
+
+    await handle_websocket_connection(websocket, credential)
 
 
 @app.websocket("/ws/{license_key}")

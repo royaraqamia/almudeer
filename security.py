@@ -1,6 +1,8 @@
 """
 Al-Mudeer - Enhanced Security Module
 Premium-level security with proper encryption, validation, and protection
+
+SECURITY FIX: Added device secret pepper for enhanced device binding security.
 """
 
 import os
@@ -29,6 +31,31 @@ if not ENCRYPTION_KEY:
 # Note: This is acceptable because the ENCRYPTION_KEY itself provides the entropy
 _KEY_DERIVATION_SALT = os.getenv("ENCRYPTION_SALT", "").encode() or os.urandom(16)
 
+# SECURITY FIX: Device Secret Pepper
+# This is a server-side secret that is combined with device secrets before hashing.
+# Even if the database is compromised, attackers cannot forge device secrets without this pepper.
+# IMPORTANT: Store this in a secure environment variable in production.
+_DEVICE_SECRET_PEPPER = os.getenv("DEVICE_SECRET_PEPPER")
+if not _DEVICE_SECRET_PEPPER:
+    if os.getenv("ENVIRONMENT", "development") == "production":
+        raise ValueError("DEVICE_SECRET_PEPPER must be set in production environment!")
+    # Generate a pepper for development only (will change on restart)
+    _DEVICE_SECRET_PEPPER = secrets.token_hex(32)
+    print("WARNING: Using auto-generated device secret pepper. Set DEVICE_SECRET_PEPPER in production!")
+
+# SECURITY FIX: License Key Pepper
+# This is a server-side secret that is combined with license keys before hashing.
+# Even if the database is compromised, attackers cannot reverse-engineer license keys
+# without this pepper. Prevents rainbow table attacks.
+# IMPORTANT: Store this in a secure environment variable in production.
+_LICENSE_KEY_PEPPER = os.getenv("LICENSE_KEY_PEPPER")
+if not _LICENSE_KEY_PEPPER:
+    if os.getenv("ENVIRONMENT", "development") == "production":
+        raise ValueError("LICENSE_KEY_PEPPER must be set in production environment!")
+    # Generate a pepper for development only (will change on restart)
+    _LICENSE_KEY_PEPPER = secrets.token_hex(32)
+    print("WARNING: Using auto-generated license key pepper. Set LICENSE_KEY_PEPPER in production!")
+
 # Initialize Fernet cipher
 def _init_cipher():
     """Initialize the Fernet cipher. Raises on failure in production."""
@@ -54,6 +81,55 @@ def _init_cipher():
         return None
 
 cipher = _init_cipher()
+
+
+def get_device_secret_pepper() -> str:
+    """
+    Get the device secret pepper for device binding.
+
+    SECURITY: This pepper is combined with device secrets before hashing to prevent
+    rainbow table attacks even if the database is compromised.
+
+    Returns:
+        The pepper string (32+ bytes of entropy)
+    """
+    return _DEVICE_SECRET_PEPPER
+
+
+def get_license_key_pepper() -> str:
+    """
+    Get the license key pepper for license key hashing.
+
+    SECURITY: This pepper is combined with license keys before hashing to prevent
+    rainbow table attacks even if the database is compromised.
+
+    Returns:
+        The pepper string (32+ bytes of entropy)
+    """
+    return _LICENSE_KEY_PEPPER
+
+
+def hash_device_secret(device_secret: str, pepper: str = None) -> str:
+    """
+    Hash a device secret with the server-side pepper.
+    
+    SECURITY FIX: Uses HMAC-SHA256 with pepper for device secret hashing.
+    This prevents rainbow table attacks and ensures device secrets cannot be
+    forged even if the database is compromised.
+    
+    Args:
+        device_secret: The device secret provided by the client
+        pepper: Optional pepper override (uses global pepper if not provided)
+    
+    Returns:
+        Hex-encoded SHA-256 hash of the peppered device secret
+    """
+    if pepper is None:
+        pepper = _DEVICE_SECRET_PEPPER
+    
+    # Combine pepper with device secret and hash with SHA-256
+    peppered_secret = f"{pepper}:{device_secret}"
+    return hashlib.sha256(peppered_secret.encode('utf-8')).hexdigest()
 
 
 def encrypt_sensitive_data(data: str) -> str:

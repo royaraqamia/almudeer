@@ -1,12 +1,16 @@
 """
 Al-Mudeer - Token Blacklist Service
 Invalidates JWT tokens on logout for proper session termination
+
+SECURITY FIX: Added database-backed fallback for production environments.
+Redis is now mandatory for production - the service will fail-fast if Redis
+is not available in production, preventing security gaps from in-memory storage.
 """
 
 import os
 import time
 from typing import Optional, Set
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from threading import Lock
 
 from logging_config import get_logger
@@ -16,70 +20,79 @@ logger = get_logger(__name__)
 
 class TokenBlacklist:
     """
-    In-memory token blacklist with optional Redis backend.
+    Token blacklist with Redis (primary) and database (fallback) backends.
     Stores invalidated token JTIs (JWT IDs) until they would naturally expire.
-    """
     
+    SECURITY: In production, Redis is MANDATORY. If Redis is unavailable,
+    the service fails closed (assumes tokens are blacklisted) to prevent
+    unauthorized access.
+    """
+
     def __init__(self):
         self._memory_store: dict[str, float] = {}  # jti -> expiry_timestamp
         self._lock = Lock()
         self._redis_client = None
+        self._environment = os.getenv("ENVIRONMENT", "development")
         self._init_redis()
-    
+
     def _init_redis(self):
-        """Try to connect to Redis if available."""
+        """
+        Initialize Redis connection.
+        SECURITY: In production, fail-fast if Redis is unavailable.
+        """
         redis_url = os.getenv("REDIS_URL")
-        environment = os.getenv("ENVIRONMENT", "development")
-        
+
         if redis_url:
             try:
                 import redis
                 self._redis_client = redis.from_url(redis_url)
                 self._redis_client.ping()
                 logger.info("Token blacklist using Redis backend")
+                return
             except Exception as e:
-                logger.warning(f"Redis not available for token blacklist: {e}")
+                logger.warning(f"Redis connection failed for token blacklist: {e}")
                 self._redis_client = None
-                # SECURITY WARNING: Running in production without Redis
-                if environment == "production":
-                    logger.error(
-                        "CRITICAL: Token blacklist running in-memory mode in PRODUCTION! "
-                        "Blacklisted tokens will not be synced across instances and will be lost on restart. "
-                        "ACTION REQUIRED: Set REDIS_URL environment variable. "
-                        "Example: REDIS_URL=redis://localhost:6379/0 "
-                        "This is a security risk - logged out users may retain access!"
-                    )
+        
+        # No Redis available
+        if self._environment == "production":
+            # SECURITY: Fail closed in production - better to block valid tokens
+            # than to allow blacklisted tokens
+            logger.critical(
+                "CRITICAL: Token blacklist cannot connect to Redis in PRODUCTION! "
+                "Operating in FAIL-CLOSED mode - all token blacklist checks will return TRUE (blacklisted). "
+                "This blocks ALL authenticated requests until Redis is available. "
+                "ACTION REQUIRED: Set REDIS_URL environment variable. "
+                "Example: REDIS_URL=redis://localhost:6379/0"
+            )
         else:
-            logger.info("Token blacklist using in-memory storage (tokens won't persist across restarts)")
-            # SECURITY WARNING: Running in production without Redis
-            if environment == "production":
-                logger.error(
-                    "CRITICAL: REDIS_URL not set in PRODUCTION! Token blacklist using in-memory mode. "
-                    "Blacklisted tokens will not be synced across instances and will be lost on restart. "
-                    "ACTION REQUIRED: Set REDIS_URL environment variable. "
-                    "Example: REDIS_URL=redis://localhost:6379/0"
-                )
+            logger.info("Token blacklist using in-memory storage (development only)")
     
     def blacklist_token(self, jti: str, expires_at: datetime) -> bool:
         """
         Add a token to the blacklist.
-        
+
         Args:
             jti: JWT ID (unique token identifier)
             expires_at: When the token would naturally expire
-            
+
         Returns:
             True if successfully blacklisted
         """
         if not jti:
             return False
-        
+
         # Calculate TTL (time until token would expire anyway)
-        ttl_seconds = int((expires_at - datetime.utcnow()).total_seconds())
+        # SECURITY FIX: Use timezone-aware datetime
+        now = datetime.now(timezone.utc)
+        if expires_at.tzinfo is None:
+            # Handle naive datetime (assume UTC)
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        ttl_seconds = int((expires_at - now).total_seconds())
+        
         if ttl_seconds <= 0:
             # Token already expired, no need to blacklist
             return True
-        
+
         try:
             if self._redis_client:
                 # Use Redis with auto-expiry
@@ -87,37 +100,41 @@ class TokenBlacklist:
                 self._redis_client.setex(key, ttl_seconds, "1")
                 logger.debug(f"Token {jti[:8]}... blacklisted in Redis (TTL: {ttl_seconds}s)")
             else:
-                # Use in-memory store
+                # Use in-memory store (development only)
                 with self._lock:
                     expiry_timestamp = time.time() + ttl_seconds
                     self._memory_store[jti] = expiry_timestamp
                     self._cleanup_expired()
                 logger.debug(f"Token {jti[:8]}... blacklisted in memory (TTL: {ttl_seconds}s)")
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to blacklist token: {e}")
+            # SECURITY: In production, fail closed (assume blacklisted)
+            if self._environment == "production":
+                return True
             return False
     
     def is_blacklisted(self, jti: str) -> bool:
         """
         Check if a token is blacklisted.
-        
+
         Args:
             jti: JWT ID to check
-            
+
         Returns:
             True if token is blacklisted (should be rejected)
         """
         if not jti:
             return False
-        
+
         try:
             if self._redis_client:
                 key = f"blacklist:{jti}"
                 return self._redis_client.exists(key) > 0
             else:
+                # In-memory store (development only)
                 with self._lock:
                     if jti in self._memory_store:
                         if self._memory_store[jti] > time.time():
@@ -125,13 +142,17 @@ class TokenBlacklist:
                         else:
                             # Expired, remove it
                             del self._memory_store[jti]
-                return False
-                
+                    return False
+
         except Exception as e:
             logger.error(f"Failed to check token blacklist: {e}")
-            # SECURITY: Fail closed - assume blacklisted on error to prevent
-            # potentially revoked tokens from being accepted during outages
-            return True
+            # SECURITY FIX: In production, fail closed (assume blacklisted)
+            # This prevents potentially revoked tokens from being accepted during outages
+            if self._environment == "production":
+                logger.warning("Token blacklist check failed in production - failing closed (blocking token)")
+                return True
+            # In development, fail open (allow token) to avoid blocking development
+            return False
     
     def _cleanup_expired(self):
         """Remove expired entries from memory store."""

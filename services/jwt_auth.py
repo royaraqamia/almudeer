@@ -26,11 +26,11 @@ logger = get_logger(__name__)
 
 class SessionRevocationCache:
     """Simple in-memory cache for session revocation status"""
-    
-    def __init__(self, ttl_seconds: int = 10):
+
+    def __init__(self, ttl_seconds: int = 2):  # SECURITY FIX: Reduced from 10s to 2s
         self._cache: Dict[str, Tuple[bool, float]] = {}  # family_id -> (is_revoked, expires_at)
         self._ttl = ttl_seconds
-    
+
     def get(self, family_id: str) -> Optional[bool]:
         """Get cached revocation status. Returns None if not cached."""
         if family_id in self._cache:
@@ -40,19 +40,19 @@ class SessionRevocationCache:
             else:
                 del self._cache[family_id]
         return None
-    
+
     def set(self, family_id: str, is_revoked: bool):
         """Cache revocation status"""
         self._cache[family_id] = (is_revoked, time.time() + self._ttl)
-    
+
     def invalidate(self, family_id: str):
         """Invalidate cached entry"""
         if family_id in self._cache:
             del self._cache[family_id]
 
 
-# Global session revocation cache (10 second TTL)
-_session_revocation_cache = SessionRevocationCache(ttl_seconds=10)
+# Global session revocation cache (2 second TTL - SECURITY FIX: reduced from 10s)
+_session_revocation_cache = SessionRevocationCache(ttl_seconds=2)
 
 
 # ============ Configuration ============
@@ -104,52 +104,60 @@ class TokenType:
 def create_access_token(data: Dict[str, Any], expires_delta: timedelta = None) -> Tuple[str, str, datetime]:
     """
     Create a JWT access token.
-    
+
     Args:
         data: Payload data (should include 'sub' for subject/user ID)
         expires_delta: Custom expiration time
-    
+
     Returns:
         Tuple of (encoded_token, jti, expiry_datetime)
     """
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=config.access_token_expire_minutes))
-    jti = secrets.token_hex(16)  # Unique token ID for blacklisting
+    # SECURITY FIX: Use timezone-aware datetime instead of deprecated datetime.utcnow()
+    now = datetime.now(timezone.utc)
+    expire = now + (expires_delta or timedelta(minutes=config.access_token_expire_minutes))
     
+    # SECURITY FIX: Generate JTI with 32 bytes (256 bits) for collision resistance
+    jti = secrets.token_hex(32)
+
     to_encode.update({
         "exp": expire,
-        "iat": datetime.utcnow(),
+        "iat": now,
         "type": TokenType.ACCESS,
         "jti": jti,
     })
-    
+
     return jwt.encode(to_encode, config.secret_key, algorithm=config.algorithm), jti, expire
 
 
 def create_refresh_token(data: Dict[str, Any], family_id: str = None) -> Tuple[str, str]:
     """
     Create a JWT refresh token (longer expiration).
-    
+
     Args:
         data: Payload data (should include 'sub' for subject/user ID)
-    
+
     Returns:
         Tuple of (encoded_token_string, jti)
     """
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=config.refresh_token_expire_days)
-    jti = secrets.token_hex(16)
+    # SECURITY FIX: Use timezone-aware datetime
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(days=config.refresh_token_expire_days)
     
+    # SECURITY FIX: Generate JTI with 32 bytes (256 bits) for collision resistance
+    jti = secrets.token_hex(32)
+
     to_encode.update({
         "exp": expire,
-        "iat": datetime.utcnow(),
+        "iat": now,
         "type": TokenType.REFRESH,
-        "jti": jti,  # Unique token ID for revocation
+        "jti": jti,
     })
-    
+
     if family_id:
         to_encode["family_id"] = family_id
-    
+
     return jwt.encode(to_encode, config.secret_key, algorithm=config.algorithm), jti
 
 
@@ -184,8 +192,8 @@ async def verify_token_async(token: str, token_type: str = TokenType.ACCESS) -> 
 
 
 async def create_token_pair(
-    user_id: str, 
-    license_id: int = None, 
+    user_id: str,
+    license_id: int = None,
     role: str = "user",
     device_fingerprint: str = None,
     ip_address: str = None,
@@ -195,9 +203,15 @@ async def create_token_pair(
 ) -> Dict[str, Any]:
     """
     Create both access and refresh tokens. Track device session.
+    
+    SECURITY FIX #7: Enforce concurrent session limits per license.
     """
     # Fetch current token_version for the license to embed in JWT
     from database import get_db, fetch_one
+    
+    # SECURITY FIX #7: Check concurrent session limit
+    max_sessions = int(os.getenv("MAX_CONCURRENT_SESSIONS", "0"))  # 0 = unlimited
+    
     token_version = 1
     if license_id:
         try:
@@ -239,40 +253,84 @@ async def create_token_pair(
         from db_helper import execute_sql, commit_db
         try:
             async with get_db() as db:
-                expires_db = datetime.utcnow() + timedelta(days=config.refresh_token_expire_days)
-                
+                # SECURITY FIX: Use timezone-aware datetime
+                expires_db = datetime.now(timezone.utc) + timedelta(days=config.refresh_token_expire_days)
+
                 if is_new_family:
                     if DB_TYPE == "postgresql":
                         await execute_sql(db, """
-                            INSERT INTO device_sessions 
+                            INSERT INTO device_sessions
                             (license_key_id, family_id, refresh_token_jti, device_fingerprint, ip_address, expires_at, device_secret_hash, device_name, location, user_agent)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, [license_id, family_id, refresh_jti, device_fingerprint, ip_address, expires_db, device_secret_hash, device_name, location, user_agent])
                     else:
                         await execute_sql(db, """
-                            INSERT INTO device_sessions 
+                            INSERT INTO device_sessions
                             (license_key_id, family_id, refresh_token_jti, device_fingerprint, ip_address, expires_at, device_secret_hash, device_name, location, user_agent)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, [license_id, family_id, refresh_jti, device_fingerprint, ip_address, expires_db.isoformat(), device_secret_hash, device_name, location, user_agent])
                 else:
                     if DB_TYPE == "postgresql":
                         await execute_sql(db, """
-                            UPDATE device_sessions 
+                            UPDATE device_sessions
                             SET refresh_token_jti = ?, last_used_at = NOW(), expires_at = ?, ip_address = COALESCE(?, ip_address), device_secret_hash = ?,
                                 device_name = COALESCE(?, device_name), location = COALESCE(?, location), user_agent = COALESCE(?, user_agent)
                             WHERE family_id = ?
                         """, [refresh_jti, expires_db, ip_address, device_secret_hash, device_name, location, user_agent, family_id])
                     else:
                         await execute_sql(db, """
-                            UPDATE device_sessions 
+                            UPDATE device_sessions
                             SET refresh_token_jti = ?, last_used_at = CURRENT_TIMESTAMP, expires_at = ?, ip_address = COALESCE(?, ip_address), device_secret_hash = ?,
                                 device_name = COALESCE(?, device_name), location = COALESCE(?, location), user_agent = COALESCE(?, user_agent)
                             WHERE family_id = ?
                         """, [refresh_jti, expires_db.isoformat(), ip_address, device_secret_hash, device_name, location, user_agent, family_id])
-                
+
                 await commit_db(db)
+                
+                # SECURITY FIX #7: Enforce concurrent session limit
+                if max_sessions > 0 and is_new_family:
+                    # Count active sessions for this license
+                    sessions_result = await fetch_one(
+                        db,
+                        "SELECT COUNT(*) as session_count FROM device_sessions WHERE license_key_id = ? AND is_revoked = 0",
+                        [license_id]
+                    )
+                    session_count = sessions_result.get("session_count", 0) if sessions_result else 0
+                    
+                    if session_count > max_sessions:
+                        # Revoke oldest sessions to stay within limit
+                        sessions_to_revoke = session_count - max_sessions
+                        logger.info(f"Revoking {sessions_to_revoke} oldest session(s) for license {license_id} (limit: {max_sessions})")
+                        
+                        if DB_TYPE == "postgresql":
+                            await execute_sql(db, """
+                                UPDATE device_sessions
+                                SET is_revoked = TRUE
+                                WHERE license_key_id = ? AND is_revoked = 0
+                                AND id IN (
+                                    SELECT id FROM device_sessions
+                                    WHERE license_key_id = ? AND is_revoked = 0
+                                    ORDER BY last_used_at ASC
+                                    LIMIT ?
+                                )
+                            """, [license_id, license_id, sessions_to_revoke])
+                        else:
+                            await execute_sql(db, """
+                                UPDATE device_sessions
+                                SET is_revoked = 1
+                                WHERE license_key_id = ? AND is_revoked = 0
+                                AND id IN (
+                                    SELECT id FROM device_sessions
+                                    WHERE license_key_id = ? AND is_revoked = 0
+                                    ORDER BY last_used_at ASC
+                                    LIMIT ?
+                                )
+                            """, [license_id, license_id, sessions_to_revoke])
+                        
+                        await commit_db(db)
+                        
         except Exception as e:
-            logger.error(f"Error updating device session: {e}")
+            logger.error(f"Error updating device session or enforcing session limit: {e}")
 
     return {
         "access_token": access_token,
@@ -392,32 +450,48 @@ async def refresh_access_token(
     # RTR Logic
     from db_helper import get_db, fetch_one, execute_sql, commit_db
     from database import DB_TYPE
-    
+
     try:
         async with get_db() as db:
-            session = await fetch_one(db, "SELECT * FROM device_sessions WHERE family_id = ?", [family_id])
-            
+            # CRITICAL SECURITY FIX: Use SELECT FOR UPDATE to prevent race conditions
+            # This ensures atomic check-and-update for token theft detection
+            # Without this, concurrent refresh requests could bypass the theft detection
+            if DB_TYPE == "postgresql":
+                # Use FOR UPDATE with SKIP LOCKED to prevent deadlocks
+                session = await fetch_one(
+                    db,
+                    "SELECT * FROM device_sessions WHERE family_id = ? FOR UPDATE SKIP LOCKED",
+                    [family_id]
+                )
+            else:
+                # SQLite doesn't support FOR UPDATE, use immediate transaction
+                await execute_sql(db, "BEGIN IMMEDIATE")
+                session = await fetch_one(db, "SELECT * FROM device_sessions WHERE family_id = ?", [family_id])
+
             if not session:
-                logger.warning(f"Device session {family_id} not found.")
+                logger.warning(f"Device session {family_id} not found or locked.")
                 return None
-                
+
             if session["is_revoked"]:
                 logger.warning(f"Session {family_id} is revoked.")
                 return None
-                
+
             # Security Hardening: Device Secret Binding Verification
             stored_hash = session.get("device_secret_hash")
             if stored_hash: # Enforce only if session was created with a secret (backwards compat)
                 if not device_secret:
                     logger.warning(f"Refresh failed: Missing device_secret for bound session {family_id}")
                     return None
-                computed_hash = hashlib.sha256(device_secret.encode('utf-8')).hexdigest()
+                # SECURITY FIX: Use peppered hash for device secret verification
+                from security import hash_device_secret
+                computed_hash = hash_device_secret(device_secret)
                 if not hmac.compare_digest(computed_hash, stored_hash):
                     logger.warning(f"Refresh failed: Invalid device_secret for session {family_id}")
                     return None
-                
+
             if session["refresh_token_jti"] != jti:
                 # TOKEN THEFT DETECTED
+                # Race condition is now prevented by SELECT FOR UPDATE
                 logger.warning(f"Token theft detected for family {family_id}. Revoking entire session chain.")
                 if DB_TYPE == "postgresql":
                     await execute_sql(db, "UPDATE device_sessions SET is_revoked = TRUE WHERE family_id = ?", [family_id])
@@ -427,12 +501,14 @@ async def refresh_access_token(
                 # Invalidate cache
                 _session_revocation_cache.invalidate(family_id)
                 return None
-            
+
             # FIX: Upgrade legacy sessions to bound sessions if device_secret provided
             effective_device_hash = stored_hash
             if not stored_hash and device_secret:
                 # This is a legacy session upgrading to device-bound
-                effective_device_hash = hashlib.sha256(device_secret.encode('utf-8')).hexdigest()
+                # SECURITY FIX: Use peppered hash for device binding
+                from security import hash_device_secret
+                effective_device_hash = hash_device_secret(device_secret)
                 # Update the session with the new binding
                 await execute_sql(
                     db,
@@ -441,7 +517,7 @@ async def refresh_access_token(
                 )
                 await commit_db(db)
                 logger.info(f"Upgraded legacy session {family_id} to device-bound")
-            
+
             # Valid rotation
             return await create_token_pair(
                 user_id=payload.get("sub"),
@@ -453,7 +529,7 @@ async def refresh_access_token(
                 device_secret_hash=effective_device_hash, # Keep the binding alive on rotation
                 user_agent=user_agent
             )
-            
+
     except Exception as e:
         logger.error(f"Error during RTR check: {e}")
         return None

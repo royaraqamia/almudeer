@@ -43,9 +43,15 @@ class CacheManager:
                 self.use_redis = False
     
     def _make_key(self, prefix: str, *args) -> str:
-        """Create a cache key from prefix and arguments"""
+        """
+        Create a cache key from prefix and arguments.
+        
+        SECURITY FIX #9: Use SHA-256 instead of MD5 to prevent collision attacks.
+        While MD5 collisions are theoretical for cache keys, SHA-256 provides
+        better security margin for sensitive data caching.
+        """
         key_data = f"{prefix}:{':'.join(str(arg) for arg in args)}"
-        return hashlib.md5(key_data.encode()).hexdigest()
+        return hashlib.sha256(key_data.encode()).hexdigest()
     
     async def get(self, key: str) -> Optional[Any]:
         """Get value from cache"""

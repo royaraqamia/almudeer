@@ -14,10 +14,12 @@ env/
 *.sqlite
 *.sqlite3
 
-# Environment
+# Environment - CRITICAL: Never commit secrets!
 .env
 .env.local
 .env.*.local
+.env.production
+.env.backup
 
 # IDE
 .idea/
@@ -36,5 +38,23 @@ htmlcov/
 
 *_output.txt
 
+# Service Accounts - CRITICAL: Contains sensitive credentials
 service_account.json
 firebase-service-account.json
+
+# Redis dump
+dump.rdb
+
+# SQLite
+*.sqlite-shm
+*.sqlite-wal
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
