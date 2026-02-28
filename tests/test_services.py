@@ -36,10 +36,11 @@ class TestJWTAuth:
     def test_create_refresh_token(self):
         """Test refresh token creation"""
         from services.jwt_auth import create_refresh_token, verify_token, TokenType
-        
-        token = create_refresh_token({"sub": "user@test.com"})
+
+        # Refresh token returns (token, jti) tuple
+        token, jti = create_refresh_token({"sub": "user@test.com"})
         payload = verify_token(token, TokenType.REFRESH)
-        
+
         assert payload is not None
         assert payload["type"] == "refresh"
         assert "jti" in payload  # Unique ID for revocation
