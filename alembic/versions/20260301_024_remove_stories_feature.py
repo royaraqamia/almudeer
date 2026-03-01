@@ -1,7 +1,7 @@
 """Remove stories feature - drop all stories tables
 
-Revision ID: 024_remove_stories_feature
-Revises: 023_add_athkar_stats_column
+Revision ID: 027_remove_stories_feature
+Revises: 026_add_athkar_stats_column
 Create Date: 2026-03-01
 
 """
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision: str = '024_remove_stories_feature'
-down_revision: Union[str, None] = '023_add_athkar_stats_column'
+revision: str = '027_remove_stories_feature'
+down_revision: Union[str, None] = '026_add_athkar_stats_column'
 branch_labels: Union[str, None] = None
 depends_on: Union[str, None] = None
 
