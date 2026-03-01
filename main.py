@@ -84,7 +84,6 @@ try:
         export_router,
         notifications_router,
         library_router,
-        keyboard_router,
         auth_router,
         tasks,
         global_assets
@@ -516,7 +515,6 @@ app.include_router(library_attachments_router)  # Library Attachments (P3-12)
 app.include_router(devices_router)         # Device Pairing (P3-1/Nearby)
 app.include_router(transfers_router)       # Transfer Management (P3-1/Nearby)
 app.include_router(qr_codes_router)          # QR Code Generation & Verification
-app.include_router(keyboard_router)        # Keyboard Macros & Optimized Data
 app.include_router(tasks_router)           # Task Management
 app.include_router(subscription_router)    # Subscription Key Management
 app.include_router(global_assets_router)   # Admin Global Assets
