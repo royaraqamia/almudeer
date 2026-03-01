@@ -189,15 +189,19 @@ async def create_new_task(
         raise
     except Exception as e:
         import logging
+        import traceback
+        error_trace = traceback.format_exc()
         logging.error(f"Task creation failed: {e}")
-        
+        logging.error(f"Task data: id={task_dict.get('id')}, title={task_dict.get('title')}, attachments={len(task_dict.get('attachments', []))}")
+        logging.error(f"Traceback: {error_trace}")
+
         # Sanitize error messages - don't expose internal details
         if "unique constraint" in str(e).lower():
             raise HTTPException(
                 status_code=409,
                 detail="تعذر إنشاء المهمة. يرجى المحاولة مرة أخرى."
             )
-        
+
         raise HTTPException(
             status_code=500,
             detail="حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى."

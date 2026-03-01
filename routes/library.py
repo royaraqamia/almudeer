@@ -284,9 +284,9 @@ async def upload_file(
     
     # Get file size FIRST before any processing (Issue #1)
     try:
-        await file.seek(0, 2)
+        file.seek(0, 2)
         file_size = file.tell()
-        await file.seek(0)
+        file.seek(0)
     except Exception as e:
         logger.error(f"Failed to get file size: {e}")
         raise HTTPException(
