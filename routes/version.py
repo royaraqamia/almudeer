@@ -416,7 +416,8 @@ _CDN_HEALTH_LOCK = asyncio.Lock()
 
 async def _verify_cdn_health(url: str, timeout: float = 3.0, retries: int = 2) -> bool:
     """
-    Verify CDN URL is healthy by sending a HEAD request.
+    Verify CDN URL is healthy by sending a GET request with Range header.
+    Uses Range header to fetch only first byte - more reliable with Cloudflare than HEAD.
 
     Args:
         url: CDN URL to check
@@ -424,7 +425,7 @@ async def _verify_cdn_health(url: str, timeout: float = 3.0, retries: int = 2) -
         retries: Number of retry attempts on failure
 
     Returns:
-        True if CDN is healthy (returns 200/204), False otherwise
+        True if CDN is healthy (returns 200/204/206), False otherwise
     """
     if not url:
         return False
@@ -433,9 +434,10 @@ async def _verify_cdn_health(url: str, timeout: float = 3.0, retries: int = 2) -
     while attempt <= retries:
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.head(url)
-                # Consider 200, 204, 301, 302 as healthy
-                if response.status_code in (200, 204, 301, 302):
+                # Use GET with Range header instead of HEAD - Cloudflare handles this more reliably
+                response = await client.get(url, headers={"Range": "bytes=0-1"})
+                # Consider 200, 204, 206 (Partial Content), 301, 302 as healthy
+                if response.status_code in (200, 204, 206, 301, 302):
                     return True
                 logger.debug(f"CDN health check returned {response.status_code} for {url}")
                 return False

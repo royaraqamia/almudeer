@@ -166,62 +166,40 @@ async def paginate_crm(license_id: int,
 async def paginate_customers(license_id: int,
                              page: int = 1,
                              page_size: int = 20,
-                             search: str = None,
-                             segment: str = None) -> Dict[str, Any]:
+                             search: str = None) -> Dict[str, Any]:
     """Paginated customers list"""
     from db_helper import get_db, fetch_all
     import os
-    
+
     params = PaginationParams(page=page, page_size=page_size)
     db_type = os.getenv("DB_TYPE", "sqlite").lower()
-    
+
     conditions = ["license_key_id = ?"]
     query_params = [license_id]
-    
+
     if search:
         conditions.append("(name LIKE ? OR email LIKE ? OR phone LIKE ?)")
         search_pattern = f"%{search}%"
         query_params.extend([search_pattern, search_pattern, search_pattern])
-        
-    if segment:
-        # Map frontend key (lowercase/hyphenated) to DB value (Title Case)
-        segment_map = {
-            'vip': 'VIP',
-            'high-value': 'High-Value',
-            'warm lead': 'Warm Lead',
-            'cold lead': 'Cold Lead',
-            'new': 'New',
-            'low-engagement': 'Low-Engagement'
-        }
-        
-        db_segment = segment_map.get(segment.lower())
-        
-        if db_segment == 'VIP':
-            # VIP is a separate boolean column
-            conditions.append("is_vip = 1")
-        elif db_segment:
-            # Other segments are in the segment column
-            conditions.append("segment = ?")
-            query_params.append(db_segment)
-    
+
     where_clause = " AND ".join(conditions)
     total = await get_total_count("customers", where_clause, tuple(query_params))
-    
+
     sql = f"""
-        SELECT *, 
+        SELECT *,
                (EXISTS (SELECT 1 FROM license_keys l WHERE l.username = customers.username AND customers.username IS NOT NULL)) as is_almudeer_user
-        FROM customers 
+        FROM customers
         WHERE {where_clause}
         ORDER BY created_at DESC
         {get_pagination_sql(params, db_type)}
     """
-    
+
     async with get_db() as db:
         items = await fetch_all(db, sql, query_params)
-    
+
     # Calculate pagination details
     paginated = paginate(items, total, params)
-    
+
     # Return legacy format matching frontend expectation
     return {
         "customers": paginated.items,
