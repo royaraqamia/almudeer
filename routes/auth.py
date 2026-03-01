@@ -211,24 +211,45 @@ async def login(data: LoginRequest, request: Request):
                 # SECURITY FIX: Hash with pepper and compare
                 computed_hash = hash_device_secret(device_secret_value)
                 if not hmac.compare_digest(computed_hash, stored_hash):
-                    logger.warning(f"Device secret mismatch on login for license {license_id}")
-                    # P2-11 FIX: Log security event for audit trail
+                    # FIX: On login, allow device secret rotation (e.g., after app reinstall/clear data)
+                    # Update the session with the new device secret instead of rejecting
+                    logger.info(f"Device secret mismatch on login for license {license_id} - updating session with new device secret")
+                    
+                    # Update the device_sessions table with the new device secret hash
+                    from db_helper import execute_sql, commit_db
+                    from database import DB_TYPE
+                    
+                    try:
+                        async with get_db() as db:
+                            if DB_TYPE == "postgresql":
+                                await execute_sql(
+                                    db,
+                                    "UPDATE device_sessions SET device_secret_hash = ?, last_used_at = NOW() WHERE license_key_id = ? AND is_revoked = 0",
+                                    [computed_hash, license_id]
+                                )
+                            else:
+                                await execute_sql(
+                                    db,
+                                    "UPDATE device_sessions SET device_secret_hash = ?, last_used_at = CURRENT_TIMESTAMP WHERE license_key_id = ? AND is_revoked = 0",
+                                    [computed_hash, license_id]
+                                )
+                            await commit_db(db)
+                        logger.info(f"Device secret updated successfully for license {license_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to update device secret for license {license_id}: {e}")
+                        # Continue anyway - don't block login on DB update failure
+                    
+                    # Log security event for audit trail (device was re-bound)
                     security_logger = get_security_logger()
                     security_logger.log_event(
-                        event_type=SecurityEventType.SUSPICIOUS_ACTIVITY,
+                        event_type=SecurityEventType.SECURITY_EVENT,
                         identifier=str(license_id),
                         details={
-                            "event": "device_secret_mismatch",
+                            "event": "device_secret_rotated_on_login",
                             "ip_address": ip_address,
                             "user_agent": request.headers.get("User-Agent", "Unknown"),
+                            "reason": "mismatch_detected",
                         }
-                    )
-                    # SECURITY FIX: Apply constant-time delay
-                    await _apply_constant_time_delay()
-                    # Don't reveal that device binding exists - generic error
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="مفتاح الاشتراك غير صحيح",
                     )
     except HTTPException:
         raise
