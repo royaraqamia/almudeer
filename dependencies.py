@@ -26,9 +26,9 @@ async def get_license_from_header(
     """
     logger = logging.getLogger(__name__)
     
-    # Debug: Log what's received
-    logger.warning(f"Auth debug - auth present: {auth is not None}, auth.credentials: {auth.credentials[:30] if auth and auth.credentials else 'None'}..., x_license_key: {x_license_key[:20] if x_license_key else 'None'}...")
-    
+    # Debug: Log what's received (debug level only)
+    logger.debug(f"Auth debug - auth present: {auth is not None}, x_license_key present: {x_license_key is not None}")
+
     # 1. Try JWT first (Post-login state)
     if auth:
         from services.jwt_auth import verify_token_async, TokenType
@@ -37,17 +37,17 @@ async def get_license_from_header(
         except Exception as e:
             logger.error(f"JWT verification error: {e}")
             payload = None
-        
-        logger.warning(f"JWT payload result: {payload}")
-        
+
+        logger.debug(f"JWT payload received: {'valid' if payload else 'invalid'}")
+
         if payload and payload.get("license_id"):
-            logger.warning(f"JWT has license_id: {payload.get('license_id')}, checking validity...")
+            logger.debug(f"JWT has license_id: {payload.get('license_id')}, validating...")
             # Pass the 'v' (version) claim for atomic validation
             result = await validate_license_by_id(
-                payload["license_id"], 
+                payload["license_id"],
                 required_version=payload.get("v")
             )
-            logger.warning(f"License validation result: {result}")
+            logger.debug(f"License validation result: valid={result.get('valid')}")
             if result.get("valid"):
                 # Add user_id to result for compatibility with routes that expect it
                 result["user_id"] = payload.get("sub")
@@ -55,17 +55,17 @@ async def get_license_from_header(
             else:
                 # If JWT points to an expired/invalid license, fail fast
                 raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED, 
+                    status_code=status.HTTP_401_UNAUTHORIZED,
                     detail=result.get("error", "جلسة العمل منتهية")
                 )
         else:
-            logger.warning(f"JWT payload missing license_id or invalid: {payload}")
+            logger.debug(f"JWT payload missing license_id or invalid")
 
     # 2. Fallback to legacy license key (Pre-login or manual API usage)
     if not x_license_key:
-        logger.warning(f"No auth credentials provided. Auth: {auth is not None}, X-License-Key: {x_license_key is not None}")
+        logger.debug(f"No auth credentials provided")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, 
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="مفتاح الاشتراك مطلوب للمتابعة"
         )
 
