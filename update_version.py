@@ -58,10 +58,12 @@ async def update_version(args):
             # Note: Query params for scalar, but let's check the API definition
             # The API uses query params for simple types in the signature
             # But httpx.post(params=...) sends query params
+            if args.force_downgrade:
+                payload["force_downgrade"] = True
             response = await client.post(
                 f"{base_url}/api/app/set-min-build",
                 headers=headers,
-                params=payload 
+                params=payload
             )
             response.raise_for_status()
             print(f"✅ Build number updated: {response.json()}")
@@ -113,11 +115,12 @@ def main():
     
     parser.add_argument("--build", type=int, required=True, help="New build number")
     parser.add_argument("--force", action="store_true", help="Force this update (critical)")
+    parser.add_argument("--force-downgrade", action="store_true", help="Allow downgrading the build number")
     parser.add_argument("--notes-ar", required=True, help="Changelog details (Arabic)")
     parser.add_argument("--notes-en", help="Changelog details (English)")
     parser.add_argument("--ios-url", help="iOS App Store URL")
     parser.add_argument("--ios-id", help="iOS App Store ID (for deep linking)")
-    
+
     parser.add_argument("--url", default=DEFAULT_URL, help=f"Backend base URL (default: {DEFAULT_URL})")
     parser.add_argument("--key", help="Admin API Key")
 
