@@ -91,14 +91,16 @@ async def get_inbox_message(
 
 @router.get("/conversations")
 async def get_conversations_route(
-    status: Optional[str] = None,
-    channel: Optional[str] = None,
     limit: int = 25,
     offset: int = 0,
     license: dict = Depends(get_license_from_header)
 ):
-    conversations = await get_inbox_conversations(license["license_id"], status, channel, limit, offset)
-    total = await get_inbox_conversations_count(license["license_id"], status, channel)
+    """
+    Get all conversations in unified list - no filters.
+    All chats appear together regardless of status or channel.
+    """
+    conversations = await get_inbox_conversations(license["license_id"], limit=limit, offset=offset)
+    total = await get_inbox_conversations_count(license["license_id"])
     status_counts = await get_inbox_status_counts(license["license_id"])
     return {"conversations": conversations, "total": total, "status_counts": status_counts}
 

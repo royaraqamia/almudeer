@@ -690,24 +690,18 @@ async def get_pending_outbox(license_id: int) -> List[dict]:
 
 async def get_inbox_conversations(
     license_id: int,
-    status: str = None,
-    channel: str = None,
     limit: int = 50,
     offset: int = 0
 ) -> List[dict]:
     """
     Get inbox conversations using the optimized `inbox_conversations` table.
     This is O(1) per page instead of O(N) full scan.
+    All chats appear in unified list - no filters.
     """
     params = [license_id]
     where_clauses = ["ic.license_key_id = ?"]
-    
-    if channel:
-        where_clauses.append("ic.channel = ?")
-        params.append(channel)
-        
-    # status filter removed to unify inbox
-        
+
+    # Filters removed - all chats appear in unified list
     where_sql = " AND ".join(where_clauses)
     
     query = f"""
@@ -816,21 +810,16 @@ async def get_conversations_delta(
 
 
 async def get_inbox_conversations_count(
-    license_id: int,
-    status: str = None,
-    channel: str = None
+    license_id: int
 ) -> int:
     """
     Get total number of unique conversations (senders).
     Uses the optimized inbox_conversations table.
+    No filters - all chats counted.
     """
     query = "SELECT COUNT(*) as count FROM inbox_conversations WHERE license_key_id = ?"
     params = [license_id]
-    
-    if channel:
-        query += " AND channel = ?"
-        params.append(channel)
-        
+
     async with get_db() as db:
         row = await fetch_one(db, query, params)
         return row["count"] if row else 0
