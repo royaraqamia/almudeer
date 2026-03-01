@@ -442,11 +442,11 @@ async def create_task(license_id: int, task_data: dict) -> dict:
                 updated_at = excluded.updated_at
             WHERE tasks.license_key_id = ? AND (
                 -- FIX BUG-004: Enhanced LWW with tolerance for clock skew (5 second window)
-                tasks.updated_at IS NULL 
+                tasks.updated_at IS NULL
                 OR excluded.updated_at > tasks.updated_at
                 OR (
                     -- If timestamps are very close (< 5s), prefer the one with more recent client timestamp
-                    ABS(excluded.updated_at - tasks.updated_at) < 5 
+                    ABS(EXTRACT(EPOCH FROM (excluded.updated_at - tasks.updated_at))) < 5
                     AND excluded.updated_at >= tasks.updated_at
                 )
             )
