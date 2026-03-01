@@ -240,6 +240,26 @@ async def create_token_pair(
         family_id = str(uuid.uuid4())
         is_new_family = True
 
+    # SECURITY FIX: When creating a new session (login), revoke all existing sessions
+    # This prevents "session revoked" errors when users re-login after clearing app data
+    if license_id and is_new_family:
+        from database import DB_TYPE
+        from db_helper import execute_sql, commit_db
+        try:
+            async with get_db() as db:
+                if DB_TYPE == "postgresql":
+                    await execute_sql(db,
+                        "UPDATE device_sessions SET is_revoked = TRUE WHERE license_key_id = $1 AND is_revoked = FALSE",
+                        [license_id])
+                else:
+                    await execute_sql(db,
+                        "UPDATE device_sessions SET is_revoked = 1 WHERE license_key_id = ? AND is_revoked = 0",
+                        [license_id])
+                await commit_db(db)
+        except Exception as e:
+            logger.error(f"Error revoking old sessions on login: {e}")
+            pass
+
     payload = {
         "sub": user_id,
         "license_id": license_id,

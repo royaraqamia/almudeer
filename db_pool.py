@@ -30,6 +30,9 @@ def adapt_sql_for_db(sql: str) -> str:
         sql = sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
         sql = sql.replace("AUTOINCREMENT", "")
         sql = sql.replace("TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "TIMESTAMP DEFAULT NOW()")
+        # Convert SQLite boolean integers to PostgreSQL booleans
+        sql = sql.replace("is_revoked = 0", "is_revoked = FALSE")
+        sql = sql.replace("is_revoked = 1", "is_revoked = TRUE")
     return sql
 
 def _convert_sql_params(sql: str, params: list) -> str:
