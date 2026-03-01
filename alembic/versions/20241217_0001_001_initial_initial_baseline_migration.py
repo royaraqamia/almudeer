@@ -266,6 +266,9 @@ def upgrade() -> None:
             preferred_languages TEXT,
             reply_length TEXT,
             formality_level TEXT,
+            quran_progress TEXT,
+            athkar_stats TEXT,
+            calculator_history TEXT,
             FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
         )
     """)

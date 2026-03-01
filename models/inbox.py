@@ -876,20 +876,23 @@ async def _get_sender_aliases(db, license_id: int, sender_contact: str) -> tuple
     placeholders = ", ".join(["?" for _ in check_ids])
 
     # 1. First Pass: Strict match with LIMIT for early termination (P1-3)
+    # Note: Use subqueries to apply LIMIT to each part of UNION ALL
     query = f"""
-        SELECT sender_contact, sender_id
-        FROM inbox_messages
-        WHERE license_key_id = ?
-        AND (sender_contact IN ({placeholders}) OR sender_id IN ({placeholders}))
-        LIMIT 200
-
+        SELECT sender_contact, sender_id FROM (
+            SELECT sender_contact, sender_id
+            FROM inbox_messages
+            WHERE license_key_id = ?
+            AND (sender_contact IN ({placeholders}) OR sender_id IN ({placeholders}))
+            LIMIT 200
+        ) AS inbox_subq
         UNION ALL
-
-        SELECT recipient_email as sender_contact, recipient_id as sender_id
-        FROM outbox_messages
-        WHERE license_key_id = ?
-        AND (recipient_email IN ({placeholders}) OR recipient_id IN ({placeholders}))
-        LIMIT 200
+        SELECT sender_contact, sender_id FROM (
+            SELECT recipient_email as sender_contact, recipient_id as sender_id
+            FROM outbox_messages
+            WHERE license_key_id = ?
+            AND (recipient_email IN ({placeholders}) OR recipient_id IN ({placeholders}))
+            LIMIT 200
+        ) AS outbox_subq
     """
     params = [license_id] + check_ids + check_ids + [license_id] + check_ids + check_ids
     aliases = await fetch_all(db, query, params)

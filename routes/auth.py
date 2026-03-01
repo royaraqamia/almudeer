@@ -517,9 +517,10 @@ async def rotate_device_secret(
         family_id = user.get("family_id")
         if not family_id:
             # No session to rotate (legacy token without family_id)
+            # Client needs to re-authenticate to get a device-bound session
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot rotate device secret for legacy session"
+                detail="Cannot rotate device secret for legacy session. Please re-authenticate to enable device binding."
             )
 
         # Validate new device secret format (64 hex chars = 256 bits)

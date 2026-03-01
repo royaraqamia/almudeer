@@ -373,7 +373,7 @@ async def mark_stories_viewed_batch(story_ids: List[int], viewer_contact: str, v
                 for story_id in valid_ids:
                     query = """
                         INSERT INTO story_views (story_id, viewer_contact, viewer_name, viewed_at)
-                        VALUES (%s, %s, %s, %s)
+                        VALUES (?, ?, ?, ?)
                         ON CONFLICT (story_id, viewer_contact) DO NOTHING
                     """
                     await execute_sql(db, query, [story_id, viewer_contact, viewer_name, ts_value])
