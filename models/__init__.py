@@ -104,27 +104,6 @@ from .library import (
     get_storage_usage,
 )
 
-# Stories
-from .stories import (
-    init_stories_tables,
-    add_story,
-    get_active_stories,
-    mark_story_viewed,
-    get_story_viewers,
-    delete_story,
-    cleanup_expired_stories,
-    repost_story,
-    get_story_analytics,
-    update_highlight,
-    delete_highlight,
-    remove_story_from_highlight,
-    save_story_draft,
-    get_story_draft,
-    delete_story_draft,
-    search_stories,
-    export_stories,
-)
-
 # Re-export aiosqlite for backward compatibility
 try:
     from .base import aiosqlite
@@ -213,23 +192,5 @@ __all__ = [
     "mark_all_notifications_read",
     "delete_old_notifications",
     "create_smart_notification",
-    # Stories
-    "init_stories_tables",
-    "add_story",
-    "get_active_stories",
-    "mark_story_viewed",
-    "get_story_viewers",
-    "delete_story",
-    "cleanup_expired_stories",
-    "repost_story",
-    "get_story_analytics",
-    "update_highlight",
-    "delete_highlight",
-    "remove_story_from_highlight",
-    "save_story_draft",
-    "get_story_draft",
-    "delete_story_draft",
-    "search_stories",
-    "export_stories",
 ]
 

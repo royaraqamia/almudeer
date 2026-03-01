@@ -85,7 +85,6 @@ try:
         notifications_router,
         library_router,
         keyboard_router,
-        stories_router,
         auth_router,
         tasks,
         global_assets
@@ -106,7 +105,7 @@ from routes.subscription import router as subscription_router
 from errors import AuthorizationError, register_error_handlers
 from security_config import SECURITY_HEADERS, ADMIN_KEY
 from security import sanitize_message, sanitize_string
-from workers import start_message_polling, stop_message_polling, start_subscription_reminders, stop_subscription_reminders, start_token_cleanup_worker, stop_token_cleanup_worker, start_story_cleanup_worker, stop_story_cleanup_worker, start_library_trash_cleanup_worker, stop_library_trash_cleanup_worker
+from workers import start_message_polling, stop_message_polling, start_subscription_reminders, stop_subscription_reminders, start_token_cleanup_worker, stop_token_cleanup_worker, start_library_trash_cleanup_worker, stop_library_trash_cleanup_worker
 from db_pool import db_pool
 from services.websocket_manager import get_websocket_manager, broadcast_new_message
 from services.pagination import paginate_inbox, paginate_crm, paginate_customers, PaginationParams
@@ -153,7 +152,6 @@ async def lifespan(app: FastAPI):
         # Import necessary functions for parallelization
         from services.notification_service import init_notification_tables
         from services.push_service import log_vapid_status, ensure_push_subscription_table
-        from models.stories import init_stories_tables
         from migrations.users_table import create_users_table
         from migrations.fix_customers_serial import fix_customers_serial
         from migrations.backfill_queue_table import create_backfill_queue_table
@@ -174,7 +172,6 @@ async def lifespan(app: FastAPI):
             create_backfill_queue_table(),
             create_task_queue_table(),
             ensure_message_edit_delete_schema(),
-            init_stories_tables(),
             init_qr_tables(),
         ]
         
@@ -280,13 +277,6 @@ async def lifespan(app: FastAPI):
             logger.info("FCM token cleanup worker started")
         except Exception as e:
             logger.warning(f"Failed to start FCM token cleanup worker: {e}")
-        
-        # Start Story cleanup worker (hourly)
-        try:
-            await start_story_cleanup_worker()
-            logger.info("Stories cleanup worker started")
-        except Exception as e:
-            logger.warning(f"Failed to start Stories cleanup worker: {e}")
 
         # Start Library Trash cleanup worker (daily - auto-delete after 30 days)
         try:
@@ -411,11 +401,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Error stopping token cleanup worker: {e}")
     try:
-        await stop_story_cleanup_worker()
-        logger.info("Stories cleanup worker stopped")
-    except Exception as e:
-        logger.warning(f"Error stopping Stories cleanup: {e}")
-    try:
         await stop_library_trash_cleanup_worker()
         logger.info("Library Trash cleanup worker stopped")
     except Exception as e:
@@ -534,7 +519,6 @@ app.include_router(qr_codes_router)          # QR Code Generation & Verification
 app.include_router(keyboard_router)        # Keyboard Macros & Optimized Data
 app.include_router(tasks_router)           # Task Management
 app.include_router(subscription_router)    # Subscription Key Management
-app.include_router(stories_router)         # Stories Feature
 app.include_router(global_assets_router)   # Admin Global Assets
 app.include_router(auth_router)             # Authentication (login, etc)
 
