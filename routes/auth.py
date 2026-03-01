@@ -28,7 +28,7 @@ from services.login_protection import (
 )
 from database import validate_license_key
 from logging_config import get_logger
-from services.security_logger import get_security_logger
+from services.security_logger import get_security_logger, SecurityEventType
 from services.token_blacklist import blacklist_token
 from rate_limiting import limiter, RateLimits
 
@@ -190,10 +190,11 @@ async def login(data: LoginRequest, request: Request):
                     logger.warning(f"Device secret required but not provided for license {license_id}")
                     # P2-11 FIX: Log security event for audit trail
                     security_logger = get_security_logger()
-                    security_logger.log_security_event(
-                        user_id=str(license_id),
-                        event_type="device_secret_missing",
+                    security_logger.log_event(
+                        event_type=SecurityEventType.SUSPICIOUS_ACTIVITY,
+                        identifier=str(license_id),
                         details={
+                            "event": "device_secret_missing",
                             "ip_address": ip_address,
                             "user_agent": request.headers.get("User-Agent", "Unknown"),
                         }
@@ -210,10 +211,11 @@ async def login(data: LoginRequest, request: Request):
                     logger.warning(f"Device secret mismatch on login for license {license_id}")
                     # P2-11 FIX: Log security event for audit trail
                     security_logger = get_security_logger()
-                    security_logger.log_security_event(
-                        user_id=str(license_id),
-                        event_type="device_secret_mismatch",
+                    security_logger.log_event(
+                        event_type=SecurityEventType.SUSPICIOUS_ACTIVITY,
+                        identifier=str(license_id),
                         details={
+                            "event": "device_secret_mismatch",
                             "ip_address": ip_address,
                             "user_agent": request.headers.get("User-Agent", "Unknown"),
                         }
@@ -240,7 +242,9 @@ async def login(data: LoginRequest, request: Request):
 
     # Extract metadata
     ip_address = request.client.host if request.client else None
-    device_fingerprint = request.headers.get("User-Agent", "Unknown Device")
+    # P0-4 FIX: Use X-Device-Fingerprint header if provided (persistent device ID)
+    # Otherwise fall back to User-Agent for backwards compatibility
+    device_fingerprint = request.headers.get("X-Device-Fingerprint") or request.headers.get("User-Agent", "Unknown Device")
 
     tokens = await create_token_pair(
         user_id=str(result.get("license_id")),
@@ -267,26 +271,28 @@ async def login(data: LoginRequest, request: Request):
 async def refresh_token(data: RefreshRequest, request: Request):
     """
     Refresh an expired access token.
-    
+
     Use the refresh token to get a new access token.
     """
     ip_address = request.client.host if request.client else None
-    device_fingerprint = request.headers.get("User-Agent", "Unknown Device")
-    
+    # P0-4 FIX: Use X-Device-Fingerprint header if provided (persistent device ID)
+    # Otherwise fall back to User-Agent for backwards compatibility
+    device_fingerprint = request.headers.get("X-Device-Fingerprint") or request.headers.get("User-Agent", "Unknown Device")
+
     result = await refresh_access_token(
-        data.refresh_token, 
-        device_fingerprint, 
+        data.refresh_token,
+        device_fingerprint,
         ip_address,
         data.device_secret,
         user_agent=request.headers.get("User-Agent")
     )
-    
+
     if not result:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
         )
-    
+
     return TokenResponse(**result)
 
 
