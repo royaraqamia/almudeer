@@ -80,6 +80,7 @@ class LoginRequest(BaseModel):
     """Login with license key"""
     license_key: str
     device_secret: Optional[str] = None  # Raw device secret (will be hashed server-side with pepper)
+    device_secret_hash: Optional[str] = None  # Legacy field name (deprecated, but kept for backwards compatibility during transition)
 
 
 class TokenResponse(BaseModel):
@@ -185,8 +186,9 @@ async def login(data: LoginRequest, request: Request):
             if existing_session and existing_session.get("device_secret_hash"):
                 stored_hash = existing_session["device_secret_hash"]
 
-                # P0-2 FIX: Require device secret for known licenses
-                if not data.device_secret:
+                # P0-2 FIX: Require device secret for known licenses (accept both field names for backwards compatibility)
+                device_secret_value = data.device_secret or data.device_secret_hash
+                if not device_secret_value:
                     logger.warning(f"Device secret required but not provided for license {license_id}")
                     # P2-11 FIX: Log security event for audit trail
                     security_logger = get_security_logger()
@@ -207,8 +209,7 @@ async def login(data: LoginRequest, request: Request):
 
                 # Device has existing binding - verify it matches
                 # SECURITY FIX: Hash with pepper and compare
-                from security import hash_device_secret
-                computed_hash = hash_device_secret(data.device_secret)
+                computed_hash = hash_device_secret(device_secret_value)
                 if not hmac.compare_digest(computed_hash, stored_hash):
                     logger.warning(f"Device secret mismatch on login for license {license_id}")
                     # P2-11 FIX: Log security event for audit trail
@@ -253,6 +254,11 @@ async def login(data: LoginRequest, request: Request):
     if data.device_secret:
         from security import hash_device_secret
         device_secret_hash = hash_device_secret(data.device_secret)
+    elif data.device_secret_hash:
+        # Legacy support: accept pre-hashed value (will be re-hashed with pepper for consistency)
+        # This is safe because we're adding pepper on top
+        from security import hash_device_secret
+        device_secret_hash = hash_device_secret(data.device_secret_hash)
 
     tokens = await create_token_pair(
         user_id=str(result.get("license_id")),
