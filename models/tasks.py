@@ -279,6 +279,16 @@ async def get_tasks(
         rows = await fetch_all(db, query, tuple(params))
         return [_parse_task_row(dict(row)) for row in rows]
 
+async def _get_task_by_id_raw(db, license_id: int, task_id: str) -> Optional[dict]:
+    """Internal helper to get task by ID without permission check (for create/update)."""
+    row = await fetch_one(db, """
+        SELECT * FROM tasks
+        WHERE (license_key_id = ? OR license_key_id = 0)
+        AND id = ?
+    """, (license_id, task_id))
+    return _parse_task_row(dict(row)) if row else None
+
+
 async def get_task(license_id: int, task_id: str, user_id: str) -> Optional[dict]:
     """Get a specific task (check both license and global). Respects private visibility.
 
@@ -294,11 +304,11 @@ async def get_task(license_id: int, task_id: str, user_id: str) -> Optional[dict
 
         if not row:
             return None
-        
+
         # P4-1: Use consolidated access check
         task_dict = dict(row)
         has_access = await verify_task_access(db, task_id, user_id, license_id, 'view')
-        
+
         if not has_access:
             return None
 
@@ -473,7 +483,9 @@ async def create_task(license_id: int, task_data: dict) -> dict:
             license_id  # For the WHERE clause in ON CONFLICT
         ))
         await commit_db(db)
-        return await get_task(license_id, task_data['id'])
+        # Use internal helper to get task without permission check (we just created it)
+        async with get_db() as db:
+            return await _get_task_by_id_raw(db, license_id, task_data['id'])
 
 async def update_task(license_id: int, task_id: str, task_data: dict) -> Optional[dict]:
     """Update a task with LWW conflict resolution"""
@@ -493,7 +505,9 @@ async def update_task(license_id: int, task_id: str, task_data: dict) -> Optiona
             values.append(val)
 
     if not fields:
-        return await get_task(license_id, task_id, None)
+        # No fields to update, just return current task
+        async with get_db() as db:
+            return await _get_task_by_id_raw(db, license_id, task_id)
 
     # Normalize updated_at to UTC
     updated_at = normalize_timestamp(task_data.get('updated_at'))
@@ -509,7 +523,9 @@ async def update_task(license_id: int, task_id: str, task_data: dict) -> Optiona
     async with get_db() as db:
         await execute_sql(db, query, tuple(values))
         await commit_db(db)
-        return await get_task(license_id, task_id, None)
+        # Use internal helper to get task without permission check (we just updated it)
+        async with get_db() as db:
+            return await _get_task_by_id_raw(db, license_id, task_id)
 
 async def delete_task(license_id: int, task_id: str) -> bool:
     """Delete a task"""
