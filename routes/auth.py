@@ -174,12 +174,15 @@ async def login(data: LoginRequest, request: Request):
     from database import DB_TYPE
     from security import hash_device_secret
 
+    # Track if we're reusing an existing session (to avoid revoking it)
+    existing_family_id = None
+
     try:
         async with get_db() as db:
             # Check for existing non-revoked sessions with device binding
             existing_session = await fetch_one(
                 db,
-                "SELECT device_secret_hash FROM device_sessions WHERE license_key_id = ? AND is_revoked = 0 ORDER BY last_used_at DESC LIMIT 1",
+                "SELECT device_secret_hash, family_id FROM device_sessions WHERE license_key_id = ? AND is_revoked = 0 ORDER BY last_used_at DESC LIMIT 1",
                 [license_id]
             )
 
@@ -214,31 +217,38 @@ async def login(data: LoginRequest, request: Request):
                     # FIX: On login, allow device secret rotation (e.g., after app reinstall/clear data)
                     # Update the session with the new device secret instead of rejecting
                     logger.info(f"Device secret mismatch on login for license {license_id} - updating session with new device secret")
-                    
+
                     # Update the device_sessions table with the new device secret hash
                     from db_helper import execute_sql, commit_db
                     from database import DB_TYPE
-                    
+
                     try:
-                        async with get_db() as db:
-                            if DB_TYPE == "postgresql":
-                                await execute_sql(
-                                    db,
-                                    "UPDATE device_sessions SET device_secret_hash = ?, last_used_at = NOW() WHERE license_key_id = ? AND is_revoked = 0",
-                                    [computed_hash, license_id]
-                                )
-                            else:
-                                await execute_sql(
-                                    db,
-                                    "UPDATE device_sessions SET device_secret_hash = ?, last_used_at = CURRENT_TIMESTAMP WHERE license_key_id = ? AND is_revoked = 0",
-                                    [computed_hash, license_id]
-                                )
-                            await commit_db(db)
+                        # Also get the family_id to reuse this session
+                        existing_family_id = existing_session.get("family_id")
+
+                        if DB_TYPE == "postgresql":
+                            await execute_sql(
+                                db,
+                                "UPDATE device_sessions SET device_secret_hash = ?, last_used_at = NOW() WHERE license_key_id = ? AND is_revoked = 0",
+                                [computed_hash, license_id]
+                            )
+                        else:
+                            await execute_sql(
+                                db,
+                                "UPDATE device_sessions SET device_secret_hash = ?, last_used_at = CURRENT_TIMESTAMP WHERE license_key_id = ? AND is_revoked = 0",
+                                [computed_hash, license_id]
+                            )
+                        await commit_db(db)
                         logger.info(f"Device secret updated successfully for license {license_id}")
+
+                        # FIX: Pass the existing family_id to create_token_pair to reuse this session
+                        # This prevents creating a new session and revoking the one we just updated
+                        family_id = existing_family_id
+                        logger.info(f"Reusing existing session family_id={existing_family_id[:8]}... for license {license_id}")
                     except Exception as e:
                         logger.error(f"Failed to update device secret for license {license_id}: {e}")
                         # Continue anyway - don't block login on DB update failure
-                    
+
                     # Log security event for audit trail (device was re-bound)
                     security_logger = get_security_logger()
                     security_logger.log_event(
@@ -287,6 +297,7 @@ async def login(data: LoginRequest, request: Request):
         role="user",
         device_fingerprint=device_fingerprint,
         ip_address=ip_address,
+        family_id=existing_family_id,  # Reuse existing session family_id if available
         device_secret_hash=device_secret_hash,
         user_agent=request.headers.get("User-Agent")
     )
@@ -558,11 +569,10 @@ async def rotate_device_secret(
         family_id = user.get("family_id")
         if not family_id:
             # No session to rotate (legacy token without family_id)
-            # Client needs to re-authenticate to get a device-bound session
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot rotate device secret for legacy session. Please re-authenticate to enable device binding."
-            )
+            # FIX: Don't error - just return success and skip rotation
+            # The user will get a device-bound session on next login/refresh
+            logger.info(f"Device secret rotation skipped for legacy session (user: {user.get('user_id')})")
+            return {"success": True, "message": "Device secret rotation skipped for legacy session", "rotated": False}
 
         # Validate new device secret format (64 hex chars = 256 bits)
         new_secret = data.new_device_secret

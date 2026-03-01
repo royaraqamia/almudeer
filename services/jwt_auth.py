@@ -208,7 +208,8 @@ async def create_token_pair(
     ip_address: str = None,
     family_id: str = None,
     device_secret_hash: str = None,
-    user_agent: str = None
+    user_agent: str = None,
+    skip_session_revoke: bool = False  # FIX: Allow skipping session revocation when updating existing session
 ) -> Dict[str, Any]:
     """
     Create both access and refresh tokens. Track device session.
@@ -242,7 +243,8 @@ async def create_token_pair(
 
     # SECURITY FIX: When creating a new session (login), revoke all existing sessions
     # This prevents "session revoked" errors when users re-login after clearing app data
-    if license_id and is_new_family:
+    # FIX: Skip revocation when updating existing session (device secret rotation on login)
+    if license_id and is_new_family and not skip_session_revoke:
         from database import DB_TYPE
         from db_helper import execute_sql, commit_db
         try:
