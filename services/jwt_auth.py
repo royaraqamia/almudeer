@@ -15,7 +15,6 @@ from dataclasses import dataclass
 
 from jose import jwt, JWTError
 from starlette.concurrency import run_in_threadpool
-from fastapi import Header
 
 from logging_config import get_logger
 from db_helper import execute_sql, commit_db
@@ -204,7 +203,6 @@ async def create_token_pair(
     user_id: str,
     license_id: int = None,
     role: str = "user",
-    device_fingerprint: str = None,
     ip_address: str = None,
     family_id: str = None,
     device_secret_hash: str = None,
@@ -291,15 +289,15 @@ async def create_token_pair(
                     if DB_TYPE == "postgresql":
                         await execute_sql(db, """
                             INSERT INTO device_sessions
-                            (license_key_id, family_id, refresh_token_jti, device_fingerprint, ip_address, expires_at, device_secret_hash, device_name, location, user_agent)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, [license_id, family_id, refresh_jti, device_fingerprint, ip_address, expires_db, device_secret_hash, device_name, location, user_agent])
+                            (license_key_id, family_id, refresh_token_jti, ip_address, expires_at, device_secret_hash, device_name, location, user_agent)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, [license_id, family_id, refresh_jti, ip_address, expires_db, device_secret_hash, device_name, location, user_agent])
                     else:
                         await execute_sql(db, """
                             INSERT INTO device_sessions
-                            (license_key_id, family_id, refresh_token_jti, device_fingerprint, ip_address, expires_at, device_secret_hash, device_name, location, user_agent)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, [license_id, family_id, refresh_jti, device_fingerprint, ip_address, expires_db.isoformat(), device_secret_hash, device_name, location, user_agent])
+                            (license_key_id, family_id, refresh_token_jti, ip_address, expires_at, device_secret_hash, device_name, location, user_agent)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, [license_id, family_id, refresh_jti, ip_address, expires_db.isoformat(), device_secret_hash, device_name, location, user_agent])
                 else:
                     if DB_TYPE == "postgresql":
                         await execute_sql(db, """
@@ -416,7 +414,6 @@ def verify_token(token: str, token_type: str = TokenType.ACCESS) -> Optional[Dic
 
 async def refresh_access_token(
     refresh_token: str,
-    device_fingerprint: str = None,
     ip_address: str = None,
     device_secret: str = None,  # Raw device secret from client (will be hashed server-side)
     user_agent: str = None
@@ -474,7 +471,6 @@ async def refresh_access_token(
             user_id=payload.get("sub"),
             license_id=license_id,
             role=payload.get("role", "user"),
-            device_fingerprint=device_fingerprint,
             ip_address=ip_address,
         )
         
@@ -584,7 +580,6 @@ async def refresh_access_token(
                 user_id=payload.get("sub"),
                 license_id=license_id,
                 role=payload.get("role", "user"),
-                device_fingerprint=device_fingerprint,
                 ip_address=ip_address,
                 family_id=family_id,
                 device_secret_hash=effective_device_hash, # Keep the binding alive on rotation
@@ -606,14 +601,9 @@ security = HTTPBearer(auto_error=False)
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    x_device_fingerprint: Optional[str] = Header(None, alias="X-Device-Fingerprint"),
 ) -> Dict[str, Any]:
     """
     FastAPI dependency to get current authenticated user.
-    
-    SECURITY FIX: Added device fingerprint validation to detect stolen tokens.
-    If a token is used from a different device than the one it was issued to,
-    the session is revoked immediately.
 
     Usage:
         @app.get("/protected")
@@ -655,9 +645,8 @@ async def get_current_user(
             from db_helper import get_db, fetch_one
             try:
                 async with get_db() as db:
-                    # SECURITY FIX: Fetch full session for device fingerprint validation
-                    session = await fetch_one(db, 
-                        "SELECT is_revoked, device_fingerprint, device_secret_hash FROM device_sessions WHERE family_id = ?", 
+                    session = await fetch_one(db,
+                        "SELECT is_revoked FROM device_sessions WHERE family_id = ?",
                         [family_id])
                     is_revoked = session.get("is_revoked") if session else False
                     _session_revocation_cache.set(family_id, is_revoked)
@@ -669,48 +658,6 @@ async def get_current_user(
                             detail="Session has been revoked",
                             headers={"WWW-Authenticate": "Bearer"},
                         )
-                    
-                    # P0-4 FIX: Enforce device fingerprint validation
-                    # If session has a stored fingerprint, client MUST provide matching fingerprint
-                    stored_fingerprint = session.get("device_fingerprint") if session else None
-
-                    if stored_fingerprint:
-                        # P0-4 FIX: Require fingerprint on all requests for bound sessions
-                        if not x_device_fingerprint:
-                            logger.warning(
-                                f"Missing device fingerprint for session {family_id}. "
-                                "Token may be stolen or client is outdated."
-                            )
-                            # P0-4 FIX: Revoke session if fingerprint is missing
-                            # This prevents attackers from using stolen tokens without fingerprint
-                            await execute_sql(db,
-                                "UPDATE device_sessions SET is_revoked = TRUE WHERE family_id = ?",
-                                [family_id])
-                            await commit_db(db)
-                            _session_revocation_cache.invalidate(family_id)
-                            raise HTTPException(
-                                status_code=status.HTTP_401_UNAUTHORIZED,
-                                detail="Session revoked - device fingerprint required",
-                                headers={"WWW-Authenticate": "Bearer"},
-                            )
-
-                        # P0-4 FIX: Validate fingerprint matches
-                        if stored_fingerprint != x_device_fingerprint:
-                            logger.warning(
-                                f"Device fingerprint mismatch! Token from {stored_fingerprint[:50]}... "
-                                f"used by {x_device_fingerprint[:50]}... Revoking session."
-                            )
-                            # Token theft detected - revoke entire session chain
-                            await execute_sql(db,
-                                "UPDATE device_sessions SET is_revoked = TRUE WHERE family_id = ?",
-                                [family_id])
-                            await commit_db(db)
-                            _session_revocation_cache.invalidate(family_id)
-                            raise HTTPException(
-                                status_code=status.HTTP_401_UNAUTHORIZED,
-                                detail="Session revoked - device mismatch detected",
-                                headers={"WWW-Authenticate": "Bearer"},
-                            )
             except HTTPException:
                 raise
             except Exception as e:

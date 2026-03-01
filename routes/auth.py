@@ -276,9 +276,6 @@ async def login(data: LoginRequest, request: Request):
 
     # Extract metadata
     ip_address = request.client.host if request.client else None
-    # P0-4 FIX: Use X-Device-Fingerprint header if provided (persistent device ID)
-    # Otherwise fall back to User-Agent for backwards compatibility
-    device_fingerprint = request.headers.get("X-Device-Fingerprint") or request.headers.get("User-Agent", "Unknown Device")
 
     # Hash device secret with pepper for storage
     device_secret_hash = None
@@ -295,7 +292,6 @@ async def login(data: LoginRequest, request: Request):
         user_id=str(result.get("license_id")),
         license_id=result.get("license_id"),
         role="user",
-        device_fingerprint=device_fingerprint,
         ip_address=ip_address,
         family_id=existing_family_id,  # Reuse existing session family_id if available
         device_secret_hash=device_secret_hash,
@@ -321,13 +317,9 @@ async def refresh_token(data: RefreshRequest, request: Request):
     Use the refresh token to get a new access token.
     """
     ip_address = request.client.host if request.client else None
-    # P0-4 FIX: Use X-Device-Fingerprint header if provided (persistent device ID)
-    # Otherwise fall back to User-Agent for backwards compatibility
-    device_fingerprint = request.headers.get("X-Device-Fingerprint") or request.headers.get("User-Agent", "Unknown Device")
 
     result = await refresh_access_token(
         data.refresh_token,
-        device_fingerprint,
         ip_address,
         data.device_secret,  # Pass raw device secret (server will hash it)
         user_agent=request.headers.get("User-Agent")

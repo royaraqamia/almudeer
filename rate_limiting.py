@@ -15,28 +15,14 @@ def get_license_key_or_ip(request: Request) -> str:
     """
     Get rate limit key from license key (preferred) or client IP.
     This allows licensed users to have separate rate limits.
-
-    P1-8 FIX: Ignore client-provided X-Device-ID header to prevent bypass.
-    Instead, generate device ID from fingerprint + IP on the server side.
     """
-    # P1-8 FIX: Extract license key from Authorization header (JWT) instead of X-License-Key
+    # Extract license key from Authorization header (JWT) instead of X-License-Key
     # This prevents attackers from bypassing rate limits by spoofing license keys
     license_key = request.headers.get("X-License-Key", "")
 
     if license_key:
         # Use first 20 chars of license key as identifier
         return f"license:{license_key[:20]}"
-
-    # P1-8 FIX: Generate device identifier from fingerprint + IP (server-side)
-    # This prevents device ID spoofing attacks
-    device_fingerprint = request.headers.get("X-Device-Fingerprint", "")
-    ip_address = request.client.host if request.client else "unknown"
-
-    if device_fingerprint:
-        # Hash combination of fingerprint and IP for consistent device ID
-        import hashlib
-        device_id = hashlib.sha256(f"{device_fingerprint}:{ip_address}".encode()).hexdigest()[:20]
-        return f"device:{device_id}"
 
     # Fallback to IP-based rate limiting
     return f"ip:{get_remote_address(request)}"
