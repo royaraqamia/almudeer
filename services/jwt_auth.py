@@ -413,20 +413,20 @@ def verify_token(token: str, token_type: str = TokenType.ACCESS) -> Optional[Dic
 
 
 async def refresh_access_token(
-    refresh_token: str, 
-    device_fingerprint: str = None, 
+    refresh_token: str,
+    device_fingerprint: str = None,
     ip_address: str = None,
-    device_secret: str = None,
+    device_secret: str = None,  # Raw device secret from client (will be hashed server-side)
     user_agent: str = None
 ) -> Optional[Dict[str, Any]]:
     """
     Use a refresh token to get a new access token and rotate the refresh token.
     """
     payload = await verify_token_async(refresh_token, TokenType.REFRESH)
-    
+
     if not payload:
         return None
-        
+
     jti = payload.get("jti")
     family_id = payload.get("family_id")
     license_id = payload.get("license_id")
@@ -507,12 +507,12 @@ async def refresh_access_token(
 
             # Security Hardening: Device Secret Binding Verification
             stored_hash = session.get("device_secret_hash")
-            
+
             # CRITICAL FIX P0-8: Require device secret for ALL refresh operations
             # Legacy sessions without device_secret_hash must provide a device_secret to upgrade
             # After a grace period (configurable), sessions without device binding will be rejected
             grace_period_days = int(os.getenv("DEVICE_SECRET_GRACE_PERIOD_DAYS", "0"))  # 0 = immediate enforcement
-            
+
             if not stored_hash:
                 # Session doesn't have device binding yet
                 if not device_secret:
@@ -525,7 +525,7 @@ async def refresh_access_token(
                         # Grace period active - allow but log warning
                         logger.warning(f"Legacy session {family_id} refreshing without device binding (grace period active)")
                 else:
-                    # Upgrade legacy session to device-bound
+                    # Upgrade legacy session to device-bound (hash with pepper server-side)
                     from security import hash_device_secret
                     stored_hash = hash_device_secret(device_secret)
                     await execute_sql(
@@ -535,13 +535,13 @@ async def refresh_access_token(
                     )
                     await commit_db(db)
                     logger.info(f"Upgraded legacy session {family_id} to device-bound")
-            
+
             # Enforce device secret verification for bound sessions
             if stored_hash:
                 if not device_secret:
                     logger.warning(f"Refresh failed: Missing device_secret for bound session {family_id}")
                     return None
-                # SECURITY FIX: Use peppered hash for device secret verification
+                # Hash the provided device_secret with pepper and compare
                 from security import hash_device_secret
                 computed_hash = hash_device_secret(device_secret)
                 if not hmac.compare_digest(computed_hash, stored_hash):

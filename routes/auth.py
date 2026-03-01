@@ -79,7 +79,7 @@ def _validate_content_type(request: Request) -> bool:
 class LoginRequest(BaseModel):
     """Login with license key"""
     license_key: str
-    device_secret_hash: Optional[str] = None
+    device_secret: Optional[str] = None  # Raw device secret (will be hashed server-side with pepper)
 
 
 class TokenResponse(BaseModel):
@@ -94,7 +94,7 @@ class TokenResponse(BaseModel):
 class RefreshRequest(BaseModel):
     """Refresh token request"""
     refresh_token: str
-    device_secret: Optional[str] = None
+    device_secret: Optional[str] = None  # Raw device secret (will be hashed server-side)
 
 
 # ============ Auth Endpoints ============
@@ -186,7 +186,7 @@ async def login(data: LoginRequest, request: Request):
                 stored_hash = existing_session["device_secret_hash"]
 
                 # P0-2 FIX: Require device secret for known licenses
-                if not data.device_secret_hash:
+                if not data.device_secret:
                     logger.warning(f"Device secret required but not provided for license {license_id}")
                     # P2-11 FIX: Log security event for audit trail
                     security_logger = get_security_logger()
@@ -206,8 +206,10 @@ async def login(data: LoginRequest, request: Request):
                     )
 
                 # Device has existing binding - verify it matches
-                # SECURITY FIX: Use peppered hash comparison
-                if not hmac.compare_digest(data.device_secret_hash, stored_hash):
+                # SECURITY FIX: Hash with pepper and compare
+                from security import hash_device_secret
+                computed_hash = hash_device_secret(data.device_secret)
+                if not hmac.compare_digest(computed_hash, stored_hash):
                     logger.warning(f"Device secret mismatch on login for license {license_id}")
                     # P2-11 FIX: Log security event for audit trail
                     security_logger = get_security_logger()
@@ -246,13 +248,19 @@ async def login(data: LoginRequest, request: Request):
     # Otherwise fall back to User-Agent for backwards compatibility
     device_fingerprint = request.headers.get("X-Device-Fingerprint") or request.headers.get("User-Agent", "Unknown Device")
 
+    # Hash device secret with pepper for storage
+    device_secret_hash = None
+    if data.device_secret:
+        from security import hash_device_secret
+        device_secret_hash = hash_device_secret(data.device_secret)
+
     tokens = await create_token_pair(
         user_id=str(result.get("license_id")),
         license_id=result.get("license_id"),
         role="user",
         device_fingerprint=device_fingerprint,
         ip_address=ip_address,
-        device_secret_hash=data.device_secret_hash,
+        device_secret_hash=device_secret_hash,
         user_agent=request.headers.get("User-Agent")
     )
 
@@ -283,7 +291,7 @@ async def refresh_token(data: RefreshRequest, request: Request):
         data.refresh_token,
         device_fingerprint,
         ip_address,
-        data.device_secret,
+        data.device_secret,  # Pass raw device secret (server will hash it)
         user_agent=request.headers.get("User-Agent")
     )
 
