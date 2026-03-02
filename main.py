@@ -60,7 +60,6 @@ from schemas import (
     HealthCheck,
     LicenseKeyCreate,
     MessageInput,
-    AnalysisResult
 )
 # from agent import process_message (AI removed)
 from models import (
@@ -108,7 +107,7 @@ from workers import start_message_polling, stop_message_polling, start_subscript
 from db_pool import db_pool
 from services.websocket_manager import get_websocket_manager, broadcast_new_message
 from services.pagination import paginate_inbox, paginate_crm, paginate_customers, PaginationParams
-from services.request_batcher import get_request_batcher, batch_analyze
+from services.request_batcher import get_request_batcher
 from services.db_indexes import create_indexes
 from services.telegram_listener_service import get_telegram_listener
 from errors import AuthorizationError, register_error_handlers
@@ -437,7 +436,6 @@ app = FastAPI(
         {"name": "System", "description": "System endpoints (health, etc.)"},
         {"name": "Authentication", "description": "License key validation"},
         {"name": "Admin", "description": "Admin operations (license management)"},
-        {"name": "Analysis", "description": "Message analysis and processing"},
         {"name": "CRM", "description": "Customer relationship management"},
     ]
 )
@@ -672,8 +670,6 @@ async def create_license(data: LicenseKeyCreate, _: None = Depends(verify_admin)
 
 
 # ============ Protected Routes (Require License Key) ============
-
-# AI analysis endpoints removed
 
 
 # ============ WebSocket Real-time Updates ============

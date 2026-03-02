@@ -41,26 +41,9 @@ class MessageInput(BaseModel):
     sender_contact: Optional[str] = Field(None, description="بيانات التواصل")
 
 
-class AnalysisResult(BaseModel):
-    """Result of message analysis"""
-    intent: str = Field(..., description="النية: استفسار، طلب خدمة، شكوى، متابعة، عرض، أخرى")
-    urgency: str = Field(..., description="الأهمية: عاجل، عادي، منخفض")
-    sentiment: str = Field(..., description="المشاعر: إيجابي، محايد، سلبي")
-    sender_name: Optional[str] = None
-    sender_contact: Optional[str] = None
-    key_points: List[str] = Field(default_factory=list)
-    action_items: List[str] = Field(default_factory=list)
-    extracted_entities: dict = Field(default_factory=dict)
-    summary: str = ""
-    draft_response: str = ""
-    suggested_actions: List[str] = Field(default_factory=list)
-    message_type: str = "general"
-
-
 class ProcessingResponse(BaseModel):
     """Response for message processing"""
     success: bool
-    data: Optional[AnalysisResult] = None
     error: Optional[str] = None
 
 
