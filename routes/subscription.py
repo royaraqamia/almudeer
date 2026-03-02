@@ -375,27 +375,53 @@ async def update_subscription(
                 params.append(update.profile_image_url)
                 param_index += 1
             
+            old_username = None
             if update.username is not None:
+                # Store old username for customer table update
+                old_username = current.get("username")
                 if DB_TYPE == "postgresql":
                     updates.append(f"username = ${param_index}")
                 else:
                     updates.append("username = ?")
                 params.append(update.username)
                 param_index += 1
-            
+
             if not updates:
                 raise HTTPException(status_code=400, detail="لا توجد تحديثات لتطبيقها")
-            
+
             # Execute update
             if DB_TYPE == "postgresql":
                 query = f"UPDATE license_keys SET {', '.join(updates)} WHERE id = ${param_index}"
             else:
                 query = f"UPDATE license_keys SET {', '.join(updates)} WHERE id = ?"
             params.append(license_id)
-            
+
             await execute_sql(db, query, params)
-            await commit_db(db)
             
+            # If username changed, update customers table to maintain consistency
+            if old_username and update.username and old_username != update.username:
+                try:
+                    # Update customers.contact and customers.username where they reference the old username
+                    if DB_TYPE == "postgresql":
+                        await execute_sql(db, """
+                            UPDATE customers 
+                            SET contact = $1, username = $1 
+                            WHERE license_key_id = $2 AND (contact = $3 OR username = $3)
+                        """, [update.username, license_id, old_username])
+                    else:
+                        await execute_sql(db, """
+                            UPDATE customers 
+                            SET contact = ?, username = ? 
+                            WHERE license_key_id = ? AND (contact = ? OR username = ?)
+                        """, [update.username, update.username, license_id, old_username, old_username])
+                    await commit_db(db)
+                    logger.info(f"Updated customers table for username change: {old_username} -> {update.username}")
+                except Exception as e:
+                    logger.warning(f"Failed to update customers table: {e}")
+                    await commit_db(db)  # Still commit the main update
+            else:
+                await commit_db(db)
+
             logger.info(f"Updated subscription {license_id}")
             
             if update.is_active is False:
@@ -409,9 +435,13 @@ async def update_subscription(
             # Find updated fields for the broadcast
             broadcast_data = {}
             if update.full_name is not None: broadcast_data["full_name"] = update.full_name
-            if update.username is not None: broadcast_data["username"] = update.username
+            if update.username is not None: 
+                broadcast_data["username"] = update.username
+                # Include old username for migration
+                if old_username:
+                    broadcast_data["old_username"] = old_username
             if update.profile_image_url is not None: broadcast_data["profile_image_url"] = update.profile_image_url
-            
+
             # Handle expiry update for broadcast
             if update.days_valid_extension is not None and update.days_valid_extension != 0:
                 try:
