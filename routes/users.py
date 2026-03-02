@@ -5,7 +5,7 @@ Search and manage Almudeer users
 
 from fastapi import APIRouter, HTTPException, status, Depends, Request
 from typing import Optional, List
-from database import get_db, fetch_all, get_current_license_id
+from database import get_db, fetch_all
 from services.jwt_auth import get_current_user
 from logging_config import get_logger
 
@@ -23,12 +23,12 @@ async def search_users(
     """
     Search for Almudeer users by username, name, or email.
     Only returns users that exist in the license_keys table.
-    
+
     Args:
         q: Search query string
         limit: Maximum number of results to return
         current_user: Current authenticated user
-        
+
     Returns:
         List of matching users with basic profile information
     """
@@ -39,8 +39,8 @@ async def search_users(
             "count": 0,
             "query": q,
         }
-    
-    license_id = await get_current_license_id(request)
+
+    license_id = current_user.get("license_id")
     search_query = f"%{q.strip()}%"
     
     async with get_db() as db:
@@ -151,12 +151,12 @@ async def get_current_user_profile(
 ):
     """
     Get current user's profile information.
-    
+
     Returns:
         Current user's profile data
     """
-    license_id = await get_current_license_id(request)
-    
+    license_id = current_user.get("license_id")
+
     async with get_db() as db:
         row = await fetch_all(
             db,
