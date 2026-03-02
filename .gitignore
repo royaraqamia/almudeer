@@ -54,6 +54,10 @@ dump.rdb
 *.backup
 *.old
 
+# Migration scripts with credentials - NEVER commit these!
+scripts/*_with_creds.py
+scripts/*_local.py
+
 # OS files
 .DS_Store
 Thumbs.db
