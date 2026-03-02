@@ -170,7 +170,7 @@ async def create_new_task(
             raise HTTPException(status_code=500, detail="Failed to create/sync task")
 
         # Trigger real-time sync across other devices
-        background_tasks.add_task(broadcast_task_sync, license_id, task_id=result["id"], change_type="create", target_user_id=user["user_id"])
+        background_tasks.add_task(broadcast_task_sync, license_id, task_id=result["id"], change_type="create")
 
         # If assigned, notify assignee
         if task_dict.get("assigned_to") and task_dict["assigned_to"] != user["user_id"]:
