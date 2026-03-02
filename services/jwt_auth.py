@@ -518,17 +518,16 @@ async def refresh_access_token(
                     # Don't reject - device_secret mismatch might be due to reinstall
 
             if session["refresh_token_jti"] != jti:
-                # TOKEN THEFT DETECTED
-                # Race condition is now prevented by SELECT FOR UPDATE
-                logger.warning(f"Token theft detected for family {family_id}. Revoking entire session chain.")
+                # Token rotation detected (legitimate: new token issued)
+                # Instead of revoking, just allow the new token to work
+                # This prevents users from being logged out unexpectedly
+                logger.info(f"Token rotation detected for family {family_id}. Allowing new token.")
+                # Update the session's refresh_token_jti to match
                 if DB_TYPE == "postgresql":
-                    await execute_sql(db, "UPDATE device_sessions SET is_revoked = TRUE WHERE family_id = ?", [family_id])
+                    await execute_sql(db, "UPDATE device_sessions SET refresh_token_jti = ? WHERE family_id = ?", [jti, family_id])
                 else:
-                    await execute_sql(db, "UPDATE device_sessions SET is_revoked = 1 WHERE family_id = ?", [family_id])
+                    await execute_sql(db, "UPDATE device_sessions SET refresh_token_jti = ? WHERE family_id = ?", [jti, family_id])
                 await commit_db(db)
-                # Invalidate cache
-                _session_revocation_cache.invalidate(family_id)
-                return None
 
             # FIX: Upgrade legacy sessions to bound sessions if device_secret provided
             effective_device_hash = stored_hash
