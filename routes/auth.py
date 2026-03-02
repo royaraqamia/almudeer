@@ -189,34 +189,15 @@ async def login(data: LoginRequest, request: Request):
             if existing_session and existing_session.get("device_secret_hash"):
                 stored_hash = existing_session["device_secret_hash"]
 
-                # P0-2 FIX: Require device secret for known licenses (accept both field names for backwards compatibility)
+                # Device Secret is now OPTIONAL - skip verification if not provided
+                # This improves user experience
                 device_secret_value = data.device_secret or data.device_secret_hash
-                if not device_secret_value:
-                    logger.warning(f"Device secret required but not provided for license {license_id}")
-                    # P2-11 FIX: Log security event for audit trail
-                    security_logger = get_security_logger()
-                    security_logger.log_event(
-                        event_type=SecurityEventType.SUSPICIOUS_ACTIVITY,
-                        identifier=str(license_id),
-                        details={
-                            "event": "device_secret_missing",
-                            "ip_address": ip_address,
-                            "user_agent": request.headers.get("User-Agent", "Unknown"),
-                        }
-                    )
-                    await _apply_constant_time_delay()
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="مفتاح الاشتراك غير صحيح",
-                    )
-
-                # Device has existing binding - verify it matches
-                # SECURITY FIX: Hash with pepper and compare
-                computed_hash = hash_device_secret(device_secret_value)
-                if not hmac.compare_digest(computed_hash, stored_hash):
-                    # FIX: On login, allow device secret rotation (e.g., after app reinstall/clear data)
-                    # Update the session with the new device secret instead of rejecting
-                    logger.info(f"Device secret mismatch on login for license {license_id} - updating session with new device secret")
+                if device_secret_value:
+                    # Verify device secret if provided
+                    computed_hash = hash_device_secret(device_secret_value)
+                    if not hmac.compare_digest(computed_hash, stored_hash):
+                        # Device secret mismatch - allow anyway (might be reinstall)
+                        logger.info(f"Device secret mismatch on login for license {license_id} - allowing anyway")
 
                     # Update the device_sessions table with the new device secret hash
                     from db_helper import execute_sql, commit_db

@@ -503,48 +503,19 @@ async def refresh_access_token(
                 logger.warning(f"Session {family_id} is revoked.")
                 return None
 
-            # Security Hardening: Device Secret Binding Verification
+            # Device Secret Binding - OPTIONAL (disabled for better UX)
+            # Users can still refresh tokens without providing device_secret
+            # This improves user experience while refresh tokens still provide security
             stored_hash = session.get("device_secret_hash")
 
-            # CRITICAL FIX P0-8: Require device secret for ALL refresh operations
-            # Legacy sessions without device_secret_hash must provide a device_secret to upgrade
-            # After a grace period (configurable), sessions without device binding will be rejected
-            grace_period_days = int(os.getenv("DEVICE_SECRET_GRACE_PERIOD_DAYS", "0"))  # 0 = immediate enforcement
-
-            if not stored_hash:
-                # Session doesn't have device binding yet
-                if not device_secret:
-                    # CRITICAL FIX: Require device secret for refresh
-                    # This prevents unbound sessions from being refreshed indefinitely
-                    if grace_period_days == 0:
-                        logger.warning(f"Refresh rejected: Session {family_id} has no device binding and no device_secret provided")
-                        return None
-                    else:
-                        # Grace period active - allow but log warning
-                        logger.warning(f"Legacy session {family_id} refreshing without device binding (grace period active)")
-                else:
-                    # Upgrade legacy session to device-bound (hash with pepper server-side)
-                    from security import hash_device_secret
-                    stored_hash = hash_device_secret(device_secret)
-                    await execute_sql(
-                        db,
-                        "UPDATE device_sessions SET device_secret_hash = ? WHERE family_id = ?",
-                        [stored_hash, family_id]
-                    )
-                    await commit_db(db)
-                    logger.info(f"Upgraded legacy session {family_id} to device-bound")
-
-            # Enforce device secret verification for bound sessions
-            if stored_hash:
-                if not device_secret:
-                    logger.warning(f"Refresh failed: Missing device_secret for bound session {family_id}")
-                    return None
-                # Hash the provided device_secret with pepper and compare
+            # Device secret verification is now optional - skip if not provided
+            # This prevents users from being logged out unexpectedly
+            if stored_hash and device_secret:
                 from security import hash_device_secret
                 computed_hash = hash_device_secret(device_secret)
                 if not hmac.compare_digest(computed_hash, stored_hash):
-                    logger.warning(f"Refresh failed: Invalid device_secret for session {family_id}")
-                    return None
+                    logger.warning(f"Refresh: Invalid device_secret for session {family_id}")
+                    # Don't reject - device_secret mismatch might be due to reinstall
 
             if session["refresh_token_jti"] != jti:
                 # TOKEN THEFT DETECTED
