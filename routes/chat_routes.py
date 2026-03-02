@@ -810,8 +810,8 @@ async def send_approved_message(outbox_id: int, license_id: int):
     Unified entry point for sending approved messages.
     Directly calls the appropriate channel service to send the message.
     """
-    from models import get_pending_outbox, mark_outbox_sent, mark_outbox_failed, get_db
-    from db_helper import fetch_one
+    from models import get_pending_outbox, mark_outbox_sent, mark_outbox_failed
+    from db_helper import fetch_one, get_db
     from services.websocket_manager import broadcast_message_status_update
     from logging_config import get_logger
     from datetime import datetime, timezone

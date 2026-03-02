@@ -93,6 +93,7 @@ try:
     from routes.devices import router as devices_router
     from routes.transfers import router as transfers_router
     from routes.qr_codes import router as qr_codes_router
+    from routes.users import router as users_router
     # Reactions router removed
     logger.info("Successfully imported modular routes")
 except ImportError as e:
@@ -516,6 +517,7 @@ app.include_router(tasks_router)           # Task Management
 app.include_router(subscription_router)    # Subscription Key Management
 app.include_router(global_assets_router)   # Admin Global Assets
 app.include_router(auth_router)             # Authentication (login, etc)
+app.include_router(users_router)            # User Search & Profiles
 
 
 # Browser routes (scraper, link preview)
