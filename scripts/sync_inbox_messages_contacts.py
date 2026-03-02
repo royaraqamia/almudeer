@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # IMPORTANT: Set DATABASE_URL environment variable before running
 # Example (Windows): set DATABASE_URL=postgresql://user:pass@host:port/dbname
 # Example (Linux/Mac): export DATABASE_URL=postgresql://user:pass@host:port/dbname
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
 if not DATABASE_URL:
     print("ERROR: DATABASE_URL environment variable not set!")

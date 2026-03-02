@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # IMPORTANT: Set DATABASE_URL environment variable before running
 # Example (Windows): set DATABASE_URL=postgresql://user:pass@host:port/dbname
 # Example (Linux/Mac): export DATABASE_URL=postgresql://user:pass@host:port/dbname
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
 if not DATABASE_URL:
     print("ERROR: DATABASE_URL environment variable not set!")
@@ -43,7 +43,8 @@ async def find_mismatched_customers(conn):
     """
     Find customers where contact/username doesn't match current license_keys.username.
     
-    Returns list of customers that need updating.
+    IMPORTANT: Only finds Almudeer users (username-based contacts)
+    Excludes: WhatsApp (phone), Telegram (IDs), Email contacts
     """
     print("\nSearching for mismatched customers...")
     
@@ -66,6 +67,12 @@ async def find_mismatched_customers(conn):
             -- Username field is NULL or doesn't match
             (c.username IS DISTINCT FROM lk.username)
         )
+        -- Only Almudeer usernames, NOT WhatsApp/Telegram/Email contacts
+        AND c.contact NOT LIKE '+%' 
+        AND c.contact NOT LIKE '%@%'
+        AND c.contact NOT LIKE 'tg:%'
+        AND c.contact NOT LIKE 'unknown_%'
+        AND c.contact !~ '^[0-9]+$'
         ORDER BY lk.username, c.id
     """)
     
@@ -100,6 +107,9 @@ async def sync_customer_username(conn, customer_id: int, new_username: str):
     """
     Update a single customer's contact and username to match license_keys.
     Handles duplicate key errors gracefully.
+    
+    IMPORTANT: This should only affect Almudeer username contacts,
+    NOT WhatsApp/Telegram/Email contacts (filtered in find_mismatched_customers)
     """
     try:
         await conn.execute("""

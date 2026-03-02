@@ -399,20 +399,41 @@ async def update_subscription(
             await execute_sql(db, query, params)
             
             # If username changed, update customers table to maintain consistency
+            # IMPORTANT: Only update customers that reference THIS license's username
+            # Do NOT update WhatsApp/Telegram/Email contacts (they have different contact formats)
             if old_username and update.username and old_username != update.username:
                 try:
                     # Update customers.contact and customers.username where they reference the old username
+                    # This only affects Almudeer users (other license holders), NOT WhatsApp/Telegram contacts
                     if DB_TYPE == "postgresql":
                         await execute_sql(db, """
-                            UPDATE customers 
-                            SET contact = $1, username = $1 
-                            WHERE license_key_id = $2 AND (contact = $3 OR username = $3)
+                            UPDATE customers
+                            SET contact = $1, username = $1
+                            WHERE license_key_id = $2 
+                            AND (contact = $3 OR username = $3)
+                            AND (
+                                -- Only update if contact looks like a username (not phone, email, or ID)
+                                contact NOT LIKE '+%' 
+                                AND contact NOT LIKE '%@%'
+                                AND contact NOT LIKE 'tg:%'
+                                AND contact NOT LIKE 'unknown_%'
+                                AND contact !~ '^[0-9]+$'
+                            )
                         """, [update.username, license_id, old_username])
                     else:
+                        # SQLite: simpler pattern matching (no regex support by default)
                         await execute_sql(db, """
-                            UPDATE customers 
-                            SET contact = ?, username = ? 
-                            WHERE license_key_id = ? AND (contact = ? OR username = ?)
+                            UPDATE customers
+                            SET contact = ?, username = ?
+                            WHERE license_key_id = ? 
+                            AND (contact = ? OR username = ?)
+                            AND (
+                                -- Only update if contact looks like a username
+                                contact NOT LIKE '+%' 
+                                AND contact NOT LIKE '%@%'
+                                AND contact NOT LIKE 'tg:%'
+                                AND contact NOT LIKE 'unknown_%'
+                            )
                         """, [update.username, update.username, license_id, old_username, old_username])
                     await commit_db(db)
                     logger.info(f"Updated customers table for username change: {old_username} -> {update.username}")

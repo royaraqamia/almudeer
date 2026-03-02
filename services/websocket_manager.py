@@ -645,19 +645,34 @@ async def broadcast_subscription_updated(license_id: int, update_data: Dict[str,
                 return
 
             username = user_row["username"]
-            
+
             # Get old username from update_data if available (for username change migration)
             old_username = update_data.get("old_username")
 
             # Find all licenses who have this user in their 'customers' table
-            # Check both old and new username to handle username changes
+            # IMPORTANT: Only find customers where contact IS a username (not phone/email/ID)
+            # This ensures we only broadcast for Almudeer-to-Almudeer connections
             if old_username:
                 managers = await fetch_all(db, """
-                    SELECT DISTINCT license_key_id FROM customers 
-                    WHERE contact = ? OR contact = ? OR username = ? OR username = ?
+                    SELECT DISTINCT license_key_id FROM customers
+                    WHERE (contact = ? OR contact = ? OR username = ? OR username = ?)
+                    AND (
+                        -- Only Almudeer usernames, NOT WhatsApp/Telegram/Email contacts
+                        contact NOT LIKE '+%' 
+                        AND contact NOT LIKE '%@%'
+                        AND contact NOT LIKE 'tg:%'
+                        AND contact NOT LIKE 'unknown_%'
+                    )
                 """, [username, old_username, username, old_username])
             else:
-                managers = await fetch_all(db, "SELECT DISTINCT license_key_id FROM customers WHERE contact = ?", [username])
+                managers = await fetch_all(db, """
+                    SELECT DISTINCT license_key_id FROM customers 
+                    WHERE contact = ?
+                    AND contact NOT LIKE '+%' 
+                    AND contact NOT LIKE '%@%'
+                    AND contact NOT LIKE 'tg:%'
+                    AND contact NOT LIKE 'unknown_%'
+                """, [username])
 
             for manager_row in managers:
                 manager_license_id = manager_row["license_key_id"]
@@ -670,7 +685,7 @@ async def broadcast_subscription_updated(license_id: int, update_data: Dict[str,
                 # Include old username for migration if it changed
                 if old_username:
                     broadcast_payload["old_sender_contact"] = old_username
-                
+
                 await manager.send_to_license(manager_license_id, WebSocketMessage(
                     event="customer_updated",
                     data=broadcast_payload
