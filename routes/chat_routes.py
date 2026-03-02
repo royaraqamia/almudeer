@@ -265,7 +265,7 @@ async def send_chat_message(
 ):
     # Support both Form data (multipart) and JSON body
     content_type = request.headers.get("content-type", "")
-    
+
     if "application/json" in content_type:
         # Parse JSON body
         try:
@@ -276,11 +276,16 @@ async def send_chat_message(
             reply_to_body_preview = json_body.get("reply_to_body_preview", reply_to_body_preview)
             reply_to_sender_name = json_body.get("reply_to_sender_name", reply_to_sender_name)
             reply_to_id = json_body.get("reply_to_id", reply_to_id)
-            is_forwarded = json_body.get("is_forwarded", is_forwarded)
+            # Convert is_forwarded to boolean (JSON may send as string or bool)
+            is_forwarded_raw = json_body.get("is_forwarded", is_forwarded)
+            if isinstance(is_forwarded_raw, str):
+                is_forwarded = is_forwarded_raw.lower() == 'true'
+            else:
+                is_forwarded = bool(is_forwarded_raw) if is_forwarded_raw is not None else False
             attachments = json_body.get("attachments", attachments)
         except:
             pass
-    
+
     body = (message or "").strip()
     
     # Process Attachments
