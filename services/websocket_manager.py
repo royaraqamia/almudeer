@@ -28,6 +28,7 @@ class WebSocketMessage:
     data: Dict[str, Any]
     timestamp: str = ""
     sequence: int = None  # Optional sequence number for reliable delivery
+    license_id: int = None  # Optional license ID for routing
 
     def __post_init__(self):
         if not self.timestamp:
@@ -44,7 +45,8 @@ class WebSocketMessage:
             event=data.get("event", ""),
             data=data.get("data", {}),
             timestamp=data.get("timestamp", ""),
-            sequence=data.get("sequence")
+            sequence=data.get("sequence"),
+            license_id=data.get("license_id")
         )
 
 
