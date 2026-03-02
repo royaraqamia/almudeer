@@ -927,24 +927,10 @@ async def send_approved_message(outbox_id: int, license_id: int):
             result = {"success": True, "message_id": result.get("id")}
 
         elif channel == "almudeer" or channel == "saved":
-            # Internal Almudeer messages - save directly to inbox as the message appears to the same user
-            from models.inbox import save_inbox_message
-
-            # For internal/saved messages, the message is both sent and received by the same user
-            # Save it to inbox so it appears in the conversation
-            platform_msg_id = await save_inbox_message(
-                license_id=license_id,
-                channel="almudeer",
-                sender_id=str(recipient_id) if recipient_id else str(license_id),  # Use recipient or self
-                sender_name=None,
-                sender_contact=str(recipient_id) if recipient_id else recipient_email,
-                body=body,
-                subject=None,
-                attachments=attachments,
-                platform_message_id=None,
-                reply_to_platform_id=reply_to_platform_id
-            )
-            result = {"success": True, "message_id": str(platform_msg_id) if platform_msg_id else None}
+            # Internal Almudeer messages - just mark outbox as sent
+            # No need to save to inbox as it's the same user (outgoing = incoming for same account)
+            # The mobile app shows the outgoing message optimistically
+            result = {"success": True, "message_id": str(outbox_id)}
 
         else:
             raise ValueError(f"Unsupported channel: {channel}")

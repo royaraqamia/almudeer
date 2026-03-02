@@ -2641,7 +2641,7 @@ async def upsert_conversation_state(
     Recalculate and update the cached conversation state in `inbox_conversations`.
     Optimized: Combines multiple queries into a single pull where possible.
 
-    FIX P1-5: Added early exit optimization - skip if conversation doesn't exist
+    FIX: Creates new conversation if it doesn't exist (for first message scenarios)
     FIX: Added distributed lock to prevent race conditions in multi-device scenarios.
 
     Args:
@@ -2653,15 +2653,27 @@ async def upsert_conversation_state(
     """
     from db_helper import DB_TYPE
 
-    # FIX P1-5: Early exit - check if conversation exists before expensive operations
+    # Check if conversation exists
     async with get_db() as db:
         conv_exists = await fetch_one(
             db,
             "SELECT 1 FROM inbox_conversations WHERE license_key_id = ? AND sender_contact = ?",
             [license_id, sender_contact]
         )
+        
         if not conv_exists:
-            # Conversation doesn't exist, no need to update
+            # New conversation - create it with minimal data
+            # Full stats will be calculated on next update or when conversation list is fetched
+            await execute_sql(
+                db,
+                """
+                INSERT INTO inbox_conversations 
+                (license_key_id, sender_contact, sender_name, channel, last_message_at, unread_count)
+                VALUES (?, ?, ?, ?, ?, 0)
+                """,
+                [license_id, sender_contact, sender_name, channel or 'almudeer', datetime.utcnow().isoformat()],
+            )
+            await commit_db(db)
             return
 
     # FIX P0-1: Use distributed lock with retry queue to prevent race conditions
