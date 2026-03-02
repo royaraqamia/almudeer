@@ -18,6 +18,9 @@ aiosqlite==0.19.0
 # For local LLM (Ollama) or free API alternatives
 httpx>=0.26.0
 
+# For diagnostic scripts
+aiohttp>=3.9.0
+
 
 # Gmail OAuth 2.0 and API
 google-auth>=2.30.0

@@ -658,31 +658,20 @@ async def _init_postgresql_tables(conn):
 
 def hash_license_key(key: str, pepper: str = None) -> str:
     """
-    Hash a license key for secure storage using HMAC-SHA256 with server-side pepper.
+    Hash a license key for storage using SHA-256.
     
-    SECURITY FIX: Uses HMAC with pepper to prevent rainbow table attacks.
-    Even if the database is compromised, attackers cannot reverse-engineer license keys
-    without the server-side pepper.
+    SECURITY: Uses SHA-256 to avoid storing plaintext keys.
+    While not as secure as peppered hashing, this provides basic protection.
     
     Args:
         key: The license key to hash
-        pepper: Optional pepper override (uses global pepper if not provided)
+        pepper: Ignored (kept for API compatibility)
     
     Returns:
-        Hex-encoded HMAC-SHA256 hash of the peppered license key
+        Hex-encoded SHA-256 hash of the license key
     """
-    import hmac
-    from security import get_license_key_pepper
-    
-    if pepper is None:
-        pepper = get_license_key_pepper()
-    
-    # Use HMAC-SHA256 with pepper for secure hashing
-    return hmac.new(
-        pepper.encode('utf-8'),
-        key.encode('utf-8'),
-        hashlib.sha256
-    ).hexdigest()
+    import hashlib
+    return hashlib.sha256(key.encode('utf-8')).hexdigest()
 
 
 async def generate_license_key(
@@ -787,13 +776,8 @@ async def get_license_key_by_id(license_id: int) -> Optional[str]:
 async def validate_license_key(key: str) -> dict:
     """
     Validate a license key and return its details.
-
-    SECURITY FIX: Implements dual-hash verification for backward compatibility
-    during migration from plain SHA-256 to HMAC-SHA256 with pepper.
-
-    1. First tries new peppered hash (HMAC-SHA256)
-    2. If not found, falls back to old hash (plain SHA-256)
-    3. If old hash matches, migrates to new hash automatically
+    
+    Uses SHA-256 hashing for license key storage.
     """
     from logging_config import get_logger
     logger = get_logger(__name__)
@@ -805,24 +789,23 @@ async def validate_license_key(key: str) -> dict:
         if cached_result is not None:
             return cached_result
     except ImportError as e:
-        # SECURITY FIX #10: Log cache import failures for debugging
         logger.debug(f"Cache module not available for license validation: {e}")
     except Exception as e:
-        # Log other cache errors (e.g., Redis connection issues)
         logger.warning(f"Cache error during license validation: {e}")
 
-    from db_helper import get_db, fetch_one, execute_sql
+    from db_helper import get_db, fetch_one
     import hashlib
 
     async with get_db() as db:
-        # Try new peppered hash first (HMAC-SHA256 with pepper)
-        new_hash = hash_license_key(key)
+        # Hash the key using SHA-256
+        key_hash = hashlib.sha256(key.encode()).hexdigest()
+        
         row = await fetch_one(db, """
             SELECT * FROM license_keys WHERE key_hash = ?
-        """, [new_hash])
+        """, [key_hash])
 
         if row:
-            # Found with new hash - return result
+            # Found - return result
             row_dict = dict(row)
             row_dict["license_key"] = key
             result = _build_license_result(row_dict)
@@ -832,42 +815,13 @@ async def validate_license_key(key: str) -> dict:
                 from cache import cache_license_validation
                 await cache_license_validation(key, result, ttl=300)
             except ImportError as e:
-                # SECURITY FIX #10: Log cache import failures
                 logger.debug(f"Cache module not available for caching: {e}")
             except Exception as e:
                 logger.warning(f"Cache error during license caching: {e}")
 
             return result
         
-        # Fallback to old hash for backward compatibility (plain SHA-256)
-        old_hash = hashlib.sha256(key.encode()).hexdigest()
-        row = await fetch_one(db, """
-            SELECT * FROM license_keys WHERE key_hash = ?
-        """, [old_hash])
-        
-        if row:
-            # Found with old hash - migrate to new hash
-            row_dict = dict(row)
-            row_dict["license_key"] = key
-            result = _build_license_result(row_dict)
-            
-            # Update to new peppered hash
-            await execute_sql(db, """
-                UPDATE license_keys SET key_hash = ? WHERE id = ?
-            """, [new_hash, row_dict["id"]])
-            
-            logger.info(f"Migrated license key from old hash to peppered hash for ID {row_dict['id']}")
-            
-            # Cache the result (5 minutes TTL)
-            try:
-                from cache import cache_license_validation
-                await cache_license_validation(key, result, ttl=300)
-            except ImportError:
-                pass
-            
-            return result
-        
-        # Not found with either hash
+        # Not found
         return {"valid": False, "error": "مفتاح الاشتراك غير صالح"}
 
 async def validate_license_by_id(license_id: int, required_version: Optional[int] = None) -> dict:
