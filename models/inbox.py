@@ -607,7 +607,7 @@ async def mark_outbox_failed(message_id: int, error_message: str = None):
             get_logger(__name__).warning(f"Broadcast failed in mark_failed: {e}")
 
 
-async def mark_outbox_sent(message_id: int):
+async def mark_outbox_sent(message_id: int, platform_message_id: str = None):
     """Mark outbox message as sent (DB agnostic)."""
 
     now = datetime.utcnow()
@@ -617,15 +617,40 @@ async def mark_outbox_sent(message_id: int):
         # Get message details before update for upsert_conversation_state
         message_row = await fetch_one(db, "SELECT license_key_id, inbox_message_id FROM outbox_messages WHERE id = ?", [message_id])
 
-        await execute_sql(
-            db,
-            """
-            UPDATE outbox_messages SET
-                status = 'sent', sent_at = ?
-            WHERE id = ?
-            """,
-            [ts_value, message_id],
-        )
+        # Update status and optionally store platform_message_id
+        if platform_message_id:
+            # Check if platform_message_id column exists
+            try:
+                await execute_sql(
+                    db,
+                    """
+                    UPDATE outbox_messages SET
+                        status = 'sent', sent_at = ?, platform_message_id = ?
+                    WHERE id = ?
+                    """,
+                    [ts_value, platform_message_id, message_id],
+                )
+            except Exception:
+                # Column doesn't exist, skip it
+                await execute_sql(
+                    db,
+                    """
+                    UPDATE outbox_messages SET
+                        status = 'sent', sent_at = ?
+                    WHERE id = ?
+                    """,
+                    [ts_value, message_id],
+                )
+        else:
+            await execute_sql(
+                db,
+                """
+                UPDATE outbox_messages SET
+                    status = 'sent', sent_at = ?
+                WHERE id = ?
+                """,
+                [ts_value, message_id],
+            )
         await commit_db(db)
 
         if message_row:
@@ -640,7 +665,7 @@ async def mark_outbox_sent(message_id: int):
                 outbox_msg = await fetch_one(db, "SELECT recipient_email, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
                 if outbox_msg:
                     sender_contact = outbox_msg["recipient_email"] or outbox_msg["recipient_id"]
-            
+
             if sender_contact:
                 await upsert_conversation_state(message_row["license_key_id"], sender_contact)
 
@@ -659,7 +684,7 @@ async def mark_outbox_sent(message_id: int):
                     outbox_msg = await fetch_one(db, "SELECT recipient_email, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
                     if outbox_msg:
                         sender_contact = outbox_msg["recipient_email"] or outbox_msg["recipient_id"]
-                
+
                 await broadcast_message_status_update(lic_id, {
                     "outbox_id": message_id,
                     "status": "sent",

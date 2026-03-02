@@ -35,6 +35,7 @@ from models import (
     mark_outbox_failed,
     get_email_oauth_tokens,
     get_whatsapp_config,
+    get_telegram_config,
     get_telegram_phone_session_data,
 )
 from services import (
@@ -787,24 +788,158 @@ async def forward_message(
 async def send_approved_message(outbox_id: int, license_id: int):
     """
     Unified entry point for sending approved messages.
-    Calls the centralized logic in workers.py to ensure 100% reliability
-    and consistent handling of attachments, captions, and internal channels.
+    Directly calls the appropriate channel service to send the message.
     """
-    from workers import start_message_polling
+    from models import get_pending_outbox, mark_outbox_sent, mark_outbox_failed, fetch_one, get_db
+    from services.websocket_manager import broadcast_message_status_update
     from logging_config import get_logger
-    logger = get_logger(__name__)
+    from datetime import datetime, timezone
     
+    logger = get_logger(__name__)
+
     try:
-        poller = await start_message_polling()
-        # Find the message to get its channel
-        from models import get_pending_outbox
-        outbox = await get_pending_outbox(license_id)
-        message = next((m for m in outbox if m["id"] == outbox_id), None)
+        # Get the outbox message details
+        async with get_db() as db:
+            message = await fetch_one(
+                db,
+                "SELECT * FROM outbox_messages WHERE id = ? AND license_key_id = ?",
+                [outbox_id, license_id]
+            )
         
         if not message:
             logger.error(f"Unified Send: Outbox message {outbox_id} not found for license {license_id}")
             return
+
+        channel = message["channel"]
+        body = message["body"] or ""
+        recipient_id = message.get("recipient_id")
+        recipient_email = message.get("recipient_email")
+        subject = message.get("subject")
+        attachments = message.get("attachments")
+        reply_to_platform_id = message.get("reply_to_platform_id")
+        
+        # Parse attachments if stored as JSON string
+        if isinstance(attachments, str):
+            try:
+                import json
+                attachments = json.loads(attachments)
+            except:
+                attachments = None
+
+        result = {"success": False, "error": "Unknown channel"}
+        now = datetime.now(timezone.utc)
+
+        # Send based on channel
+        if channel == "whatsapp":
+            config = await get_whatsapp_config(license_id)
+            if not config or not config.get("access_token"):
+                raise ValueError("WhatsApp not configured")
             
-        await poller._send_message(outbox_id, license_id, message["channel"])
+            service = WhatsAppService(
+                phone_number_id=config["phone_number_id"],
+                access_token=config["access_token"]
+            )
+            
+            # WhatsApp uses phone number as recipient_id
+            to_number = recipient_id or recipient_email
+            result = await service.send_message(
+                to=to_number,
+                message=body,
+                reply_to_message_id=reply_to_platform_id
+            )
+
+        elif channel == "telegram_bot":
+            config = await get_telegram_config(license_id)
+            if not config or not config.get("bot_token"):
+                raise ValueError("Telegram Bot not configured")
+            
+            service = TelegramService(bot_token=config["bot_token"])
+            
+            # Telegram bot sends to chat_id
+            chat_id = recipient_id or recipient_email
+            result = await service.send_message(
+                chat_id=chat_id,
+                text=body,
+                reply_to_message_id=int(reply_to_platform_id) if reply_to_platform_id and reply_to_platform_id.isdigit() else None
+            )
+            result = {"success": True, "message_id": str(result.get("message_id", ""))}
+
+        elif channel == "telegram_phone":
+            config = await get_telegram_phone_session_data(license_id)
+            if not config or not config.get("session_string"):
+                raise ValueError("Telegram Phone not configured")
+            
+            service = TelegramPhoneService()
+            
+            # Telegram phone uses recipient_id (user/chat ID)
+            recipient = recipient_id or recipient_email
+            result = await service.send_message(
+                session_string=config["session_string"],
+                recipient_id=recipient,
+                text=body,
+                reply_to_message_id=int(reply_to_platform_id) if reply_to_platform_id and reply_to_platform_id.isdigit() else None
+            )
+            result = {"success": True, "message_id": str(result.get("id", ""))}
+
+        elif channel == "gmail":
+            token_data = await get_email_oauth_tokens(license_id, "gmail")
+            if not token_data or not token_data.get("access_token"):
+                raise ValueError("Gmail not configured")
+            
+            service = GmailAPIService(
+                access_token=token_data["access_token"],
+                refresh_token=token_data.get("refresh_token")
+            )
+            
+            # Gmail sends to email address
+            to_email = recipient_email
+            if not to_email:
+                raise ValueError("No recipient email for Gmail message")
+            
+            result = await service.send_message(
+                to_email=to_email,
+                subject=subject or "(no subject)",
+                body=body,
+                reply_to_message_id=reply_to_platform_id,
+                attachments=attachments
+            )
+            result = {"success": True, "message_id": result.get("id")}
+
+        elif channel == "almudeer" or channel == "saved":
+            # Internal Almudeer messages - save directly to inbox as the message appears to the same user
+            from models.inbox import save_inbox_message
+            
+            # For internal/saved messages, the message is both sent and received by the same user
+            # Save it to inbox so it appears in the conversation
+            platform_msg_id = await save_inbox_message(
+                license_id=license_id,
+                channel="almudeer",
+                sender_id=recipient_id or license_id,  # Use recipient or self
+                sender_name=None,
+                sender_contact=recipient_id or recipient_email,
+                body=body,
+                subject=None,
+                attachments=attachments,
+                platform_message_id=None,
+                reply_to_platform_id=reply_to_platform_id
+            )
+            result = {"success": True, "message_id": str(platform_msg_id) if platform_msg_id else None}
+
+        else:
+            raise ValueError(f"Unsupported channel: {channel}")
+
+        # Handle result
+        if result.get("success"):
+            await mark_outbox_sent(outbox_id, platform_message_id=result.get("message_id"))
+            logger.info(f"Message {outbox_id} sent successfully via {channel}")
+        else:
+            error_msg = result.get("error", "Unknown error")
+            await mark_outbox_failed(outbox_id, error_msg)
+            logger.error(f"Message {outbox_id} failed to send via {channel}: {error_msg}")
+
     except Exception as e:
         logger.error(f"Unified Send: Critical failure for outbox {outbox_id}: {e}", exc_info=True)
+        try:
+            await mark_outbox_failed(outbox_id, str(e))
+        except:
+            pass
