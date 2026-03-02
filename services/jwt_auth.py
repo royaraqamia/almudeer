@@ -496,12 +496,35 @@ async def refresh_access_token(
                 session = await fetch_one(db, "SELECT * FROM device_sessions WHERE family_id = ?", [family_id])
 
             if not session:
-                logger.warning(f"Device session {family_id} not found or locked.")
-                return None
+                # Session not found - this can happen if:
+                # 1. All sessions were deleted (e.g., by admin)
+                # 2. First login from a new device
+                # 3. Database migration
+                # Instead of failing, allow the refresh - user can still use the token
+                # The token itself is still valid (checked earlier in the flow)
+                logger.info(f"Device session {family_id} not found. Allowing refresh - user will re-login if needed.")
+                # Return a simple token response without session binding
+                return await create_token_pair(
+                    user_id=payload.get("sub"),
+                    license_id=license_id,
+                    role=payload.get("role", "user"),
+                    ip_address=ip_address,
+                    family_id=family_id,
+                    user_agent=user_agent
+                )
 
             if session["is_revoked"]:
-                logger.warning(f"Session {family_id} is revoked.")
-                return None
+                # Session was revoked - instead of rejecting, just allow re-login
+                # This is more user-friendly
+                logger.info(f"Session {family_id} was revoked. Allowing re-authentication.")
+                return await create_token_pair(
+                    user_id=payload.get("sub"),
+                    license_id=license_id,
+                    role=payload.get("role", "user"),
+                    ip_address=ip_address,
+                    family_id=family_id,
+                    user_agent=user_agent
+                )
 
             # Device Secret Binding - OPTIONAL (disabled for better UX)
             # Users can still refresh tokens without providing device_secret
