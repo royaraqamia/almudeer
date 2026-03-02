@@ -929,15 +929,15 @@ async def send_approved_message(outbox_id: int, license_id: int):
         elif channel == "almudeer" or channel == "saved":
             # Internal Almudeer messages - save directly to inbox as the message appears to the same user
             from models.inbox import save_inbox_message
-            
+
             # For internal/saved messages, the message is both sent and received by the same user
             # Save it to inbox so it appears in the conversation
             platform_msg_id = await save_inbox_message(
                 license_id=license_id,
                 channel="almudeer",
-                sender_id=recipient_id or license_id,  # Use recipient or self
+                sender_id=str(recipient_id) if recipient_id else str(license_id),  # Use recipient or self
                 sender_name=None,
-                sender_contact=recipient_id or recipient_email,
+                sender_contact=str(recipient_id) if recipient_id else recipient_email,
                 body=body,
                 subject=None,
                 attachments=attachments,
