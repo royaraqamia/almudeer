@@ -30,6 +30,7 @@ from dependencies import get_license_from_header
 from services.jwt_auth import get_current_user_optional
 from models.library import (
     get_library_items,
+    get_library_item,
     add_library_item,
     update_library_item,
     delete_library_item,
@@ -530,6 +531,37 @@ async def upload_file(
                 "message_en": "File upload failed"
             }
         )
+
+@router.get("/{item_id}")
+@limiter.limit("30/minute")  # Rate limiting to prevent abuse
+async def get_item(
+    request: Request,
+    item_id: int,
+    license: dict = Depends(get_license_from_header),
+    user: Optional[dict] = Depends(get_current_user_optional)
+):
+    """
+    Get a specific library item by ID.
+
+    Returns the full item details including content.
+    Supports both private items (owner only) and global items (license_key_id = 0).
+    """
+    user_id = user.get("user_id") if user else None
+
+    # Fetch the item using the model layer
+    item = await get_library_item(license["license_id"], item_id, user_id=user_id)
+
+    if not item:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": ErrorCode.ITEM_NOT_FOUND,
+                "message_ar": "العنصر غير موجود",
+                "message_en": "Item not found"
+            }
+        )
+
+    return {"success": True, "item": item}
 
 @router.patch("/{item_id}")
 async def update_item(
