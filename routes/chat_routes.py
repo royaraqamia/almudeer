@@ -251,6 +251,7 @@ from typing import List
 async def send_chat_message(
     sender_contact: str,
     background_tasks: BackgroundTasks,
+    request: Request,
     message: Optional[str] = Form(None),
     channel: Optional[str] = Form(None),
     reply_to_platform_id: Optional[str] = Form(None),
@@ -262,6 +263,24 @@ async def send_chat_message(
     files: Optional[List[UploadFile]] = File(None),
     license: dict = Depends(get_license_from_header)
 ):
+    # Support both Form data (multipart) and JSON body
+    content_type = request.headers.get("content-type", "")
+    
+    if "application/json" in content_type:
+        # Parse JSON body
+        try:
+            json_body = await request.json()
+            message = json_body.get("message", message)
+            channel = json_body.get("channel", channel)
+            reply_to_platform_id = json_body.get("reply_to_platform_id", reply_to_platform_id)
+            reply_to_body_preview = json_body.get("reply_to_body_preview", reply_to_body_preview)
+            reply_to_sender_name = json_body.get("reply_to_sender_name", reply_to_sender_name)
+            reply_to_id = json_body.get("reply_to_id", reply_to_id)
+            is_forwarded = json_body.get("is_forwarded", is_forwarded)
+            attachments = json_body.get("attachments", attachments)
+        except:
+            pass
+    
     body = (message or "").strip()
     
     # Process Attachments
