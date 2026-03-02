@@ -27,14 +27,15 @@ class WebSocketMessage:
     event: str  # "new_message", "notification", "analytics_update", etc.
     data: Dict[str, Any]
     timestamp: str = ""
-    
+    sequence: int = None  # Optional sequence number for reliable delivery
+
     def __post_init__(self):
         if not self.timestamp:
             self.timestamp = datetime.utcnow().isoformat()
-    
+
     def to_json(self) -> str:
         return json_dumps(asdict(self))
-    
+
     @classmethod
     def from_json(cls, json_str: str) -> "WebSocketMessage":
         """Parse from JSON string"""
@@ -42,7 +43,8 @@ class WebSocketMessage:
         return cls(
             event=data.get("event", ""),
             data=data.get("data", {}),
-            timestamp=data.get("timestamp", "")
+            timestamp=data.get("timestamp", ""),
+            sequence=data.get("sequence")
         )
 
 

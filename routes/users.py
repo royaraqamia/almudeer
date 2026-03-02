@@ -40,7 +40,7 @@ async def search_users(
             "query": q,
         }
 
-    license_id = current_user.get("license_id")
+    license_id = await get_current_license_id(request)
     search_query = f"%{q.strip()}%"
     
     async with get_db() as db:
