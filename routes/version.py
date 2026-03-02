@@ -398,9 +398,9 @@ async def _get_min_build_number() -> int:
         return 1
 
 
-async def _get_apk_signing_fingerprint() -> Optional[str]:
-    """Read the APK signing certificate fingerprint from DB."""
-    return await get_app_config("apk_signing_fingerprint")
+async def _get_apk_signing_signature() -> Optional[str]:
+    """Read the APK signing certificate signature hash from DB."""
+    return await get_app_config("apk_signing_signature")
 
 
 # CDN Health Check Cache
@@ -1036,13 +1036,13 @@ class UpdateCheckResponse(BaseModel):
     rollout_percentage: int = 100
     update_active: bool = True
     update_active_reason: Optional[str] = None
-    
+
     # Security
-    apk_signing_fingerprint: Optional[str] = None
-    
+    apk_signing_signature: Optional[str] = None
+
     # Server time for client sync
     server_time: str = ""
-    
+
     # iOS support
     ios_store_url: Optional[str] = None
 
@@ -1175,8 +1175,8 @@ async def _get_app_version_logic(
     min_build_number = await _get_min_build_number()
     changelog_data = await _get_changelog()
     update_config = await _get_update_config()
-    signing_fingerprint = await _get_apk_signing_fingerprint()
-    
+    signing_signature = await _get_apk_signing_signature()
+
     # Refresh APK cache to get current SHA256 and size
     _refresh_apk_cache()
     
@@ -1269,10 +1269,10 @@ async def _get_app_version_logic(
         "rollout_percentage": update_config.get("rollout_percentage", 100),
         "update_active": is_update_active,
         "update_active_reason": update_active_reason if not is_update_active else None,
-        
+
         # Security
-        "apk_signing_fingerprint": signing_fingerprint,
-        
+        "apk_signing_signature": signing_signature,
+
         # Server time
         "server_time": datetime.now(timezone.utc).isoformat(),
         
@@ -1405,16 +1405,16 @@ async def set_min_build_number(
     }
 
 
-@router.post("/api/app/set-signing-fingerprint", summary="Set APK signing fingerprint (admin only)")
-async def set_signing_fingerprint(
+@router.post("/api/app/set-signing-signature", summary="Set APK signing signature hash (admin only)")
+async def set_signing_signature(
     request: Request,
-    fingerprint: str,
+    signature: str,
     x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")
 ):
     """
-    Set the SHA256 fingerprint of the APK signing certificate.
+    Set the SHA256 signature hash of the APK signing certificate.
     Used for security verification by the mobile app.
-    
+
     Requires: X-Admin-Key header (and IP whitelist if configured)
     """
     if not _check_admin_access(request, x_admin_key):
@@ -1422,27 +1422,27 @@ async def set_signing_fingerprint(
             status_code=403,
             detail=_MESSAGES["ar"]["admin_required"]
         )
-    
+
     # Basic validation of SHA256 format (hex string, 64 chars) or empty to clear
-    clean_fingerprint = fingerprint.strip()
-    if clean_fingerprint:
+    clean_signature = signature.strip()
+    if clean_signature:
         # Allow colons or spaces in input, strip them for storage
-        clean_fingerprint = clean_fingerprint.replace(":", "").replace(" ", "").upper()
-        
+        clean_signature = clean_signature.replace(":", "").replace(" ", "").upper()
+
         # Check if valid hex and length
         import re
-        if not re.match(r'^[0-9A-F]{64}$', clean_fingerprint):
+        if not re.match(r'^[0-9A-F]{64}$', clean_signature):
              raise HTTPException(
                 status_code=400,
-                detail="Invalid SHA256 fingerprint format. Must be 64 signs hex string."
+                detail="Invalid SHA256 signature format. Must be 64 signs hex string."
             )
-    
+
     try:
-        await set_app_config("apk_signing_fingerprint", clean_fingerprint)
+        await set_app_config("apk_signing_signature", clean_signature)
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to update fingerprint: {str(e)}"
+            detail=f"Failed to update signature: {str(e)}"
         )
     
     # Refresh ETag cache after admin change
@@ -2002,10 +2002,10 @@ async def get_admin_config(
         )
     
     config = await get_all_app_config()
-    
+
     # Mask sensitive values
-    if config.get("apk_signing_fingerprint"):
-        config["apk_signing_fingerprint"] = "***configured***"
+    if config.get("apk_signing_signature"):
+        config["apk_signing_signature"] = "***configured***"
     if config.get("update_config"):
         import json
         try:

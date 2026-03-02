@@ -58,7 +58,6 @@ SERVICE_PROVIDER_PATTERNS = [
     r"@twitter\.com", r"@x\.com", r"@facebook\.com",
     r"@meta\.com", r"@apple\.com", r"@amazon\.com",
     r"@openrouter\.ai", r"@elsanow\.io", r"@help\.elsanow\.io",
-    r"@openai\.com", r"@anthropic\.com", r"@deepmind\.com",
     r"@aws\.amazon\.com", r"@cloud\.google\.com",
 ]
 

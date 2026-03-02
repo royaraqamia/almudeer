@@ -1,6 +1,6 @@
 """
 Al-Mudeer - Chat Routes
-Inbox management, conversation history, AI analysis, and message actions.
+Inbox management, conversation history, and message actions.
 Modularized from legacy core_integrations.py
 """
 
@@ -45,7 +45,6 @@ from services import (
     TelegramPhoneService,
 )
 from services.whatsapp_service import WhatsAppService
-# from agent import process_message (AI removed)
 from dependencies import get_license_from_header
 
 router = APIRouter(prefix="/api/integrations", tags=["Chat"])
@@ -780,9 +779,6 @@ async def forward_message(
 
 
 # --- Internal Background Tasks Implementation (Original core_integrations.py logic) ---
-
-    # AI analysis removed
-    pass
 
 
 async def send_approved_message(outbox_id: int, license_id: int):

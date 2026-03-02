@@ -23,7 +23,6 @@ from models import (
     create_notification,
 )
 # from services.voice_service import ... (Removed)
-# from services.auto_categorization import categorize_message_dict, categorize_messages_batch (AI removed)
 from security import sanitize_email, sanitize_phone, sanitize_string
 from dependencies import get_license_from_header, get_optional_license_from_header
 from db_helper import get_db, fetch_all
@@ -198,8 +197,8 @@ class PreferencesUpdate(BaseModel):
     notifications_enabled: Optional[bool] = None
     notification_sound: Optional[bool] = None
     onboarding_completed: Optional[bool] = None
-    
-    # AI / Tone Settings
+
+    # Tone & Communication Style Settings
     tone: Optional[str] = None
     custom_tone_guidelines: Optional[str] = None
     preferred_languages: Optional[Union[str, List[str]]] = None
@@ -269,11 +268,6 @@ async def update_user_preferences(
 
 # ============ Voice Transcription Routes Removed ============
 
-# AI Categorization Check endpoint removed
-# ============ Notifications Routes ============
-
-
-# AI Categorization Check endpoint removed
 # ============ Notifications Routes ============
 
 @router.get("/notifications")

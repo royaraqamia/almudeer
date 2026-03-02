@@ -1,6 +1,6 @@
 """
 Al-Mudeer (المدير) - FastAPI Backend
-B2B AI Agent for Syrian and Arab Market
+B2B Communication Platform for Syrian and Arab Market
 """
 
 import os
@@ -61,7 +61,6 @@ from schemas import (
     LicenseKeyCreate,
     MessageInput,
 )
-# from agent import process_message (AI removed)
 from models import (
     init_enhanced_tables,
     init_customers_and_analytics,

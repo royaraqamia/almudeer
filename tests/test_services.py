@@ -204,4 +204,4 @@ class TestSecurity:
         assert "966" in result
 
 
-# ============ LLM Response Cache Tests Removed ============
+# ============ Response Cache Tests Removed ============

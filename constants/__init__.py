@@ -33,10 +33,10 @@ class Channels:
 # ============ Message Status ============
 
 class MessageStatus:
-    # Status before AI responds - message received, waiting for AI analysis
+    # Message received, waiting for review
     PENDING = "pending"
     NEW = "new"
-    # Status after AI responds - AI analyzed, waiting for human approval
+    # Message analyzed and ready for human approval
     ANALYZED = "analyzed"
     DRAFT_READY = "draft_ready"
     APPROVED = "approved"

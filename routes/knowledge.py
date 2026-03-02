@@ -1,6 +1,6 @@
 """
 Al-Mudeer - Knowledge Base API Routes
-Handling text and file uploads for RAG and LLM context
+Handling text and file uploads for user knowledge base storage
 """
 
 import os

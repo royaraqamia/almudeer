@@ -40,8 +40,6 @@ class WorkerStatusResponse(BaseModel):
 def debug_integrations():
     return {"status": "ok", "message": "System & Accounts router is loaded"}
 
-# AI endpoints removed
-
 @router.get("/workers/status", response_model=WorkerStatusResponse)
 async def worker_status_v1():
     """Operational status of background workers"""

@@ -87,7 +87,7 @@ async def update_preferences(license_id: int, **kwargs) -> bool:
         'notifications_enabled',
         'notification_sound',
         'onboarding_completed',
-        # AI / workspace tone & business profile
+        # Tone & communication style
         'tone',
         'custom_tone_guidelines',
         'preferred_languages',

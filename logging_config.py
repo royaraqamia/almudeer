@@ -69,7 +69,6 @@ def setup_logging(log_level: str = "INFO") -> None:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("telethon").setLevel(logging.WARNING)
     logging.getLogger("aiosqlite").setLevel(logging.WARNING)
-    logging.getLogger("openai").setLevel(logging.WARNING)
 
 
 def get_logger(name: str) -> logging.Logger:
