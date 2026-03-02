@@ -33,40 +33,11 @@ _KEY_DERIVATION_SALT = os.getenv("ENCRYPTION_SALT", "").encode() or os.urandom(1
 
 # SECURITY FIX: Device Secret Pepper
 # This is a server-side secret that is combined with device secrets before hashing.
-# Even if the database is compromised, attackers cannot forge device secrets without this pepper.
-# IMPORTANT: Store this in a secure environment variable in production.
-_DEVICE_SECRET_PEPPER = os.getenv("DEVICE_SECRET_PEPPER")
-if not _DEVICE_SECRET_PEPPER:
-    if os.getenv("ENVIRONMENT", "development") == "production":
-        # P1-5 FIX: Fail fast in production - do not allow startup without pepper
-        import sys
-        raise ValueError(
-            "DEVICE_SECRET_PEPPER must be set in production environment! "
-            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
-        )
-    # SECURITY FIX #6: Use fixed pepper for development to prevent session invalidation on restart
-    # This is safe for development as long as .env is not committed to version control
-    _DEVICE_SECRET_PEPPER = "dev_device_secret_pepper_do_not_use_in_production_change_in_env"
-    print("WARNING: Using fixed development device secret pepper. Set DEVICE_SECRET_PEPPER in .env for production!")
-
-# SECURITY FIX: License Key Pepper
-# This is a server-side secret that is combined with license keys before hashing.
-# Even if the database is compromised, attackers cannot reverse-engineer license keys
+# NOTE: Pepper is now optional - device secrets use simple SHA-256 hashing
+_DEVICE_SECRET_PEPPER = os.getenv("DEVICE_SECRET_PEPPER", "")
 # without this pepper. Prevents rainbow table attacks.
-# IMPORTANT: Store this in a secure environment variable in production.
-_LICENSE_KEY_PEPPER = os.getenv("LICENSE_KEY_PEPPER")
-if not _LICENSE_KEY_PEPPER:
-    if os.getenv("ENVIRONMENT", "development") == "production":
-        # P1-5 FIX: Fail fast in production - do not allow startup without pepper
-        import sys
-        raise ValueError(
-            "LICENSE_KEY_PEPPER must be set in production environment! "
-            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
-        )
-    # SECURITY FIX #6: Use fixed pepper for development to prevent session invalidation on restart
-    # This is safe for development as long as .env is not committed to version control
-    _LICENSE_KEY_PEPPER = "dev_license_key_pepper_do_not_use_in_production_change_in_env"
-    print("WARNING: Using fixed development license key pepper. Set LICENSE_KEY_PEPPER in .env for production!")
+# NOTE: Pepper is now optional - license keys use simple SHA-256 hashing
+_LICENSE_KEY_PEPPER = os.getenv("LICENSE_KEY_PEPPER", "")
 
 # Initialize Fernet cipher
 def _init_cipher():
