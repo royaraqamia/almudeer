@@ -1509,30 +1509,49 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
 
         sender_where = " OR ".join(conditions) if conditions else "1=0"
 
-        # Update all messages from this sender to is_read=1
+        # First, count how many unread messages exist
         if DB_TYPE == "postgresql":
-            query = f"""
-                UPDATE inbox_messages
-                SET is_read = TRUE
+            count_query = f"""
+                SELECT COUNT(*)
+                FROM inbox_messages
                 WHERE license_key_id = ?
                 AND ({sender_where})
                 AND (is_read IS NOT TRUE)
             """
         else:
-            query = f"""
-                UPDATE inbox_messages
-                SET is_read = 1
+            count_query = f"""
+                SELECT COUNT(*)
+                FROM inbox_messages
                 WHERE license_key_id = ?
                 AND ({sender_where})
                 AND (is_read = 0 OR is_read IS NULL)
             """
-
-        result = await execute_sql(db, query, params)
-        await commit_db(db)
         
-        # Only update conversation state if messages were actually updated
-        # This prevents creating empty conversation entries for users with no messages
-        if result and result.rowcount > 0:
+        count_result = await fetch_one(db, count_query, params)
+        unread_count = count_result["count"] if count_result else 0
+        
+        # Only proceed if there are unread messages to mark as read
+        if unread_count > 0:
+            # Update all messages from this sender to is_read=1
+            if DB_TYPE == "postgresql":
+                query = f"""
+                    UPDATE inbox_messages
+                    SET is_read = TRUE
+                    WHERE license_key_id = ?
+                    AND ({sender_where})
+                    AND (is_read IS NOT TRUE)
+                """
+            else:
+                query = f"""
+                    UPDATE inbox_messages
+                    SET is_read = 1
+                    WHERE license_key_id = ?
+                    AND ({sender_where})
+                    AND (is_read = 0 OR is_read IS NULL)
+                """
+
+            await execute_sql(db, query, params)
+            await commit_db(db)
             await upsert_conversation_state(license_id, sender_contact)
 
         # FIX P0-9: Broadcast read receipt to other devices
