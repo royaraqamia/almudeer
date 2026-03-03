@@ -741,7 +741,8 @@ async def get_inbox_conversations(
             unread_count,
             message_count,
             lk.last_seen_at,
-            lk.id as peer_license_id
+            lk.id as peer_license_id,
+            lk.profile_image_url as avatar_url
         FROM inbox_conversations ic
         LEFT JOIN license_keys lk ON ic.sender_contact = lk.username AND ic.channel = 'almudeer'
         WHERE {where_sql}
@@ -822,11 +823,13 @@ async def get_conversations_delta(
             ic.status,
             unread_count,
             message_count,
+            lk.profile_image_url as avatar_url,
             ic.deleted_at
         FROM inbox_conversations ic
+        LEFT JOIN license_keys lk ON ic.sender_contact = lk.username AND ic.channel = 'almudeer'
         WHERE license_key_id = ?
           AND (last_message_at > ? OR deleted_at > ?)
-        ORDER BY 
+        ORDER BY
             ic.deleted_at DESC NULLS FIRST,
             ic.last_message_at DESC
         LIMIT ?
