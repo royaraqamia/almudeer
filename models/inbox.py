@@ -2336,7 +2336,9 @@ async def _soft_delete_conversation_impl(db, license_id: int, sender_contact: st
             """,
             [ts_value, ts_value, license_id] + list(all_contacts)
         )
-        logger.info(f"[DELETE CONVERSATION] Updated {result.rowcount if result else 0} conversation entries (multi-contact)")
+        # Handle different return types from execute_sql (PostgreSQL vs SQLite)
+        rowcount = getattr(result, 'rowcount', None) if result else 0
+        logger.info(f"[DELETE CONVERSATION] Updated {rowcount or 'N/A'} conversation entries (multi-contact)")
     else:
         result = await execute_sql(
             db,
@@ -2347,7 +2349,9 @@ async def _soft_delete_conversation_impl(db, license_id: int, sender_contact: st
             """,
             [ts_value, ts_value, license_id, sender_contact]
         )
-        logger.info(f"[DELETE CONVERSATION] Updated {result.rowcount if result else 0} conversation entries for {sender_contact}")
+        # Handle different return types from execute_sql (PostgreSQL vs SQLite)
+        rowcount = getattr(result, 'rowcount', None) if result else 0
+        logger.info(f"[DELETE CONVERSATION] Updated {rowcount or 'N/A'} conversation entries for {sender_contact}")
 
     # FIX: Single commit at the end for atomic transaction
     logger.info(f"[DELETE CONVERSATION] About to commit transaction for {sender_contact}")
