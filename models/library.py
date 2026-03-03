@@ -186,15 +186,27 @@ async def get_library_items(
     if search_term:
         # Format search term for FTS5 (prefix match) - must be quoted in SQL
         fts_search = f"'{search_term}*'"
-        # Use FTS5 virtual table for search
-        query = f"""
-            SELECT {columns} FROM library_items
-            INNER JOIN library_items_fts ON library_items.id = library_items_fts.rowid
-            WHERE library_items_fts MATCH {fts_search}
-            AND (library_items.license_key_id = ? OR library_items.license_key_id = 0)
-            AND library_items.deleted_at IS NULL
-        """
-        params = [license_id]
+        
+        if DB_TYPE == "postgresql":
+            # PostgreSQL uses LIKE or tsvector, not FTS5 MATCH
+            like_search = f"%{search_term}%"
+            query = f"""
+                SELECT {columns} FROM library_items
+                WHERE (library_items.title ILIKE ? OR library_items.content ILIKE ?)
+                AND (library_items.license_key_id = ? OR library_items.license_key_id = 0)
+                AND library_items.deleted_at IS NULL
+            """
+            params = [like_search, like_search, license_id]
+        else:
+            # SQLite uses FTS5
+            query = f"""
+                SELECT {columns} FROM library_items
+                INNER JOIN library_items_fts ON library_items.id = library_items_fts.rowid
+                WHERE library_items_fts MATCH {fts_search}
+                AND (library_items.license_key_id = ? OR library_items.license_key_id = 0)
+                AND library_items.deleted_at IS NULL
+            """
+            params = [license_id]
         
         if customer_id is not None:
             query += " AND library_items.customer_id = ?"

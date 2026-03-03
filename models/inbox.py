@@ -2117,70 +2117,74 @@ async def soft_delete_conversation(license_id: int, sender_contact: str, db=None
     now = datetime.utcnow()
     ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
 
-    # P0-5: Allow optional db parameter for transaction wrapping
-    should_close_db = False
-    if db is None:
-        db = await get_db()
-        should_close_db = True
-    
-    try:
-        # Get all aliases for this sender to ensure we clear EVERYTHING
-        all_contacts, all_ids = await _get_sender_aliases(db, license_id, sender_contact)
+    from logging_config import get_logger
+    logger = get_logger(__name__)
 
-        # FIX: Collect attachment paths before soft delete for cleanup
-        attachment_paths = []
-        
-        # Collect inbox attachments
-        if all_contacts:
-            contact_placeholders = ", ".join(["?" for _ in all_contacts])
-            inbox_atts = await fetch_all(
-                db,
-                f"SELECT attachments FROM inbox_messages WHERE license_key_id = ? AND sender_contact IN ({contact_placeholders}) AND deleted_at IS NULL AND attachments IS NOT NULL",
-                [license_id] + list(all_contacts)
-            )
-        else:
-            inbox_atts = await fetch_all(
-                db,
-                "SELECT attachments FROM inbox_messages WHERE license_key_id = ? AND sender_contact = ? AND deleted_at IS NULL AND attachments IS NOT NULL",
-                [license_id, sender_contact]
-            )
-        
-        for row in inbox_atts:
-            if row.get("attachments"):
-                import json
-                try:
-                    atts = json.loads(row["attachments"]) if isinstance(row["attachments"], str) else row["attachments"]
-                    for att in atts:
-                        if att.get("local_path"):
-                            attachment_paths.append(att["local_path"])
-                except:
-                    pass
-        
-        # Collect outbox attachments
-        if all_contacts:
-            contact_placeholders = ", ".join(["?" for _ in all_contacts])
-            outbox_atts = await fetch_all(
-                db,
-                f"SELECT attachments FROM outbox_messages WHERE license_key_id = ? AND (recipient_email IN ({contact_placeholders}) OR recipient_id IN ({contact_placeholders})) AND deleted_at IS NULL AND attachments IS NOT NULL",
-                [license_id] + list(all_contacts) + list(all_contacts)
-            )
-        else:
-            outbox_atts = await fetch_all(
-                db,
-                "SELECT attachments FROM outbox_messages WHERE license_key_id = ? AND (recipient_email = ? OR recipient_id = ?) AND deleted_at IS NULL AND attachments IS NOT NULL",
-                [license_id, sender_contact, sender_contact]
-            )
-        
-        for row in outbox_atts:
-            if row.get("attachments"):
-                import json
-                try:
-                    atts = json.loads(row["attachments"]) if isinstance(row["attachments"], str) else row["attachments"]
-                    for att in atts:
-                        if att.get("local_path"):
-                            attachment_paths.append(att["local_path"])
-                except:
-                    pass
+    if db is None:
+        async with get_db() as db:
+            return await _soft_delete_conversation_impl(db, license_id, sender_contact, ts_value, logger)
+    
+    return await _soft_delete_conversation_impl(db, license_id, sender_contact, ts_value, logger)
+
+
+async def _soft_delete_conversation_impl(db, license_id: int, sender_contact: str, ts_value, logger):
+    # Get all aliases for this sender to ensure we clear EVERYTHING
+    all_contacts, all_ids = await _get_sender_aliases(db, license_id, sender_contact)
+
+    # FIX: Collect attachment paths before soft delete for cleanup
+    attachment_paths = []
+    
+    # Collect inbox attachments
+    if all_contacts:
+        contact_placeholders = ", ".join(["?" for _ in all_contacts])
+        inbox_atts = await fetch_all(
+            db,
+            f"SELECT attachments FROM inbox_messages WHERE license_key_id = ? AND sender_contact IN ({contact_placeholders}) AND deleted_at IS NULL AND attachments IS NOT NULL",
+            [license_id] + list(all_contacts)
+        )
+    else:
+        inbox_atts = await fetch_all(
+            db,
+            "SELECT attachments FROM inbox_messages WHERE license_key_id = ? AND sender_contact = ? AND deleted_at IS NULL AND attachments IS NOT NULL",
+            [license_id, sender_contact]
+        )
+    
+    for row in inbox_atts:
+        if row.get("attachments"):
+            import json
+            try:
+                atts = json.loads(row["attachments"]) if isinstance(row["attachments"], str) else row["attachments"]
+                for att in atts:
+                    if att.get("local_path"):
+                        attachment_paths.append(att["local_path"])
+            except:
+                pass
+    
+    # Collect outbox attachments
+    if all_contacts:
+        contact_placeholders = ", ".join(["?" for _ in all_contacts])
+        outbox_atts = await fetch_all(
+            db,
+            f"SELECT attachments FROM outbox_messages WHERE license_key_id = ? AND (recipient_email IN ({contact_placeholders}) OR recipient_id IN ({contact_placeholders})) AND deleted_at IS NULL AND attachments IS NOT NULL",
+            [license_id] + list(all_contacts) + list(all_contacts)
+        )
+    else:
+        outbox_atts = await fetch_all(
+            db,
+            "SELECT attachments FROM outbox_messages WHERE license_key_id = ? AND (recipient_email = ? OR recipient_id = ?) AND deleted_at IS NULL AND attachments IS NOT NULL",
+            [license_id, sender_contact, sender_contact]
+        )
+    
+    for row in outbox_atts:
+        if row.get("attachments"):
+            import json
+            try:
+                atts = json.loads(row["attachments"]) if isinstance(row["attachments"], str) else row["attachments"]
+                for att in atts:
+                    if att.get("local_path"):
+                        attachment_paths.append(att["local_path"])
+            except:
+                pass
 
         # Build conditions for inbox
         in_conditions = []
@@ -2303,14 +2307,6 @@ async def soft_delete_conversation(license_id: int, sender_contact: str, db=None
         logger.info(f"[CLEAR] Soft delete completed for {sender_contact}")
 
         return {"success": True, "message": "تم حذف المحادثة بنجاح"}
-    
-    finally:
-        # P0-5: Close db only if we created it
-        if should_close_db:
-            try:
-                await db.close()
-            except Exception as e:
-                logger.warning(f"Error closing database: {e}")
 
 
 async def clear_conversation_messages(license_id: int, sender_contact: str) -> dict:
