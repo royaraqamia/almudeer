@@ -2652,6 +2652,7 @@ async def upsert_conversation_state(
         use_lock: Whether to use distributed lock (default True for safety)
     """
     from db_helper import DB_TYPE
+    import json
 
     # Check if conversation exists
     async with get_db() as db:
