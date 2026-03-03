@@ -49,7 +49,7 @@ async def search_users(
         rows = await fetch_all(
             db,
             """
-            SELECT 
+            SELECT
                 id,
                 username,
                 full_name as name,
@@ -60,12 +60,12 @@ async def search_users(
                 last_seen_at
             FROM license_keys
             WHERE (
-                username LIKE ? 
-                OR full_name LIKE ? 
+                username LIKE ?
+                OR full_name LIKE ?
                 OR contact_email LIKE ?
             )
-            AND is_active = 1
-            ORDER BY 
+            AND is_active IS TRUE
+            ORDER BY
                 CASE 
                     WHEN username LIKE ? THEN 0
                     WHEN full_name LIKE ? THEN 1
@@ -98,7 +98,7 @@ async def search_users(
                 c.last_contact_at as last_seen_at
             FROM customers c
             WHERE c.license_key_id = ?
-            AND c.is_almudeer_user = 1
+            AND c.is_almudeer_user IS TRUE
             AND (
                 c.username LIKE ?
                 OR c.name LIKE ?
@@ -218,7 +218,7 @@ async def get_user_by_username(
                 last_seen_at
             FROM license_keys
             WHERE username = ?
-            AND is_active = 1
+            AND is_active IS TRUE
             """,
             [username],
         )
