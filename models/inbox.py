@@ -724,13 +724,13 @@ async def get_inbox_conversations(
     All chats appear in unified list - no filters.
     """
     params = [license_id]
-    where_clauses = ["ic.license_key_id = ?"]
+    where_clauses = ["ic.license_key_id = ?", "ic.deleted_at IS NULL"]
 
     # Filters removed - all chats appear in unified list
     where_sql = " AND ".join(where_clauses)
-    
+
     query = f"""
-        SELECT 
+        SELECT
             ic.sender_contact, ic.sender_name, ic.channel,
             ic.last_message_id as id,
             last_message_body as body,
@@ -810,8 +810,9 @@ async def get_conversations_delta(
     # For SQLite compatibility with ISO strings
     ts_value = since if DB_TYPE == "postgresql" else since.isoformat()
 
+    # Include conversations that were created/updated OR deleted since the last sync
     query = """
-        SELECT 
+        SELECT
             ic.id,
             ic.sender_contact, ic.sender_name, ic.channel,
             last_message_body as body,
@@ -820,15 +821,18 @@ async def get_conversations_delta(
             last_message_attachments as attachments,
             ic.status,
             unread_count,
-            message_count
+            message_count,
+            ic.deleted_at
         FROM inbox_conversations ic
-        WHERE license_key_id = ? 
-          AND last_message_at > ?
-        ORDER BY ic.last_message_at DESC
+        WHERE license_key_id = ?
+          AND (last_message_at > ? OR deleted_at > ?)
+        ORDER BY 
+            ic.deleted_at DESC NULLS FIRST,
+            ic.last_message_at DESC
         LIMIT ?
     """
-    params = [license_id, ts_value, limit]
-    
+    params = [license_id, ts_value, ts_value, limit]
+
     async with get_db() as db:
         rows = await fetch_all(db, query, params)
         return [_parse_message_row(dict(row)) for row in rows]
@@ -842,7 +846,7 @@ async def get_inbox_conversations_count(
     Uses the optimized inbox_conversations table.
     No filters - all chats counted.
     """
-    query = "SELECT COUNT(*) as count FROM inbox_conversations WHERE license_key_id = ?"
+    query = "SELECT COUNT(*) as count FROM inbox_conversations WHERE license_key_id = ? AND deleted_at IS NULL"
     params = [license_id]
 
     async with get_db() as db:
@@ -856,10 +860,11 @@ async def get_inbox_status_counts(license_id: int) -> dict:
         # We count ALL CONVERSATIONS since we are unifying the inbox
         # status IN ('analyzed', 'sent', 'ignored', 'approved', 'auto_replied')
         # Basically anything not 'pending'
-        
+        # EXCLUDING deleted conversations
+
         analyzed_row = await fetch_one(db, """
-            SELECT COUNT(*) as count FROM inbox_conversations 
-            WHERE license_key_id = ?
+            SELECT COUNT(*) as count FROM inbox_conversations
+            WHERE license_key_id = ? AND deleted_at IS NULL
         """, [license_id])
         
         return {
@@ -2309,22 +2314,33 @@ async def _soft_delete_conversation_impl(db, license_id: int, sender_contact: st
             # Don't fail the whole deletion if attachment cleanup fails
             attachment_cleanup_success = False
 
-        # FIX: Delete conversation entries only ONCE (removed duplicate code)
-        # Explicitly delete ALL conversation entries for discovered personas
+        # FIX: Soft delete conversation entries by setting deleted_at instead of DELETE
+        # This allows delta sync to propagate deletions to mobile clients
+        now = datetime.utcnow()
+        ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
+        
         if all_contacts:
             placeholders_ic = ", ".join(["?" for _ in all_contacts])
             await execute_sql(
                 db,
-                f"DELETE FROM inbox_conversations WHERE license_key_id = ? AND sender_contact IN ({placeholders_ic})",
-                [license_id] + list(all_contacts)
+                f"""
+                UPDATE inbox_conversations 
+                SET deleted_at = ?, updated_at = ?
+                WHERE license_key_id = ? AND sender_contact IN ({placeholders_ic})
+                """,
+                [ts_value, ts_value, license_id] + list(all_contacts)
             )
         else:
             await execute_sql(
                 db,
-                "DELETE FROM inbox_conversations WHERE license_key_id = ? AND sender_contact = ?",
-                [license_id, sender_contact]
+                """
+                UPDATE inbox_conversations 
+                SET deleted_at = ?, updated_at = ?
+                WHERE license_key_id = ? AND sender_contact = ?
+                """,
+                [ts_value, ts_value, license_id, sender_contact]
             )
-        
+
         # FIX: Single commit at the end for atomic transaction
         await commit_db(db)
         logger.info(f"[CLEAR] Soft delete completed for {sender_contact}")
@@ -2673,7 +2689,7 @@ async def upsert_conversation_state(
     from db_helper import DB_TYPE
     import json
 
-    # Check if conversation exists
+    # Check if conversation exists (including deleted ones)
     async with get_db() as db:
         conv_exists = await fetch_one(
             db,
@@ -2739,8 +2755,8 @@ async def upsert_conversation_state(
                 db,
                 """
                 INSERT INTO inbox_conversations
-                (license_key_id, sender_contact, sender_name, channel, last_message_at, unread_count)
-                VALUES (?, ?, ?, ?, ?, 0)
+                (license_key_id, sender_contact, sender_name, channel, last_message_at, unread_count, deleted_at)
+                VALUES (?, ?, ?, ?, ?, 0, NULL)
                 """,
                 [license_id, sender_contact, sender_name, channel or 'almudeer', datetime.utcnow()],
             )
@@ -2838,12 +2854,15 @@ async def upsert_conversation_state(
         if not last_message:
             ts_now = datetime.now(timezone.utc).replace(tzinfo=None) if DB_TYPE == "postgresql" else datetime.utcnow().isoformat()
             await execute_sql(db, """
-                UPDATE inbox_conversations SET 
+                UPDATE inbox_conversations SET
                     last_message_id = 0, last_message_body = '', unread_count = 0, message_count = 0, updated_at = ?
                 WHERE license_key_id = ? AND sender_contact = ?
             """, [ts_now, license_id, sender_contact])
             await commit_db(db)
             return
+
+        # If we reach here with a deleted conversation that has new messages,
+        # the upsert below will clear deleted_at
 
         # Body formatting with Attachment Emojis
         status = last_message["status"]
@@ -2884,17 +2903,24 @@ async def upsert_conversation_state(
         elif DB_TYPE != "postgresql" and isinstance(last_message_at, datetime):
             last_message_at = last_message_at.isoformat()
 
-        fields = ["license_key_id", "sender_contact", "last_message_id", "last_message_body", 
+        fields = ["license_key_id", "sender_contact", "last_message_id", "last_message_body",
                   "last_message_at", "last_message_attachments", "status", "unread_count", "message_count", "updated_at"]
         params = [license_id, sender_contact, msg_id, body, last_message_at, last_attachments, status, unread_count, message_count, ts_value]
-        
+
         if sender_name: fields.append("sender_name"); params.append(sender_name)
         if channel: fields.append("channel"); params.append(channel)
-            
+
+        # Add deleted_at = NULL to clear deletion when new messages arrive
+        if DB_TYPE == "postgresql":
+            update_cols = ", ".join([f"{f} = EXCLUDED.{f}" if f not in ["license_key_id", "sender_contact"] else f"{f} = {f}" for f in fields])
+            update_cols += ", deleted_at = NULL"
+        else:
+            update_cols = ", ".join([f"{f} = excluded.{f}" if f not in ["license_key_id", "sender_contact"] else f"{f} = {f}" for f in fields])
+            update_cols += ", deleted_at = NULL"
+
         placeholders = ", ".join(["?" for _ in fields])
         cols = ", ".join(fields)
-        update_cols = ", ".join([f"{f} = EXCLUDED.{f}" if DB_TYPE == "postgresql" else f"{f} = excluded.{f}" for f in fields if f not in ["license_key_id", "sender_contact"]])
-        
+
         sql = f"INSERT INTO inbox_conversations ({cols}) VALUES ({placeholders}) ON CONFLICT (license_key_id, sender_contact) DO UPDATE SET {update_cols}"
         await execute_sql(db, sql, params)
         await commit_db(db)

@@ -142,3 +142,68 @@ async def test_soft_delete_then_upsert_does_not_recreate():
 
         assert len(insert_calls) == 0, \
             "Deleted conversation should NOT be recreated by upsert_conversation_state"
+
+
+@pytest.mark.asyncio
+async def test_delete_all_messages_keeps_empty_conversation():
+    """
+    Test that deleting all messages individually keeps the conversation
+    in the inbox as an empty conversation (not deleted).
+    
+    This verifies that when upsert_conversation_state finds no messages,
+    it updates the conversation with empty values but does NOT set deleted_at.
+    """
+    from models.inbox import upsert_conversation_state
+
+    sql_calls = []
+
+    def track_execute(db, sql, params=None):
+        sql_calls.append(sql)
+        return AsyncMock()
+
+    # Mock database functions
+    with patch("models.inbox.fetch_one", new_callable=AsyncMock) as mock_fetch_one, \
+         patch("models.inbox._get_sender_aliases", new_callable=AsyncMock) as mock_get_aliases, \
+         patch("models.inbox.execute_sql", side_effect=track_execute) as mock_execute, \
+         patch("models.inbox.commit_db", new_callable=AsyncMock) as mock_commit, \
+         patch("models.inbox.get_db"), \
+         patch("services.distributed_lock.DistributedLock.acquire", return_value=True), \
+         patch("services.distributed_lock.DistributedLock.release", return_value=True):
+
+        # Simulate conversation EXISTS (not deleted)
+        mock_fetch_one.return_value = {"id": 1}
+
+        # Simulate we have aliases for this contact
+        mock_get_aliases.return_value = ({"test_contact"}, set())
+
+        # Simulate NO messages (all deleted individually)
+        # This triggers the "empty conversation" path
+        mock_fetch_one.side_effect = [
+            {"id": 1},  # Conversation exists
+            {"unread_count": 0, "count_in": 0, "count_out": 0},  # Stats
+            None  # No latest message
+        ]
+
+        # Call upsert_conversation_state (called after deleting last message)
+        try:
+            await upsert_conversation_state(
+                license_id=1,
+                sender_contact="test_contact",
+                sender_name="Test User",
+                channel="almudeer"
+            )
+        except Exception:
+            # Expected - partial mocking
+            pass
+
+        # Find UPDATE calls for inbox_conversations
+        update_calls = [sql for sql in sql_calls if "UPDATE inbox_conversations" in sql]
+
+        # Should have at least one UPDATE call (setting empty values)
+        assert len(update_calls) > 0, \
+            "Empty conversation should be updated (not deleted)"
+
+        # Verify deleted_at was NOT set in any UPDATE
+        for sql in update_calls:
+            assert "deleted_at" not in sql, \
+                f"Empty conversation should NOT have deleted_at set. SQL: {sql}"
