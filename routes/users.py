@@ -87,12 +87,12 @@ async def search_users(
         customer_rows = await fetch_all(
             db,
             """
-            SELECT 
+            SELECT
                 c.id,
                 c.username,
                 c.name,
                 c.email,
-                c.image as image,
+                NULL as image,
                 c.is_vip,
                 c.created_at,
                 c.last_contact_at as last_seen_at
@@ -104,8 +104,8 @@ async def search_users(
                 OR c.name LIKE ?
                 OR c.email LIKE ?
             )
-            ORDER BY 
-                CASE 
+            ORDER BY
+                CASE
                     WHEN c.username LIKE ? THEN 0
                     WHEN c.name LIKE ? THEN 1
                     ELSE 2
