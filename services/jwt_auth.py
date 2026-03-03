@@ -82,7 +82,7 @@ class JWTConfig:
     """JWT configuration from environment"""
     secret_key: str = None  # Set in __post_init__
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = int(os.getenv("JWT_ACCESS_EXPIRE_MINUTES", "30"))
+    access_token_expire_minutes: int = int(os.getenv("JWT_ACCESS_EXPIRE_MINUTES", "720"))
     refresh_token_expire_days: int = int(os.getenv("JWT_REFRESH_EXPIRE_DAYS", "7"))
     
     def __post_init__(self):

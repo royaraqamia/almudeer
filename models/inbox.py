@@ -2671,7 +2671,7 @@ async def upsert_conversation_state(
                 (license_key_id, sender_contact, sender_name, channel, last_message_at, unread_count)
                 VALUES (?, ?, ?, ?, ?, 0)
                 """,
-                [license_id, sender_contact, sender_name, channel or 'almudeer', datetime.utcnow().isoformat()],
+                [license_id, sender_contact, sender_name, channel or 'almudeer', datetime.utcnow()],
             )
             await commit_db(db)
             return
