@@ -98,7 +98,7 @@ async def search_users(
                 c.last_contact_at as last_seen_at
             FROM customers c
             WHERE c.license_key_id = ?
-            AND c.is_almudeer_user IS TRUE
+            AND EXISTS (SELECT 1 FROM license_keys l WHERE l.username = c.username AND c.username IS NOT NULL)
             AND (
                 c.username LIKE ?
                 OR c.name LIKE ?
