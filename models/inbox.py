@@ -2937,7 +2937,7 @@ async def upsert_conversation_state(
         placeholders = ", ".join(["?" for _ in fields])
         cols = ", ".join(fields)
 
-        sql = f"INSERT INTO inbox_conversations ({cols}) VALUES ({placeholders}) ON CONFLICT (license_key_id, sender_contact) DO UPDATE SET {update_cols}"
+        sql = f"INSERT INTO inbox_conversations ({cols}) VALUES ({placeholders}) ON CONFLICT (inbox_conversations.license_key_id, inbox_conversations.sender_contact) DO UPDATE SET {update_cols}"
         await execute_sql(db, sql, params)
         await commit_db(db)
 
