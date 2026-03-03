@@ -2927,11 +2927,13 @@ async def upsert_conversation_state(
         if channel: fields.append("channel"); params.append(channel)
 
         # Add deleted_at = NULL to clear deletion when new messages arrive
+        # Note: license_key_id and sender_contact are the conflict target, so they don't need to be updated
+        update_fields = [f for f in fields if f not in ["license_key_id", "sender_contact"]]
         if DB_TYPE == "postgresql":
-            update_cols = ", ".join([f"{f} = EXCLUDED.{f}" if f not in ["license_key_id", "sender_contact"] else f"inbox_conversations.{f} = inbox_conversations.{f}" for f in fields])
+            update_cols = ", ".join([f"{f} = EXCLUDED.{f}" for f in update_fields])
             update_cols += ", deleted_at = NULL"
         else:
-            update_cols = ", ".join([f"{f} = excluded.{f}" if f not in ["license_key_id", "sender_contact"] else f"inbox_conversations.{f} = inbox_conversations.{f}" for f in fields])
+            update_cols = ", ".join([f"{f} = excluded.{f}" for f in update_fields])
             update_cols += ", deleted_at = NULL"
 
         placeholders = ", ".join(["?" for _ in fields])
