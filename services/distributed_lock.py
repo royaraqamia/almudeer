@@ -110,34 +110,50 @@ class DistributedLock:
         """Start background task to refresh the lock expiry"""
         if self._keepalive_task:
             return
-            
+
         async def keepalive():
             logger.debug(f"Starting keep-alive for lock '{self.lock_name}'")
             while self.locked:
                 try:
                     # Sleep for a fraction of the timeout
                     await asyncio.sleep(self._lock_timeout // 3)
+
+                    # P0-5 FIX: Retry logic for transient database connection errors
+                    # Critical for preventing lock loss due to temporary connection issues
+                    max_retries = 3
+                    base_delay = 1.0  # seconds
                     
-                    async with get_db() as db:
-                        now = int(time.time())
-                        # Update and return row count (implementation varies by DB/helper)
-                        # Here we assume execute_sql returns the cursor/result with rowcount
-                        await execute_sql(
-                            db, 
-                            "UPDATE system_locks SET expires_at = ? WHERE lock_name = ? AND holder_pid = ?", 
-                            [now + self._lock_timeout, self.lock_name, os.getpid()]
-                        )
-                        if DB_TYPE != "postgresql":
-                            from db_helper import commit_db
-                            await commit_db(db)
-                        
-                        # In a more advanced version, we'd verify the row was actually updated.
-                        # For now, we rely on the next refresh or the service level check.
-                        logger.debug(f"Refreshed lock '{self.lock_name}'")
+                    for attempt in range(max_retries):
+                        try:
+                            async with get_db() as db:
+                                now = int(time.time())
+                                await execute_sql(
+                                    db,
+                                    "UPDATE system_locks SET expires_at = ? WHERE lock_name = ? AND holder_pid = ?",
+                                    [now + self._lock_timeout, self.lock_name, os.getpid()]
+                                )
+                                if DB_TYPE != "postgresql":
+                                    from db_helper import commit_db
+                                    await commit_db(db)
+
+                                logger.debug(f"Refreshed lock '{self.lock_name}'")
+                            break  # Success - exit retry loop
+                            
+                        except Exception as e:
+                            if attempt < max_retries - 1:
+                                import random
+                                delay = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
+                                logger.warning(f"Lock keepalive failed (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {delay:.2f}s...")
+                                await asyncio.sleep(delay)
+                            else:
+                                logger.error(f"Lock keepalive failed after {max_retries} attempts: {e}")
+                                # Re-raise to let the outer handler deal with it
+                                raise
+                    
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
                     logger.error(f"Error refreshing distributed lock '{self.lock_name}': {e}")
                     await asyncio.sleep(5)
-        
+
         self._keepalive_task = asyncio.create_task(keepalive())

@@ -393,33 +393,60 @@ class ConnectionManager:
         logger.info(f"WebSocket connected: license {license_id} (total: {self.connection_count})")
     
     async def refresh_last_seen(self, license_id: int):
+        """Update last_seen_at with retry logic for transient connection errors"""
         if self._pubsub.is_available:
-            try:
-                from db_helper import get_db, execute_sql, commit_db
-                from datetime import datetime
-                now = datetime.utcnow()
-                async with get_db() as db:
-                    await execute_sql(db, "UPDATE license_keys SET last_seen_at = ? WHERE id = ?", (now, license_id))
-                    await commit_db(db)
-            except Exception as e:
-                logger.error(f"Error in refresh_last_seen: {e}")
+            # P0-5 FIX: Retry logic for transient database connection errors
+            # These heartbeats are critical but can fail due to temporary connection issues
+            max_retries = 3
+            base_delay = 1.0  # seconds
+            
+            for attempt in range(max_retries):
+                try:
+                    from db_helper import get_db, execute_sql, commit_db
+                    from datetime import datetime
+                    now = datetime.utcnow()
+                    async with get_db() as db:
+                        await execute_sql(db, "UPDATE license_keys SET last_seen_at = ? WHERE id = ?", (now, license_id))
+                        await commit_db(db)
+                    return  # Success
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        # Exponential backoff with jitter
+                        import random
+                        delay = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
+                        logger.warning(f"refresh_last_seen failed (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {delay:.2f}s...")
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.error(f"refresh_last_seen failed after {max_retries} attempts: {e}")
 
     async def refresh_last_seen_by_key(self, license_key: str):
-        """Update last_seen_at using the raw license key (for multi-presence heartbeats)"""
+        """Update last_seen_at using the raw license key (for multi-presence heartbeats) with retry logic"""
         if self._pubsub.is_available:
-            try:
-                from database import hash_license_key
-                from db_helper import get_db, execute_sql, fetch_one, commit_db
-                from datetime import datetime
-                key_hash = hash_license_key(license_key)
-                async with get_db() as db:
-                    # First find the ID
-                    row = await fetch_one(db, "SELECT id FROM license_keys WHERE key_hash = ?", [key_hash])
-                    if row:
-                        await execute_sql(db, "UPDATE license_keys SET last_seen_at = ? WHERE id = ?", (datetime.utcnow(), row["id"]))
-                        await commit_db(db)
-            except Exception as e:
-                logger.error(f"Error in refresh_last_seen_by_key: {e}")
+            # P0-5 FIX: Retry logic for transient database connection errors
+            max_retries = 3
+            base_delay = 1.0  # seconds
+            
+            for attempt in range(max_retries):
+                try:
+                    from database import hash_license_key
+                    from db_helper import get_db, execute_sql, fetch_one, commit_db
+                    from datetime import datetime
+                    key_hash = hash_license_key(license_key)
+                    async with get_db() as db:
+                        # First find the ID
+                        row = await fetch_one(db, "SELECT id FROM license_keys WHERE key_hash = ?", [key_hash])
+                        if row:
+                            await execute_sql(db, "UPDATE license_keys SET last_seen_at = ? WHERE id = ?", (datetime.utcnow(), row["id"]))
+                            await commit_db(db)
+                    return  # Success
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        import random
+                        delay = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
+                        logger.warning(f"refresh_last_seen_by_key failed (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {delay:.2f}s...")
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.error(f"refresh_last_seen_by_key failed after {max_retries} attempts: {e}")
 
     async def disconnect(self, websocket: WebSocket, license_id: int):
         """Remove a WebSocket connection"""

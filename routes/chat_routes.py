@@ -10,12 +10,16 @@ import json
 import base64
 import tempfile
 import asyncio
+import logging
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from pydantic import BaseModel, Field
 from models.task_queue import enqueue_task
 from rate_limiting import limiter, RateLimits
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 from models import (
     get_inbox_messages,
