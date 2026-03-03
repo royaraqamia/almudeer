@@ -1527,10 +1527,14 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
                 AND (is_read = 0 OR is_read IS NULL)
             """
 
-        await execute_sql(db, query, params)
+        result = await execute_sql(db, query, params)
         await commit_db(db)
-        await upsert_conversation_state(license_id, sender_contact)
         
+        # Only update conversation state if messages were actually updated
+        # This prevents creating empty conversation entries for users with no messages
+        if result and result.rowcount > 0:
+            await upsert_conversation_state(license_id, sender_contact)
+
         # FIX P0-9: Broadcast read receipt to other devices
         try:
             from services.websocket_manager import broadcast_conversation_read
@@ -1538,7 +1542,7 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
         except Exception as e:
             from logging_config import get_logger
             get_logger(__name__).warning(f"Failed to broadcast read receipt: {e}")
-        
+
         return 1
 
 
