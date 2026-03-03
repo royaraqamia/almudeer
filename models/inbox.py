@@ -2135,7 +2135,7 @@ async def soft_delete_conversation(license_id: int, sender_contact: str, db=None
     Then updates conversation state (which should effectively remove it).
 
     FIX: Also cleans up attachments from disk/S3 to prevent storage bloat.
-    
+
     Args:
         license_id: License ID
         sender_contact: Sender contact to delete
@@ -2148,16 +2148,20 @@ async def soft_delete_conversation(license_id: int, sender_contact: str, db=None
     from logging_config import get_logger
     logger = get_logger(__name__)
 
+    logger.info(f"[DELETE CONVERSATION] Starting deletion for license={license_id}, contact={sender_contact}")
+
     if db is None:
         async with get_db() as db:
             return await _soft_delete_conversation_impl(db, license_id, sender_contact, ts_value, logger)
-    
+
     return await _soft_delete_conversation_impl(db, license_id, sender_contact, ts_value, logger)
 
 
 async def _soft_delete_conversation_impl(db, license_id: int, sender_contact: str, ts_value, logger):
     # Get all aliases for this sender to ensure we clear EVERYTHING
     all_contacts, all_ids = await _get_sender_aliases(db, license_id, sender_contact)
+    
+    logger.info(f"[DELETE CONVERSATION] Found aliases: contacts={all_contacts}, ids={all_ids}")
 
     # FIX: Collect attachment paths before soft delete for cleanup
     attachment_paths = []
@@ -2318,32 +2322,34 @@ async def _soft_delete_conversation_impl(db, license_id: int, sender_contact: st
         # This allows delta sync to propagate deletions to mobile clients
         now = datetime.utcnow()
         ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
-        
+
         if all_contacts:
             placeholders_ic = ", ".join(["?" for _ in all_contacts])
-            await execute_sql(
+            result = await execute_sql(
                 db,
                 f"""
-                UPDATE inbox_conversations 
+                UPDATE inbox_conversations
                 SET deleted_at = ?, updated_at = ?
                 WHERE license_key_id = ? AND sender_contact IN ({placeholders_ic})
                 """,
                 [ts_value, ts_value, license_id] + list(all_contacts)
             )
+            logger.info(f"[DELETE CONVERSATION] Updated {result.rowcount if result else 0} conversation entries (multi-contact)")
         else:
-            await execute_sql(
+            result = await execute_sql(
                 db,
                 """
-                UPDATE inbox_conversations 
+                UPDATE inbox_conversations
                 SET deleted_at = ?, updated_at = ?
                 WHERE license_key_id = ? AND sender_contact = ?
                 """,
                 [ts_value, ts_value, license_id, sender_contact]
             )
+            logger.info(f"[DELETE CONVERSATION] Updated {result.rowcount if result else 0} conversation entries for {sender_contact}")
 
         # FIX: Single commit at the end for atomic transaction
         await commit_db(db)
-        logger.info(f"[CLEAR] Soft delete completed for {sender_contact}")
+        logger.info(f"[DELETE CONVERSATION] Transaction committed for {sender_contact}")
 
         return {"success": True, "message": "تم حذف المحادثة بنجاح"}
 

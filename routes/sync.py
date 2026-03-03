@@ -356,7 +356,9 @@ async def _process_operation(op: SyncOperation, license_id: int, background_task
             
         elif op.type == "delete_conversation":
             sender_contact = op.payload.get("senderContact")
+            logger.info(f"[SYNC DELETE] Deleting conversation: {sender_contact} for license {license_id}")
             await soft_delete_conversation(license_id, sender_contact)
+            logger.info(f"[SYNC DELETE] Completed deletion of: {sender_contact}")
             return SyncResult(operation_id=op.id, success=True)
             
         elif op.type == "add_customer":

@@ -541,7 +541,9 @@ async def delete_conversation_route(
     from models.inbox import soft_delete_conversation
     from services.websocket_manager import broadcast_conversation_deleted
 
+    logger.info(f"[DELETE] Deleting conversation: {sender_contact} for license {license['license_id']}")
     result = await soft_delete_conversation(license["license_id"], sender_contact)
+    logger.info(f"[DELETE] Result: {result}")
     # Broadcast event so UI removes it instantly
     await broadcast_conversation_deleted(license["license_id"], sender_contact)
     return result
