@@ -2218,140 +2218,143 @@ async def _soft_delete_conversation_impl(db, license_id: int, sender_contact: st
             except:
                 pass
 
-        # Build conditions for inbox
-        in_conditions = []
-        in_params = [ts_value, license_id]
+    # Build conditions for inbox (MOVED OUTSIDE the for loop)
+    in_conditions = []
+    in_params = [ts_value, license_id]
 
-        if all_contacts:
-            contact_placeholders = ", ".join(["?" for _ in all_contacts])
-            in_conditions.append(f"sender_contact IN ({contact_placeholders})")
-            in_params.extend(list(all_contacts))
+    if all_contacts:
+        contact_placeholders = ", ".join(["?" for _ in all_contacts])
+        in_conditions.append(f"sender_contact IN ({contact_placeholders})")
+        in_params.extend(list(all_contacts))
 
-        if all_ids:
-            id_placeholders = ", ".join(["?" for _ in all_ids])
-            in_conditions.append(f"sender_id IN ({id_placeholders})")
-            in_params.extend(list(all_ids))
+    if all_ids:
+        id_placeholders = ", ".join(["?" for _ in all_ids])
+        in_conditions.append(f"sender_id IN ({id_placeholders})")
+        in_params.extend(list(all_ids))
 
-        in_where = " OR ".join(in_conditions) if in_conditions else "1=0"
+    in_where = " OR ".join(in_conditions) if in_conditions else "1=0"
 
-        # Params for outbox: recipient_email/id
-        out_conditions = []
-        out_params = [ts_value, license_id]
+    # Params for outbox: recipient_email/id
+    out_conditions = []
+    out_params = [ts_value, license_id]
 
-        if all_contacts:
-            contact_placeholders = ", ".join(["?" for _ in all_contacts])
-            out_conditions.append(f"recipient_email IN ({contact_placeholders})")
-            out_params.extend(list(all_contacts))
+    if all_contacts:
+        contact_placeholders = ", ".join(["?" for _ in all_contacts])
+        out_conditions.append(f"recipient_email IN ({contact_placeholders})")
+        out_params.extend(list(all_contacts))
 
-        if all_ids:
-            id_placeholders = ", ".join(["?" for _ in all_ids])
-            out_conditions.append(f"recipient_id IN ({id_placeholders})")
-            out_params.extend(list(all_ids))
+    if all_ids:
+        id_placeholders = ", ".join(["?" for _ in all_ids])
+        out_conditions.append(f"recipient_id IN ({id_placeholders})")
+        out_params.extend(list(all_ids))
 
-        out_where = " OR ".join(out_conditions) if out_conditions else "1=0"
+    out_where = " OR ".join(out_conditions) if out_conditions else "1=0"
 
-        # Diagnostic logging
-        from logging_config import get_logger
-        logger = get_logger(__name__)
-        logger.info(f"[CLEAR] Starting soft delete for {sender_contact}. Aliases: contacts={all_contacts}, ids={all_ids}")
+    # Diagnostic logging
+    from logging_config import get_logger
+    logger = get_logger(__name__)
+    logger.info(f"[CLEAR] Starting soft delete for {sender_contact}. Aliases: contacts={all_contacts}, ids={all_ids}")
 
-        # Update Inbox
-        res_in = await execute_sql(
-            db,
-            f"""
-            UPDATE inbox_messages
-            SET deleted_at = ?
-            WHERE license_key_id = ?
-            AND ({in_where})
-            AND deleted_at IS NULL
-            """,
-            in_params
-        )
+    # Update Inbox
+    res_in = await execute_sql(
+        db,
+        f"""
+        UPDATE inbox_messages
+        SET deleted_at = ?
+        WHERE license_key_id = ?
+        AND ({in_where})
+        AND deleted_at IS NULL
+        """,
+        in_params
+    )
 
-        # Update Outbox
-        await execute_sql(
-            db,
-            f"""
-            UPDATE outbox_messages
-            SET deleted_at = ?
-            WHERE license_key_id = ?
-            AND ({out_where})
-             AND deleted_at IS NULL
-            """,
-            out_params
-        )
-        # Note: postgres connection.execute doesn't always return rowcount easily via this helper
-        # but the query should execute.
+    # Update Outbox
+    await execute_sql(
+        db,
+        f"""
+        UPDATE outbox_messages
+        SET deleted_at = ?
+        WHERE license_key_id = ?
+        AND ({out_where})
+         AND deleted_at IS NULL
+        """,
+        out_params
+    )
+    # Note: postgres connection.execute doesn't always return rowcount easily via this helper
+    # but the query should execute.
 
-        # FIX: Move commit to after all operations for proper transaction handling
-        # This ensures atomic deletion of messages AND conversation entries
-        logger.info(f"[CLEAR] Soft delete started for {sender_contact}")
+    # FIX: Move commit to after all operations for proper transaction handling
+    # This ensures atomic deletion of messages AND conversation entries
+    logger.info(f"[CLEAR] Soft delete started for {sender_contact}")
 
-        # FIX P0-7: Use distributed lock for attachment cleanup to prevent race conditions
-        # when multiple devices delete the same conversation simultaneously
-        attachment_cleanup_success = True
-        try:
-            from services.distributed_lock import DistributedLock
-            lock_key = f"attachment_cleanup_{license_id}_{sender_contact}"
-            lock = DistributedLock(lock_id=license_id, lock_name=lock_key)
-            
-            if await lock.acquire():
-                try:
-                    # Clean up attachments from disk
-                    if attachment_paths:
-                        from services.file_storage_service import get_file_storage
-                        storage = get_file_storage()
-                        cleaned_count = 0
-                        for path in attachment_paths:
-                            try:
-                                await storage.delete_file_async(path)
-                                cleaned_count += 1
-                            except Exception as e:
-                                logger.warning(f"Failed to delete attachment {path}: {e}")
-                        logger.info(f"[CLEAR] Cleaned up {cleaned_count}/{len(attachment_paths)} attachments for {sender_contact}")
-                finally:
-                    await lock.release()
-            else:
-                logger.warning(f"[CLEAR] Skipped attachment cleanup for {sender_contact} - lock held by another process")
-        except Exception as e:
-            logger.error(f"[CLEAR] Error during attachment cleanup: {e}")
-            # Don't fail the whole deletion if attachment cleanup fails
-            attachment_cleanup_success = False
+    # FIX P0-7: Use distributed lock for attachment cleanup to prevent race conditions
+    # when multiple devices delete the same conversation simultaneously
+    attachment_cleanup_success = True
+    try:
+        from services.distributed_lock import DistributedLock
+        lock_key = f"attachment_cleanup_{license_id}_{sender_contact}"
+        lock = DistributedLock(lock_id=license_id, lock_name=lock_key)
 
-        # FIX: Soft delete conversation entries by setting deleted_at instead of DELETE
-        # This allows delta sync to propagate deletions to mobile clients
-        now = datetime.utcnow()
-        ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
-
-        if all_contacts:
-            placeholders_ic = ", ".join(["?" for _ in all_contacts])
-            result = await execute_sql(
-                db,
-                f"""
-                UPDATE inbox_conversations
-                SET deleted_at = ?, updated_at = ?
-                WHERE license_key_id = ? AND sender_contact IN ({placeholders_ic})
-                """,
-                [ts_value, ts_value, license_id] + list(all_contacts)
-            )
-            logger.info(f"[DELETE CONVERSATION] Updated {result.rowcount if result else 0} conversation entries (multi-contact)")
+        if await lock.acquire():
+            try:
+                # Clean up attachments from disk
+                if attachment_paths:
+                    from services.file_storage_service import get_file_storage
+                    storage = get_file_storage()
+                    cleaned_count = 0
+                    for path in attachment_paths:
+                        try:
+                            await storage.delete_file_async(path)
+                            cleaned_count += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to delete attachment {path}: {e}")
+                    logger.info(f"[CLEAR] Cleaned up {cleaned_count}/{len(attachment_paths)} attachments for {sender_contact}")
+            finally:
+                await lock.release()
         else:
-            result = await execute_sql(
-                db,
-                """
-                UPDATE inbox_conversations
-                SET deleted_at = ?, updated_at = ?
-                WHERE license_key_id = ? AND sender_contact = ?
-                """,
-                [ts_value, ts_value, license_id, sender_contact]
-            )
-            logger.info(f"[DELETE CONVERSATION] Updated {result.rowcount if result else 0} conversation entries for {sender_contact}")
+            logger.warning(f"[CLEAR] Skipped attachment cleanup for {sender_contact} - lock held by another process")
+    except Exception as e:
+        logger.error(f"[CLEAR] Error during attachment cleanup: {e}")
+        # Don't fail the whole deletion if attachment cleanup fails
+        attachment_cleanup_success = False
 
-        # FIX: Single commit at the end for atomic transaction
-        await commit_db(db)
-        logger.info(f"[DELETE CONVERSATION] Transaction committed for {sender_contact}")
+    # FIX: Soft delete conversation entries by setting deleted_at instead of DELETE
+    # This allows delta sync to propagate deletions to mobile clients
+    now = datetime.utcnow()
+    ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
 
-        return {"success": True, "message": "تم حذف المحادثة بنجاح"}
+    logger.info(f"[DELETE CONVERSATION] About to update inbox_conversations for {sender_contact}")
+
+    if all_contacts:
+        placeholders_ic = ", ".join(["?" for _ in all_contacts])
+        result = await execute_sql(
+            db,
+            f"""
+            UPDATE inbox_conversations
+            SET deleted_at = ?, updated_at = ?
+            WHERE license_key_id = ? AND sender_contact IN ({placeholders_ic})
+            """,
+            [ts_value, ts_value, license_id] + list(all_contacts)
+        )
+        logger.info(f"[DELETE CONVERSATION] Updated {result.rowcount if result else 0} conversation entries (multi-contact)")
+    else:
+        result = await execute_sql(
+            db,
+            """
+            UPDATE inbox_conversations
+            SET deleted_at = ?, updated_at = ?
+            WHERE license_key_id = ? AND sender_contact = ?
+            """,
+            [ts_value, ts_value, license_id, sender_contact]
+        )
+        logger.info(f"[DELETE CONVERSATION] Updated {result.rowcount if result else 0} conversation entries for {sender_contact}")
+
+    # FIX: Single commit at the end for atomic transaction
+    logger.info(f"[DELETE CONVERSATION] About to commit transaction for {sender_contact}")
+    await commit_db(db)
+    logger.info(f"[DELETE CONVERSATION] Transaction committed for {sender_contact}")
+
+    return {"success": True, "message": "تم حذف المحادثة بنجاح"}
 
 
 async def clear_conversation_messages(license_id: int, sender_contact: str) -> dict:
