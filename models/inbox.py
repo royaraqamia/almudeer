@@ -2928,10 +2928,10 @@ async def upsert_conversation_state(
 
         # Add deleted_at = NULL to clear deletion when new messages arrive
         if DB_TYPE == "postgresql":
-            update_cols = ", ".join([f"{f} = EXCLUDED.{f}" if f not in ["license_key_id", "sender_contact"] else f"{f} = {f}" for f in fields])
+            update_cols = ", ".join([f"{f} = EXCLUDED.{f}" if f not in ["license_key_id", "sender_contact"] else f"inbox_conversations.{f} = inbox_conversations.{f}" for f in fields])
             update_cols += ", deleted_at = NULL"
         else:
-            update_cols = ", ".join([f"{f} = excluded.{f}" if f not in ["license_key_id", "sender_contact"] else f"{f} = {f}" for f in fields])
+            update_cols = ", ".join([f"{f} = excluded.{f}" if f not in ["license_key_id", "sender_contact"] else f"inbox_conversations.{f} = inbox_conversations.{f}" for f in fields])
             update_cols += ", deleted_at = NULL"
 
         placeholders = ", ".join(["?" for _ in fields])
