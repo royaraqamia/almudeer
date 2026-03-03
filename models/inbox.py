@@ -2680,14 +2680,65 @@ async def upsert_conversation_state(
             "SELECT 1 FROM inbox_conversations WHERE license_key_id = ? AND sender_contact = ?",
             [license_id, sender_contact]
         )
-        
+
         if not conv_exists:
+            # FIX: Before recreating conversation, check if there are any non-deleted messages
+            # This prevents deleted conversations from reappearing in the inbox
+            all_contacts, all_ids = await _get_sender_aliases(db, license_id, sender_contact)
+
+            # Build WHERE clauses to check for non-deleted messages
+            has_messages = False
+
+            # Check inbox messages
+            if all_contacts:
+                contact_placeholders = ", ".join(["?" for _ in all_contacts])
+                inbox_check = await fetch_one(
+                    db,
+                    f"SELECT 1 FROM inbox_messages WHERE license_key_id = ? AND sender_contact IN ({contact_placeholders}) AND deleted_at IS NULL LIMIT 1",
+                    [license_id] + list(all_contacts)
+                )
+                has_messages = inbox_check is not None
+
+            if not has_messages and all_ids:
+                id_placeholders = ", ".join(["?" for _ in all_ids])
+                inbox_check = await fetch_one(
+                    db,
+                    f"SELECT 1 FROM inbox_messages WHERE license_key_id = ? AND sender_id IN ({id_placeholders}) AND deleted_at IS NULL LIMIT 1",
+                    [license_id] + list(all_ids)
+                )
+                has_messages = inbox_check is not None
+
+            # Check outbox messages if no inbox messages found
+            if not has_messages:
+                if all_contacts:
+                    contact_placeholders = ", ".join(["?" for _ in all_contacts])
+                    outbox_check = await fetch_one(
+                        db,
+                        f"SELECT 1 FROM outbox_messages WHERE license_key_id = ? AND (recipient_email IN ({contact_placeholders}) OR recipient_id IN ({contact_placeholders})) AND deleted_at IS NULL LIMIT 1",
+                        [license_id] + list(all_contacts) + list(all_contacts)
+                    )
+                    has_messages = outbox_check is not None
+
+                if not has_messages and all_ids:
+                    id_placeholders = ", ".join(["?" for _ in all_ids])
+                    outbox_check = await fetch_one(
+                        db,
+                        f"SELECT 1 FROM outbox_messages WHERE license_key_id = ? AND (recipient_email IN ({id_placeholders}) OR recipient_id IN ({id_placeholders})) AND deleted_at IS NULL LIMIT 1",
+                        [license_id] + list(all_ids) + list(all_ids)
+                    )
+                    has_messages = outbox_check is not None
+
+            # Only create conversation if there are non-deleted messages
+            if not has_messages:
+                # Conversation was deleted - don't recreate it
+                return
+
             # New conversation - create it with minimal data
             # Full stats will be calculated on next update or when conversation list is fetched
             await execute_sql(
                 db,
                 """
-                INSERT INTO inbox_conversations 
+                INSERT INTO inbox_conversations
                 (license_key_id, sender_contact, sender_name, channel, last_message_at, unread_count)
                 VALUES (?, ?, ?, ?, ?, 0)
                 """,
