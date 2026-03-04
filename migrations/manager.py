@@ -259,6 +259,9 @@ async def ensure_user_preferences_columns():
         ("preferred_languages", "TEXT"),
         ("reply_length", "TEXT"),
         ("formality_level", "TEXT"),
+        ("quran_progress", "TEXT"),
+        ("athkar_stats", "TEXT"),
+        ("calculator_history", "TEXT"),
     ]
     
     async with get_db() as db:
