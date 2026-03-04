@@ -302,7 +302,21 @@ async def lifespan(app: FastAPI):
             logger.info("Telegram Persistent Listener started")
         except Exception as e:
             logger.warning(f"Failed to start Telegram Listener: {e}")
-        
+
+        # Start Outbox Processor Service (Persistent) - CRITICAL FOR MESSAGE SENDING
+        try:
+            from services.outbox_processor_service import start_outbox_processor
+            outbox_processor = await start_outbox_processor()
+            if outbox_processor:
+                # Process any pending messages from when service was down
+                await outbox_processor.process_all_pending()
+                logger.info("Outbox Processor Service started")
+            else:
+                logger.warning("Outbox Processor Service failed to start - messages may not be sent!")
+        except Exception as e:
+            logger.error(f"Failed to start Outbox Processor Service: {e}", exc_info=True)
+            logger.error("⚠️ CRITICAL: Messages will NOT be sent to peers until this is fixed!")
+
         logger.info("Al-Mudeer backend initialized successfully")
         
         # Clean up stale presence counters from previous server runs
@@ -415,6 +429,12 @@ async def lifespan(app: FastAPI):
         logger.info("Telegram Persistent Listener stopped")
     except Exception as e:
         logger.warning(f"Error stopping Telegram Listener: {e}")
+    try:
+        from services.outbox_processor_service import stop_outbox_processor
+        await stop_outbox_processor()
+        logger.info("Outbox Processor Service stopped")
+    except Exception as e:
+        logger.warning(f"Error stopping Outbox Processor: {e}")
     try:
         await db_pool.close()
         logger.info("Database pool closed")
