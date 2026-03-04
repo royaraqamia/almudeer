@@ -152,11 +152,11 @@ class OutboxProcessorService:
         - Manual trigger for debugging
         """
         try:
-            from db_helper import fetch_all
+            from db_helper import fetch_all, get_db
             
             async with self._processing_lock:
                 # Get all licenses with pending/approved outbox messages
-                async with fetch_all.db_connection() as db:
+                async with get_db() as db:
                     licenses = await fetch_all(
                         db,
                         """

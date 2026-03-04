@@ -76,7 +76,8 @@ async def send_outbox_message(outbox_id: int, license_id: int) -> Dict[str, Any]
                 license_id, outbox_id, body, recipient_id, recipient_email, reply_to_platform_id
             )
             
-        elif channel == "telegram_bot":
+        elif channel in ("telegram_bot", "telegram"):
+            # Support both "telegram_bot" and legacy "telegram" channel names
             result = await _send_via_telegram_bot(
                 license_id, outbox_id, body, recipient_id, recipient_email, reply_to_platform_id
             )
@@ -91,7 +92,7 @@ async def send_outbox_message(outbox_id: int, license_id: int) -> Dict[str, Any]
                 license_id, outbox_id, body, subject, recipient_email, reply_to_platform_id, attachments
             )
             
-        elif channel == "almudeer" or channel == "saved":
+        elif channel in ("almudeer", "saved"):
             # Internal Almudeer messages - just mark as sent
             # No need to save to inbox as it's the same user (outgoing = incoming for same account)
             # The mobile app shows the outgoing message optimistically
