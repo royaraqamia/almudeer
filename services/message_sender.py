@@ -92,11 +92,18 @@ async def send_outbox_message(outbox_id: int, license_id: int) -> Dict[str, Any]
                 license_id, outbox_id, body, subject, recipient_email, reply_to_platform_id, attachments
             )
             
-        elif channel in ("almudeer", "saved"):
-            # Internal Almudeer messages - just mark as sent
-            # No need to save to inbox as it's the same user (outgoing = incoming for same account)
+        elif channel == "saved":
+            # Saved Messages (self-chat) - just mark as sent
+            # No need to save to inbox as it's the same user
             # The mobile app shows the outgoing message optimistically
             result = {"success": True, "message_id": str(outbox_id)}
+            
+        elif channel == "almudeer":
+            # Almudeer internal message - deliver to recipient's inbox
+            result = await _send_via_almudeer(
+                license_id, outbox_id, body, recipient_id, recipient_email, 
+                reply_to_platform_id, attachments
+            )
             
         else:
             raise ValueError(f"Unsupported channel: {channel}")
@@ -130,8 +137,7 @@ async def _send_via_whatsapp(
     reply_to_platform_id: Optional[str]
 ) -> Dict[str, Any]:
     """Send message via WhatsApp."""
-    from services.whatsapp_service import WhatsAppService
-    from services.email_service import get_whatsapp_config
+    from services.whatsapp_service import WhatsAppService, get_whatsapp_config
     
     config = await get_whatsapp_config(license_id)
     if not config or not config.get("access_token"):
@@ -162,7 +168,7 @@ async def _send_via_telegram_bot(
 ) -> Dict[str, Any]:
     """Send message via Telegram Bot."""
     from services.telegram_service import TelegramService
-    from services.email_service import get_telegram_config
+    from models.telegram_config import get_telegram_config
     
     config = await get_telegram_config(license_id)
     if not config or not config.get("bot_token"):
@@ -190,7 +196,7 @@ async def _send_via_telegram_phone(
 ) -> Dict[str, Any]:
     """Send message via Telegram Phone."""
     from services.telegram_phone_service import TelegramPhoneService
-    from services.email_service import get_telegram_phone_session_data
+    from models.telegram_config import get_telegram_phone_session_data
     
     config = await get_telegram_phone_session_data(license_id)
     if not config or not config.get("session_string"):
@@ -220,7 +226,7 @@ async def _send_via_gmail(
 ) -> Dict[str, Any]:
     """Send message via Gmail."""
     from services.gmail_api_service import GmailAPIService
-    from services.email_service import get_email_oauth_tokens
+    from models.email_config import get_email_oauth_tokens
     
     token_data = await get_email_oauth_tokens(license_id, "gmail")
     if not token_data or not token_data.get("access_token"):
@@ -244,3 +250,126 @@ async def _send_via_gmail(
         attachments=attachments
     )
     return {"success": True, "message_id": result.get("id")}
+
+
+async def _send_via_almudeer(
+    license_id: int,
+    outbox_id: int,
+    body: str,
+    recipient_id: Optional[str],
+    recipient_email: Optional[str],
+    reply_to_platform_id: Optional[str],
+    attachments: Optional[List[Dict]]
+) -> Dict[str, Any]:
+    """
+    Send internal Almudeer message to another user.
+    
+    This delivers the message to the recipient's inbox and broadcasts
+    real-time updates to both sender and recipient.
+    """
+    from models.inbox import save_inbox_message, upsert_conversation_state
+    from services.websocket_manager import broadcast_new_message, broadcast_message_status_update
+    from db_helper import fetch_one, get_db
+    from datetime import datetime, timezone
+    
+    # Get sender info from outbox message
+    async with get_db() as db:
+        outbox_msg = await fetch_one(
+            db,
+            "SELECT * FROM outbox_messages WHERE id = ?",
+            [outbox_id]
+        )
+    
+    if not outbox_msg:
+        raise ValueError(f"Outbox message {outbox_id} not found")
+    
+    # Get sender license info
+    sender_license = await fetch_one(
+        db,
+        "SELECT username, company_name FROM license_keys WHERE id = ?",
+        [license_id]
+    )
+    
+    if not sender_license:
+        raise ValueError(f"Sender license {license_id} not found")
+    
+    # Find recipient license by username
+    recipient_username = recipient_email or recipient_id
+    if not recipient_username:
+        raise ValueError("No recipient specified for Almudeer message")
+    
+    recipient_license = await fetch_one(
+        db,
+        "SELECT id, username, company_name FROM license_keys WHERE username = ?",
+        [recipient_username]
+    )
+    
+    if not recipient_license:
+        raise ValueError(f"Recipient '{recipient_username}' not found on Almudeer")
+    
+    recipient_license_id = recipient_license["id"]
+    
+    # Prepare sender info for the message
+    sender_name = sender_license.get("company_name") or sender_license.get("username")
+    sender_contact = sender_license.get("username")
+    sender_id = sender_license.get("username")
+    
+    # Save to recipient's inbox
+    now = datetime.now(timezone.utc)
+    inbox_message_id = await save_inbox_message(
+        license_id=recipient_license_id,
+        channel="almudeer",
+        body=body,
+        sender_name=sender_name,
+        sender_contact=sender_contact,
+        sender_id=sender_id,
+        received_at=now,
+        attachments=attachments,
+        reply_to_platform_id=reply_to_platform_id,
+        platform_message_id=str(outbox_id),
+        platform_status="delivered",
+    )
+    
+    if inbox_message_id == 0:
+        logger.warning(f"Almudeer message {outbox_id} was not saved (duplicate or blocked)")
+        return {"success": False, "error": "Message not saved"}
+    
+    # Update conversation state for recipient
+    await upsert_conversation_state(recipient_license_id, sender_contact)
+    
+    # Also update conversation state for sender (to show the message in their chat)
+    await upsert_conversation_state(license_id, recipient_username)
+    
+    # Broadcast to recipient (new message notification)
+    recipient_event = {
+        "id": inbox_message_id,
+        "channel": "almudeer",
+        "sender_contact": sender_contact,
+        "sender_name": sender_name,
+        "body": body,
+        "status": "received",
+        "direction": "incoming",
+        "timestamp": now.isoformat(),
+        "attachments": attachments or [],
+        "is_forwarded": bool(outbox_msg.get("is_forwarded", False)),
+    }
+    await broadcast_new_message(recipient_license_id, recipient_event)
+    
+    # Broadcast status update to sender (message delivered)
+    sender_event = {
+        "id": outbox_id,
+        "outbox_id": outbox_id,
+        "channel": "almudeer",
+        "sender_contact": recipient_username,
+        "sender_name": recipient_license.get("company_name") or recipient_username,
+        "body": body,
+        "status": "sent",
+        "direction": "outgoing",
+        "timestamp": now.isoformat(),
+        "attachments": attachments or [],
+        "is_forwarded": bool(outbox_msg.get("is_forwarded", False)),
+    }
+    await broadcast_message_status_update(license_id, sender_event)
+    
+    logger.info(f"Almudeer message {outbox_id} delivered to {recipient_username}")
+    return {"success": True, "message_id": str(inbox_message_id)}
