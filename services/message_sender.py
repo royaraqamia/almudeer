@@ -81,11 +81,11 @@ async def send_outbox_message(outbox_id: int, license_id: int) -> Dict[str, Any]
             # For "telegram", we need to detect whether to use Bot or Phone
             if channel == "telegram":
                 # Check which Telegram configuration is available
-                from models.telegram_config import get_telegram_config, get_telegram_phone_session_data
+                from models.telegram_config import get_telegram_phone_session_data
                 
-                # Try Phone first (personal accounts), then Bot (business accounts)
-                phone_config = await get_telegram_phone_session_data(license_id)
-                if phone_config and phone_config.get("session_string"):
+                # get_telegram_phone_session_data returns the session_string directly (str) or None
+                session_string = await get_telegram_phone_session_data(license_id)
+                if session_string:
                     result = await _send_via_telegram_phone(
                         license_id, outbox_id, body, recipient_id, recipient_email, reply_to_platform_id
                     )
@@ -304,7 +304,7 @@ async def _send_via_almudeer(
         # Get sender license info
         sender_license = await fetch_one(
             db,
-            "SELECT username, company_name FROM license_keys WHERE id = ?",
+            "SELECT username, full_name FROM license_keys WHERE id = ?",
             [license_id]
         )
         
@@ -318,7 +318,7 @@ async def _send_via_almudeer(
         
         recipient_license = await fetch_one(
             db,
-            "SELECT id, username, company_name FROM license_keys WHERE username = ?",
+            "SELECT id, username, full_name FROM license_keys WHERE username = ?",
             [recipient_username]
         )
         
@@ -328,7 +328,7 @@ async def _send_via_almudeer(
         recipient_license_id = recipient_license["id"]
         
         # Prepare sender info for the message
-        sender_name = sender_license.get("company_name") or sender_license.get("username")
+        sender_name = sender_license.get("full_name") or sender_license.get("username")
         sender_contact = sender_license.get("username")
         sender_id = sender_license.get("username")
         
@@ -380,7 +380,7 @@ async def _send_via_almudeer(
         "outbox_id": outbox_id,
         "channel": "almudeer",
         "sender_contact": recipient_username,
-        "sender_name": recipient_license.get("company_name") or recipient_username,
+        "sender_name": recipient_license.get("full_name") or recipient_username,
         "body": body,
         "status": "sent",
         "direction": "outgoing",
