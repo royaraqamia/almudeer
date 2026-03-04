@@ -738,6 +738,7 @@ async def get_inbox_conversations(
             last_message_at as created_at,
             last_message_attachments as attachments,
             ic.status,
+            ic.delivery_status,
             unread_count,
             message_count,
             lk.last_seen_at,
@@ -821,6 +822,7 @@ async def get_conversations_delta(
             last_message_at as created_at,
             last_message_attachments as attachments,
             ic.status,
+            ic.delivery_status,
             unread_count,
             message_count,
             lk.profile_image_url as avatar_url,
@@ -1496,6 +1498,9 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
     Returns the count of messages updated.
 
     Uses comprehensive alias matching to find all messages from the same sender.
+    
+    P3-ReadReceipts: Also updates outbox_messages delivery_status to 'read'
+    for Almudeer-to-Almudeer conversations, and broadcasts status updates to senders.
     """
     async with get_db() as db:
         # Get all aliases for this sender
@@ -1534,10 +1539,10 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
                 AND ({sender_where})
                 AND (is_read = 0 OR is_read IS NULL)
             """
-        
+
         count_result = await fetch_one(db, count_query, params)
         unread_count = count_result["count"] if count_result else 0
-        
+
         # Only proceed if there are unread messages to mark as read
         if unread_count > 0:
             # Update all messages from this sender to is_read=1
@@ -1562,6 +1567,95 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
             await commit_db(db)
             await upsert_conversation_state(license_id, sender_contact)
 
+        # P3-ReadReceipts: Update outbox messages delivery_status to 'read'
+        # This handles Almudeer-to-Almudeer conversations where we sent messages
+        # and the recipient just read them
+        try:
+            # Build WHERE clause for outbox (uses recipient_email and recipient_id)
+            out_conditions = []
+            out_params = [license_id]
+
+            if all_contacts:
+                contact_placeholders = ", ".join(["?" for _ in all_contacts])
+                out_conditions.append(f"recipient_email IN ({contact_placeholders})")
+                out_params.extend(list(all_contacts))
+
+            if all_ids:
+                id_placeholders = ", ".join(["?" for _ in all_ids])
+                out_conditions.append(f"recipient_id IN ({id_placeholders})")
+                out_params.extend(list(all_ids))
+
+            out_where = " OR ".join(out_conditions) if out_conditions else "1=0"
+            
+            # Get list of outbox messages to update (for broadcasting)
+            outbox_messages = await fetch_all(
+                db,
+                f"""
+                    SELECT id, inbox_message_id, recipient_email, recipient_id
+                    FROM outbox_messages
+                    WHERE license_key_id = ?
+                    AND ({out_where})
+                    AND delivery_status NOT IN ('read', 'failed')
+                """,
+                out_params
+            )
+            
+            if outbox_messages:
+                # Update delivery_status to 'read' for all matching outbox messages
+                if DB_TYPE == "postgresql":
+                    outbox_query = f"""
+                        UPDATE outbox_messages
+                        SET delivery_status = 'read'
+                        WHERE license_key_id = ?
+                        AND ({out_where})
+                        AND delivery_status NOT IN ('read', 'failed')
+                    """
+                else:
+                    outbox_query = f"""
+                        UPDATE outbox_messages
+                        SET delivery_status = 'read'
+                        WHERE license_key_id = ?
+                        AND ({out_where})
+                        AND delivery_status NOT IN ('read', 'failed')
+                    """
+                
+                await execute_sql(db, outbox_query, out_params)
+                await commit_db(db)
+                
+                # Broadcast status updates to sender for each updated message
+                try:
+                    from services.websocket_manager import broadcast_message_status_update
+                    from datetime import datetime
+                    
+                    timestamp = datetime.utcnow()
+                    ts_value = timestamp if DB_TYPE == "postgresql" else timestamp.isoformat()
+                    
+                    for outbox_msg in outbox_messages:
+                        # Get the sender_contact for this outbox message
+                        msg_sender_contact = outbox_msg["recipient_email"] or outbox_msg["recipient_id"]
+                        
+                        await broadcast_message_status_update(
+                            license_id,
+                            {
+                                "outbox_id": outbox_msg["id"],
+                                "sender_contact": msg_sender_contact,
+                                "inbox_message_id": outbox_msg.get("inbox_message_id"),
+                                "status": "read",
+                                "timestamp": ts_value if isinstance(ts_value, str) else ts_value.isoformat()
+                            }
+                        )
+                except Exception as broadcast_error:
+                    from logging_config import get_logger
+                    get_logger(__name__).debug(f"Failed to broadcast outbox status updates (non-critical): {broadcast_error}")
+                
+                # Update conversation state to reflect new delivery status
+                await upsert_conversation_state(license_id, sender_contact)
+                
+        except Exception as e:
+            from logging_config import get_logger
+            get_logger(__name__).warning(f"Failed to update outbox delivery_status: {e}")
+            # Non-critical error - continue with rest of the flow
+
         # FIX P0-9: Broadcast read receipt to other devices
         try:
             from services.websocket_manager import broadcast_conversation_read
@@ -1571,14 +1665,6 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
             get_logger(__name__).warning(f"Failed to broadcast read receipt: {e}")
 
         return 1
-
-
-
-
-
-
-
-
 
 
 async def get_full_chat_history(
@@ -2856,12 +2942,12 @@ async def upsert_conversation_state(
         unread_count = row_stats["unread_count"] if row_stats else 0
         message_count = (row_stats["count_in"] if row_stats else 0) + (row_stats["count_out"] if row_stats else 0)
 
-        # 2-in-1 Latest Message Query
+        # 2-in-1 Latest Message Query (includes delivery_status for outbox)
         latest_msg_query = f"""
-            SELECT id, body, attachments, received_at as created_at, status, channel
+            SELECT id, body, attachments, received_at as created_at, status, channel, NULL as delivery_status
             FROM inbox_messages WHERE license_key_id = ? AND ({in_where}) AND deleted_at IS NULL
             UNION ALL
-            SELECT id, body, attachments, created_at, status, channel
+            SELECT id, body, attachments, created_at, status, channel, delivery_status
             FROM outbox_messages WHERE license_key_id = ? AND ({out_where}) AND deleted_at IS NULL
             ORDER BY created_at DESC LIMIT 1
         """
@@ -2919,9 +3005,14 @@ async def upsert_conversation_state(
         elif DB_TYPE != "postgresql" and isinstance(last_message_at, datetime):
             last_message_at = last_message_at.isoformat()
 
+        # Get delivery_status from outbox messages (for Almudeer-to-Almudeer read receipts)
+        delivery_status = last_message.get("delivery_status")
+
         fields = ["license_key_id", "sender_contact", "last_message_id", "last_message_body",
-                  "last_message_at", "last_message_attachments", "status", "unread_count", "message_count", "updated_at"]
-        params = [license_id, sender_contact, msg_id, body, last_message_at, last_attachments, status, unread_count, message_count, ts_value]
+                  "last_message_at", "last_message_attachments", "status", "delivery_status",
+                  "unread_count", "message_count", "updated_at"]
+        params = [license_id, sender_contact, msg_id, body, last_message_at, last_attachments, 
+                  status, delivery_status, unread_count, message_count, ts_value]
 
         if sender_name: fields.append("sender_name"); params.append(sender_name)
         if channel: fields.append("channel"); params.append(channel)
