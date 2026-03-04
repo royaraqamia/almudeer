@@ -429,24 +429,24 @@ async def logout(
         
         # First check if already blacklisted (idempotency)
         try:
-            payload = jwt.decode(token, config.secret_key, algorithms=[config.algorithm])
+            # OFFLINE-FIRST: Disable expiration check on logout too
+            payload = jwt.decode(token, config.secret_key, algorithms=[config.algorithm], options={"verify_exp": False})
             jti = payload.get("jti")
-            
+
             if jti and is_token_blacklisted(jti):
                 logger.debug(f"Token {jti[:8]}... already blacklisted, skipping")
                 return {"success": True, "message": "Logged out successfully"}
         except JWTError:
-            # Token is invalid/expired, but still return success for idempotency
-            logger.debug("Logout with invalid/expired token - returning success for idempotency")
+            # Token is invalid, but still return success for idempotency
+            logger.debug("Logout with invalid token - returning success for idempotency")
             return {"success": True, "message": "Logged out successfully"}
-        
+
         # Token is valid, proceed with logout
-        exp = payload.get("exp")
         family_id = payload.get("family_id")
 
-        if jti and exp:
-            # SECURITY FIX: Use timezone-aware datetime
-            expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
+        if jti:
+            # OFFLINE-FIRST: Use far-future expiry for blacklist (tokens don't expire)
+            expires_at = datetime.now(timezone.utc) + timedelta(days=365*10)  # 10 years
 
             from database import DB_TYPE
             from db_helper import get_db, execute_sql, commit_db

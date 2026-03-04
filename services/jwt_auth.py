@@ -115,24 +115,20 @@ def create_access_token(data: Dict[str, Any], expires_delta: timedelta = None) -
         Tuple of (encoded_token, jti, expiry_datetime)
     """
     to_encode = data.copy()
-    # SECURITY FIX: Use timezone-aware datetime instead of deprecated datetime.utcnow()
+    # OFFLINE-FIRST: Tokens never expire - no exp or nbf claims
     now = datetime.now(timezone.utc)
-    expire = now + (expires_delta or timedelta(minutes=config.access_token_expire_minutes))
 
     # SECURITY FIX: Generate JTI with 32 bytes (256 bits) for collision resistance
     jti = secrets.token_hex(32)
 
     to_encode.update({
-        "exp": expire,
         "iat": now,
         "type": TokenType.ACCESS,
         "jti": jti,
-        # SECURITY FIX #14: Add "not-before" claim to handle clock skew
-        # Allows tokens to be valid 1 minute before issuance to account for
-        # client/server clock differences
-        "nbf": now - timedelta(minutes=1),
     })
 
+    # Return a far-future expire for compatibility (but it's never checked)
+    expire = now + timedelta(days=365*10)  # 10 years
     return jwt.encode(to_encode, config.secret_key, algorithm=config.algorithm), jti, expire
 
 
@@ -147,20 +143,16 @@ def create_refresh_token(data: Dict[str, Any], family_id: str = None) -> Tuple[s
         Tuple of (encoded_token_string, jti)
     """
     to_encode = data.copy()
-    # SECURITY FIX: Use timezone-aware datetime
+    # OFFLINE-FIRST: Tokens never expire - no exp or nbf claims
     now = datetime.now(timezone.utc)
-    expire = now + timedelta(days=config.refresh_token_expire_days)
 
     # SECURITY FIX: Generate JTI with 32 bytes (256 bits) for collision resistance
     jti = secrets.token_hex(32)
 
     to_encode.update({
-        "exp": expire,
         "iat": now,
         "type": TokenType.REFRESH,
         "jti": jti,
-        # SECURITY FIX #14: Add "not-before" claim to handle clock skew
-        "nbf": now - timedelta(minutes=1),
     })
 
     if family_id:
@@ -374,22 +366,28 @@ async def create_token_pair(
 def verify_token(token: str, token_type: str = TokenType.ACCESS) -> Optional[Dict[str, Any]]:
     """
     Verify and decode a JWT token.
-    
+
     Args:
         token: JWT token string
         token_type: Expected token type (access/refresh)
-    
+
     Returns:
         Decoded payload or None if invalid
     """
     try:
-        payload = jwt.decode(token, config.secret_key, algorithms=[config.algorithm])
-        
+        # DISABLE EXPIRATION CHECK: For offline-first reliability, tokens never expire
+        payload = jwt.decode(
+            token,
+            config.secret_key,
+            algorithms=[config.algorithm],
+            options={"verify_exp": False}
+        )
+
         # Verify token type
         if payload.get("type") != token_type:
             logger.warning(f"Token type mismatch: expected {token_type}, got {payload.get('type')}")
             return None
-        
+
         # Check if token is blacklisted (for access tokens)
         if token_type == TokenType.ACCESS:
             jti = payload.get("jti")
@@ -398,15 +396,15 @@ def verify_token(token: str, token_type: str = TokenType.ACCESS) -> Optional[Dic
                 if is_token_blacklisted(jti):
                     logger.info(f"Token {jti[:8]}... is blacklisted")
                     return None
-            
+
             # Note: For production performance, this should be cached in Redis
-            # Senior Engineering Note: Version check is performed in the async 
-            # get_current_user dependency. verify_token remains sync for 
+            # Senior Engineering Note: Version check is performed in the async
+            # get_current_user dependency. verify_token remains sync for
             # basic field parsing/decoding.
             pass
-        
+
         return payload
-        
+
     except JWTError as e:
         logger.debug(f"JWT verification failed: {e}")
         return None
@@ -615,7 +613,7 @@ async def get_current_user(
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
+            detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
