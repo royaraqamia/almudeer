@@ -215,8 +215,9 @@ async def _send_via_telegram_phone(
     from services.telegram_phone_service import TelegramPhoneService
     from models.telegram_config import get_telegram_phone_session_data
     
-    config = await get_telegram_phone_session_data(license_id)
-    if not config or not config.get("session_string"):
+    # get_telegram_phone_session_data returns the session_string directly (str) or None
+    session_string = await get_telegram_phone_session_data(license_id)
+    if not session_string:
         raise ValueError("Telegram Phone not configured")
     
     service = TelegramPhoneService()
@@ -224,7 +225,7 @@ async def _send_via_telegram_phone(
     # Telegram phone uses recipient_id (user/chat ID)
     recipient = recipient_id or recipient_email
     result = await service.send_message(
-        session_string=config["session_string"],
+        session_string=session_string,
         recipient_id=recipient,
         text=body,
         reply_to_message_id=int(reply_to_platform_id) if reply_to_platform_id and reply_to_platform_id.isdigit() else None
