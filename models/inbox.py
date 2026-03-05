@@ -1568,13 +1568,20 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
             await upsert_conversation_state(license_id, sender_contact)
 
         # P3-ReadReceipts: Update outbox messages delivery_status to 'read'
-        # This handles Almudeer-to-Almudeer conversations where we sent messages
-        # and the recipient just read them
+        # This handles Almudeer-to-Almudeer conversations where we (the current license)
+        # previously SENT messages, and the RECIPIENT just read them.
+        # 
+        # CRITICAL FIX: When Account B reads messages from Account A:
+        # - Account B calls: mark_chat_read(license_id=B, sender_contact='account_a')
+        # - We need to find outbox messages where:
+        #   - license_key_id = B (messages sent BY Account B)
+        #   - recipient_email = 'account_a' (sent TO Account A)
+        # - Then mark them as 'read' because Account A (the recipient) read them
         try:
-            # Build WHERE clause for outbox (uses recipient_email and recipient_id)
-            # NOTE: Outbox messages are stored under the SENDER's license, so we search ALL licenses
-            out_conditions = []
-            out_params = []  # Don't include license_id - search across all licenses
+            # Build WHERE clause for outbox messages that WE sent TO the sender_contact
+            # These messages are stored in OUR (current license_id) outbox
+            out_conditions = ["license_key_id = ?"]
+            out_params = [license_id]
 
             if all_contacts:
                 contact_placeholders = ", ".join(["?" for _ in all_contacts])
@@ -1586,10 +1593,10 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
                 out_conditions.append(f"recipient_id IN ({id_placeholders})")
                 out_params.extend(list(all_ids))
 
-            out_where = " OR ".join(out_conditions) if out_conditions else "1=0"
+            out_where = " AND ".join(out_conditions)
 
-            # Get list of outbox messages to update (for broadcasting)
-            # Search across ALL licenses for messages sent TO this user
+            # Get list of outbox messages to update
+            # These are messages that WE sent TO the person who just read them
             outbox_messages = await fetch_all(
                 db,
                 f"""
@@ -1624,7 +1631,8 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
                 await execute_sql(db, outbox_query, out_params)
                 await commit_db(db)
                 
-                # Broadcast status updates to SENDER (the person who sent the messages)
+                # Broadcast status updates to OURSELVES (we are the sender)
+                # The recipient just read our messages, so update our UI
                 try:
                     from services.websocket_manager import broadcast_message_status_update
                     from datetime import datetime
@@ -1633,19 +1641,16 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
                     ts_value = timestamp if DB_TYPE == "postgresql" else timestamp.isoformat()
 
                     for outbox_msg in outbox_messages:
-                        # The outbox message's license_key_id is the SENDER's license
-                        # We need to broadcast to the SENDER, not the recipient
-                        sender_license_id = outbox_msg["license_key_id"]
-                        
-                        # Get the sender_contact for this outbox message (recipient's contact from sender's perspective)
-                        msg_sender_contact = outbox_msg["recipient_email"] or outbox_msg["recipient_id"]
+                        # We are the sender (license_key_id = current license_id)
+                        # Broadcast to ourselves to update the delivery status
+                        msg_recipient_contact = outbox_msg["recipient_email"] or outbox_msg["recipient_id"]
 
-                        # Broadcast to the SENDER's license (not recipient's)
+                        # Broadcast to our own license to show blue checks
                         await broadcast_message_status_update(
-                            sender_license_id,  # Broadcast to sender's license
+                            license_id,  # Broadcast to ourselves (the sender)
                             {
                                 "outbox_id": outbox_msg["id"],
-                                "sender_contact": msg_sender_contact,  # Shows as the conversation that was read
+                                "sender_contact": msg_recipient_contact,  # The conversation where messages were read
                                 "inbox_message_id": outbox_msg.get("inbox_message_id"),
                                 "status": "read",
                                 "timestamp": ts_value if isinstance(ts_value, str) else ts_value.isoformat()
@@ -1653,7 +1658,7 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
                         )
                 except Exception as broadcast_error:
                     from logging_config import get_logger
-                    get_logger(__name__).debug(f"Failed to broadcast outbox status updates (non-critical): {broadcast_error}")
+                    get_logger(__name__).debug(f"Failed to broadcast read receipt: {broadcast_error}")
                 
                 # Update conversation state to reflect new delivery status
                 await upsert_conversation_state(license_id, sender_contact)

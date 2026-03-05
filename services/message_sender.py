@@ -375,29 +375,55 @@ async def _send_via_almudeer(
     }
     await broadcast_new_message(recipient_license_id, recipient_event)
 
-    # CRITICAL FIX: Update delivery_status in database for Almudeer messages
-    # This ensures the status persists and is loaded correctly by the mobile app
+    # CRITICAL FIX: Set initial delivery_status to 'sent' (single check)
+    # This matches WhatsApp behavior: single check = sent to server
+    # Double checks will appear when recipient's device receives it (WebSocket)
     async with get_db() as db:
         await execute_sql(
             db,
-            "UPDATE outbox_messages SET delivery_status = 'delivered' WHERE id = ?",
+            "UPDATE outbox_messages SET delivery_status = 'sent' WHERE id = ?",
             [outbox_id]
         )
         await commit_db(db)
 
-    # Broadcast status update to sender (message delivered)
-    # Use the correct format for delivery_status events
-    # CRITICAL: Include sender_contact for mobile app to route the event to the correct conversation
-    sender_event = {
-        "outbox_id": outbox_id,
-        "inbox_message_id": inbox_message_id,
-        "sender_contact": recipient_username,  # The recipient's username (who received the message)
-        "status": "delivered",  # Use "delivered" for initial delivery
-        "delivery_status": "delivered",  # Also include delivery_status field for clarity
-        "timestamp": now.isoformat(),
-    }
-    logger.info(f"Broadcasting delivery_status event for outbox {outbox_id} to license {license_id}: {sender_event}")
-    await broadcast_message_status_update(license_id, sender_event)
-
-    logger.info(f"Almudeer message {outbox_id} delivered to {recipient_username}")
+    # Check if recipient is currently online - if so, confirm delivery immediately
+    # Otherwise, delivery will be confirmed when they come online
+    from services.websocket_manager import get_websocket_manager
+    manager = get_websocket_manager()
+    recipient_is_online = recipient_license_id in manager.get_connected_licenses()
+    
+    if recipient_is_online:
+        # Recipient is online - message delivered immediately (double gray checks)
+        async with get_db() as db:
+            await execute_sql(
+                db,
+                "UPDATE outbox_messages SET delivery_status = 'delivered' WHERE id = ?",
+                [outbox_id]
+            )
+            await commit_db(db)
+        
+        sender_event = {
+            "outbox_id": outbox_id,
+            "inbox_message_id": inbox_message_id,
+            "sender_contact": recipient_username,
+            "status": "delivered",
+            "delivery_status": "delivered",
+            "timestamp": now.isoformat(),
+        }
+        await broadcast_message_status_update(license_id, sender_event)
+        logger.info(f"Almudeer message {outbox_id} delivered to {recipient_username} (recipient online)")
+    else:
+        # Recipient is offline - broadcast 'sent' status (single check)
+        # Delivery will be confirmed when they come online
+        sender_event = {
+            "outbox_id": outbox_id,
+            "inbox_message_id": inbox_message_id,
+            "sender_contact": recipient_username,
+            "status": "sent",
+            "delivery_status": "sent",
+            "timestamp": now.isoformat(),
+        }
+        await broadcast_message_status_update(license_id, sender_event)
+        logger.info(f"Almudeer message {outbox_id} sent to {recipient_username} (recipient offline, waiting for delivery)")
+    
     return {"success": True, "message_id": str(inbox_message_id)}

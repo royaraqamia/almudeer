@@ -369,6 +369,11 @@ class ConnectionManager:
 
                 if should_broadcast:
                     await broadcast_presence_update(license_id, is_online=True)
+                    
+                # CRITICAL: When user comes online, check for pending Almudeer message deliveries
+                # and mark them as 'delivered' (double gray checks for senders)
+                if new_count == 1:
+                    await self._confirm_pending_deliveries(license_id)
             except Exception as e:
                 logger.error(f"Error updating global presence on connect: {e}")
         else:
@@ -447,6 +452,96 @@ class ConnectionManager:
                         await asyncio.sleep(delay)
                     else:
                         logger.error(f"refresh_last_seen_by_key failed after {max_retries} attempts: {e}")
+
+    async def _confirm_pending_deliveries(self, license_id: int):
+        """
+        Confirm delivery of pending Almudeer messages when user comes online.
+        
+        When a user connects, find all Almudeer messages sent TO them that are
+        still in 'sent' status (waiting for delivery confirmation) and mark them
+        as 'delivered'. This triggers double gray checks for the senders.
+        
+        WhatsApp behavior:
+        - Single check: Message sent to server
+        - Double gray checks: Message delivered to recipient's device (when they come online)
+        - Double blue checks: Message read by recipient (when they open the chat)
+        """
+        if not self._pubsub.is_available:
+            return
+            
+        try:
+            from db_helper import get_db, fetch_all, execute_sql, commit_db
+            from models.inbox import upsert_conversation_state
+            
+            async with get_db() as db:
+                # Get current user's username (to find messages sent TO them)
+                license_row = await fetch_one(db, "SELECT username FROM license_keys WHERE id = ?", [license_id])
+                if not license_row or not license_row.get("username"):
+                    return
+                    
+                current_username = license_row["username"]
+                
+                # Find all pending Almudeer deliveries TO this user
+                # These are messages in OTHER users' outbox, sent TO this user
+                pending_messages = await fetch_all(db, """
+                    SELECT o.id, o.license_key_id, o.recipient_email, o.inbox_message_id
+                    FROM outbox_messages o
+                    WHERE o.channel = 'almudeer'
+                    AND o.delivery_status = 'sent'
+                    AND (o.recipient_email = $1 OR o.recipient_id = $1)
+                    AND o.deleted_at IS NULL
+                    LIMIT 100
+                """, [current_username])
+                
+                if not pending_messages:
+                    return
+                
+                logger.info(f"Confirming delivery for {len(pending_messages)} pending Almudeer messages to license {license_id}")
+                
+                # Mark them as delivered
+                for msg in pending_messages:
+                    await execute_sql(
+                        db,
+                        "UPDATE outbox_messages SET delivery_status = 'delivered' WHERE id = ?",
+                        [msg['id']]
+                    )
+                
+                await commit_db(db)
+                
+                # Broadcast delivery confirmation to each sender
+                from datetime import datetime
+                timestamp = datetime.utcnow()
+                ts_value = timestamp if DB_TYPE == "postgresql" else timestamp.isoformat()
+                
+                # Group by sender license to batch broadcasts
+                sender_licenses = {}
+                for msg in pending_messages:
+                    sender_license_id = msg['license_key_id']
+                    if sender_license_id not in sender_licenses:
+                        sender_licenses[sender_license_id] = []
+                    sender_licenses[sender_license_id].append(msg)
+                
+                # Broadcast to each sender
+                for sender_license_id, messages in sender_licenses.items():
+                    for msg in messages:
+                        await broadcast_message_status_update(
+                            sender_license_id,
+                            {
+                                "outbox_id": msg['id'],
+                                "sender_contact": current_username,
+                                "inbox_message_id": msg.get('inbox_message_id'),
+                                "status": "delivered",
+                                "delivery_status": "delivered",
+                                "timestamp": ts_value if isinstance(ts_value, str) else ts_value.isoformat()
+                            }
+                        )
+                        logger.info(f"Confirmed delivery of message {msg['id']} to sender {sender_license_id}")
+                
+                # Update conversation state
+                await upsert_conversation_state(license_id, current_username)
+                
+        except Exception as e:
+            logger.error(f"Error confirming pending deliveries: {e}")
 
     async def disconnect(self, websocket: WebSocket, license_id: int):
         """Remove a WebSocket connection"""
