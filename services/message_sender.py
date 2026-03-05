@@ -374,7 +374,17 @@ async def _send_via_almudeer(
         "is_forwarded": bool(outbox_msg.get("is_forwarded", False)),
     }
     await broadcast_new_message(recipient_license_id, recipient_event)
-    
+
+    # CRITICAL FIX: Update delivery_status in database for Almudeer messages
+    # This ensures the status persists and is loaded correctly by the mobile app
+    async with get_db() as db:
+        await execute_sql(
+            db,
+            "UPDATE outbox_messages SET delivery_status = 'delivered' WHERE id = ?",
+            [outbox_id]
+        )
+        await commit_db(db)
+
     # Broadcast status update to sender (message delivered)
     # Use the correct format for delivery_status events
     # CRITICAL: Include sender_contact for mobile app to route the event to the correct conversation
@@ -383,9 +393,11 @@ async def _send_via_almudeer(
         "inbox_message_id": inbox_message_id,
         "sender_contact": recipient_username,  # The recipient's username (who received the message)
         "status": "delivered",  # Use "delivered" for initial delivery
+        "delivery_status": "delivered",  # Also include delivery_status field for clarity
         "timestamp": now.isoformat(),
     }
+    logger.info(f"Broadcasting delivery_status event for outbox {outbox_id} to license {license_id}: {sender_event}")
     await broadcast_message_status_update(license_id, sender_event)
-    
+
     logger.info(f"Almudeer message {outbox_id} delivered to {recipient_username}")
     return {"success": True, "message_id": str(inbox_message_id)}
