@@ -660,13 +660,18 @@ class ConnectionManager:
         If Redis is available, publishes to Redis for cross-worker delivery.
         Otherwise, sends directly to local connections.
         """
+        logger.info(f"[send_to_license] Sending message to license {license_id}: event={message.event}, data={message.data}")
+        logger.info(f"[send_to_license] Redis available: {self._pubsub.is_available}, connected licenses: {self.get_connected_licenses()}")
+        
         if self._pubsub.is_available:
             # Publish to Redis - all workers will receive and forward to their local connections
             published = await self._pubsub.publish(license_id, message)
+            logger.info(f"[send_to_license] Published to Redis: {published}")
             if published:
                 return
-        
+
         # Fallback: Direct send to local connections
+        logger.info(f"[send_to_license] Falling back to local send for license {license_id}")
         await self._send_to_local_connections(license_id, message)
     
     async def broadcast(self, message: WebSocketMessage):
@@ -894,10 +899,16 @@ async def broadcast_message_edited(license_id: int, message_id: int, new_body: s
                         peer_payload["sender_contact"] = owner_row["username"]
                         peer_payload["recipient_contact"] = sender_contact  # The peer's own contact
                         logger.info(f"[broadcast_message_edited] Sending to peer license {peer_license_id}: {peer_payload}")
-                        await manager.send_to_license(peer_license_id, WebSocketMessage(
+                        logger.info(f"[broadcast_message_edited] Peer payload details: sender_contact={peer_payload.get('sender_contact')}, recipient_contact={peer_payload.get('recipient_contact')}")
+                        
+                        ws_message = WebSocketMessage(
                             event="message_edited",
                             data=peer_payload
-                        ))
+                        )
+                        logger.info(f"[broadcast_message_edited] WebSocketMessage created: event={ws_message.event}, data={ws_message.data}")
+                        
+                        await manager.send_to_license(peer_license_id, ws_message)
+                        logger.info(f"[broadcast_message_edited] send_to_license completed for peer license {peer_license_id}")
                     else:
                         logger.warning(f"[broadcast_message_edited] Could not find owner username for license {license_id}")
                 else:
