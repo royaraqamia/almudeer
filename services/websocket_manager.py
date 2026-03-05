@@ -470,7 +470,7 @@ class ConnectionManager:
             return
             
         try:
-            from db_helper import get_db, fetch_all, execute_sql, commit_db
+            from db_helper import get_db, fetch_all, fetch_one, execute_sql, commit_db
             from models.inbox import upsert_conversation_state
             
             async with get_db() as db:
