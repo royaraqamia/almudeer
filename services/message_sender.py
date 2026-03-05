@@ -377,9 +377,11 @@ async def _send_via_almudeer(
     
     # Broadcast status update to sender (message delivered)
     # Use the correct format for delivery_status events
+    # CRITICAL: Include sender_contact for mobile app to route the event to the correct conversation
     sender_event = {
         "outbox_id": outbox_id,
         "inbox_message_id": inbox_message_id,
+        "sender_contact": recipient_username,  # The recipient's username (who received the message)
         "status": "delivered",  # Use "delivered" for initial delivery
         "timestamp": now.isoformat(),
     }
