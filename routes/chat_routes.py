@@ -280,7 +280,12 @@ async def send_chat_message(
             reply_to_platform_id = json_body.get("reply_to_platform_id", reply_to_platform_id)
             reply_to_body_preview = json_body.get("reply_to_body_preview", reply_to_body_preview)
             reply_to_sender_name = json_body.get("reply_to_sender_name", reply_to_sender_name)
-            reply_to_id = json_body.get("reply_to_id", reply_to_id)
+            # Convert reply_to_id to int if provided (JSON may send as string)
+            reply_to_id_raw = json_body.get("reply_to_id", reply_to_id)
+            if reply_to_id_raw is not None and isinstance(reply_to_id_raw, str):
+                reply_to_id = int(reply_to_id_raw)
+            elif reply_to_id_raw is not None:
+                reply_to_id = int(reply_to_id_raw)
             # Convert is_forwarded to boolean (JSON may send as string or bool)
             is_forwarded_raw = json_body.get("is_forwarded", is_forwarded)
             if isinstance(is_forwarded_raw, str):
