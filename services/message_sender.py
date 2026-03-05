@@ -281,13 +281,13 @@ async def _send_via_almudeer(
 ) -> Dict[str, Any]:
     """
     Send internal Almudeer message to another user.
-    
+
     This delivers the message to the recipient's inbox and broadcasts
     real-time updates to both sender and recipient.
     """
     from models.inbox import save_inbox_message, upsert_conversation_state
     from services.websocket_manager import broadcast_new_message, broadcast_message_status_update
-    from db_helper import get_db, fetch_one
+    from db_helper import get_db, fetch_one, execute_sql, commit_db
     from datetime import datetime, timezone
     
     # Use a single connection for all DB operations
