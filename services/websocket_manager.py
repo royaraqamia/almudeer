@@ -369,11 +369,15 @@ class ConnectionManager:
 
                 if should_broadcast:
                     await broadcast_presence_update(license_id, is_online=True)
-                    
+
                 # CRITICAL: When user comes online, check for pending Almudeer message deliveries
                 # and mark them as 'delivered' (double gray checks for senders)
                 if new_count == 1:
                     await self._confirm_pending_deliveries(license_id)
+                
+                # NEW: Replay missed message_edited events for this license
+                # Store recent edits in Redis with TTL for replay on reconnect
+                await self._replay_missed_edits(license_id)
             except Exception as e:
                 logger.error(f"Error updating global presence on connect: {e}")
         else:
@@ -607,6 +611,44 @@ class ConnectionManager:
         """Handle incoming message from Redis pub/sub"""
         # Send to local connections only (Redis already broadcast to other workers)
         await self._send_to_local_connections(license_id, message)
+    
+    async def _replay_missed_edits(self, license_id: int):
+        """Replay missed message_edited events for a license on reconnect"""
+        if not self._pubsub.is_available:
+            return
+        
+        try:
+            # Get missed edits from Redis (stored as a sorted set with timestamps)
+            missed_edits_key = f"almudeer:missed_edits:{license_id}"
+            missed_edits = await self._pubsub._redis_client.zrangebyscore(
+                missed_edits_key,
+                min=0,
+                max='+inf',
+                withscores=True
+            )
+            
+            if missed_edits:
+                logger.info(f"[replay_missed_edits] Found {len(missed_edits)} missed edits for license {license_id}")
+                
+                # Send each missed edit
+                for edit_json, timestamp in missed_edits:
+                    try:
+                        import json
+                        edit_data = json.loads(edit_json)
+                        ws_message = WebSocketMessage(
+                            event="message_edited",
+                            data=edit_data,
+                            timestamp=datetime.utcnow().isoformat()
+                        )
+                        await self._send_to_local_connections(license_id, ws_message)
+                        logger.info(f"[replay_missed_edits] Replayed edit for message {edit_data.get('message_id')}")
+                    except Exception as e:
+                        logger.error(f"[replay_missed_edits] Failed to replay edit: {e}")
+                
+                # Clear the missed edits after replay
+                await self._pubsub._redis_client.delete(missed_edits_key)
+        except Exception as e:
+            logger.error(f"[replay_missed_edits] Error: {e}")
     
     async def _send_to_local_connections(self, license_id: int, message: WebSocketMessage):
         """Send message to local WebSocket connections only"""
@@ -898,6 +940,8 @@ async def broadcast_message_edited(license_id: int, message_id: int, new_body: s
                         # - recipient_contact: the peer themselves (to identify which conversation)
                         peer_payload["sender_contact"] = owner_row["username"]
                         peer_payload["recipient_contact"] = sender_contact  # The peer's own contact
+                        # Add a flag to force cache refresh on the client
+                        peer_payload["force_refresh"] = True
                         logger.info(f"[broadcast_message_edited] Sending to peer license {peer_license_id}: {peer_payload}")
                         logger.info(f"[broadcast_message_edited] Peer payload details: sender_contact={peer_payload.get('sender_contact')}, recipient_contact={peer_payload.get('recipient_contact')}")
                         
@@ -909,6 +953,20 @@ async def broadcast_message_edited(license_id: int, message_id: int, new_body: s
                         
                         await manager.send_to_license(peer_license_id, ws_message)
                         logger.info(f"[broadcast_message_edited] send_to_license completed for peer license {peer_license_id}")
+                        
+                        # Store the edit in Redis for replay on reconnect (TTL: 1 hour)
+                        if manager._pubsub.is_available:
+                            try:
+                                import json
+                                missed_edits_key = f"almudeer:missed_edits:{peer_license_id}"
+                                await manager._pubsub._redis_client.zadd(
+                                    missed_edits_key,
+                                    {json.dumps(peer_payload): datetime.utcnow().timestamp()}
+                                )
+                                await manager._pubsub._redis_client.expire(missed_edits_key, 3600)  # 1 hour TTL
+                                logger.info(f"[broadcast_message_edited] Stored edit in Redis for replay to license {peer_license_id}")
+                            except Exception as e:
+                                logger.error(f"[broadcast_message_edited] Failed to store edit for replay: {e}")
                     else:
                         logger.warning(f"[broadcast_message_edited] Could not find owner username for license {license_id}")
                 else:
