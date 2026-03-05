@@ -293,9 +293,13 @@ async def _process_operation(op: SyncOperation, license_id: int, background_task
             sender = message.get("sender_contact") or message.get("sender_id")
             if sender:
                 await approve_chat_messages(license_id, sender)
+
+            # Trigger Redis outbox processor for sending
+            from services.websocket_manager import RedisPubSubManager
+            trigger_mgr = RedisPubSubManager()
+            if await trigger_mgr.initialize():
+                await trigger_mgr.publish_outbox_trigger(license_id)
             
-            # Queue for sending
-            background_tasks.add_task(send_approved_message, outbox_id, license_id)
             return SyncResult(operation_id=op.id, success=True)
             
         elif op.type == "ignore":
@@ -340,8 +344,13 @@ async def _process_operation(op: SyncOperation, license_id: int, background_task
             )
             
             await approve_outbox_message(outbox_id, body)
-            background_tasks.add_task(send_approved_message, outbox_id, license_id)
             
+            # Trigger Redis outbox processor for sending
+            from services.websocket_manager import RedisPubSubManager
+            trigger_mgr = RedisPubSubManager()
+            if await trigger_mgr.initialize():
+                await trigger_mgr.publish_outbox_trigger(license_id)
+
             return SyncResult(operation_id=op.id, success=True)
             
         elif op.type == "delete":

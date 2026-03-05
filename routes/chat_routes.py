@@ -427,14 +427,16 @@ async def send_chat_message(
     
     # Standardize: pass license_id if needed, though approve_outbox_message fetches internally from outbox_id
     await approve_outbox_message(outbox_id, body)
-    
+
     # Instant Send: Trigger Redis wake-up
     from services.websocket_manager import RedisPubSubManager
     trigger_mgr = RedisPubSubManager()
     if await trigger_mgr.initialize():
         await trigger_mgr.publish_outbox_trigger(license["license_id"])
-        
-    background_tasks.add_task(send_approved_message, outbox_id, license["license_id"])
+
+    # NOTE: Removed background_tasks.add_task() - OutboxProcessorService handles sending via Redis trigger
+    # This prevents duplicate message delivery
+    
     return {"success": True, "outbox_id": outbox_id, "id": outbox_id}
 
 # --- Actions ---
@@ -474,15 +476,15 @@ async def approve_chat_message(
         
         sender = message.get("sender_contact") or message.get("sender_id")
         if sender: await approve_chat_messages(license["license_id"], sender)
-        
-        background_tasks.add_task(send_approved_message, outbox_id, license["license_id"])
+
+        # NOTE: Removed background_tasks.add_task() - OutboxProcessorService handles sending via Redis trigger
         
         # Instant Send: Trigger Redis wake-up
         from services.websocket_manager import RedisPubSubManager
         trigger_mgr = RedisPubSubManager()
         if await trigger_mgr.initialize():
             await trigger_mgr.publish_outbox_trigger(license["license_id"])
-            
+
         return {"success": True, "message": "تم إرسال الرد"}
 
 @router.post("/inbox/cleanup")

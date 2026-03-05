@@ -1572,8 +1572,9 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
         # and the recipient just read them
         try:
             # Build WHERE clause for outbox (uses recipient_email and recipient_id)
+            # NOTE: Outbox messages are stored under the SENDER's license, so we search ALL licenses
             out_conditions = []
-            out_params = [license_id]
+            out_params = []  # Don't include license_id - search across all licenses
 
             if all_contacts:
                 contact_placeholders = ", ".join(["?" for _ in all_contacts])
@@ -1586,59 +1587,65 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
                 out_params.extend(list(all_ids))
 
             out_where = " OR ".join(out_conditions) if out_conditions else "1=0"
-            
+
             # Get list of outbox messages to update (for broadcasting)
+            # Search across ALL licenses for messages sent TO this user
             outbox_messages = await fetch_all(
                 db,
                 f"""
-                    SELECT id, inbox_message_id, recipient_email, recipient_id
+                    SELECT id, license_key_id, inbox_message_id, recipient_email, recipient_id
                     FROM outbox_messages
-                    WHERE license_key_id = ?
-                    AND ({out_where})
+                    WHERE ({out_where})
                     AND delivery_status NOT IN ('read', 'failed')
+                    AND deleted_at IS NULL
                 """,
                 out_params
             )
-            
+
             if outbox_messages:
                 # Update delivery_status to 'read' for all matching outbox messages
                 if DB_TYPE == "postgresql":
                     outbox_query = f"""
                         UPDATE outbox_messages
                         SET delivery_status = 'read'
-                        WHERE license_key_id = ?
-                        AND ({out_where})
+                        WHERE ({out_where})
                         AND delivery_status NOT IN ('read', 'failed')
+                        AND deleted_at IS NULL
                     """
                 else:
                     outbox_query = f"""
                         UPDATE outbox_messages
                         SET delivery_status = 'read'
-                        WHERE license_key_id = ?
-                        AND ({out_where})
+                        WHERE ({out_where})
                         AND delivery_status NOT IN ('read', 'failed')
+                        AND deleted_at IS NULL
                     """
-                
+
                 await execute_sql(db, outbox_query, out_params)
                 await commit_db(db)
                 
-                # Broadcast status updates to sender for each updated message
+                # Broadcast status updates to SENDER (the person who sent the messages)
                 try:
                     from services.websocket_manager import broadcast_message_status_update
                     from datetime import datetime
-                    
+
                     timestamp = datetime.utcnow()
                     ts_value = timestamp if DB_TYPE == "postgresql" else timestamp.isoformat()
-                    
+
                     for outbox_msg in outbox_messages:
-                        # Get the sender_contact for this outbox message
-                        msg_sender_contact = outbox_msg["recipient_email"] or outbox_msg["recipient_id"]
+                        # The outbox message's license_key_id is the SENDER's license
+                        # We need to broadcast to the SENDER, not the recipient
+                        sender_license_id = outbox_msg["license_key_id"]
                         
+                        # Get the sender_contact for this outbox message (recipient's contact from sender's perspective)
+                        msg_sender_contact = outbox_msg["recipient_email"] or outbox_msg["recipient_id"]
+
+                        # Broadcast to the SENDER's license (not recipient's)
                         await broadcast_message_status_update(
-                            license_id,
+                            sender_license_id,  # Broadcast to sender's license
                             {
                                 "outbox_id": outbox_msg["id"],
-                                "sender_contact": msg_sender_contact,
+                                "sender_contact": msg_sender_contact,  # Shows as the conversation that was read
                                 "inbox_message_id": outbox_msg.get("inbox_message_id"),
                                 "status": "read",
                                 "timestamp": ts_value if isinstance(ts_value, str) else ts_value.isoformat()
