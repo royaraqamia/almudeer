@@ -842,7 +842,7 @@ async def broadcast_message_edited(license_id: int, message_id: int, new_body: s
     Notifies both the sender (multi-device) and the recipient (if internal).
     """
     manager = get_websocket_manager()
-    
+
     # payload for sync
     payload = {
         "message_id": message_id,
@@ -856,7 +856,7 @@ async def broadcast_message_edited(license_id: int, message_id: int, new_body: s
         event="message_edited",
         data=payload
     ))
-    
+
     # 2. Check if peer is an internal almudeer user and notify them
     from db_helper import get_db, fetch_one
     try:
@@ -868,21 +868,25 @@ async def broadcast_message_edited(license_id: int, message_id: int, new_body: s
                    sender_contact = msg.get("recipient_email") or msg.get("recipient_id")
                    payload["sender_contact"] = sender_contact
             else:
-                msg = await fetch_one(db, "SELECT channel FROM outbox_messages WHERE id = ?", [message_id])
+                msg = await fetch_one(db, "SELECT channel, recipient_email, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
 
             if msg and msg.get("channel") in ["almudeer", "saved"] and sender_contact:
                 # Check if recipient is a license username (internal peer)
                 peer_row = await fetch_one(db, "SELECT id FROM license_keys WHERE username = ?", [sender_contact])
                 if peer_row:
                     peer_license_id = peer_row["id"]
-                    # For the peer, we also need to include sender_contact? 
-                    # Actually for the peer, the "sender" of the edit is US (license_id)
-                    # So the peer sees 'sender_contact' as US.
-                    # We need to get OUR username.
+                    # For the peer, we need to include BOTH sender and recipient
+                    # The peer (recipient) needs to know:
+                    # - sender_contact: who sent the edit (the editor, i.e., license_id's username)
+                    # - recipient_contact: which conversation this belongs to (the peer's username)
                     owner_row = await fetch_one(db, "SELECT username FROM license_keys WHERE id = ?", [license_id])
                     if owner_row:
                         peer_payload = payload.copy()
+                        # For the peer recipient:
+                        # - sender_contact: the person who edited (us)
+                        # - recipient_contact: the peer themselves (to identify which conversation)
                         peer_payload["sender_contact"] = owner_row["username"]
+                        peer_payload["recipient_contact"] = sender_contact  # The peer's own contact
                         await manager.send_to_license(peer_license_id, WebSocketMessage(
                             event="message_edited",
                             data=peer_payload
