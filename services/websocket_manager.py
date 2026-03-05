@@ -859,6 +859,8 @@ async def broadcast_message_edited(license_id: int, message_id: int, new_body: s
 
     # 2. Check if peer is an internal almudeer user and notify them
     from db_helper import get_db, fetch_one
+    from logging_config import get_logger
+    logger = get_logger(__name__)
     try:
         async with get_db() as db:
             # If sender_contact wasn't provided, try to find it
@@ -870,9 +872,12 @@ async def broadcast_message_edited(license_id: int, message_id: int, new_body: s
             else:
                 msg = await fetch_one(db, "SELECT channel, recipient_email, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
 
+            logger.info(f"[broadcast_message_edited] Message {message_id} edit: channel={msg.get('channel') if msg else 'N/A'}, sender_contact={sender_contact}")
+
             if msg and msg.get("channel") in ["almudeer", "saved"] and sender_contact:
                 # Check if recipient is a license username (internal peer)
                 peer_row = await fetch_one(db, "SELECT id FROM license_keys WHERE username = ?", [sender_contact])
+                logger.info(f"[broadcast_message_edited] Peer lookup for '{sender_contact}': {peer_row}")
                 if peer_row:
                     peer_license_id = peer_row["id"]
                     # For the peer, we need to include BOTH sender and recipient
@@ -880,6 +885,7 @@ async def broadcast_message_edited(license_id: int, message_id: int, new_body: s
                     # - sender_contact: who sent the edit (the editor, i.e., license_id's username)
                     # - recipient_contact: which conversation this belongs to (the peer's username)
                     owner_row = await fetch_one(db, "SELECT username FROM license_keys WHERE id = ?", [license_id])
+                    logger.info(f"[broadcast_message_edited] Owner lookup for license {license_id}: {owner_row}")
                     if owner_row:
                         peer_payload = payload.copy()
                         # For the peer recipient:
@@ -887,13 +893,17 @@ async def broadcast_message_edited(license_id: int, message_id: int, new_body: s
                         # - recipient_contact: the peer themselves (to identify which conversation)
                         peer_payload["sender_contact"] = owner_row["username"]
                         peer_payload["recipient_contact"] = sender_contact  # The peer's own contact
+                        logger.info(f"[broadcast_message_edited] Sending to peer license {peer_license_id}: {peer_payload}")
                         await manager.send_to_license(peer_license_id, WebSocketMessage(
                             event="message_edited",
                             data=peer_payload
                         ))
+                    else:
+                        logger.warning(f"[broadcast_message_edited] Could not find owner username for license {license_id}")
+                else:
+                    logger.info(f"[broadcast_message_edited] Recipient '{sender_contact}' is not an internal license user (external channel or email)")
     except Exception as e:
-        from logging_config import get_logger
-        get_logger(__name__).warning(f"Failed to notify peer of message edit: {e}")
+        logger.warning(f"Failed to notify peer of message edit: {e}", exc_info=True)
 
 
 async def broadcast_message_deleted(license_id: int, message_id: int, sender_contact: str = None):
