@@ -375,18 +375,12 @@ async def _send_via_almudeer(
     await broadcast_new_message(recipient_license_id, recipient_event)
     
     # Broadcast status update to sender (message delivered)
+    # Use the correct format for delivery_status events
     sender_event = {
-        "id": outbox_id,
         "outbox_id": outbox_id,
-        "channel": "almudeer",
-        "sender_contact": recipient_username,
-        "sender_name": recipient_license.get("full_name") or recipient_username,
-        "body": body,
-        "status": "sent",
-        "direction": "outgoing",
+        "inbox_message_id": inbox_message_id,
+        "status": "delivered",  # Use "delivered" for initial delivery
         "timestamp": now.isoformat(),
-        "attachments": attachments or [],
-        "is_forwarded": bool(outbox_msg.get("is_forwarded", False)),
     }
     await broadcast_message_status_update(license_id, sender_event)
     
