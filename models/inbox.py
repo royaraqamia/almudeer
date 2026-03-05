@@ -738,7 +738,18 @@ async def get_inbox_conversations(
             last_message_at as created_at,
             last_message_attachments as attachments,
             ic.status,
-            ic.delivery_status,
+            -- For Almudeer channel, get delivery_status from outbox if we sent the last message
+            -- Otherwise use inbox delivery_status (for received messages)
+            CASE
+                WHEN ic.channel = 'almudeer' AND ic.status IN ('sent', 'approved', 'pending') THEN
+                    (SELECT o.delivery_status 
+                     FROM outbox_messages o 
+                     WHERE o.license_key_id = ic.license_key_id 
+                     AND o.recipient_email = ic.sender_contact 
+                     AND o.id = ic.last_message_id
+                     LIMIT 1)
+                ELSE ic.delivery_status
+            END as delivery_status,
             unread_count,
             message_count,
             lk.last_seen_at,
