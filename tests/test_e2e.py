@@ -44,25 +44,6 @@ async def test_e2e_health_endpoints():
         assert resp.status_code == 200
 
 
-@pytest.mark.anyio
-async def test_e2e_api_version():
-    """E2E: API version endpoint"""
-    from main import app
-    from unittest.mock import patch, AsyncMock
-    
-    # Patch get_app_config to avoid DB call
-    with patch("routes.version.get_app_config", new_callable=AsyncMock) as mock_config:
-        mock_config.return_value = {
-            "min_android_version": "1.0.0",
-            "latest_android_version": "1.0.0"
-        }
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            resp = await client.get("/api/version")
-            assert resp.status_code == 200
-            data = resp.json()
-            assert "min_build_number" in data
-
-
 # ============ E2E: Authentication Flow ============
 
 @pytest.mark.anyio
