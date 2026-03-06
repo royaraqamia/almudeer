@@ -140,6 +140,7 @@ async def list_items(
     type: Optional[str] = None,
     category: Optional[str] = None,
     search: Optional[str] = Query(None, description="Search term for title or content"),
+    include_content: bool = False,  # Issue #30: Option to include full content field
     page: int = 1,
     page_size: int = 50,
     license: dict = Depends(get_license_from_header),
@@ -195,7 +196,8 @@ async def list_items(
         category=category,
         search_term=search,
         limit=page_size,
-        offset=offset
+        offset=offset,
+        include_content=include_content  # Pass include_content parameter
     )
 
     usage = await get_storage_usage(license["license_id"])
