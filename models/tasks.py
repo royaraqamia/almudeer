@@ -431,8 +431,8 @@ async def create_task(license_id: int, task_data: dict) -> dict:
             INSERT INTO tasks (
                 id, license_key_id, title, description, is_completed, due_date,
                 priority, color, sub_tasks, alarm_enabled, alarm_time, recurrence,
-                category, order_index, created_by, assigned_to, attachments, visibility, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+                category, order_index, created_by, assigned_to, attachments, visibility, created_at, updated_at, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 description = excluded.description,
@@ -449,7 +449,8 @@ async def create_task(license_id: int, task_data: dict) -> dict:
                 assigned_to = excluded.assigned_to,
                 attachments = excluded.attachments,
                 visibility = excluded.visibility,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                synced_at = CURRENT_TIMESTAMP
             WHERE tasks.license_key_id = ? AND (
                 -- FIX BUG-004: Enhanced LWW with tolerance for clock skew (5 second window)
                 tasks.updated_at IS NULL
@@ -513,6 +514,9 @@ async def update_task(license_id: int, task_id: str, task_data: dict) -> Optiona
     updated_at = normalize_timestamp(task_data.get('updated_at'))
     fields.append("updated_at = ?")
     values.append(updated_at)
+    
+    # Set synced_at to mark task as synced
+    fields.append("synced_at = CURRENT_TIMESTAMP")
 
     values.append(license_id)
     values.append(task_id)
