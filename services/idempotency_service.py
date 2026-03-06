@@ -9,6 +9,7 @@ P0-1 FIX: Replaces in-memory cache with Redis-backed persistent storage.
 
 import json
 import asyncio
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 from logging_config import get_logger
