@@ -4,6 +4,7 @@ Handling text and file uploads for user knowledge base storage
 """
 
 import os
+import logging
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Request
 from pydantic import BaseModel
@@ -17,6 +18,8 @@ from models.knowledge import (
 )
 from services.file_storage_service import get_file_storage
 from security import sanitize_string
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/knowledge", tags=["Knowledge Base"])
 
@@ -151,13 +154,27 @@ async def delete_document(
     license: dict = Depends(get_license_from_header),
     user: Optional[dict] = Depends(get_current_user_optional)
 ):
-    """Delete a knowledge document."""
+    """Delete a knowledge document and its associated file if exists."""
     user_id = user.get("user_id") if user else None
-    success = await delete_knowledge_document(
-        license_id=license["license_id"], 
-        document_id=document_id, 
+    
+    # Delete from database and get document data
+    deleted_doc = await delete_knowledge_document(
+        license_id=license["license_id"],
+        document_id=document_id,
         user_id=user_id
     )
-    if not success:
+    
+    if not deleted_doc:
         raise HTTPException(status_code=404, detail="المستند غير موجود")
+    
+    # Delete physical file if it exists
+    file_path = deleted_doc.get("file_path")
+    if file_path:
+        try:
+            file_storage.delete_file(file_path)
+            logger.info(f"Deleted knowledge file: {file_path}")
+        except Exception as e:
+            logger.error(f"Failed to delete knowledge file {file_path}: {e}")
+            # Don't fail the request - document is already deleted from DB
+    
     return {"success": True}
