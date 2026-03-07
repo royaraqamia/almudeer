@@ -1337,8 +1337,9 @@ async def get_shared_with_me(
     P3-14: Returns items that other users have shared with the authenticated user.
     """
     from models.library_advanced import get_shared_items
-    
+
     if not user:
+        logger.warning(f"Unauthenticated request to /api/library/shared-with-me")
         raise HTTPException(
             status_code=401,
             detail={
@@ -1347,9 +1348,22 @@ async def get_shared_with_me(
                 "message_en": "Authentication required"
             }
         )
-    
+
     user_id = user.get("user_id")
     
+    logger.info(f"Getting shared items for license={license['license_id']}, user_id={user_id}, permission={permission}")
+
+    if not user_id:
+        logger.error(f"user_id is missing from JWT token: {user}")
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "INVALID_TOKEN",
+                "message_ar": "رمز المستخدم غير صالح",
+                "message_en": "Invalid user token"
+            }
+        )
+
     try:
         items = await get_shared_items(
             license_id=license["license_id"],
@@ -1357,6 +1371,8 @@ async def get_shared_with_me(
             permission=permission
         )
         
+        logger.info(f"Found {len(items)} shared items for user {user_id}")
+
         return {
             "success": True,
             "items": items,

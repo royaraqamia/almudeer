@@ -1209,6 +1209,20 @@ async def get_tasks_shared_with_me(
 
     license_id = license["license_id"]
     user_id = user.get("user_id")
+    
+    if not user_id:
+        from logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.error(f"user_id is missing from JWT token: {user}")
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "INVALID_TOKEN",
+                "message_ar": "رمز المستخدم غير صالح",
+                "message_en": "Invalid user token"
+            }
+        )
 
     tasks = await get_shared_tasks(license_id, user_id, permission)
     return {
