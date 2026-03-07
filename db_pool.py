@@ -31,8 +31,17 @@ def adapt_sql_for_db(sql: str) -> str:
         sql = sql.replace("AUTOINCREMENT", "")
         sql = sql.replace("TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "TIMESTAMP DEFAULT NOW()")
         # Convert SQLite boolean integers to PostgreSQL booleans
+        # Only for columns that are BOOLEAN type in PostgreSQL:
+        # - is_revoked (device_sessions): boolean
+        # - is_active (license_keys): boolean
+        # - is_completed (tasks): boolean
         sql = sql.replace("is_revoked = 0", "is_revoked = FALSE")
         sql = sql.replace("is_revoked = 1", "is_revoked = TRUE")
+        sql = sql.replace("is_active = 0", "is_active = FALSE")
+        sql = sql.replace("is_active = 1", "is_active = TRUE")
+        sql = sql.replace("is_completed = 0", "is_completed = FALSE")
+        sql = sql.replace("is_completed = 1", "is_completed = TRUE")
+        # Note: is_deleted and is_shared are INTEGER in PostgreSQL, keep as 0/1
     return sql
 
 def _convert_sql_params(sql: str, params: list) -> str:

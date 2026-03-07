@@ -215,6 +215,7 @@ async def get_shared_tasks(
         return cached
 
     async with get_db() as db:
+        # Note: is_deleted is INTEGER (0/1) in both SQLite and PostgreSQL
         query = """
             SELECT t.*, ts.permission, ts.expires_at
             FROM tasks t
