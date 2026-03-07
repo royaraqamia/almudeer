@@ -216,6 +216,25 @@ async def share_item(
         if not item:
             raise ValueError("Item not found")
 
+        # Resolve username to license_id (user_id) if needed
+        # shared_with_user_id can be either a username or a license_id
+        # We need to store the license_id as user_id for consistent matching
+        recipient_user_id = shared_with_user_id
+        
+        # Check if it's a username (not a numeric license_id)
+        if not shared_with_user_id.isdigit():
+            # Look up the license_id by username
+            is_active_value = "TRUE" if DB_TYPE == "postgresql" else "1"
+            license_row = await fetch_one(
+                db,
+                f"SELECT id FROM license_keys WHERE username = ? AND is_active = {is_active_value}",
+                [shared_with_user_id]
+            )
+            if not license_row:
+                raise ValueError(f"User '{shared_with_user_id}' not found")
+            recipient_user_id = str(license_row['id'])
+            logger.debug(f"Resolved username '{shared_with_user_id}' to user_id '{recipient_user_id}'")
+
         # Create or update share
         await execute_sql(
             db,
@@ -229,7 +248,7 @@ async def share_item(
                 created_by = EXCLUDED.created_by,
                 deleted_at = NULL
             """,
-            [item_id, license_id, shared_with_user_id, permission, now, created_by]
+            [item_id, license_id, recipient_user_id, permission, now, created_by]
         )
 
         # Mark item as shared
@@ -249,7 +268,7 @@ async def share_item(
                 item_id=item_id,
                 item_title=item.get("title", "Unknown"),
                 shared_by_user_id=created_by or "Unknown",
-                shared_with_user_id=shared_with_user_id,
+                shared_with_user_id=recipient_user_id,
                 permission=permission
             )
         except Exception as e:
@@ -259,15 +278,10 @@ async def share_item(
         try:
             from services.websocket_manager import broadcast_library_shared
             import asyncio
-            
-            # Get recipient's license ID from username
-            recipient_row = await fetch_one(
-                db,
-                "SELECT id FROM license_keys WHERE username = ?",
-                [shared_with_user_id]
-            )
-            recipient_license_id = recipient_row["id"] if recipient_row else None
-            
+
+            # Recipient's license ID is the resolved user_id
+            recipient_license_id = int(recipient_user_id) if recipient_user_id.isdigit() else None
+
             if recipient_license_id:
                 asyncio.create_task(
                     broadcast_library_shared(
@@ -279,13 +293,13 @@ async def share_item(
                     )
                 )
             else:
-                logger.warning(f"Could not find recipient license for username: {shared_with_user_id}")
+                logger.warning(f"Could not find recipient license for user_id: {recipient_user_id}")
         except Exception as e:
             logger.warning(f"Failed to broadcast library share event: {e}")
 
         return {
             "item_id": item_id,
-            "shared_with": shared_with_user_id,
+            "shared_with": recipient_user_id,
             "permission": permission
         }
 
