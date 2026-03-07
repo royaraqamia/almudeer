@@ -11,34 +11,53 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Simple in-memory cache for shared tasks
+_shared_tasks_cache: dict = {}
+_SHARED_TASKS_CACHE_TTL = 300  # 5 minutes
+_MAX_CACHE_SIZE = 100  # Maximum number of cache entries
+
 
 async def _get_cached_shared_tasks(cache_key: str) -> Optional[List[dict]]:
-    """Get cached shared tasks (simple in-memory cache)"""
-    from services.cache import get_cache
-    cache = get_cache()
-    return cache.get(cache_key)
+    """Get cached shared tasks if not expired"""
+    if cache_key in _shared_tasks_cache:
+        cache_entry = _shared_tasks_cache[cache_key]
+        if datetime.now(timezone.utc).timestamp() - cache_entry["timestamp"] < _SHARED_TASKS_CACHE_TTL:
+            return cache_entry["data"]
+    return None
 
 
-async def _cache_shared_tasks(cache_key: str, data: List[dict], ttl: int = 300):
-    """Cache shared tasks"""
-    from services.cache import get_cache
-    cache = get_cache()
-    cache.set(cache_key, data, ttl=ttl)
+async def _cache_shared_tasks(cache_key: str, data: List[dict]):
+    """Cache shared tasks with size limit to prevent memory leak"""
+    # Enforce maximum cache size - evict oldest entries if at limit
+    if len(_shared_tasks_cache) >= _MAX_CACHE_SIZE:
+        # Find and remove oldest entry
+        oldest_key = None
+        oldest_timestamp = float('inf')
+        for key, entry in _shared_tasks_cache.items():
+            if entry["timestamp"] < oldest_timestamp:
+                oldest_timestamp = entry["timestamp"]
+                oldest_key = key
+        if oldest_key:
+            del _shared_tasks_cache[oldest_key]
+
+    _shared_tasks_cache[cache_key] = {
+        "data": data,
+        "timestamp": datetime.now(timezone.utc).timestamp()
+    }
 
 
 async def _invalidate_shared_tasks_cache(license_id: int, user_id: Optional[str] = None):
     """Invalidate shared tasks cache"""
-    from services.cache import get_cache
-    cache = get_cache()
-    
     # Invalidate all permission levels for this user
     if user_id:
         for perm in ['read', 'edit', 'admin', 'all']:
             cache_key = f"{license_id}:{user_id}:{perm}"
-            cache.delete(cache_key)
+            _shared_tasks_cache.pop(cache_key, None)
     else:
         # Invalidate all caches for this license (expensive, use sparingly)
-        cache.delete_pattern(f"{license_id}:*")
+        keys_to_delete = [k for k in _shared_tasks_cache.keys() if k.startswith(f"{license_id}:")]
+        for key in keys_to_delete:
+            del _shared_tasks_cache[key]
 
 
 async def share_task(
