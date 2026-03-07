@@ -125,7 +125,7 @@ async def update_preferences(license_id: int, **kwargs) -> bool:
         
     # Pre-process updates: Serialize lists to JSON
     for k, v in updates.items():
-        if k == 'preferred_languages' and isinstance(v, list):
+        if k in ('preferred_languages', 'calculator_history') and isinstance(v, list):
             updates[k] = json.dumps(v)
     
     set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
