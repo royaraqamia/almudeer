@@ -1,6 +1,6 @@
 """Add quran_progress and calculator_history columns to user_preferences table
 
-Revision ID: 028_add_quran_calc_history
+Revision ID: 028_add_quran_progress_calculator_history
 Revises: 027_remove_stories_feature
 Create Date: 2026-03-04
 
@@ -8,7 +8,7 @@ Create Date: 2026-03-04
 from alembic import op
 import sqlalchemy as sa
 
-revision = '028_add_quran_calc_history'
+revision = '028_add_quran_progress_calculator_history'
 down_revision = '027_remove_stories_feature'
 branch_labels = None
 depends_on = None

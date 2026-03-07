@@ -335,6 +335,33 @@ async def _send_via_almudeer(
         
         # Save to recipient's inbox
         now = datetime.now(timezone.utc)
+        
+        # For reply context: fetch the original message being replied to
+        reply_to_body_preview = None
+        reply_to_sender_name = None
+        reply_to_id = None
+        
+        if reply_to_platform_id:
+            # Fetch the original message details for reply context
+            original_msg = await fetch_one(
+                db,
+                """
+                SELECT o.id, o.body, 
+                       CASE 
+                           WHEN o.recipient_email IS NOT NULL THEN o.recipient_email
+                           ELSE o.recipient_id
+                       END as original_recipient
+                FROM outbox_messages o
+                WHERE o.id = ?
+                """,
+                [int(reply_to_platform_id) if reply_to_platform_id.isdigit() else reply_to_platform_id]
+            )
+            if original_msg:
+                reply_to_id = original_msg["id"]
+                reply_to_body_preview = original_msg["body"][:100] if original_msg["body"] else ""
+                # For Almudeer internal messages, the sender is "أنا" (Me) from the recipient's perspective
+                reply_to_sender_name = "أنا"
+        
         inbox_message_id = await save_inbox_message(
             license_id=recipient_license_id,
             channel="almudeer",
@@ -345,6 +372,9 @@ async def _send_via_almudeer(
             received_at=now,
             attachments=attachments,
             reply_to_platform_id=reply_to_platform_id,
+            reply_to_body_preview=reply_to_body_preview,
+            reply_to_sender_name=reply_to_sender_name,
+            reply_to_id=reply_to_id,
             platform_message_id=str(outbox_id),
             platform_status="delivered",
         )
@@ -372,6 +402,11 @@ async def _send_via_almudeer(
         "timestamp": now.isoformat(),
         "attachments": attachments or [],
         "is_forwarded": bool(outbox_msg.get("is_forwarded", False)),
+        # Reply context
+        "reply_to_id": reply_to_id,
+        "reply_to_platform_id": reply_to_platform_id,
+        "reply_to_body_preview": reply_to_body_preview,
+        "reply_to_sender_name": reply_to_sender_name,
     }
     await broadcast_new_message(recipient_license_id, recipient_event)
 

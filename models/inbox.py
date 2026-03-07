@@ -432,30 +432,53 @@ async def create_outbox_message(
     is_forwarded: bool = False
 ) -> int:
     """Create outbox message for approval (DB agnostic)."""
-    
+
     # Serialize attachments
     import json
     attachments_json = json.dumps(attachments) if attachments else None
-    
+
     async with get_db() as db:
 
         await execute_sql(
             db,
             """
-            INSERT INTO outbox_messages 
+            INSERT INTO outbox_messages
                 (inbox_message_id, license_key_id, channel, recipient_id,
                  recipient_email, subject, body, attachments,
-                 reply_to_platform_id, reply_to_body_preview, reply_to_id, 
+                 reply_to_platform_id, reply_to_body_preview, reply_to_id,
                  reply_to_sender_name, is_forwarded)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                inbox_message_id, license_id, channel, recipient_id, 
+                inbox_message_id, license_id, channel, recipient_id,
                 recipient_email, subject, body, attachments_json,
                 reply_to_platform_id, reply_to_body_preview, reply_to_id,
                 reply_to_sender_name, is_forwarded
             ],
         )
+
+        # Increment reply_count on the original message if this is a reply
+        if reply_to_id is not None:
+            if DB_TYPE == "postgresql":
+                await execute_sql(
+                    db,
+                    """
+                    UPDATE inbox_messages 
+                    SET reply_count = COALESCE(reply_count, 0) + 1
+                    WHERE id = ? AND license_key_id = ?
+                    """,
+                    [reply_to_id, license_id],
+                )
+            else:
+                await execute_sql(
+                    db,
+                    """
+                    UPDATE inbox_messages 
+                    SET reply_count = COALESCE(reply_count, 0) + 1
+                    WHERE id = ? AND license_key_id = ?
+                    """,
+                    [reply_to_id, license_id],
+                )
 
         row = await fetch_one(
             db,
@@ -1195,37 +1218,37 @@ async def get_conversation_messages_cursor(
         full_params = inbox_params + outbox_params
         
         base_query = f"""
-            SELECT 
+            SELECT
                 id, channel, sender_name, sender_contact, sender_id,
-                subject, body, 
+                subject, body,
                 attachments,
                 status,
-                created_at, 
+                created_at,
                 received_at as timestamp,
                 COALESCE(received_at, created_at) as effective_ts,
                 'incoming' as direction,
                 ai_summary, ai_draft_response,
-                reply_to_id, reply_to_platform_id, reply_to_body_preview, reply_to_sender_name,
+                reply_to_id, reply_to_platform_id, reply_to_body_preview, reply_to_sender_name, reply_count,
                 is_forwarded,
                 NULL as delivery_status,
                 NULL as sent_at,
                 i.edited_at
             FROM inbox_messages i
             WHERE {inbox_where}
-            
+
             UNION ALL
-            
-            SELECT 
+
+            SELECT
                 id, channel, NULL as sender_name, recipient_email as sender_contact, recipient_id as sender_id,
                 subject, body,
                 attachments,
                 status,
-                created_at, 
+                created_at,
                 sent_at as timestamp,
                 COALESCE(sent_at, created_at) as effective_ts,
                 'outgoing' as direction,
                 NULL as ai_summary, NULL as ai_draft_response,
-                NULL as reply_to_id, o.reply_to_platform_id, o.reply_to_body_preview, o.reply_to_sender_name,
+                NULL as reply_to_id, o.reply_to_platform_id, o.reply_to_body_preview, o.reply_to_sender_name, o.reply_count,
                 is_forwarded,
                 delivery_status,
                 sent_at,
@@ -1742,13 +1765,13 @@ async def get_full_chat_history(
         inbox_rows = await fetch_all(
             db,
             f"""
-            SELECT 
-                id, channel, sender_name, sender_contact, sender_id, 
+            SELECT
+                id, channel, sender_name, sender_contact, sender_id,
                 subject, body, attachments,
                 intent, urgency, sentiment, language, dialect,
                 ai_summary, ai_draft_response, status,
                 created_at, received_at,
-                reply_to_id, reply_to_platform_id, reply_to_body_preview, reply_to_sender_name,
+                reply_to_id, reply_to_platform_id, reply_to_body_preview, reply_to_sender_name, reply_count,
                 COALESCE(received_at, created_at) as effective_ts,
                 edited_at
             FROM inbox_messages
@@ -1781,12 +1804,12 @@ async def get_full_chat_history(
         outbox_rows = await fetch_all(
             db,
             f"""
-            SELECT 
+            SELECT
                 o.id, o.channel, o.recipient_email as sender_contact, o.recipient_id as sender_id,
                 o.subject, o.body, o.attachments, o.status,
                 o.created_at, o.sent_at, o.edited_at,
                 o.delivery_status,
-                o.reply_to_platform_id, o.reply_to_body_preview,
+                o.reply_to_platform_id, o.reply_to_body_preview, o.reply_to_sender_name, o.reply_count,
                 i.sender_name
             FROM outbox_messages o
             LEFT JOIN inbox_messages i ON o.inbox_message_id = i.id
