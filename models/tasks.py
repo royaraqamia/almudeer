@@ -13,23 +13,24 @@ async def verify_task_access(
 ) -> bool:
     """
     Verify if a user has access to a task based on visibility and role.
-    
+
     P4-1: Consolidated task visibility and permission check.
-    
+    P4-2: Updated to use task_shares table instead of assigned_to field.
+
     Args:
         db: Database connection
         task_id: Task ID
         user_id: User ID requesting access
         license_id: License key ID
         required_action: Action required ('view', 'edit', 'delete', 'comment')
-    
+
     Returns:
         bool: True if user has access, False otherwise
-    
+
     Access rules:
         - Owner (created_by): Full access to all actions
-        - Assignee: Can view, edit, comment on shared tasks
-        - Others: Can only view shared tasks
+        - Shared users: Permission-based access (read/view, edit/edit+view, admin/all)
+        - Others: Can only view shared tasks (visibility = 'shared')
     """
     # Get task
     task = await fetch_one(
@@ -37,28 +38,42 @@ async def verify_task_access(
         "SELECT * FROM tasks WHERE id = ? AND license_key_id = ?",
         [task_id, license_id]
     )
-    
+
     if not task:
         return False
-    
+
     # Owner always has full access
     if task.get("created_by") == user_id:
         return True
-    
-    # For non-owners, task must be shared
-    if task.get("visibility") != "shared":
-        return False
-    
-    # Assignee can edit and comment
-    if task.get("assigned_to") == user_id:
-        if required_action in ("view", "edit", "comment"):
+
+    # Check task_shares for permission-based access
+    from datetime import timezone as tz
+    share = await fetch_one(
+        db,
+        """
+        SELECT permission FROM task_shares
+        WHERE task_id = ? AND shared_with_user_id = ? AND license_key_id = ?
+        AND deleted_at IS NULL
+        AND (expires_at IS NULL OR expires_at > ?)
+        """,
+        [task_id, user_id, license_id, datetime.now(tz.utc)]
+    )
+
+    if share:
+        permission = share.get('permission', 'read')
+        # Permission-based access
+        if permission == 'admin':
+            return True  # Admin can do everything
+        elif permission == 'edit':
+            return required_action in ('view', 'edit', 'comment')
+        elif permission == 'read':
+            return required_action == 'view'
+
+    # Fallback to old visibility-based access for backward compatibility
+    if task.get("visibility") == "shared":
+        if required_action == "view":
             return True
-        return False
-    
-    # Others can only view shared tasks
-    if required_action == "view":
-        return True
-    
+
     return False
 
 async def init_task_comments_table():
@@ -293,6 +308,7 @@ async def get_task(license_id: int, task_id: str, user_id: str) -> Optional[dict
     """Get a specific task (check both license and global). Respects private visibility.
 
     P4-1: Uses verify_task_access for permission checking.
+    P4-2: Also fetches share permission for the user.
     """
     async with get_db() as db:
         # First check if task exists
@@ -311,6 +327,22 @@ async def get_task(license_id: int, task_id: str, user_id: str) -> Optional[dict
 
         if not has_access:
             return None
+
+        # P4-2: Fetch user's share permission if they're not the owner
+        if task_dict.get('created_by') != user_id:
+            from datetime import timezone as tz
+            share = await fetch_one(
+                db,
+                """
+                SELECT permission FROM task_shares
+                WHERE task_id = ? AND shared_with_user_id = ? AND license_key_id = ?
+                AND deleted_at IS NULL
+                AND (expires_at IS NULL OR expires_at > ?)
+                """,
+                [task_id, user_id, license_id, datetime.now(tz.utc)]
+            )
+            if share:
+                task_dict['share_permission'] = share.get('permission')
 
         return _parse_task_row(task_dict)
 
@@ -350,28 +382,38 @@ def _parse_task_row(row: dict) -> dict:
 
     return row
 
-def compute_task_role(task: dict, user_id: str) -> str:
+def compute_task_role(task: dict, user_id: str, share_permission: Optional[str] = None) -> str:
     """
     Compute user's role/permission level for a task.
-    Returns: 'owner', 'assignee', or 'viewer'
+    Returns: 'owner', 'admin', 'editor', 'viewer'
+    
+    P4-2: Updated to use share permission instead of assigned_to.
     """
     if task.get('created_by') == user_id:
         return 'owner'
-    if task.get('assigned_to') == user_id:
-        return 'assignee'
+    if share_permission:
+        if share_permission == 'admin':
+            return 'admin'
+        elif share_permission == 'edit':
+            return 'editor'
+    # Fallback to old assigned_to for backward compatibility
+    if task.get('assigned_to') == user_id and task.get('visibility') != 'private':
+        return 'editor'
     return 'viewer'
 
-def can_edit_task(task: dict, user_id: str) -> bool:
+def can_edit_task(task: dict, user_id: str, share_permission: Optional[str] = None) -> bool:
     """
     Check if user can edit a task based on role and visibility.
     - Owner: always can edit
-    - Assignee: can edit shared tasks, update status, add comments
+    - Admin/Editor (via share): can edit shared tasks
     - Viewer: read-only
+    
+    P4-2: Updated to use share permission.
     """
-    role = compute_task_role(task, user_id)
+    role = compute_task_role(task, user_id, share_permission)
     if role == 'owner':
         return True
-    if role == 'assignee' and task.get('visibility') != 'private':
+    if role in ('admin', 'editor'):
         return True
     return False
 
@@ -382,17 +424,19 @@ def can_delete_task(task: dict, user_id: str) -> bool:
     """
     return compute_task_role(task, user_id) == 'owner'
 
-def can_comment_on_task(task: dict, user_id: str) -> bool:
+def can_comment_on_task(task: dict, user_id: str, share_permission: Optional[str] = None) -> bool:
     """
     Check if user can comment on a task.
     - Owner: always can comment
-    - Assignee: can comment on shared tasks
+    - Admin/Editor (via share): can comment on shared tasks
     - Viewer: cannot comment
+    
+    P4-2: Updated to use share permission.
     """
-    role = compute_task_role(task, user_id)
+    role = compute_task_role(task, user_id, share_permission)
     if role == 'owner':
         return True
-    if role == 'assignee' and task.get('visibility') != 'private':
+    if role in ('admin', 'editor'):
         return True
     return False
 

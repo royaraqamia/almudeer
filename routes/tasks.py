@@ -228,7 +228,8 @@ async def update_existing_task(
 
     # RBAC: Check edit permissions
     from models.tasks import can_edit_task
-    if not can_edit_task(current_task, user["user_id"]):
+    share_permission = current_task.get('share_permission')
+    if not can_edit_task(current_task, user["user_id"], share_permission):
         raise HTTPException(
             status_code=403,
             detail="ليس لديك صلاحية تعديل هذه المهمة"
@@ -689,7 +690,8 @@ async def batch_update_tasks(
 
             # RBAC: Check edit permissions
             from models.tasks import can_edit_task
-            if not can_edit_task(current_task, user_id):
+            share_permission = current_task.get('share_permission')
+            if not can_edit_task(current_task, user_id, share_permission):
                 auth_failures.append(task_id)
                 # FIX SEC-002: Log authorization failures for security monitoring
                 logger.warning(
@@ -948,7 +950,7 @@ async def get_task_analytics(
         
         # FIX BACKEND-003: Cache the result
         _analytics_cache[cache_key] = (analytics, current_time)
-        
+
         # Cleanup old cache entries (keep last 100)
         if len(_analytics_cache) > 100:
             oldest_keys = sorted(_analytics_cache.keys(), key=lambda k: _analytics_cache[k][1])[:20]
@@ -956,6 +958,270 @@ async def get_task_analytics(
                 del _analytics_cache[key]
 
         return analytics
+
+
+# ============ Task Sharing Endpoints (P4-2) ============
+
+class ShareTaskRequest(BaseModel):
+    """Request to share a task with another user"""
+    shared_with_user_id: str = Field(..., description="Username/user ID of the recipient")
+    permission: str = Field(default="read", description="Permission level: read, edit, admin")
+    expires_in_days: Optional[int] = Field(None, description="Number of days until share expires")
+
+    @validator('permission')
+    def validate_permission(cls, v):
+        if v not in ('read', 'edit', 'admin'):
+            raise ValueError('Permission must be one of: read, edit, admin')
+        return v
+
+    @validator('expires_in_days')
+    def validate_expires_in_days(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError('expires_in_days must be a positive integer')
+        return v
+
+
+@router.post("/{task_id}/share")
+@limiter.limit("10/minute")
+async def share_task(
+    request: Request,
+    task_id: str,
+    share_data: ShareTaskRequest,
+    license: dict = Depends(get_license_from_header),
+    user: dict = Depends(get_current_user)
+):
+    """
+    Share a task with another user.
+
+    P4-2: Share tasks with other users with read/edit/admin permissions.
+    Rate limited to 10 requests/minute to prevent spam.
+    """
+    from models.task_shares import share_task as share_task_model, get_task
+
+    user_id = user.get("user_id")
+    license_id = license["license_id"]
+
+    # Verify task exists and user owns it
+    task = await get_task(license_id, task_id, user_id)
+    if not task:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "TASK_NOT_FOUND",
+                "message_ar": "المهمة غير موجودة أو لا تملك صلاحية مشاركتها",
+                "message_en": "Task not found or you don't have permission to share it"
+            }
+        )
+
+    # Verify user is the owner (created_by)
+    if task.get("created_by") != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "FORBIDDEN",
+                "message_ar": "لا يمكنك مشاركة هذه المهمة، أنت لست المالك",
+                "message_en": "You cannot share this task, you are not the owner"
+            }
+        )
+
+    try:
+        result = await share_task_model(
+            task_id=task_id,
+            license_id=license_id,
+            shared_with_user_id=share_data.shared_with_user_id,
+            permission=share_data.permission,
+            created_by=user_id,
+            expires_in_days=share_data.expires_in_days
+        )
+
+        return {
+            "success": True,
+            "share": result,
+            "message_ar": "تمت مشاركة المهمة بنجاح",
+            "message_en": "Task shared successfully"
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "INVALID_SHARE",
+                "message_ar": str(e),
+                "message_en": str(e)
+            }
+        )
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to share task: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "SHARE_FAILED",
+                "message_ar": "فشل مشاركة المهمة",
+                "message_en": "Failed to share task"
+            }
+        )
+
+
+@router.get("/{task_id}/shares")
+async def get_task_shares(
+    task_id: str,
+    license: dict = Depends(get_license_from_header),
+    user: dict = Depends(get_current_user)
+):
+    """Get all shares for a task (owner only)"""
+    from models.task_shares import list_task_shares, get_task
+
+    user_id = user.get("user_id")
+    license_id = license["license_id"]
+
+    # Verify task exists and user owns it
+    task = await get_task(license_id, task_id, user_id)
+    if not task:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "TASK_NOT_FOUND",
+                "message_ar": "المهمة غير موجودة",
+                "message_en": "Task not found"
+            }
+        )
+
+    if task.get("created_by") != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "FORBIDDEN",
+                "message_ar": "لا يمكنك عرض مشاركات هذه المهمة",
+                "message_en": "You don't have permission to view shares for this task"
+            }
+        )
+
+    shares = await list_task_shares(task_id, license_id)
+    return {
+        "success": True,
+        "shares": shares
+    }
+
+
+@router.delete("/shares/{share_id}")
+async def revoke_task_share(
+    share_id: int,
+    license: dict = Depends(get_license_from_header),
+    user: dict = Depends(get_current_user)
+):
+    """Revoke a task share"""
+    from models.task_shares import remove_share
+
+    license_id = license["license_id"]
+    user_id = user.get("user_id")
+
+    try:
+        success = await remove_share(share_id, license_id, revoked_by=user_id)
+        if success:
+            return {
+                "success": True,
+                "message_ar": "تم إلغاء المشاركة بنجاح",
+                "message_en": "Share revoked successfully"
+            }
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "SHARE_NOT_FOUND",
+                    "message_ar": "المشاركة غير موجودة",
+                    "message_en": "Share not found"
+                }
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to revoke share: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "REVOKE_FAILED",
+                "message_ar": "فشل إلغاء المشاركة",
+                "message_en": "Failed to revoke share"
+            }
+        )
+
+
+@router.patch("/shares/{share_id}/permission")
+async def update_task_share_permission(
+    share_id: int,
+    permission: str,
+    license: dict = Depends(get_license_from_header),
+    user: dict = Depends(get_current_user)
+):
+    """Update share permission"""
+    from models.task_shares import update_share_permission
+
+    if permission not in ('read', 'edit', 'admin'):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "INVALID_PERMISSION",
+                "message_ar": "الصلاحية يجب أن تكون: read, edit, admin",
+                "message_en": "Permission must be: read, edit, admin"
+            }
+        )
+
+    license_id = license["license_id"]
+    user_id = user.get("user_id")
+
+    try:
+        success = await update_share_permission(share_id, license_id, permission, updated_by=user_id)
+        if success:
+            return {
+                "success": True,
+                "message_ar": "تم تحديث الصلاحية بنجاح",
+                "message_en": "Permission updated successfully"
+            }
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "SHARE_NOT_FOUND",
+                    "message_ar": "المشاركة غير موجودة",
+                    "message_en": "Share not found"
+                }
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to update share permission: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "UPDATE_FAILED",
+                "message_ar": "فشل تحديث الصلاحية",
+                "message_en": "Failed to update permission"
+            }
+        )
+
+
+@router.get("/shared-with-me")
+async def get_tasks_shared_with_me(
+    permission: Optional[str] = None,
+    license: dict = Depends(get_license_from_header),
+    user: dict = Depends(get_current_user)
+):
+    """Get tasks shared with the current user"""
+    from models.task_shares import get_shared_tasks
+
+    license_id = license["license_id"]
+    user_id = user.get("user_id")
+
+    tasks = await get_shared_tasks(license_id, user_id, permission)
+    return {
+        "success": True,
+        "tasks": tasks
+    }
 
 
 # ============ Search Endpoint ============

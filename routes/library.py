@@ -1200,9 +1200,9 @@ async def share_library_item(
                 "message_en": "Item not found or you don't have permission to share it"
             }
         )
-    
-    # Verify user is the owner (created_by)
-    if item.get("created_by") != user_id:
+
+    # Verify user is the owner (user_id)
+    if item.get("user_id") != user_id:
         raise HTTPException(
             status_code=403,
             detail={
