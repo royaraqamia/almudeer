@@ -261,37 +261,50 @@ async def get_tasks(
     cursor: Optional[str] = None  # Cursor for pagination (task ID or timestamp)
 ) -> List[dict]:
     """Get tasks for a license. Private tasks only visible to creator.
-    
+
     Supports both offset-based and cursor-based pagination.
     Cursor-based is preferred for large datasets.
+    
+    P4-2: Also includes tasks shared with the user via task_shares table.
     """
     if license_id <= 0:
         return []
 
     async with get_db() as db:
-        query = """
-            SELECT * FROM tasks
-            WHERE license_key_id = ?
-            AND (visibility = 'shared' OR created_by = ?)
+        # P4-2: Include tasks shared with user via task_shares
+        # Use UNION instead of DISTINCT to avoid ORDER BY issues
+        base_query = """
+            SELECT t.*, ts.permission as share_permission
+            FROM tasks t
+            LEFT JOIN task_shares ts ON t.id = ts.task_id 
+                AND ts.shared_with_user_id = %s
+                AND ts.license_key_id = %s
+                AND ts.deleted_at IS NULL
+            WHERE t.license_key_id = %s
+            AND (
+                t.visibility = 'shared' 
+                OR t.created_by = %s
+                OR ts.id IS NOT NULL
+            )
         """
-        params = [license_id, user_id]
+        params = [user_id, license_id, license_id, user_id]
 
         # Cursor-based pagination (more efficient for large datasets)
         if cursor:
-            query += " AND created_at < ?"
+            base_query += " AND t.created_at < %s"
             params.append(cursor)
 
         if since:
-            query += " AND (updated_at > ? OR synced_at > ?)"
+            base_query += " AND (t.updated_at > %s OR t.synced_at > %s)"
             params.extend([since, since])
 
         # Unified Sorting: Active/Completed -> order_index -> newest
-        query += " ORDER BY is_completed ASC, order_index ASC, created_at DESC"
+        base_query += " ORDER BY t.is_completed ASC, t.order_index ASC, t.created_at DESC"
 
         if limit is not None:
-            query += f" LIMIT {limit} OFFSET {offset}"
+            base_query += f" LIMIT {limit} OFFSET {offset}"
 
-        rows = await fetch_all(db, query, tuple(params))
+        rows = await fetch_all(db, base_query, tuple(params))
         return [_parse_task_row(dict(row)) for row in rows]
 
 async def _get_task_by_id_raw(db, license_id: int, task_id: str) -> Optional[dict]:

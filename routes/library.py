@@ -1271,11 +1271,11 @@ async def list_item_shares(
 ):
     """
     List all shares for a specific item (owner only).
-    
+
     Returns all users the item is shared with and their permissions.
     """
     from models.library import get_library_item
-    
+
     if not user:
         raise HTTPException(
             status_code=401,
@@ -1285,12 +1285,14 @@ async def list_item_shares(
                 "message_en": "Authentication required"
             }
         )
-    
+
     user_id = user.get("user_id")
-    
+
     # Verify item exists and user owns it
+    # Pass user_id to check ownership
     item = await get_library_item(license["license_id"], item_id, user_id=user_id)
     if not item:
+        # Item doesn't exist or user doesn't own it
         raise HTTPException(
             status_code=404,
             detail={
@@ -1299,18 +1301,9 @@ async def list_item_shares(
                 "message_en": "Item not found"
             }
         )
-    
-    # Only owner can view shares
-    if item.get("created_by") != user_id:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "code": "FORBIDDEN",
-                "message_ar": "لا يمكنك عرض مشاركات هذا العنصر",
-                "message_en": "You don't have permission to view shares for this item"
-            }
-        )
-    
+
+    # User owns the item (get_library_item already verified this via user_id match)
+    # Now return the shares
     async with get_db() as db:
         rows = await fetch_all(
             db,
@@ -1321,9 +1314,9 @@ async def list_item_shares(
             """,
             [item_id, license["license_id"]]
         )
-        
+
         shares = [dict(row) for row in rows]
-    
+
     return {
         "success": True,
         "shares": shares,

@@ -262,14 +262,16 @@ async def get_library_items(
             # Get owned items
             rows = await fetch_all(db, query, params)
             owned_items = [dict(row) for row in rows]
-            
+
             # FIX: Also get items shared with the user
             if user_id and include_shared:
                 try:
                     # Use table prefix to avoid column ambiguity with library_shares
+                    # Add share permission to the select
                     columns_prefixed = ", ".join(f"li.{col}" for col in (FULL_COLUMNS if include_content else LIST_VIEW_COLUMNS))
                     shared_query = f"""
-                        SELECT {columns_prefixed} FROM library_items li
+                        SELECT {columns_prefixed}, ls.permission as share_permission, ls.expires_at as share_expires_at
+                        FROM library_items li
                         INNER JOIN library_shares ls ON li.id = ls.item_id
                         WHERE ls.shared_with_user_id = ?
                         AND ls.license_key_id = ?
@@ -277,7 +279,7 @@ async def get_library_items(
                         AND li.deleted_at IS NULL
                     """
                     shared_params = [user_id, license_id]
-                    
+
                     # Add type/category filters to shared query
                     if category:
                         if category == 'notes':
@@ -287,26 +289,26 @@ async def get_library_items(
                     elif item_type:
                         shared_query += " AND li.type = ?"
                         shared_params.append(item_type)
-                    
+
                     shared_query += " ORDER BY li.created_at DESC LIMIT ? OFFSET ?"
                     shared_params.extend([limit, offset])
-                    
+
                     shared_rows = await fetch_all(db, shared_query, shared_params)
                     shared_items = [dict(row) for row in shared_rows]
-                    
+
                     # Combine and deduplicate by ID
                     all_items = {item['id']: item for item in owned_items}
                     for item in shared_items:
                         if item['id'] not in all_items:
                             all_items[item['id']] = item
-                    
+
                     # Sort by created_at desc and apply pagination
                     sorted_items = sorted(all_items.values(), key=lambda x: x.get('created_at', ''), reverse=True)
                     return sorted_items
                 except Exception as e:
                     logger.warning(f"Failed to fetch shared items: {e}")
                     return owned_items
-            
+
             return owned_items
 
 
