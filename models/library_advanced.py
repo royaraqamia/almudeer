@@ -335,21 +335,21 @@ async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str]
         # P6-2: Invalidate cache for the affected user
         if share:
             await _invalidate_shared_items_cache(license_id, share["shared_with_user_id"])
-        
+
         # P3-14: Create notification for user whose access was revoked
         if share:
             try:
                 from workers import create_share_revoked_notification
                 await create_share_revoked_notification(
                     license_id=license_id,
-                    item_id=share["item_id"],
-                    item_title=share.get("item_title", "Unknown"),
+                    task_id=share["item_id"],
+                    task_title=share.get("item_title", "Unknown"),
                     revoked_by_user_id=revoked_by or "Unknown",
-                    user_id=share["shared_with_user_id"]
+                    revoked_from_user_id=share["shared_with_user_id"]
                 )
             except Exception as e:
                 logger.warning(f"Failed to create share revoked notification: {e}")
-        
+
         return True
 
 

@@ -242,20 +242,21 @@ async def create_share_notification(
             return False
 
 
-async def create_share_revoked_notification(
+async def create_task_share_notification(
     license_id: int,
-    item_id: int,
-    item_title: str,
-    revoked_by_user_id: str,
-    user_id: str
+    task_id: str,
+    task_title: str,
+    shared_by_user_id: str,
+    shared_with_user_id: str,
+    permission: str
 ):
     """
-    Create a notification when a share is revoked.
-    
-    P3-14: Notify users when sharing access is revoked.
+    Create a notification when a task is shared.
+
+    P4-2: Notify users when they receive shared tasks.
     """
     now = datetime.now(timezone.utc)
-    
+
     async with get_db() as db:
         try:
             await execute_sql(
@@ -267,17 +268,59 @@ async def create_share_revoked_notification(
                 """,
                 [
                     license_id,
-                    'library_share_revoked',
+                    'task_shared',
                     'normal',
-                    'تم إزالة صلاحية الوصول',
-                    f'{revoked_by_user_id} أزال صلاحية الوصول إلى: {item_title}',
+                    'تمت مشاركة مهمة',
+                    f'{shared_by_user_id} شارك معك المهمة: {task_title}',
                     now
                 ]
             )
             await commit_db(db)
-            
-            logger.info(f"Created share revoked notification for {item_title}")
-            
+
+            logger.info(f"Created task share notification for {task_title}")
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to create task share notification: {e}", exc_info=True)
+            return False
+
+
+async def create_share_revoked_notification(
+    license_id: int,
+    task_id: str,
+    task_title: str,
+    revoked_by_user_id: str,
+    revoked_from_user_id: str
+):
+    """
+    Create a notification when a share is revoked.
+
+    P6-2: Notify users when sharing access is revoked.
+    """
+    now = datetime.now(timezone.utc)
+
+    async with get_db() as db:
+        try:
+            await execute_sql(
+                db,
+                """
+                INSERT INTO notifications
+                (license_key_id, type, priority, title, message, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    license_id,
+                    'share_revoked',
+                    'normal',
+                    'تم إزالة صلاحية الوصول',
+                    f'{revoked_by_user_id} أزال صلاحية الوصول إلى: {task_title}',
+                    now
+                ]
+            )
+            await commit_db(db)
+
+            logger.info(f"Created share revoked notification for {task_title}")
+
             return True
         except Exception as e:
             logger.error(f"Failed to create share revoked notification: {e}", exc_info=True)
