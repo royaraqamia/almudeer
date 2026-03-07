@@ -309,29 +309,36 @@ async def get_shared_items(
         return cached
 
     async with get_db() as db:
-        query = """
-            SELECT li.*, ls.permission, ls.expires_at
-            FROM library_items li
-            INNER JOIN library_shares ls ON li.id = ls.item_id
-            WHERE ls.shared_with_user_id = ?
-            AND ls.license_key_id = ?
-            AND ls.deleted_at IS NULL
-            AND li.deleted_at IS NULL
-        """
-        params = [user_id, license_id]
+        try:
+            query = """
+                SELECT li.*, ls.permission, ls.expires_at
+                FROM library_items li
+                INNER JOIN library_shares ls ON li.id = ls.item_id
+                WHERE ls.shared_with_user_id = ?
+                AND ls.license_key_id = ?
+                AND ls.deleted_at IS NULL
+                AND li.deleted_at IS NULL
+            """
+            params = [user_id, license_id]
 
-        if permission:
-            query += " AND ls.permission = ?"
-            params.append(permission)
+            if permission:
+                query += " AND ls.permission = ?"
+                params.append(permission)
 
-        rows = await fetch_all(db, query, params)
-        result = [dict(row) for row in rows]
+            logger.debug(f"Executing query: {query} with params: {params}")
+            rows = await fetch_all(db, query, params)
+            result = [dict(row) for row in rows]
+            
+            logger.debug(f"Query returned {len(result)} rows")
 
-        # Cache the result
-        await _cache_shared_items(cache_key, result)
-        logger.debug(f"Cached shared items: {cache_key}")
+            # Cache the result
+            await _cache_shared_items(cache_key, result)
+            logger.debug(f"Cached shared items: {cache_key}")
 
-        return result
+            return result
+        except Exception as e:
+            logger.error(f"Database error in get_shared_items: {e}", exc_info=True)
+            raise
 
 
 async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str] = None) -> bool:
