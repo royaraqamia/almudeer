@@ -463,7 +463,7 @@ def _parse_comment_row(row: dict) -> dict:
 
 async def create_task(license_id: int, task_data: dict) -> dict:
     """Create or update a task atomically (Upsert) with LWW
-    
+
     FIX BUG-004: Enhanced LWW with client timestamp + server timestamp for better conflict resolution.
     """
     async with get_db() as db:
@@ -476,9 +476,15 @@ async def create_task(license_id: int, task_data: dict) -> dict:
 
         # Normalize updated_at to UTC
         updated_at = normalize_timestamp(task_data.get('updated_at'))
-        
+
         # FIX BUG-004: Store client timestamp separately for better conflict resolution
         client_updated_at = updated_at
+
+        # SECURITY FIX: Ensure created_by is never NULL - default to license_id if not provided
+        # This prevents ownership issues when tasks are synced from clients
+        created_by = task_data.get('created_by')
+        if not created_by:
+            created_by = str(license_id)
 
         await execute_sql(db, """
             INSERT INTO tasks (
@@ -529,7 +535,7 @@ async def create_task(license_id: int, task_data: dict) -> dict:
             task_data.get('recurrence'),
             task_data.get('category'),
             task_data.get('order_index', 0.0),
-            task_data.get('created_by'),
+            created_by,
             task_data.get('assigned_to'),
             # FIX: Convert Pydantic models to dicts before JSON serialization
             json.dumps([att.model_dump() if hasattr(att, 'model_dump') else att for att in (task_data.get('attachments', []) or [])]),
