@@ -89,9 +89,10 @@ async def share_task(
         # Check if it's a username (not a numeric license_id)
         if not shared_with_user_id.isdigit():
             # Look up the license_id by username
+            is_active_value = "TRUE" if DB_TYPE == "postgresql" else "1"
             license_row = await fetch_one(
                 db,
-                "SELECT id FROM license_keys WHERE username = ? AND is_active = 1",
+                f"SELECT id FROM license_keys WHERE username = ? AND is_active = {is_active_value}",
                 [shared_with_user_id]
             )
             if not license_row:
