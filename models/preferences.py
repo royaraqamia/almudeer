@@ -25,7 +25,7 @@ async def get_preferences(license_id: int) -> dict:
             prefs = dict(row)
             # CRITICAL: Always enforce notifications_enabled as True
             prefs["notifications_enabled"] = True
-            
+
             # Smart handling of preferred_languages
             # It might be stored as "ar,en" (Legacy) or "[\"ar\", \"en\"]" (New JSON)
             raw_langs = prefs.get("preferred_languages")
@@ -40,7 +40,17 @@ async def get_preferences(license_id: int) -> dict:
                 except Exception:
                     # On error, treat as simple string or empty list
                     prefs["preferred_languages"] = [str(raw_langs)]
-            
+
+            # Handle calculator_history - stored as JSON array
+            raw_history = prefs.get("calculator_history")
+            if raw_history:
+                try:
+                    prefs["calculator_history"] = json.loads(raw_history)
+                except Exception:
+                    prefs["calculator_history"] = []
+            else:
+                prefs["calculator_history"] = []
+
             return prefs
 
         # Create default preferences including AI tone defaults
@@ -74,6 +84,9 @@ async def get_preferences(license_id: int) -> dict:
             "preferred_languages": ["ar"], # Return list directly
             "reply_length": None,
             "formality_level": None,
+            "quran_progress": None,
+            "athkar_stats": None,
+            "calculator_history": [], # Return empty list for calculator history
         }
 
 
