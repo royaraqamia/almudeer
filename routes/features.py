@@ -202,7 +202,13 @@ class PreferencesUpdate(BaseModel):
     tone: Optional[str] = None
     custom_tone_guidelines: Optional[str] = None
     preferred_languages: Optional[Union[str, List[str]]] = None
+    reply_length: Optional[str] = None
     formality_level: Optional[str] = None
+    
+    # Cross-device sync fields
+    quran_progress: Optional[str] = None
+    athkar_stats: Optional[str] = None
+    calculator_history: Optional[Union[str, List[str]]] = None
 
 
 # ============ Preferences Routes ============
