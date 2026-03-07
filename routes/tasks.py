@@ -10,7 +10,7 @@ from errors import NotFoundError
 from services.websocket_manager import broadcast_task_sync, broadcast_notification
 from services.fcm_mobile_service import send_fcm_to_user
 from rate_limiting import limiter, RateLimits
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from constants.tasks import MAX_FILE_SIZE
 
 router = APIRouter(prefix="/api/tasks", tags=["Tasks"])
