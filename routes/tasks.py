@@ -996,7 +996,8 @@ async def share_task(
     P4-2: Share tasks with other users with read/edit/admin permissions.
     Rate limited to 10 requests/minute to prevent spam.
     """
-    from models.task_shares import share_task as share_task_model, get_task
+    from models.task_shares import share_task as share_task_model
+    from models.tasks import get_task
 
     user_id = user.get("user_id")
     license_id = license["license_id"]
