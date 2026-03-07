@@ -135,15 +135,27 @@ async def share_task(
         try:
             from services.websocket_manager import broadcast_task_shared
             import asyncio
-            asyncio.create_task(
-                broadcast_task_shared(
-                    license_id=license_id,
-                    task_id=task_id,
-                    task_title=task.get("title", "Unknown"),
-                    shared_by=created_by or "Unknown",
-                    permission=permission
-                )
+            
+            # Get recipient's license ID from username
+            recipient_row = await fetch_one(
+                db,
+                "SELECT id FROM license_keys WHERE username = ?",
+                [shared_with_user_id]
             )
+            recipient_license_id = recipient_row["id"] if recipient_row else None
+            
+            if recipient_license_id:
+                asyncio.create_task(
+                    broadcast_task_shared(
+                        license_id=recipient_license_id,
+                        task_id=task_id,
+                        task_title=task.get("title", "Unknown"),
+                        shared_by=created_by or "Unknown",
+                        permission=permission
+                    )
+                )
+            else:
+                logger.warning(f"Could not find recipient license for username: {shared_with_user_id}")
         except Exception as e:
             logger.warning(f"Failed to broadcast task share event: {e}")
 

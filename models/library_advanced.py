@@ -259,15 +259,27 @@ async def share_item(
         try:
             from services.websocket_manager import broadcast_library_shared
             import asyncio
-            asyncio.create_task(
-                broadcast_library_shared(
-                    license_id=license_id,
-                    item_id=item_id,
-                    item_title=item.get("title", "Unknown"),
-                    shared_by=created_by or "Unknown",
-                    permission=permission
-                )
+            
+            # Get recipient's license ID from username
+            recipient_row = await fetch_one(
+                db,
+                "SELECT id FROM license_keys WHERE username = ?",
+                [shared_with_user_id]
             )
+            recipient_license_id = recipient_row["id"] if recipient_row else None
+            
+            if recipient_license_id:
+                asyncio.create_task(
+                    broadcast_library_shared(
+                        license_id=recipient_license_id,
+                        item_id=item_id,
+                        item_title=item.get("title", "Unknown"),
+                        shared_by=created_by or "Unknown",
+                        permission=permission
+                    )
+                )
+            else:
+                logger.warning(f"Could not find recipient license for username: {shared_with_user_id}")
         except Exception as e:
             logger.warning(f"Failed to broadcast library share event: {e}")
 
