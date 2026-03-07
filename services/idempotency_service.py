@@ -13,6 +13,7 @@ import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 from logging_config import get_logger
+from utils.json_utils import json_dumps
 
 logger = get_logger(__name__)
 
@@ -104,11 +105,11 @@ class IdempotencyService:
     async def set(self, key: str, result: Dict[str, Any]) -> bool:
         """
         Store result for idempotency key with TTL.
-        
+
         Args:
             key: Idempotency key
             result: Result dict to cache
-            
+
         Returns:
             True if successful
         """
@@ -118,7 +119,7 @@ class IdempotencyService:
                 await self.redis_client.setex(
                     f"{self.IDEMPOTENCY_KEY_PREFIX}{key}",
                     ttl_seconds,
-                    json.dumps(result)
+                    json_dumps(result)
                 )
                 return True
             except Exception as e:
