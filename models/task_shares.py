@@ -6,7 +6,7 @@ Replaces old assigned_to field with proper share-based model.
 """
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
-from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db
+from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db, DB_TYPE
 import logging
 
 logger = logging.getLogger(__name__)
@@ -83,17 +83,30 @@ async def share_task(
             share_id = existing['id']
         else:
             # Create new share
-            await execute_sql(
-                db,
-                """
-                INSERT INTO task_shares
-                (task_id, license_key_id, shared_with_user_id, permission, created_at, created_by)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [task_id, license_id, shared_with_user_id, permission, now, created_by]
-            )
-            share_id = await fetch_one(db, "SELECT last_insert_rowid() as id", [])
-            share_id = share_id['id'] if share_id else None
+            if DB_TYPE == "postgresql":
+                result = await fetch_one(
+                    db,
+                    """
+                    INSERT INTO task_shares
+                    (task_id, license_key_id, shared_with_user_id, permission, created_at, created_by)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    RETURNING id
+                    """,
+                    [task_id, license_id, shared_with_user_id, permission, now, created_by]
+                )
+                share_id = result['id'] if result else None
+            else:
+                await execute_sql(
+                    db,
+                    """
+                    INSERT INTO task_shares
+                    (task_id, license_key_id, shared_with_user_id, permission, created_at, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [task_id, license_id, shared_with_user_id, permission, now, created_by]
+                )
+                result = await fetch_one(db, "SELECT last_insert_rowid() as id", [])
+                share_id = result['id'] if result else None
 
         # Mark task as shared
         await execute_sql(

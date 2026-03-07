@@ -46,11 +46,11 @@ async def enqueue_task(
                 VALUES (?, ?, ?, 'pending', ?, ?)
             """
             await execute_sql(db, sql, [task_type, payload_json, priority, ts_value, ts_value])
+            await commit_db(db)
 
             # Get ID
             row = await fetch_one(db, "SELECT last_insert_rowid() as id")
             task_id = row["id"]
-            await commit_db(db)
             return task_id
 
 

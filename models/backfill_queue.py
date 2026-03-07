@@ -67,8 +67,8 @@ async def add_to_backfill_queue(
                 result = await fetch_one(
                     db,
                     """
-                    INSERT INTO backfill_queue 
-                    (license_key_id, channel, channel_message_id, sender_contact, sender_name, 
+                    INSERT INTO backfill_queue
+                    (license_key_id, channel, channel_message_id, sender_contact, sender_name,
                      sender_id, subject, body, received_at, scheduled_reveal_at, status, attachments)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', $11)
                     RETURNING id
@@ -82,8 +82,8 @@ async def add_to_backfill_queue(
                 await execute_sql(
                     db,
                     """
-                    INSERT INTO backfill_queue 
-                    (license_key_id, channel, channel_message_id, sender_contact, sender_name, 
+                    INSERT INTO backfill_queue
+                    (license_key_id, channel, channel_message_id, sender_contact, sender_name,
                      sender_id, subject, body, received_at, scheduled_reveal_at, status, attachments)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
                     """,
@@ -91,7 +91,7 @@ async def add_to_backfill_queue(
                      sender_id, subject, body, received_at, scheduled_reveal_at, attachments_json]
                 )
                 await commit_db(db)
-                
+
                 # Get the last inserted ID
                 result = await fetch_one(db, "SELECT last_insert_rowid() as id", [])
                 return result["id"] if result else None
