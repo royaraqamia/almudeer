@@ -478,7 +478,8 @@ async def create_task(license_id: int, task_data: dict) -> dict:
             task_data.get('order_index', 0.0),
             task_data.get('created_by'),
             task_data.get('assigned_to'),
-            json.dumps(task_data.get('attachments', [])),
+            # FIX: Convert Pydantic models to dicts before JSON serialization
+            json.dumps([att.model_dump() if hasattr(att, 'model_dump') else att for att in (task_data.get('attachments', []) or [])]),
             task_data.get('visibility', 'shared'),
             updated_at,
             license_id  # For the WHERE clause in ON CONFLICT
@@ -499,8 +500,9 @@ async def update_task(license_id: int, task_id: str, task_data: dict) -> Optiona
         if val is not None and key not in ['id', 'license_key_id', 'updated_at']:
             if key == 'sub_tasks' and isinstance(val, list):
                 val = json.dumps(val)
+            # FIX: Convert Pydantic models to dicts before JSON serialization
             if key == 'attachments' and isinstance(val, list):
-                val = json.dumps(val)
+                val = json.dumps([att.model_dump() if hasattr(att, 'model_dump') else att for att in val])
 
             fields.append(f"{key} = ?")
             values.append(val)
@@ -552,13 +554,14 @@ async def add_task_comment(license_id: int, task_id: str, comment_data: dict) ->
             INSERT INTO task_comments (id, task_id, license_key_id, user_id, user_name, content, attachments, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            comment_id, 
-            task_id, 
-            license_id, 
-            comment_data["user_id"], 
+            comment_id,
+            task_id,
+            license_id,
+            comment_data["user_id"],
             comment_data.get("user_name"),
             comment_data["content"],
-            json.dumps(comment_data.get("attachments", [])),
+            # FIX: Convert Pydantic models to dicts before JSON serialization
+            json.dumps([att.model_dump() if hasattr(att, 'model_dump') else att for att in (comment_data.get("attachments", []) or [])]),
             now
         ))
         await commit_db(db)

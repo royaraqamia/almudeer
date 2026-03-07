@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request,
 import json
 from typing import List, Optional
 from datetime import datetime
-from schemas.tasks import TaskCreate, TaskResponse, TaskUpdate, TaskCommentCreate, TaskCommentResponse
+from schemas.tasks import TaskCreate, TaskResponse, TaskUpdate, TaskCommentCreate, TaskCommentResponse, Attachment
 from models.tasks import get_tasks, create_task, update_task, delete_task, get_task, get_task_comments, add_task_comment
 from dependencies import get_license_from_header
 from services.jwt_auth import get_current_user
@@ -90,7 +90,8 @@ async def create_new_task(
         task_dict['category'] = validate_category(task_dict['category'])
 
     # Process Attachments
-    processed_attachments = task.attachments or []
+    # FIX: Convert Pydantic Attachment models to dicts for JSON serialization
+    processed_attachments = [att.model_dump() if isinstance(att, Attachment) else att for att in (task.attachments or [])]
     if files:
         from services.file_storage_service import get_file_storage, validate_file_upload
         import uuid
@@ -192,7 +193,9 @@ async def create_new_task(
         import traceback
         error_trace = traceback.format_exc()
         logging.error(f"Task creation failed: {e}")
-        logging.error(f"Task data: id={task_dict.get('id')}, title={task_dict.get('title')}, attachments={len(task_dict.get('attachments', []))}")
+        # FIX: Convert Attachment objects to dict for JSON serialization
+        att_count = len(task_dict.get('attachments', [])) if task_dict.get('attachments') else 0
+        logging.error(f"Task data: id={task_dict.get('id')}, title={task_dict.get('title')}, attachments={att_count}")
         logging.error(f"Traceback: {error_trace}")
 
         # Sanitize error messages - don't expose internal details
@@ -521,7 +524,8 @@ async def create_comment(
         )
 
     # Process Attachments
-    processed_attachments = comment.attachments or []
+    # FIX: Convert Pydantic Attachment models to dicts for JSON serialization
+    processed_attachments = [att.model_dump() if isinstance(att, Attachment) else att for att in (comment.attachments or [])]
     if files:
         from services.file_storage_service import get_file_storage
         import uuid
