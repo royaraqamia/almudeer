@@ -276,14 +276,14 @@ async def get_tasks(
         base_query = """
             SELECT t.*, ts.permission as share_permission
             FROM tasks t
-            LEFT JOIN task_shares ts ON t.id = ts.task_id 
-                AND ts.shared_with_user_id = %s
-                AND ts.license_key_id = %s
+            LEFT JOIN task_shares ts ON t.id = ts.task_id
+                AND ts.shared_with_user_id = ?
+                AND ts.license_key_id = ?
                 AND ts.deleted_at IS NULL
-            WHERE t.license_key_id = %s
+            WHERE t.license_key_id = ?
             AND (
-                t.visibility = 'shared' 
-                OR t.created_by = %s
+                t.visibility = 'shared'
+                OR t.created_by = ?
                 OR ts.id IS NOT NULL
             )
         """
@@ -291,11 +291,11 @@ async def get_tasks(
 
         # Cursor-based pagination (more efficient for large datasets)
         if cursor:
-            base_query += " AND t.created_at < %s"
+            base_query += " AND t.created_at < ?"
             params.append(cursor)
 
         if since:
-            base_query += " AND (t.updated_at > %s OR t.synced_at > %s)"
+            base_query += " AND (t.updated_at > ? OR t.synced_at > ?)"
             params.extend([since, since])
 
         # Unified Sorting: Active/Completed -> order_index -> newest
