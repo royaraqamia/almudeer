@@ -1218,8 +1218,7 @@ async def share_library_item(
             license_id=license["license_id"],
             shared_with_user_id=share_data.shared_with_user_id,
             permission=share_data.permission,
-            created_by=user_id,
-            expires_in_days=share_data.expires_in_days
+            created_by=user_id
         )
         
         # Track analytics

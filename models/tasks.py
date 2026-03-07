@@ -47,16 +47,14 @@ async def verify_task_access(
         return True
 
     # Check task_shares for permission-based access
-    from datetime import timezone as tz
     share = await fetch_one(
         db,
         """
         SELECT permission FROM task_shares
         WHERE task_id = ? AND shared_with_user_id = ? AND license_key_id = ?
         AND deleted_at IS NULL
-        AND (expires_at IS NULL OR expires_at > ?)
         """,
-        [task_id, user_id, license_id, datetime.now(tz.utc)]
+        [task_id, user_id, license_id]
     )
 
     if share:
@@ -343,16 +341,14 @@ async def get_task(license_id: int, task_id: str, user_id: str) -> Optional[dict
 
         # P4-2: Fetch user's share permission if they're not the owner
         if task_dict.get('created_by') != user_id:
-            from datetime import timezone as tz
             share = await fetch_one(
                 db,
                 """
                 SELECT permission FROM task_shares
                 WHERE task_id = ? AND shared_with_user_id = ? AND license_key_id = ?
                 AND deleted_at IS NULL
-                AND (expires_at IS NULL OR expires_at > ?)
                 """,
-                [task_id, user_id, license_id, datetime.now(tz.utc)]
+                [task_id, user_id, license_id]
             )
             if share:
                 task_dict['share_permission'] = share.get('permission')

@@ -31,7 +31,6 @@ def upgrade() -> None:
         # permission: 'read', 'edit', 'admin'
         sa.Column('created_at', sa.DateTime(), nullable=True),
         sa.Column('created_by', sa.Text(), nullable=True),
-        sa.Column('expires_at', sa.DateTime(), nullable=True),
         sa.Column('updated_at', sa.DateTime(), nullable=True),
         sa.Column('deleted_at', sa.DateTime(), nullable=True),
         sa.PrimaryKeyConstraint('id'),

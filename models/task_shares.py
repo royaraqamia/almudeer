@@ -46,15 +46,10 @@ async def share_task(
     license_id: int,
     shared_with_user_id: str,
     permission: str = 'read',
-    created_by: Optional[str] = None,
-    expires_in_days: Optional[int] = None
+    created_by: Optional[str] = None
 ) -> dict:
     """Share a task with another user"""
     now = datetime.now(timezone.utc)
-    expires_at = None
-
-    if expires_in_days:
-        expires_at = now + timedelta(days=expires_in_days)
 
     async with get_db() as db:
         # Verify task exists
@@ -79,11 +74,11 @@ async def share_task(
             await execute_sql(
                 db,
                 """
-                UPDATE task_shares 
-                SET permission = ?, expires_at = ?, updated_at = ?
+                UPDATE task_shares
+                SET permission = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                [permission, expires_at, now, existing['id']]
+                [permission, now, existing['id']]
             )
             share_id = existing['id']
         else:
@@ -92,10 +87,10 @@ async def share_task(
                 db,
                 """
                 INSERT INTO task_shares
-                (task_id, license_key_id, shared_with_user_id, permission, created_at, created_by, expires_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (task_id, license_key_id, shared_with_user_id, permission, created_at, created_by)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                [task_id, license_id, shared_with_user_id, permission, now, created_by, expires_at]
+                [task_id, license_id, shared_with_user_id, permission, now, created_by]
             )
             share_id = await fetch_one(db, "SELECT last_insert_rowid() as id", [])
             share_id = share_id['id'] if share_id else None
@@ -126,8 +121,7 @@ async def share_task(
         return {
             "task_id": task_id,
             "shared_with": shared_with_user_id,
-            "permission": permission,
-            "expires_at": expires_at
+            "permission": permission
         }
 
 
@@ -161,10 +155,6 @@ async def get_shared_tasks(
         if permission:
             query += " AND ts.permission = ?"
             params.append(permission)
-
-        # Check expiration
-        query += " AND (ts.expires_at IS NULL OR ts.expires_at > ?)"
-        params.append(datetime.now(timezone.utc))
 
         rows = await fetch_all(db, query, params)
         result = [dict(row) for row in rows]
@@ -286,8 +276,7 @@ async def get_user_permission_on_task(
             SELECT permission FROM task_shares
             WHERE task_id = ? AND shared_with_user_id = ? AND license_key_id = ?
             AND deleted_at IS NULL
-            AND (expires_at IS NULL OR expires_at > ?)
             """,
-            [task_id, user_id, license_id, datetime.now(timezone.utc)]
+            [task_id, user_id, license_id]
         )
         return share.get('permission') if share else None

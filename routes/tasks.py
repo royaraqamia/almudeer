@@ -966,18 +966,11 @@ class ShareTaskRequest(BaseModel):
     """Request to share a task with another user"""
     shared_with_user_id: str = Field(..., description="Username/user ID of the recipient")
     permission: str = Field(default="read", description="Permission level: read, edit, admin")
-    expires_in_days: Optional[int] = Field(None, description="Number of days until share expires")
 
     @validator('permission')
     def validate_permission(cls, v):
         if v not in ('read', 'edit', 'admin'):
             raise ValueError('Permission must be one of: read, edit, admin')
-        return v
-
-    @validator('expires_in_days')
-    def validate_expires_in_days(cls, v):
-        if v is not None and v <= 0:
-            raise ValueError('expires_in_days must be a positive integer')
         return v
 
 
@@ -1031,8 +1024,7 @@ async def share_task(
             license_id=license_id,
             shared_with_user_id=share_data.shared_with_user_id,
             permission=share_data.permission,
-            created_by=user_id,
-            expires_in_days=share_data.expires_in_days
+            created_by=user_id
         )
 
         return {

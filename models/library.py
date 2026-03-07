@@ -75,13 +75,12 @@ async def verify_share_permission(
         db,
         """
         SELECT permission FROM library_shares
-        WHERE item_id = ? 
-        AND shared_with_user_id = ? 
-        AND license_key_id = ? 
+        WHERE item_id = ?
+        AND shared_with_user_id = ?
+        AND license_key_id = ?
         AND deleted_at IS NULL
-        AND (expires_at IS NULL OR expires_at > ?)
         """,
-        [item_id, user_id, license_id, datetime.now(timezone.utc)]
+        [item_id, user_id, license_id]
     )
     
     if not share:

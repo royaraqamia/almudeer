@@ -12,18 +12,11 @@ class ShareItemRequest(BaseModel):
     """Request to share a library item with another user"""
     shared_with_user_id: str = Field(..., description="Email or user ID of the recipient")
     permission: str = Field(default="read", description="Permission level: read, edit, admin")
-    expires_in_days: Optional[int] = Field(None, description="Number of days until share expires")
-    
+
     @validator('permission')
     def validate_permission(cls, v):
         if v not in ('read', 'edit', 'admin'):
             raise ValueError('Permission must be one of: read, edit, admin')
-        return v
-    
-    @validator('expires_in_days')
-    def validate_expires_in_days(cls, v):
-        if v is not None and v <= 0:
-            raise ValueError('expires_in_days must be a positive integer')
         return v
 
 
@@ -32,7 +25,6 @@ class ShareItemResponse(BaseModel):
     item_id: int
     shared_with: str
     permission: str
-    expires_at: Optional[datetime]
     created_at: datetime
     created_by: str
 
@@ -45,7 +37,6 @@ class ShareInfo(BaseModel):
     permission: str
     created_at: datetime
     created_by: Optional[str]
-    expires_at: Optional[datetime]
     deleted_at: Optional[datetime]
 
 

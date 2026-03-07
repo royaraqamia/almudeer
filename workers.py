@@ -194,96 +194,6 @@ class TaskWorker:
 
 
 # ============================================================================
-# P3-14: SHARE EXPIRATION CLEANUP
-# ============================================================================
-
-async def cleanup_expired_shares():
-    """
-    Daily job to clean up expired shares.
-    
-    P3-14: Automatically revoke expired share permissions.
-    
-    Tasks:
-    1. Mark expired shares as deleted
-    2. Reset is_shared flag for items with no active shares
-    3. Log cleanup statistics
-    """
-    logger.info("Starting share expiration cleanup job...")
-    
-    now = datetime.now(timezone.utc)
-    
-    async with get_db() as db:
-        try:
-            # 1. Mark expired shares as deleted
-            result = await execute_sql(
-                db,
-                """
-                UPDATE library_shares
-                SET deleted_at = ?
-                WHERE expires_at IS NOT NULL
-                AND expires_at < ?
-                AND deleted_at IS NULL
-                """,
-                [now, now]
-            )
-            
-            expired_count = result.rowcount if hasattr(result, 'rowcount') else 0
-            logger.info(f"Marked {expired_count} expired shares as deleted")
-            
-            await commit_db(db)
-            
-            # 2. Reset is_shared flag for items with no active shares
-            # Get all items that have is_shared = 1 but no active shares
-            items_to_update = await fetch_all(
-                db,
-                """
-                SELECT li.id
-                FROM library_items li
-                WHERE li.is_shared = 1
-                AND li.deleted_at IS NULL
-                AND NOT EXISTS (
-                    SELECT 1 FROM library_shares ls
-                    WHERE ls.item_id = li.id
-                    AND ls.license_key_id = li.license_key_id
-                    AND ls.deleted_at IS NULL
-                    AND (ls.expires_at IS NULL OR ls.expires_at > ?)
-                )
-                """,
-                [now]
-            )
-            
-            reset_count = 0
-            for item in items_to_update:
-                await execute_sql(
-                    db,
-                    "UPDATE library_items SET is_shared = 0 WHERE id = ?",
-                    [item["id"]]
-                )
-                reset_count += 1
-            
-            await commit_db(db)
-            logger.info(f"Reset is_shared flag for {reset_count} items")
-            
-            logger.info(
-                f"Share cleanup completed: {expired_count} expired shares, "
-                f"{reset_count} items updated"
-            )
-            
-            return {
-                "success": True,
-                "expired_shares": expired_count,
-                "items_updated": reset_count
-            }
-            
-        except Exception as e:
-            logger.error(f"Share cleanup failed: {e}", exc_info=True)
-            return {
-                "success": False,
-                "error": str(e)
-            }
-
-
-# ============================================================================
 # P3-14: SHARE NOTIFICATIONS
 # ============================================================================
 
@@ -374,112 +284,6 @@ async def create_share_revoked_notification(
             return False
 
 
-async def create_share_expiring_soon_notification(
-    license_id: int,
-    item_id: int,
-    item_title: str,
-    user_id: str,
-    expires_at: datetime
-):
-    """
-    Create a notification 3 days before share expires.
-    
-    P3-14: Warn users before their access expires.
-    """
-    now = datetime.now(timezone.utc)
-    days_until_expiry = (expires_at - now).days
-    
-    async with get_db() as db:
-        try:
-            await execute_sql(
-                db,
-                """
-                INSERT INTO notifications
-                (license_key_id, type, priority, title, message, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    license_id,
-                    'library_share_expiring_soon',
-                    'high',
-                    'صلاحية الوصول ستنتهي قريباً',
-                    f'صلاحية الوصول إلى {item_title} ستنتهي خلال {days_until_expiry} أيام',
-                    now
-                ]
-            )
-            await commit_db(db)
-            
-            logger.info(
-                f"Created expiring soon notification for {item_title} "
-                f"(expires in {days_until_expiry} days)"
-            )
-            
-            return True
-        except Exception as e:
-            logger.error(
-                f"Failed to create expiring soon notification: {e}",
-                exc_info=True
-            )
-            return False
-
-
-async def check_expiring_shares():
-    """
-    Daily job to check for shares expiring in 3 days.
-    
-    P3-14: Send advance warning notifications for expiring shares.
-    """
-    logger.info("Checking for expiring shares...")
-    
-    now = datetime.now(timezone.utc)
-    three_days_from_now = now + timedelta(days=3)
-    
-    async with get_db() as db:
-        try:
-            # Find shares expiring in exactly 3 days
-            expiring_shares = await fetch_all(
-                db,
-                """
-                SELECT ls.*, li.title as item_title
-                FROM library_shares ls
-                INNER JOIN library_items li ON ls.item_id = li.id
-                WHERE ls.expires_at IS NOT NULL
-                AND ls.deleted_at IS NULL
-                AND DATE(ls.expires_at) = DATE(?)
-                AND li.deleted_at IS NULL
-                """,
-                [three_days_from_now]
-            )
-            
-            notification_count = 0
-            for share in expiring_shares:
-                success = await create_share_expiring_soon_notification(
-                    license_id=share["license_key_id"],
-                    item_id=share["item_id"],
-                    item_title=share["item_title"],
-                    user_id=share["shared_with_user_id"],
-                    expires_at=share["expires_at"]
-                )
-                if success:
-                    notification_count += 1
-            
-            logger.info(
-                f"Sent {notification_count} expiring share notifications"
-            )
-            
-            return {
-                "success": True,
-                "notifications_sent": notification_count
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to check expiring shares: {e}", exc_info=True)
-            return {
-                "success": False,
-                "error": str(e)
-            }
-
-
 # ============================================================================
 # SCHEDULED JOBS RUNNER
 # ============================================================================
@@ -487,26 +291,20 @@ async def check_expiring_shares():
 async def run_daily_maintenance():
     """
     Run all daily maintenance jobs.
-    
+
     Scheduled to run at 3:00 AM UTC daily.
     """
     logger.info("Starting daily maintenance jobs...")
-    
+
     results = {}
-    
-    # Run share expiration cleanup
-    results['share_cleanup'] = await cleanup_expired_shares()
-    
-    # Check for expiring shares
-    results['expiring_check'] = await check_expiring_shares()
-    
+
     # P5-2: Run anomaly detection (get license IDs first)
     # In production, you'd query all active licenses
     # For now, this would be called per license
     # results['anomaly_detection'] = await detect_share_anomalies(license_id)
-    
+
     logger.info(f"Daily maintenance completed: {results}")
-    
+
     return results
 
 

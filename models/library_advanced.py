@@ -200,15 +200,10 @@ async def share_item(
     license_id: int,
     shared_with_user_id: str,
     permission: str = 'read',
-    created_by: Optional[str] = None,
-    expires_in_days: Optional[int] = None
+    created_by: Optional[str] = None
 ) -> dict:
     """Share a library item with another user"""
     now = datetime.now(timezone.utc)
-    expires_at = None
-
-    if expires_in_days:
-        expires_at = now + timedelta(days=expires_in_days)
 
     async with get_db() as db:
         # Verify item exists
@@ -226,16 +221,15 @@ async def share_item(
             db,
             """
             INSERT INTO library_shares
-            (item_id, license_key_id, shared_with_user_id, permission, created_at, created_by, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (item_id, license_key_id, shared_with_user_id, permission, created_at, created_by)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT (item_id, shared_with_user_id) DO UPDATE SET
                 permission = EXCLUDED.permission,
                 created_at = EXCLUDED.created_at,
                 created_by = EXCLUDED.created_by,
-                expires_at = EXCLUDED.expires_at,
                 deleted_at = NULL
             """,
-            [item_id, license_id, shared_with_user_id, permission, now, created_by, expires_at]
+            [item_id, license_id, shared_with_user_id, permission, now, created_by]
         )
 
         # Mark item as shared
@@ -264,8 +258,7 @@ async def share_item(
         return {
             "item_id": item_id,
             "shared_with": shared_with_user_id,
-            "permission": permission,
-            "expires_at": expires_at
+            "permission": permission
         }
 
 
@@ -275,18 +268,18 @@ async def get_shared_items(
     permission: Optional[str] = None
 ) -> List[dict]:
     """Get items shared with a user
-    
+
     P6-2: Implements caching for better performance.
     """
     # Create cache key
     cache_key = f"{license_id}:{user_id}:{permission or 'all'}"
-    
+
     # Try cache first
     cached = await _get_cached_shared_items(cache_key)
     if cached is not None:
         logger.debug(f"Cache hit for shared items: {cache_key}")
         return cached
-    
+
     async with get_db() as db:
         query = """
             SELECT li.*, ls.permission, ls.expires_at
@@ -303,17 +296,13 @@ async def get_shared_items(
             query += " AND ls.permission = ?"
             params.append(permission)
 
-        # Check expiration
-        query += " AND (ls.expires_at IS NULL OR ls.expires_at > ?)"
-        params.append(datetime.now(timezone.utc))
-
         rows = await fetch_all(db, query, params)
         result = [dict(row) for row in rows]
-        
+
         # Cache the result
         await _cache_shared_items(cache_key, result)
         logger.debug(f"Cached shared items: {cache_key}")
-        
+
         return result
 
 
