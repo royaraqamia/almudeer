@@ -131,6 +131,22 @@ async def share_task(
         except Exception as e:
             logger.warning(f"Failed to create task share notification: {e}")
 
+        # Broadcast WebSocket event to recipient for instant UI update
+        try:
+            from services.websocket_manager import broadcast_task_shared
+            import asyncio
+            asyncio.create_task(
+                broadcast_task_shared(
+                    license_id=license_id,
+                    task_id=task_id,
+                    task_title=task.get("title", "Unknown"),
+                    shared_by=created_by or "Unknown",
+                    permission=permission
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Failed to broadcast task share event: {e}")
+
         return {
             "task_id": task_id,
             "shared_with": shared_with_user_id,

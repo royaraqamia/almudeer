@@ -1261,10 +1261,58 @@ async def broadcast_global_sync(event_name: str):
     Used for global assets like global tasks and global library items.
     """
     manager = get_websocket_manager()
-    
+
     # We want to send this to all active connections
     # The manager has a broadcast method for this
     await manager.broadcast(WebSocketMessage(
         event=event_name,
         data={"timestamp": datetime.utcnow().isoformat(), "global": True}
+    ))
+
+
+async def broadcast_library_shared(
+    license_id: int,
+    item_id: int,
+    item_title: str,
+    shared_by: str,
+    permission: str
+):
+    """
+    Broadcast when a library item is shared with a user.
+    Recipients should refresh their library list to see the new shared item.
+    """
+    manager = get_websocket_manager()
+    await manager.send_to_license(license_id, WebSocketMessage(
+        event="library_shared",
+        data={
+            "timestamp": datetime.utcnow().isoformat(),
+            "item_id": item_id,
+            "item_title": item_title,
+            "shared_by": shared_by,
+            "permission": permission
+        }
+    ))
+
+
+async def broadcast_task_shared(
+    license_id: int,
+    task_id: str,
+    task_title: str,
+    shared_by: str,
+    permission: str
+):
+    """
+    Broadcast when a task is shared with a user.
+    Recipients should refresh their task list to see the new shared task.
+    """
+    manager = get_websocket_manager()
+    await manager.send_to_license(license_id, WebSocketMessage(
+        event="task_shared",
+        data={
+            "timestamp": datetime.utcnow().isoformat(),
+            "task_id": task_id,
+            "task_title": task_title,
+            "shared_by": shared_by,
+            "permission": permission
+        }
     ))

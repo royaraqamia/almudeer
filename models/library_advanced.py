@@ -255,6 +255,22 @@ async def share_item(
         except Exception as e:
             logger.warning(f"Failed to create share notification: {e}")
 
+        # Broadcast WebSocket event to recipient for instant UI update
+        try:
+            from services.websocket_manager import broadcast_library_shared
+            import asyncio
+            asyncio.create_task(
+                broadcast_library_shared(
+                    license_id=license_id,
+                    item_id=item_id,
+                    item_title=item.get("title", "Unknown"),
+                    shared_by=created_by or "Unknown",
+                    permission=permission
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Failed to broadcast library share event: {e}")
+
         return {
             "item_id": item_id,
             "shared_with": shared_with_user_id,
