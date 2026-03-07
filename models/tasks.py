@@ -32,10 +32,10 @@ async def verify_task_access(
         - Shared users: Permission-based access (read/view, edit/edit+view, admin/all)
         - Others: Can only view shared tasks (visibility = 'shared')
     """
-    # Get task
+    # Get task (check both license-specific and global tasks)
     task = await fetch_one(
         db,
-        "SELECT * FROM tasks WHERE id = ? AND license_key_id = ?",
+        "SELECT * FROM tasks WHERE id = ? AND (license_key_id = ? OR license_key_id = 0)",
         [task_id, license_id]
     )
 
