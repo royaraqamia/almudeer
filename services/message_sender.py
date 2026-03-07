@@ -339,9 +339,13 @@ async def _send_via_almudeer(
         # For reply context: fetch the original message being replied to
         reply_to_body_preview = None
         reply_to_sender_name = None
-        reply_to_id = None
+        reply_to_id_val = None
         
-        if reply_to_platform_id:
+        # For Almudeer channel, use reply_to_id from outbox message
+        # For other channels, use reply_to_platform_id
+        reply_identifier = reply_to_platform_id or outbox_msg.get("reply_to_id")
+        
+        if reply_identifier:
             # Fetch the original message details for reply context
             original_msg = await fetch_one(
                 db,
@@ -354,10 +358,10 @@ async def _send_via_almudeer(
                 FROM outbox_messages o
                 WHERE o.id = ?
                 """,
-                [int(reply_to_platform_id) if reply_to_platform_id.isdigit() else reply_to_platform_id]
+                [int(reply_identifier) if str(reply_identifier).isdigit() else reply_identifier]
             )
             if original_msg:
-                reply_to_id = original_msg["id"]
+                reply_to_id_val = original_msg["id"]
                 reply_to_body_preview = original_msg["body"][:100] if original_msg["body"] else ""
                 # For Almudeer internal messages, the sender is "أنا" (Me) from the recipient's perspective
                 reply_to_sender_name = "أنا"
@@ -371,10 +375,10 @@ async def _send_via_almudeer(
             sender_id=sender_id,
             received_at=now,
             attachments=attachments,
-            reply_to_platform_id=reply_to_platform_id,
+            reply_to_platform_id=str(reply_identifier) if reply_identifier else None,
             reply_to_body_preview=reply_to_body_preview,
             reply_to_sender_name=reply_to_sender_name,
-            reply_to_id=reply_to_id,
+            reply_to_id=reply_to_id_val,
             platform_message_id=str(outbox_id),
             platform_status="delivered",
         )
@@ -403,8 +407,8 @@ async def _send_via_almudeer(
         "attachments": attachments or [],
         "is_forwarded": bool(outbox_msg.get("is_forwarded", False)),
         # Reply context
-        "reply_to_id": reply_to_id,
-        "reply_to_platform_id": reply_to_platform_id,
+        "reply_to_id": reply_to_id_val,
+        "reply_to_platform_id": str(reply_identifier) if reply_identifier else None,
         "reply_to_body_preview": reply_to_body_preview,
         "reply_to_sender_name": reply_to_sender_name,
     }
