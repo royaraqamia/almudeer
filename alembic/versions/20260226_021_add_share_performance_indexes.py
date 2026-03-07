@@ -1,7 +1,7 @@
 """Add performance indexes for share queries
 
-Revision ID: 021_add_share_performance_indexes
-Revises: 020_add_device_pairing
+Revision ID: 024_add_share_performance_indexes
+Revises: 023_add_device_pairing
 Create Date: 2026-02-26
 
 P6-1: Performance optimization indexes

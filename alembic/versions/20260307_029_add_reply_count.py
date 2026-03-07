@@ -1,15 +1,15 @@
 """Add reply_count to inbox_messages and outbox_messages tables
 
-Revision ID: 029_add_reply_count
-Revises: 028_add_quran_progress_calculator_history
+Revision ID: 030_add_reply_count
+Revises: 029_add_task_sharing
 Create Date: 2026-03-07
 
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = '029_add_reply_count'
-down_revision = '028_add_quran_progress_calculator_history'
+revision = '030_add_reply_count'
+down_revision = '029_add_task_sharing'
 branch_labels = None
 depends_on = None
 

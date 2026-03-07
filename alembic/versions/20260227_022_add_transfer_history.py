@@ -1,7 +1,7 @@
 """Add transfer history table for tracking file transfers
 
-Revision ID: 022_add_transfer_history
-Revises: 021_add_share_performance_indexes
+Revision ID: 025_add_transfer_history
+Revises: 024_add_share_performance_indexes
 Create Date: 2026-02-27
 
 P3-1/Nearby: Track file transfer history for analytics and monitoring

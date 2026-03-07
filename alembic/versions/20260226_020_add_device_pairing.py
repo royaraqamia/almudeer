@@ -1,7 +1,7 @@
 """Add device pairing table for nearby sharing
 
-Revision ID: 020_add_device_pairing
-Revises: 019_add_share_features
+Revision ID: 023_add_device_pairing
+Revises: 022_add_share_features
 Create Date: 2026-02-26
 
 P3-1/Nearby: Device pairing for trusted transfers

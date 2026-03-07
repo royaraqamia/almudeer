@@ -1,7 +1,7 @@
 """Add task_shares for sharing tasks with other users
 
-Revision ID: 022_add_task_sharing
-Revises: 021_add_share_performance_indexes
+Revision ID: 029_add_task_sharing
+Revises: 028_add_quran_progress_calculator_history
 Create Date: 2026-03-07
 
 P4-2: Share tasks with other users with read/edit/admin permissions
@@ -12,8 +12,8 @@ from typing import Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = '022_add_task_sharing'
-down_revision: Union[str, None] = '021_add_share_performance_indexes'
+revision: str = '029_add_task_sharing'
+down_revision: Union[str, None] = '028_add_quran_progress_calculator_history'
 branch_labels: Union[str, None] = None
 depends_on: Union[str, None] = None
 
