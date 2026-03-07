@@ -221,13 +221,19 @@ async def share_item(
         if not item:
             raise ValueError("Item not found")
 
-        # Create share
+        # Create or update share
         await execute_sql(
             db,
             """
             INSERT INTO library_shares
             (item_id, license_key_id, shared_with_user_id, permission, created_at, created_by, expires_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (item_id, shared_with_user_id) DO UPDATE SET
+                permission = EXCLUDED.permission,
+                created_at = EXCLUDED.created_at,
+                created_by = EXCLUDED.created_by,
+                expires_at = EXCLUDED.expires_at,
+                deleted_at = NULL
             """,
             [item_id, license_id, shared_with_user_id, permission, now, created_by, expires_at]
         )
