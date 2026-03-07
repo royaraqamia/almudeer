@@ -1260,6 +1260,74 @@ async def share_library_item(
         )
 
 
+# P3-14: Static routes must come before parameterized routes in FastAPI
+@router.get("/shared-with-me")
+@limiter.limit("30/minute")
+async def get_shared_with_me(
+    request: Request,
+    license: dict = Depends(get_license_from_header),
+    user: dict = Depends(get_current_user_optional),
+    permission: Optional[str] = Query(None, description="Filter by permission: read, edit, admin")
+):
+    """
+    Get all items shared with the current user.
+
+    P3-14: Returns items that other users have shared with the authenticated user.
+    """
+    from models.library_advanced import get_shared_items
+
+    if not user:
+        logger.warning(f"Unauthenticated request to /api/library/shared-with-me")
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "UNAUTHORIZED",
+                "message_ar": "يجب تسجيل الدخول",
+                "message_en": "Authentication required"
+            }
+        )
+
+    user_id = user.get("user_id")
+
+    logger.info(f"Getting shared items for license={license['license_id']}, user_id={user_id}, permission={permission}")
+
+    if not user_id:
+        logger.error(f"user_id is missing from JWT token: {user}")
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "INVALID_TOKEN",
+                "message_ar": "رمز المستخدم غير صالح",
+                "message_en": "Invalid user token"
+            }
+        )
+
+    try:
+        items = await get_shared_items(
+            license_id=license["license_id"],
+            user_id=user_id,
+            permission=permission
+        )
+
+        logger.info(f"Found {len(items)} shared items for user {user_id}")
+
+        return {
+            "success": True,
+            "items": items,
+            "total": len(items)
+        }
+    except Exception as e:
+        logger.error(f"Failed to get shared items: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "INTERNAL_ERROR",
+                "message_ar": "فشل جلب العناصر المشتركة",
+                "message_en": "Failed to get shared items"
+            }
+        )
+
+
 @router.get("/{item_id}/shares")
 @limiter.limit("30/minute")
 async def list_item_shares(
@@ -1321,73 +1389,6 @@ async def list_item_shares(
         "shares": shares,
         "total": len(shares)
     }
-
-
-@router.get("/shared-with-me")
-@limiter.limit("30/minute")
-async def get_shared_with_me(
-    request: Request,
-    license: dict = Depends(get_license_from_header),
-    user: dict = Depends(get_current_user_optional),
-    permission: Optional[str] = Query(None, description="Filter by permission: read, edit, admin")
-):
-    """
-    Get all items shared with the current user.
-    
-    P3-14: Returns items that other users have shared with the authenticated user.
-    """
-    from models.library_advanced import get_shared_items
-
-    if not user:
-        logger.warning(f"Unauthenticated request to /api/library/shared-with-me")
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "UNAUTHORIZED",
-                "message_ar": "يجب تسجيل الدخول",
-                "message_en": "Authentication required"
-            }
-        )
-
-    user_id = user.get("user_id")
-    
-    logger.info(f"Getting shared items for license={license['license_id']}, user_id={user_id}, permission={permission}")
-
-    if not user_id:
-        logger.error(f"user_id is missing from JWT token: {user}")
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "INVALID_TOKEN",
-                "message_ar": "رمز المستخدم غير صالح",
-                "message_en": "Invalid user token"
-            }
-        )
-
-    try:
-        items = await get_shared_items(
-            license_id=license["license_id"],
-            user_id=user_id,
-            permission=permission
-        )
-        
-        logger.info(f"Found {len(items)} shared items for user {user_id}")
-
-        return {
-            "success": True,
-            "items": items,
-            "total": len(items)
-        }
-    except Exception as e:
-        logger.error(f"Failed to get shared items: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "code": "INTERNAL_ERROR",
-                "message_ar": "فشل جلب العناصر المشتركة",
-                "message_en": "Failed to get shared items"
-            }
-        )
 
 
 @router.delete("/shares/{share_id}")

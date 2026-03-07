@@ -1056,6 +1056,40 @@ async def share_task(
         )
 
 
+# P3-14: Static routes must come before parameterized routes in FastAPI
+@router.get("/shared-with-me")
+async def get_tasks_shared_with_me(
+    permission: Optional[str] = None,
+    license: dict = Depends(get_license_from_header),
+    user: dict = Depends(get_current_user)
+):
+    """Get tasks shared with the current user"""
+    from models.task_shares import get_shared_tasks
+
+    license_id = license["license_id"]
+    user_id = user.get("user_id")
+
+    if not user_id:
+        from logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.error(f"user_id is missing from JWT token: {user}")
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "INVALID_TOKEN",
+                "message_ar": "رمز المستخدم غير صالح",
+                "message_en": "Invalid user token"
+            }
+        )
+
+    tasks = await get_shared_tasks(license_id, user_id, permission)
+    return {
+        "success": True,
+        "tasks": tasks
+    }
+
+
 @router.get("/{task_id}/shares")
 async def get_task_shares(
     task_id: str,
@@ -1196,39 +1230,6 @@ async def update_task_share_permission(
                 "message_en": "Failed to update permission"
             }
         )
-
-
-@router.get("/shared-with-me")
-async def get_tasks_shared_with_me(
-    permission: Optional[str] = None,
-    license: dict = Depends(get_license_from_header),
-    user: dict = Depends(get_current_user)
-):
-    """Get tasks shared with the current user"""
-    from models.task_shares import get_shared_tasks
-
-    license_id = license["license_id"]
-    user_id = user.get("user_id")
-    
-    if not user_id:
-        from logging_config import get_logger
-        logger = get_logger(__name__)
-        logger.error(f"user_id is missing from JWT token: {user}")
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "INVALID_TOKEN",
-                "message_ar": "رمز المستخدم غير صالح",
-                "message_en": "Invalid user token"
-            }
-        )
-
-    tasks = await get_shared_tasks(license_id, user_id, permission)
-    return {
-        "success": True,
-        "tasks": tasks
-    }
 
 
 # ============ Search Endpoint ============
