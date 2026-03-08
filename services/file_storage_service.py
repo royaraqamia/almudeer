@@ -40,7 +40,7 @@ ALLOWED_DOCUMENT_TYPES = [
     'text/plain',
     'text/csv',
 ]
-ALLOWED_AUDIO_TYPES = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4']
+ALLOWED_AUDIO_TYPES = ['audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/mp4']
 ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/mpeg', 'video/quicktime']
 
 
