@@ -339,7 +339,8 @@ async def add_library_item(
     content: Optional[str] = None,
     file_path: Optional[str] = None,
     file_size: Optional[int] = 0,
-    mime_type: Optional[str] = None
+    mime_type: Optional[str] = None,
+    file_hash: Optional[str] = None
 ) -> dict:
     """
     Add a new item to the library.
@@ -357,13 +358,13 @@ async def add_library_item(
         async with lock:
             return await _add_library_item_internal(
                 license_id, item_type, user_id, customer_id,
-                title, content, file_path, file_size, mime_type, now
+                title, content, file_path, file_size, mime_type, file_hash, now
             )
     else:
         # PostgreSQL - uses FOR UPDATE in SQL
         return await _add_library_item_internal(
             license_id, item_type, user_id, customer_id,
-            title, content, file_path, file_size, mime_type, now
+            title, content, file_path, file_size, mime_type, file_hash, now
         )
 
 

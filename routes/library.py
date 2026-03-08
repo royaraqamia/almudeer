@@ -453,10 +453,18 @@ async def upload_file(
         # Still compute hash even without magic
         try:
             import hashlib
+            # Reset to beginning for hashing
+            file.file.seek(0)
             hasher = hashlib.sha256()
-            async for chunk in file.file.iter_chunks(8192):
+            # Read in chunks
+            while True:
+                chunk = file.file.read(8192)
+                if not chunk:
+                    break
                 hasher.update(chunk)
             file_hash = hasher.hexdigest()
+            # Reset to beginning for saving
+            file.file.seek(0)
         except Exception as hash_error:
             logger.warning(f"Failed to compute file hash: {hash_error}")
     except HTTPException:
@@ -464,9 +472,12 @@ async def upload_file(
         raise
     except Exception as e:
         logger.warning(f"Failed to compute file hash or validate content: {e}")
-    
-    # Reset file pointer for saving
-    await file.seek(0)
+
+    # Reset file pointer for saving (in case magic was used)
+    try:
+        file.file.seek(0)
+    except:
+        pass
 
     # Issue #3: Transaction with rollback on failure
     try:
