@@ -11,7 +11,6 @@ SECURITY FIXES:
 """
 
 import secrets
-import hmac
 from fastapi import APIRouter, HTTPException, status, Depends, Request
 from pydantic import BaseModel
 from typing import Optional
@@ -79,8 +78,6 @@ def _validate_content_type(request: Request) -> bool:
 class LoginRequest(BaseModel):
     """Login with license key"""
     license_key: str
-    device_secret: Optional[str] = None  # Raw device secret (will be hashed server-side with pepper)
-    device_secret_hash: Optional[str] = None  # Legacy field name (deprecated, but kept for backwards compatibility during transition)
 
 
 class TokenResponse(BaseModel):
@@ -95,7 +92,6 @@ class TokenResponse(BaseModel):
 class RefreshRequest(BaseModel):
     """Refresh token request"""
     refresh_token: str
-    device_secret: Optional[str] = None  # Raw device secret (will be hashed server-side)
 
 
 # ============ Auth Endpoints ============
@@ -168,89 +164,6 @@ async def login(data: LoginRequest, request: Request):
 
     license_id = result.get("license_id")
 
-    # P0-2 FIX: ALWAYS check for existing device binding, not just when device_secret_hash is provided
-    # This prevents attackers with stolen license keys from bypassing device binding
-    from db_helper import get_db, fetch_one
-    from database import DB_TYPE
-    from security import hash_device_secret
-
-    # Track if we're reusing an existing session (to avoid revoking it)
-    existing_family_id = None
-
-    try:
-        async with get_db() as db:
-            # Check for existing non-revoked sessions with device binding
-            existing_session = await fetch_one(
-                db,
-                "SELECT device_secret_hash, family_id FROM device_sessions WHERE license_key_id = ? AND is_revoked = 0 ORDER BY last_used_at DESC LIMIT 1",
-                [license_id]
-            )
-
-            if existing_session and existing_session.get("device_secret_hash"):
-                stored_hash = existing_session["device_secret_hash"]
-
-                # Device Secret is now OPTIONAL - skip verification if not provided
-                # This improves user experience
-                device_secret_value = data.device_secret or data.device_secret_hash
-                if device_secret_value:
-                    # Verify device secret if provided
-                    computed_hash = hash_device_secret(device_secret_value)
-                    if not hmac.compare_digest(computed_hash, stored_hash):
-                        # Device secret mismatch - allow anyway (might be reinstall)
-                        logger.info(f"Device secret mismatch on login for license {license_id} - allowing anyway")
-
-                    # Update the device_sessions table with the new device secret hash
-                    from db_helper import execute_sql, commit_db
-                    from database import DB_TYPE
-
-                    try:
-                        # Also get the family_id to reuse this session
-                        existing_family_id = existing_session.get("family_id")
-
-                        if DB_TYPE == "postgresql":
-                            await execute_sql(
-                                db,
-                                "UPDATE device_sessions SET device_secret_hash = ?, last_used_at = NOW() WHERE license_key_id = ? AND is_revoked = 0",
-                                [computed_hash, license_id]
-                            )
-                        else:
-                            await execute_sql(
-                                db,
-                                "UPDATE device_sessions SET device_secret_hash = ?, last_used_at = CURRENT_TIMESTAMP WHERE license_key_id = ? AND is_revoked = 0",
-                                [computed_hash, license_id]
-                            )
-                        await commit_db(db)
-                        logger.info(f"Device secret updated successfully for license {license_id}")
-
-                        # FIX: Pass the existing family_id to create_token_pair to reuse this session
-                        # This prevents creating a new session and revoking the one we just updated
-                        family_id = existing_family_id
-                        logger.info(f"Reusing existing session family_id={existing_family_id[:8]}... for license {license_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to update device secret for license {license_id}: {e}")
-                        # Continue anyway - don't block login on DB update failure
-
-                    # Log security event for audit trail (device was re-bound)
-                    security_logger = get_security_logger()
-                    security_logger.log_event(
-                        event_type=SecurityEventType.SECURITY_EVENT,
-                        identifier=str(license_id),
-                        details={
-                            "event": "device_secret_rotated_on_login",
-                            "ip_address": ip_address,
-                            "user_agent": request.headers.get("User-Agent", "Unknown"),
-                            "reason": "mismatch_detected",
-                        }
-                    )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error checking device secret binding: {e}")
-        # SECURITY FIX P1-12: Apply constant-time delay even on DB errors
-        # to prevent timing-based enumeration of error conditions
-        await _apply_constant_time_delay()
-        # Don't block login on validation error, but log it
-
     # On success, clear failed attempts
     record_successful_login(data.license_key)
     record_successful_login(f"ip:{ip_address}")
@@ -258,24 +171,11 @@ async def login(data: LoginRequest, request: Request):
     # Extract metadata
     ip_address = request.client.host if request.client else None
 
-    # Hash device secret with pepper for storage
-    device_secret_hash = None
-    if data.device_secret:
-        from security import hash_device_secret
-        device_secret_hash = hash_device_secret(data.device_secret)
-    elif data.device_secret_hash:
-        # Legacy support: accept pre-hashed value (will be re-hashed with pepper for consistency)
-        # This is safe because we're adding pepper on top
-        from security import hash_device_secret
-        device_secret_hash = hash_device_secret(data.device_secret_hash)
-
     tokens = await create_token_pair(
         user_id=str(result.get("license_id")),
         license_id=result.get("license_id"),
         role="user",
         ip_address=ip_address,
-        family_id=existing_family_id,  # Reuse existing session family_id if available
-        device_secret_hash=device_secret_hash,
         user_agent=request.headers.get("User-Agent")
     )
 
@@ -302,7 +202,6 @@ async def refresh_token(data: RefreshRequest, request: Request):
     result = await refresh_access_token(
         data.refresh_token,
         ip_address,
-        data.device_secret,  # Pass raw device secret (server will hash it)
         user_agent=request.headers.get("User-Agent")
     )
 
@@ -504,146 +403,3 @@ async def logout(
 
 # Removed: Public session management endpoints.
 # Internal session tracking (device_sessions) is preserved for JWT security (RTR).
-
-
-# ============ Device Secret Rotation ============
-
-class DeviceSecretRotateRequest(BaseModel):
-    """Device secret rotation request"""
-    new_device_secret: str
-    # CRITICAL FIX P1-16: Require current device secret for verification
-    current_device_secret: str
-
-
-@router.post("/rotate-device-secret")
-async def rotate_device_secret(
-    data: DeviceSecretRotateRequest,
-    request: Request,
-    user: dict = Depends(get_current_user)
-):
-    """
-    Rotate the device secret for the current session.
-
-    SECURITY: This allows clients to periodically rotate device secrets,
-    limiting the damage if a secret is compromised.
-    
-    CRITICAL FIX P1-16: Now requires current_device_secret for verification
-    before allowing rotation. This prevents attackers with stolen access tokens
-    from rotating the device secret and locking out the legitimate user.
-
-    The new secret must be provided by the client and will be bound to
-    the current session after verification of the current secret.
-    """
-    from db_helper import get_db, fetch_one, execute_sql, commit_db
-    from database import DB_TYPE
-    from security import hash_device_secret
-
-    try:
-        family_id = user.get("family_id")
-        if not family_id:
-            # No session to rotate (legacy token without family_id)
-            # FIX: Don't error - just return success and skip rotation
-            # The user will get a device-bound session on next login/refresh
-            logger.info(f"Device secret rotation skipped for legacy session (user: {user.get('user_id')})")
-            return {"success": True, "message": "Device secret rotation skipped for legacy session", "rotated": False}
-
-        # Validate new device secret format (64 hex chars = 256 bits)
-        new_secret = data.new_device_secret
-        if not new_secret or len(new_secret) != 64:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid device secret format. Must be 64 hex characters"
-            )
-
-        # Ensure all characters are valid hex
-        try:
-            int(new_secret, 16)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Device secret must contain only hexadecimal characters"
-            )
-
-        # CRITICAL FIX P1-16: Validate current device secret before allowing rotation
-        current_secret = data.current_device_secret
-        if not current_secret or len(current_secret) != 64:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Current device secret required for verification"
-            )
-
-        async with get_db() as db:
-            # Fetch current session to verify current device secret
-            session = await fetch_one(
-                db,
-                "SELECT device_secret_hash FROM device_sessions WHERE family_id = ?",
-                [family_id]
-            )
-            
-            stored_hash = session.get("device_secret_hash") if session else None
-            
-            # If session has device binding, verify current secret matches
-            if stored_hash:
-                computed_hash = hash_device_secret(current_secret)
-                if not hmac.compare_digest(computed_hash, stored_hash):
-                    logger.warning(f"Device secret rotation failed: current secret mismatch for family {family_id}")
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Current device secret verification failed"
-                    )
-            else:
-                # Session doesn't have device binding - this is unusual
-                # For security, require the user to re-authenticate
-                logger.warning(f"Device secret rotation attempted for unbound session {family_id}")
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Cannot rotate device secret for session without device binding"
-                )
-
-            # Hash the new secret with pepper
-            new_hash = hash_device_secret(new_secret)
-
-            # Update the session with the new device secret hash
-            if DB_TYPE == "postgresql":
-                await execute_sql(
-                    db,
-                    """UPDATE device_sessions
-                       SET device_secret_hash = ?,
-                           last_used_at = CURRENT_TIMESTAMP
-                       WHERE family_id = ?""",
-                    [new_hash, family_id]
-                )
-            else:
-                await execute_sql(
-                    db,
-                    """UPDATE device_sessions
-                       SET device_secret_hash = ?,
-                           last_used_at = CURRENT_TIMESTAMP
-                       WHERE family_id = ?""",
-                    [new_hash, family_id]
-                )
-            await commit_db(db)
-
-        # Log the rotation
-        security_logger = get_security_logger()
-        security_logger.log_security_event(
-            user.get('user_id'),
-            "device_secret_rotated",
-            {"family_id": family_id}
-        )
-
-        logger.info(f"Device secret rotated for user {user.get('user_id')}, family {family_id}")
-
-        return {
-            "success": True,
-            "message": "Device secret rotated successfully"
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Device secret rotation failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to rotate device secret"
-        )

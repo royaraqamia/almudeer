@@ -6,7 +6,6 @@ Production-ready JWT authentication with access/refresh tokens
 import os
 import secrets
 import hashlib
-import hmac
 import uuid
 import time
 from datetime import datetime, timedelta, timezone
@@ -197,13 +196,11 @@ async def create_token_pair(
     role: str = "user",
     ip_address: str = None,
     family_id: str = None,
-    device_secret_hash: str = None,
     user_agent: str = None,
-    skip_session_revoke: bool = False  # FIX: Allow skipping session revocation when updating existing session
 ) -> Dict[str, Any]:
     """
     Create both access and refresh tokens. Track device session.
-    
+
     SECURITY FIX #7: Enforce concurrent session limits per license.
     """
     # Fetch current token_version for the license to embed in JWT
@@ -281,30 +278,30 @@ async def create_token_pair(
                     if DB_TYPE == "postgresql":
                         await execute_sql(db, """
                             INSERT INTO device_sessions
-                            (license_key_id, family_id, refresh_token_jti, ip_address, expires_at, device_secret_hash, device_name, location, user_agent)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, [license_id, family_id, refresh_jti, ip_address, expires_db, device_secret_hash, device_name, location, user_agent])
+                            (license_key_id, family_id, refresh_token_jti, ip_address, expires_at, device_name, location, user_agent)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """, [license_id, family_id, refresh_jti, ip_address, expires_db, device_name, location, user_agent])
                     else:
                         await execute_sql(db, """
                             INSERT INTO device_sessions
-                            (license_key_id, family_id, refresh_token_jti, ip_address, expires_at, device_secret_hash, device_name, location, user_agent)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, [license_id, family_id, refresh_jti, ip_address, expires_db.isoformat(), device_secret_hash, device_name, location, user_agent])
+                            (license_key_id, family_id, refresh_token_jti, ip_address, expires_at, device_name, location, user_agent)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """, [license_id, family_id, refresh_jti, ip_address, expires_db.isoformat(), device_name, location, user_agent])
                 else:
                     if DB_TYPE == "postgresql":
                         await execute_sql(db, """
                             UPDATE device_sessions
-                            SET refresh_token_jti = ?, last_used_at = NOW(), expires_at = ?, ip_address = COALESCE(?, ip_address), device_secret_hash = ?,
+                            SET refresh_token_jti = ?, last_used_at = NOW(), expires_at = ?, ip_address = COALESCE(?, ip_address),
                                 device_name = COALESCE(?, device_name), location = COALESCE(?, location), user_agent = COALESCE(?, user_agent)
                             WHERE family_id = ?
-                        """, [refresh_jti, expires_db, ip_address, device_secret_hash, device_name, location, user_agent, family_id])
+                        """, [refresh_jti, expires_db, ip_address, device_name, location, user_agent, family_id])
                     else:
                         await execute_sql(db, """
                             UPDATE device_sessions
-                            SET refresh_token_jti = ?, last_used_at = CURRENT_TIMESTAMP, expires_at = ?, ip_address = COALESCE(?, ip_address), device_secret_hash = ?,
+                            SET refresh_token_jti = ?, last_used_at = CURRENT_TIMESTAMP, expires_at = ?, ip_address = COALESCE(?, ip_address),
                                 device_name = COALESCE(?, device_name), location = COALESCE(?, location), user_agent = COALESCE(?, user_agent)
                             WHERE family_id = ?
-                        """, [refresh_jti, expires_db.isoformat(), ip_address, device_secret_hash, device_name, location, user_agent, family_id])
+                        """, [refresh_jti, expires_db.isoformat(), ip_address, device_name, location, user_agent, family_id])
 
                 await commit_db(db)
                 
@@ -413,7 +410,6 @@ def verify_token(token: str, token_type: str = TokenType.ACCESS) -> Optional[Dic
 async def refresh_access_token(
     refresh_token: str,
     ip_address: str = None,
-    device_secret: str = None,  # Raw device secret from client (will be hashed server-side)
     user_agent: str = None
 ) -> Optional[Dict[str, Any]]:
     """
@@ -524,20 +520,6 @@ async def refresh_access_token(
                     user_agent=user_agent
                 )
 
-            # Device Secret Binding - OPTIONAL (disabled for better UX)
-            # Users can still refresh tokens without providing device_secret
-            # This improves user experience while refresh tokens still provide security
-            stored_hash = session.get("device_secret_hash")
-
-            # Device secret verification is now optional - skip if not provided
-            # This prevents users from being logged out unexpectedly
-            if stored_hash and device_secret:
-                from security import hash_device_secret
-                computed_hash = hash_device_secret(device_secret)
-                if not hmac.compare_digest(computed_hash, stored_hash):
-                    logger.warning(f"Refresh: Invalid device_secret for session {family_id}")
-                    # Don't reject - device_secret mismatch might be due to reinstall
-
             if session["refresh_token_jti"] != jti:
                 # Token rotation detected (legitimate: new token issued)
                 # Instead of revoking, just allow the new token to work
@@ -550,22 +532,6 @@ async def refresh_access_token(
                     await execute_sql(db, "UPDATE device_sessions SET refresh_token_jti = ? WHERE family_id = ?", [jti, family_id])
                 await commit_db(db)
 
-            # FIX: Upgrade legacy sessions to bound sessions if device_secret provided
-            effective_device_hash = stored_hash
-            if not stored_hash and device_secret:
-                # This is a legacy session upgrading to device-bound
-                # SECURITY FIX: Use peppered hash for device binding
-                from security import hash_device_secret
-                effective_device_hash = hash_device_secret(device_secret)
-                # Update the session with the new binding
-                await execute_sql(
-                    db,
-                    "UPDATE device_sessions SET device_secret_hash = ? WHERE family_id = ?",
-                    [effective_device_hash, family_id]
-                )
-                await commit_db(db)
-                logger.info(f"Upgraded legacy session {family_id} to device-bound")
-
             # Valid rotation
             return await create_token_pair(
                 user_id=payload.get("sub"),
@@ -573,7 +539,6 @@ async def refresh_access_token(
                 role=payload.get("role", "user"),
                 ip_address=ip_address,
                 family_id=family_id,
-                device_secret_hash=effective_device_hash, # Keep the binding alive on rotation
                 user_agent=user_agent
             )
 

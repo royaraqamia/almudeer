@@ -59,7 +59,6 @@ async def init_database():
                 "ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE",
                 "ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP",
                 "ALTER TABLE license_keys ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 1",
-                "ALTER TABLE device_sessions ADD COLUMN IF NOT EXISTS device_secret_hash VARCHAR(255)",
                 "ALTER TABLE device_sessions ADD COLUMN IF NOT EXISTS device_name VARCHAR(255)",
                 "ALTER TABLE device_sessions ADD COLUMN IF NOT EXISTS location VARCHAR(255)",
                 "ALTER TABLE device_sessions ADD COLUMN IF NOT EXISTS user_agent TEXT"
@@ -85,9 +84,6 @@ async def init_database():
             except: pass
             try:
                 await execute_sql(conn, "ALTER TABLE license_keys ADD COLUMN token_version INTEGER DEFAULT 1")
-            except: pass
-            try:
-                await execute_sql(conn, "ALTER TABLE device_sessions ADD COLUMN device_secret_hash VARCHAR(255)")
             except: pass
             try:
                 await execute_sql(conn, "ALTER TABLE device_sessions ADD COLUMN device_name VARCHAR(255)")
@@ -282,7 +278,6 @@ async def _init_sqlite_tables(db):
             last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             expires_at TIMESTAMP NOT NULL,
             is_revoked BOOLEAN DEFAULT FALSE,
-            device_secret_hash VARCHAR(255),
             device_name VARCHAR(255),
             location VARCHAR(255),
             user_agent TEXT,
@@ -339,7 +334,6 @@ async def _init_postgresql_tables(conn):
             last_used_at TIMESTAMP DEFAULT NOW(),
             expires_at TIMESTAMP NOT NULL,
             is_revoked BOOLEAN DEFAULT FALSE,
-            device_secret_hash VARCHAR(255),
             device_name VARCHAR(255),
             location VARCHAR(255),
             user_agent TEXT
