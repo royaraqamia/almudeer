@@ -272,8 +272,10 @@ async def get_tasks(
     async with get_db() as db:
         # P4-2: Include tasks shared with user via task_shares
         # Use UNION instead of DISTINCT to avoid ORDER BY issues
+        # FIX: Only return share_permission for tasks shared WITH the user (not owned by user)
         base_query = """
-            SELECT t.*, ts.permission as share_permission
+            SELECT t.*, 
+                   CASE WHEN t.created_by = ? THEN NULL ELSE ts.permission END as share_permission
             FROM tasks t
             LEFT JOIN task_shares ts ON t.id = ts.task_id
                 AND ts.shared_with_user_id = ?
@@ -286,7 +288,7 @@ async def get_tasks(
                 OR ts.id IS NOT NULL
             )
         """
-        params = [user_id, license_id, license_id, user_id]
+        params = [user_id, user_id, license_id, license_id, user_id]
 
         # Cursor-based pagination (more efficient for large datasets)
         if cursor:
