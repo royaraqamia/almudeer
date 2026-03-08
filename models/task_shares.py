@@ -4,6 +4,7 @@ Task Sharing Model Functions
 P4-2: Share tasks with other users with read/edit/admin permissions.
 Replaces old assigned_to field with proper share-based model.
 """
+import asyncio
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db, DB_TYPE
@@ -15,49 +16,61 @@ logger = logging.getLogger(__name__)
 _shared_tasks_cache: dict = {}
 _SHARED_TASKS_CACHE_TTL = 300  # 5 minutes
 _MAX_CACHE_SIZE = 100  # Maximum number of cache entries
+_cache_lock = asyncio.Lock()  # Thread-safe cache operations
+
+
+async def _safe_broadcast(coro, description: str):
+    """Wrapper to catch exceptions from background broadcast tasks"""
+    try:
+        await coro
+    except Exception as e:
+        logger.warning(f"Failed to {description}: {e}", exc_info=True)
 
 
 async def _get_cached_shared_tasks(cache_key: str) -> Optional[List[dict]]:
     """Get cached shared tasks if not expired"""
-    if cache_key in _shared_tasks_cache:
-        cache_entry = _shared_tasks_cache[cache_key]
-        if datetime.now(timezone.utc).timestamp() - cache_entry["timestamp"] < _SHARED_TASKS_CACHE_TTL:
-            return cache_entry["data"]
+    async with _cache_lock:
+        if cache_key in _shared_tasks_cache:
+            cache_entry = _shared_tasks_cache[cache_key]
+            if datetime.now(timezone.utc).timestamp() - cache_entry["timestamp"] < _SHARED_TASKS_CACHE_TTL:
+                return cache_entry["data"]
     return None
 
 
 async def _cache_shared_tasks(cache_key: str, data: List[dict]):
     """Cache shared tasks with size limit to prevent memory leak"""
-    # Enforce maximum cache size - evict oldest entries if at limit
-    if len(_shared_tasks_cache) >= _MAX_CACHE_SIZE:
-        # Find and remove oldest entry
-        oldest_key = None
-        oldest_timestamp = float('inf')
-        for key, entry in _shared_tasks_cache.items():
-            if entry["timestamp"] < oldest_timestamp:
-                oldest_timestamp = entry["timestamp"]
-                oldest_key = key
-        if oldest_key:
-            del _shared_tasks_cache[oldest_key]
+    async with _cache_lock:
+        # Enforce maximum cache size - evict oldest entries if at limit
+        if len(_shared_tasks_cache) >= _MAX_CACHE_SIZE:
+            # Find and remove oldest entry
+            oldest_key = None
+            oldest_timestamp = float('inf')
+            for key, entry in _shared_tasks_cache.items():
+                if entry["timestamp"] < oldest_timestamp:
+                    oldest_timestamp = entry["timestamp"]
+                    oldest_key = key
+            if oldest_key:
+                del _shared_tasks_cache[oldest_key]
 
-    _shared_tasks_cache[cache_key] = {
-        "data": data,
-        "timestamp": datetime.now(timezone.utc).timestamp()
-    }
+        _shared_tasks_cache[cache_key] = {
+            "data": data,
+            "timestamp": datetime.now(timezone.utc).timestamp()
+        }
 
 
 async def _invalidate_shared_tasks_cache(license_id: int, user_id: Optional[str] = None):
     """Invalidate shared tasks cache"""
-    # Invalidate all permission levels for this user
-    if user_id:
-        for perm in ['read', 'edit', 'admin', 'all']:
-            cache_key = f"{license_id}:{user_id}:{perm}"
-            _shared_tasks_cache.pop(cache_key, None)
-    else:
-        # Invalidate all caches for this license (expensive, use sparingly)
-        keys_to_delete = [k for k in _shared_tasks_cache.keys() if k.startswith(f"{license_id}:")]
-        for key in keys_to_delete:
-            del _shared_tasks_cache[key]
+    async with _cache_lock:
+        # Invalidate all permission levels for this user
+        if user_id:
+            for perm in ['read', 'edit', 'admin', 'all']:
+                cache_key = f"{license_id}|{user_id}|{perm}"
+                _shared_tasks_cache.pop(cache_key, None)
+        else:
+            # Invalidate all caches for this license (expensive, use sparingly)
+            keys_to_delete = [k for k in _shared_tasks_cache.keys() if k.startswith(f"{license_id}|")]
+            for key in keys_to_delete:
+                del _shared_tasks_cache[key]
 
 
 async def share_task(
@@ -99,6 +112,10 @@ async def share_task(
                 raise ValueError(f"User '{shared_with_user_id}' not found")
             recipient_user_id = str(license_row['id'])
             logger.debug(f"Resolved username '{shared_with_user_id}' to user_id '{recipient_user_id}'")
+
+        # Prevent self-sharing
+        if created_by and recipient_user_id == created_by:
+            raise ValueError("Cannot share a task with yourself")
 
         # Check if share already exists (update instead)
         existing = await fetch_one(
@@ -175,25 +192,27 @@ async def share_task(
         # Broadcast WebSocket event to recipient for instant UI update
         try:
             from services.websocket_manager import broadcast_task_shared
-            import asyncio
 
             # Recipient's license ID is the resolved user_id
             recipient_license_id = int(recipient_user_id) if recipient_user_id.isdigit() else None
 
             if recipient_license_id:
                 asyncio.create_task(
-                    broadcast_task_shared(
-                        license_id=recipient_license_id,
-                        task_id=task_id,
-                        task_title=task.get("title", "Unknown"),
-                        shared_by=created_by or "Unknown",
-                        permission=permission
+                    _safe_broadcast(
+                        broadcast_task_shared(
+                            license_id=recipient_license_id,
+                            task_id=task_id,
+                            task_title=task.get("title", "Unknown"),
+                            shared_by=created_by or "Unknown",
+                            permission=permission
+                        ),
+                        "broadcast task share event"
                     )
                 )
             else:
                 logger.warning(f"Could not find recipient license for username: {shared_with_user_id}")
         except Exception as e:
-            logger.warning(f"Failed to broadcast task share event: {e}")
+            logger.warning(f"Failed to queue broadcast task share event: {e}")
 
         return {
             "task_id": task_id,
@@ -209,7 +228,7 @@ async def get_shared_tasks(
 ) -> List[dict]:
     """Get tasks shared with a user"""
     # Create cache key
-    cache_key = f"{license_id}:{user_id}:{permission or 'all'}"
+    cache_key = f"{license_id}|{user_id}|{permission or 'all'}"
 
     # Try cache first
     cached = await _get_cached_shared_tasks(cache_key)

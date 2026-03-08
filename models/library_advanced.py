@@ -5,13 +5,14 @@ P3-14: Sharing
 P3-15: Analytics
 """
 
+import asyncio
 import os
 import json
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
 from functools import lru_cache
-from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db
+from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db, DB_TYPE
 
 logger = logging.getLogger(__name__)
 
@@ -19,45 +20,57 @@ logger = logging.getLogger(__name__)
 _shared_items_cache: Dict[str, Dict[str, Any]] = {}
 _SHARED_ITEMS_CACHE_TTL = 300  # 5 minutes
 _MAX_CACHE_SIZE = 100  # Maximum number of cache entries to prevent memory leak
+_cache_lock = asyncio.Lock()  # Thread-safe cache operations
+
+
+async def _safe_broadcast(coro, description: str):
+    """Wrapper to catch exceptions from background broadcast tasks"""
+    try:
+        await coro
+    except Exception as e:
+        logger.warning(f"Failed to {description}: {e}", exc_info=True)
 
 
 async def _get_cached_shared_items(cache_key: str) -> Optional[List[dict]]:
     """Get cached shared items if not expired"""
-    if cache_key in _shared_items_cache:
-        cache_entry = _shared_items_cache[cache_key]
-        if datetime.now(timezone.utc).timestamp() - cache_entry["timestamp"] < _SHARED_ITEMS_CACHE_TTL:
-            return cache_entry["data"]
+    async with _cache_lock:
+        if cache_key in _shared_items_cache:
+            cache_entry = _shared_items_cache[cache_key]
+            if datetime.now(timezone.utc).timestamp() - cache_entry["timestamp"] < _SHARED_ITEMS_CACHE_TTL:
+                return cache_entry["data"]
     return None
 
 
 async def _cache_shared_items(cache_key: str, data: List[dict]):
     """Cache shared items with size limit to prevent memory leak"""
-    # FIX: Enforce maximum cache size - evict oldest entries if at limit
-    if len(_shared_items_cache) >= _MAX_CACHE_SIZE:
-        # Find and remove oldest entries (simple eviction strategy)
-        oldest_key = None
-        oldest_timestamp = float('inf')
-        for key, entry in _shared_items_cache.items():
-            if entry["timestamp"] < oldest_timestamp:
-                oldest_timestamp = entry["timestamp"]
-                oldest_key = key
-        if oldest_key:
-            del _shared_items_cache[oldest_key]
-    
-    _shared_items_cache[cache_key] = {
-        "data": data,
-        "timestamp": datetime.now(timezone.utc).timestamp()
-    }
+    async with _cache_lock:
+        # FIX: Enforce maximum cache size - evict oldest entries if at limit
+        if len(_shared_items_cache) >= _MAX_CACHE_SIZE:
+            # Find and remove oldest entries (simple eviction strategy)
+            oldest_key = None
+            oldest_timestamp = float('inf')
+            for key, entry in _shared_items_cache.items():
+                if entry["timestamp"] < oldest_timestamp:
+                    oldest_timestamp = entry["timestamp"]
+                    oldest_key = key
+            if oldest_key:
+                del _shared_items_cache[oldest_key]
+
+        _shared_items_cache[cache_key] = {
+            "data": data,
+            "timestamp": datetime.now(timezone.utc).timestamp()
+        }
 
 
 async def _invalidate_shared_items_cache(license_id: int, user_id: Optional[str] = None):
     """Invalidate shared items cache for a license or user"""
-    keys_to_remove = [
-        key for key in _shared_items_cache.keys()
-        if key.startswith(f"{license_id}:") and (user_id is None or user_id in key)
-    ]
-    for key in keys_to_remove:
-        del _shared_items_cache[key]
+    async with _cache_lock:
+        keys_to_remove = [
+            key for key in _shared_items_cache.keys()
+            if key.startswith(f"{license_id}|") and (user_id is None or user_id in key.split('|')[1])
+        ]
+        for key in keys_to_remove:
+            del _shared_items_cache[key]
 
 
 # ============================================================================
@@ -235,6 +248,10 @@ async def share_item(
             recipient_user_id = str(license_row['id'])
             logger.debug(f"Resolved username '{shared_with_user_id}' to user_id '{recipient_user_id}'")
 
+        # Prevent self-sharing
+        if created_by and recipient_user_id == created_by:
+            raise ValueError("Cannot share an item with yourself")
+
         # Create or update share
         await execute_sql(
             db,
@@ -277,25 +294,27 @@ async def share_item(
         # Broadcast WebSocket event to recipient for instant UI update
         try:
             from services.websocket_manager import broadcast_library_shared
-            import asyncio
 
             # Recipient's license ID is the resolved user_id
             recipient_license_id = int(recipient_user_id) if recipient_user_id.isdigit() else None
 
             if recipient_license_id:
                 asyncio.create_task(
-                    broadcast_library_shared(
-                        license_id=recipient_license_id,
-                        item_id=item_id,
-                        item_title=item.get("title", "Unknown"),
-                        shared_by=created_by or "Unknown",
-                        permission=permission
+                    _safe_broadcast(
+                        broadcast_library_shared(
+                            license_id=recipient_license_id,
+                            item_id=item_id,
+                            item_title=item.get("title", "Unknown"),
+                            shared_by=created_by or "Unknown",
+                            permission=permission
+                        ),
+                        "broadcast library share event"
                     )
                 )
             else:
                 logger.warning(f"Could not find recipient license for user_id: {recipient_user_id}")
         except Exception as e:
-            logger.warning(f"Failed to broadcast library share event: {e}")
+            logger.warning(f"Failed to queue broadcast library share event: {e}")
 
         return {
             "item_id": item_id,
@@ -314,7 +333,7 @@ async def get_shared_items(
     P6-2: Implements caching for better performance.
     """
     # Create cache key
-    cache_key = f"{license_id}:{user_id}:{permission or 'all'}"
+    cache_key = f"{license_id}|{user_id}|{permission or 'all'}"
 
     # Try cache first
     cached = await _get_cached_shared_items(cache_key)
