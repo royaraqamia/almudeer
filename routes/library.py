@@ -18,6 +18,7 @@ Fixes applied:
 """
 
 import os
+import io
 import uuid
 import shutil
 import logging
@@ -284,12 +285,13 @@ async def upload_file(
     """
     user_id = user.get("user_id") if user else None
     relative_path = None  # Track for cleanup on failure
-    
+
     # Get file size FIRST before any processing (Issue #1)
+    # Note: UploadFile in Starlette/FastAPI requires async seek
     try:
-        file.seek(0, 2)
+        await file.seek(0, io.SEEK_END)
         file_size = file.tell()
-        file.seek(0)
+        await file.seek(0)
     except Exception as e:
         logger.error(f"Failed to get file size: {e}")
         raise HTTPException(
