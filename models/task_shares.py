@@ -155,6 +155,9 @@ async def share_task(
 
         await commit_db(db)
 
+        # Invalidate cache for the recipient so they see the shared task immediately
+        await _invalidate_shared_tasks_cache(license_id, recipient_user_id)
+
         # P4-2: Create notification for recipient
         try:
             from workers import create_task_share_notification
