@@ -102,9 +102,9 @@ async def upload_attachment(
 
     # Get file size
     try:
-        file._file.seek(0, 2)  # Seek to end
-        file_size = file._file.tell()
-        file._file.seek(0)  # Reset to beginning
+        file.file.seek(0, 2)  # Seek to end
+        file_size = file.file.tell()
+        file.file.seek(0)  # Reset to beginning
     except Exception as e:
         logger.error(f"Failed to get file size: {e}")
         raise HTTPException(400, detail="Failed to read file size")

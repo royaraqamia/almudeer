@@ -286,11 +286,11 @@ async def upload_file(
     relative_path = None  # Track for cleanup on failure
 
     # Get file size FIRST before any processing (Issue #1)
-    # Note: UploadFile._file is a SpooledTemporaryFile that supports seek with whence
+    # Note: UploadFile.file is the underlying SpooledTemporaryFile
     try:
-        file._file.seek(0, 2)  # Seek to end
-        file_size = file._file.tell()
-        file._file.seek(0)  # Reset to beginning
+        file.file.seek(0, 2)  # Seek to end
+        file_size = file.file.tell()
+        file.file.seek(0)  # Reset to beginning
     except Exception as e:
         logger.error(f"Failed to get file size: {e}")
         raise HTTPException(
