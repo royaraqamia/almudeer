@@ -60,6 +60,7 @@ async def list_documents(
         formatted_docs.append({
             "id": str(item["id"]),
             "text": item["text"] or item["file_path"],
+            "file_path": item["file_path"],
             "metadata": {
                 "source": item["source"],
                 "created_at": str(item["created_at"])
