@@ -13,10 +13,12 @@ WORKDIR /app
 
 # Install system dependencies
 # libssl-dev and build-essential are CRITICAL for telethon/cryptg
+# libmagic1 is required for python-magic (file content validation)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libssl-dev \
     gcc \
+    libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python dependencies
