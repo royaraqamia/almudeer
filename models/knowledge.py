@@ -120,7 +120,7 @@ async def update_knowledge_document(
             return None
 
         # Check if it's a text document (not a file)
-        if doc.get("source") != 'manual' or doc.get("file_path"):
+        if doc.get("source") not in ['manual', 'mobile_app'] or doc.get("file_path"):
             return None
 
         now = datetime.utcnow()
