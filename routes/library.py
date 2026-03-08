@@ -27,7 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Q
 from pydantic import BaseModel, Field, validator
 
 from dependencies import get_license_from_header
-from services.jwt_auth import get_current_user_optional
+from services.jwt_auth import get_current_user, get_current_user_optional
 from models.library import (
     get_library_items,
     get_library_item,
