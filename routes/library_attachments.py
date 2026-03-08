@@ -4,7 +4,6 @@ P3-12: Multiple attachments per library item
 """
 
 import os
-import io
 import logging
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
@@ -103,9 +102,9 @@ async def upload_attachment(
 
     # Get file size
     try:
-        await file.seek(0, io.SEEK_END)
-        file_size = file.tell()
-        await file.seek(0)
+        file._file.seek(0, 2)  # Seek to end
+        file_size = file._file.tell()
+        file._file.seek(0)  # Reset to beginning
     except Exception as e:
         logger.error(f"Failed to get file size: {e}")
         raise HTTPException(400, detail="Failed to read file size")
