@@ -1423,12 +1423,13 @@ async def remove_library_share(
 ):
     """
     Remove a share (revoke access).
-    
+
     P3-14: Revoke sharing access for a specific user.
-    Only the share creator or item owner can remove a share.
+    PERMISSION: Only item owner, admin users, or share creator can remove a share.
     """
     from models.library_advanced import remove_share
-    
+    from utils.permissions import get_effective_permission, can_perform_action, ResourceAction
+
     if not user:
         raise HTTPException(
             status_code=401,
@@ -1438,22 +1439,22 @@ async def remove_library_share(
                 "message_en": "Authentication required"
             }
         )
-    
+
     user_id = user.get("user_id")
-    
+
     # Verify share exists and user has permission to remove it
     async with get_db() as db:
         share = await fetch_one(
             db,
             """
-            SELECT ls.*, li.created_by as item_owner
+            SELECT ls.*, li.created_by as item_owner, li.user_id as item_creator
             FROM library_shares ls
             INNER JOIN library_items li ON ls.item_id = li.id
             WHERE ls.id = ? AND ls.license_key_id = ?
             """,
             [share_id, license["license_id"]]
         )
-        
+
         if not share:
             raise HTTPException(
                 status_code=404,
@@ -1463,20 +1464,53 @@ async def remove_library_share(
                     "message_en": "Share not found"
                 }
             )
+
+        # PERMISSION CHECK: Verify user can revoke this share
+        item_owner = share.get('item_owner') or share.get('item_creator')
+        is_owner = user_id == item_owner
         
-        # Only share creator or item owner can remove share
-        if share.get("created_by") != user_id and share.get("item_owner") != user_id:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "code": "FORBIDDEN",
-                    "message_ar": "لا تملك صلاحية إزالة هذه المشاركة",
-                    "message_en": "You don't have permission to remove this share"
-                }
-            )
-    
+        if not is_owner:
+            # Check if user is the share creator (can revoke their own share if admin)
+            if user_id == share.get('created_by'):
+                # Share creator can only revoke if they're admin on this item
+                share_permission = share.get('permission', 'read')
+                effective_permission = get_effective_permission(share_permission, False)
+                
+                if not can_perform_action(ResourceAction.MANAGE_SHARES, effective_permission):
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "code": "FORBIDDEN",
+                            "message_ar": "ليس لديك صلاحية إزالة هذه المشاركة. فقط المدير أو المالك يمكنه ذلك.",
+                            "message_en": "You don't have permission to remove this share. Only admin or owner can do this."
+                        }
+                    )
+            elif user_id == share.get('shared_with_user_id'):
+                # User is trying to revoke their own access - only allowed if admin
+                share_permission = share.get('permission', 'read')
+                effective_permission = get_effective_permission(share_permission, False)
+                
+                if not can_perform_action(ResourceAction.MANAGE_SHARES, effective_permission):
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "code": "FORBIDDEN",
+                            "message_ar": "ليس لديك صلاحية إزالة هذه المشاركة. فقط المدير أو المالك يمكنه ذلك.",
+                            "message_en": "You don't have permission to remove this share. Only admin or owner can do this."
+                        }
+                    )
+            else:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "FORBIDDEN",
+                        "message_ar": "ليس لديك صلاحية إزالة هذه المشاركة",
+                        "message_en": "You don't have permission to remove this share"
+                    }
+                )
+
     try:
-        success = await remove_share(share_id, license["license_id"], revoked_by=user_id)
+        success = await remove_share(share_id, license["license_id"], revoked_by=user_id, requested_by_user_id=user_id)
         
         if success:
             return {

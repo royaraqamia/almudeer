@@ -3,6 +3,11 @@ Al-Mudeer - Library Advanced Features Models
 P3-13: Versioning
 P3-14: Sharing
 P3-15: Analytics
+
+Permission Levels:
+- read: Can VIEW only. Cannot edit, share, or delete.
+- edit: Can VIEW, EDIT, and SHARE. Cannot DELETE.
+- admin: Full access - VIEW, EDIT, SHARE, DELETE (same as owner).
 """
 
 import asyncio
@@ -13,6 +18,14 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
 from functools import lru_cache
 from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db, DB_TYPE
+from utils.share_utils import resolve_username_to_user_id_with_db, validate_share_permission
+from utils.permissions import (
+    PermissionLevel,
+    ResourceAction,
+    can_perform_action,
+    get_effective_permission,
+    validate_permission_for_action,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -215,60 +228,58 @@ async def share_item(
     permission: str = 'read',
     created_by: Optional[str] = None
 ) -> dict:
-    """Share a library item with another user"""
+    """Share a library item with another user
+    
+    SEC-002 FIX: Added self-share prevention (was missing).
+    AUTH-001 FIX: Uses shared utility for username resolution.
+    DATA-001 FIX: ON CONFLICT no longer re-activates revoked shares.
+    DATA-002 FIX: is_shared update is now atomic within same transaction.
+    """
     now = datetime.now(timezone.utc)
+
+    # Validate permission level
+    if not validate_share_permission(permission):
+        raise ValueError(f"Invalid permission: {permission}. Must be 'read', 'edit', or 'admin'")
 
     async with get_db() as db:
         # Verify item exists
         item = await fetch_one(
             db,
-            "SELECT id, title FROM library_items WHERE id = ? AND license_key_id = ? AND deleted_at IS NULL",
+            "SELECT id, title, created_by FROM library_items WHERE id = ? AND license_key_id = ? AND deleted_at IS NULL",
             [item_id, license_id]
         )
 
         if not item:
             raise ValueError("Item not found")
 
-        # Resolve username to license_id (user_id) if needed
-        # shared_with_user_id can be either a username or a license_id
-        # We need to store the license_id as user_id for consistent matching
-        recipient_user_id = shared_with_user_id
-        
-        # Check if it's a username (not a numeric license_id)
-        if not shared_with_user_id.isdigit():
-            # Look up the license_id by username
-            is_active_value = "TRUE" if DB_TYPE == "postgresql" else "1"
-            license_row = await fetch_one(
-                db,
-                f"SELECT id FROM license_keys WHERE username = ? AND is_active = {is_active_value}",
-                [shared_with_user_id]
-            )
-            if not license_row:
-                raise ValueError(f"User '{shared_with_user_id}' not found")
-            recipient_user_id = str(license_row['id'])
-            logger.debug(f"Resolved username '{shared_with_user_id}' to user_id '{recipient_user_id}'")
+        # AUTH-001 FIX: Use shared utility for username resolution
+        recipient_user_id, _ = await resolve_username_to_user_id_with_db(shared_with_user_id, db)
 
-        # Prevent self-sharing
-        if created_by and recipient_user_id == created_by:
+        # SEC-002 FIX: Prevent self-sharing - check against item owner
+        # This check happens AFTER resolution to ensure we compare actual user IDs
+        item_owner_id = item.get('created_by') or created_by
+        if recipient_user_id == item_owner_id:
             raise ValueError("Cannot share an item with yourself")
 
-        # Create or update share
+        # DATA-001 FIX: Don't re-activate revoked shares
+        # If share exists and is active (deleted_at IS NULL), update it
+        # If share was revoked (deleted_at IS NOT NULL), INSERT will fail on conflict
+        # and we should NOT update - user must create fresh share instead
         await execute_sql(
             db,
             """
             INSERT INTO library_shares
-            (item_id, license_key_id, shared_with_user_id, permission, created_at, created_by)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (item_id, license_key_id, shared_with_user_id, permission, created_at, created_by, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (item_id, shared_with_user_id) DO UPDATE SET
                 permission = EXCLUDED.permission,
-                created_at = EXCLUDED.created_at,
-                created_by = EXCLUDED.created_by,
-                deleted_at = NULL
+                updated_at = EXCLUDED.updated_at
+            WHERE library_shares.deleted_at IS NULL  -- Only update if share is still active
             """,
-            [item_id, license_id, recipient_user_id, permission, now, created_by]
+            [item_id, license_id, recipient_user_id, permission, now, created_by, now]
         )
 
-        # Mark item as shared
+        # DATA-002 FIX: Mark item as shared within same transaction (atomic)
         await execute_sql(
             db,
             "UPDATE library_items SET is_shared = 1 WHERE id = ?",
@@ -374,8 +385,18 @@ async def get_shared_items(
             raise
 
 
-async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str] = None) -> bool:
-    """Remove a share (revoke access)"""
+async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str] = None, requested_by_user_id: Optional[str] = None) -> bool:
+    """
+    Remove a share (revoke access).
+    
+    PERMISSION: Only owner or admin can revoke shares.
+    
+    Args:
+        share_id: The share ID to remove
+        license_id: License key ID
+        revoked_by: User ID who is revoking
+        requested_by_user_id: User ID making the request (for permission check)
+    """
     now = datetime.now(timezone.utc)
 
     async with get_db() as db:
@@ -383,14 +404,42 @@ async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str]
         share = await fetch_one(
             db,
             """
-            SELECT ls.*, li.title as item_title
+            SELECT ls.*, li.title as item_title, li.created_by as item_owner
             FROM library_shares ls
             INNER JOIN library_items li ON ls.item_id = li.id
             WHERE ls.id = ? AND ls.license_key_id = ?
             """,
             [share_id, license_id]
         )
-        
+
+        if not share:
+            return False
+
+        # PERMISSION CHECK: Only owner or admin can revoke shares
+        if requested_by_user_id:
+            item_owner_id = share.get('item_owner')
+            is_owner = requested_by_user_id == item_owner_id
+            
+            if not is_owner:
+                # Check if requester has admin permission on this share
+                if requested_by_user_id == share.get('shared_with_user_id'):
+                    # User is trying to revoke their own share - check if admin
+                    share_permission = share.get('permission', 'read')
+                    effective_permission = get_effective_permission(share_permission, False)
+                    
+                    if not can_perform_action(ResourceAction.MANAGE_SHARES, effective_permission):
+                        logger.warning(
+                            f"User {requested_by_user_id} denied permission to revoke share {share_id}. "
+                            f"Permission level: {effective_permission}"
+                        )
+                        return False
+                else:
+                    # User is trying to revoke someone else's share - must be owner
+                    logger.warning(
+                        f"User {requested_by_user_id} denied permission to revoke share {share_id}. Not the item owner."
+                    )
+                    return False
+
         # Soft delete
         await execute_sql(
             db,

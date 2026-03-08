@@ -12,6 +12,7 @@ from services.fcm_mobile_service import send_fcm_to_user
 from rate_limiting import limiter, RateLimits
 from pydantic import BaseModel, Field, validator
 from constants.tasks import MAX_FILE_SIZE
+from db_helper import get_db, fetch_one
 
 router = APIRouter(prefix="/api/tasks", tags=["Tasks"])
  
@@ -1137,14 +1138,68 @@ async def revoke_task_share(
     license: dict = Depends(get_license_from_header),
     user: dict = Depends(get_current_user)
 ):
-    """Revoke a task share"""
-    from models.task_shares import remove_share
+    """
+    Revoke a task share.
+    
+    PERMISSION: Only task owner or admin users can revoke shares.
+    """
+    from models.task_shares import remove_share, get_task
 
     license_id = license["license_id"]
     user_id = user.get("user_id")
 
+    # Get share to verify permissions
+    async with get_db() as db:
+        share_info = await fetch_one(
+            db,
+            """
+            SELECT ts.*, t.created_by as task_owner
+            FROM task_shares ts
+            INNER JOIN tasks t ON ts.task_id = t.id
+            WHERE ts.id = ? AND ts.license_key_id = ?
+            """,
+            [share_id, license_id]
+        )
+        
+        if not share_info:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "SHARE_NOT_FOUND",
+                    "message_ar": "المشاركة غير موجودة",
+                    "message_en": "Share not found"
+                }
+            )
+        
+        # PERMISSION CHECK: Verify user can revoke this share
+        task_owner = share_info.get('task_owner')
+        is_owner = user_id == task_owner
+        
+        if not is_owner:
+            # Check if user is admin on this task
+            if user_id == share_info.get('shared_with_user_id'):
+                user_permission = share_info.get('permission', 'read')
+                if user_permission != 'admin':
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "code": "FORBIDDEN",
+                            "message_ar": "ليس لديك صلاحية إلغاء هذه المشاركة. فقط المدير أو المالك يمكنه ذلك.",
+                            "message_en": "You don't have permission to revoke this share. Only admin or owner can do this."
+                        }
+                    )
+            else:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "FORBIDDEN",
+                        "message_ar": "ليس لديك صلاحية إلغاء هذه المشاركة",
+                        "message_en": "You don't have permission to revoke this share"
+                    }
+                )
+
     try:
-        success = await remove_share(share_id, license_id, revoked_by=user_id)
+        success = await remove_share(share_id, license_id, revoked_by=user_id, requested_by_user_id=user_id)
         if success:
             return {
                 "success": True,

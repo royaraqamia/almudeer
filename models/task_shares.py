@@ -3,12 +3,25 @@ Task Sharing Model Functions
 
 P4-2: Share tasks with other users with read/edit/admin permissions.
 Replaces old assigned_to field with proper share-based model.
+
+Permission Levels:
+- read: Can VIEW only. Cannot edit, share, or delete.
+- edit: Can VIEW, EDIT, and SHARE. Cannot DELETE.
+- admin: Full access - VIEW, EDIT, SHARE, DELETE (same as owner).
 """
 import asyncio
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db, DB_TYPE
 import logging
+from utils.share_utils import resolve_username_to_user_id_with_db, validate_share_permission
+from utils.permissions import (
+    PermissionLevel,
+    ResourceAction,
+    can_perform_action,
+    get_effective_permission,
+    validate_permission_for_action,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +93,16 @@ async def share_task(
     permission: str = 'read',
     created_by: Optional[str] = None
 ) -> dict:
-    """Share a task with another user"""
+    """Share a task with another user
+    
+    SEC-001 FIX: Properly prevents self-sharing by checking against task owner.
+    AUTH-001 FIX: Uses shared utility for username resolution.
+    """
     now = datetime.now(timezone.utc)
+
+    # Validate permission level
+    if not validate_share_permission(permission):
+        raise ValueError(f"Invalid permission: {permission}. Must be 'read', 'edit', or 'admin'")
 
     async with get_db() as db:
         # Verify task exists
@@ -94,30 +115,17 @@ async def share_task(
         if not task:
             raise ValueError("Task not found")
 
-        # Resolve username to license_id (user_id) if needed
-        # shared_with_user_id can be either a username or a license_id
-        # We need to store the license_id as user_id for consistent matching
-        recipient_user_id = shared_with_user_id
-        
-        # Check if it's a username (not a numeric license_id)
-        if not shared_with_user_id.isdigit():
-            # Look up the license_id by username
-            is_active_value = "TRUE" if DB_TYPE == "postgresql" else "1"
-            license_row = await fetch_one(
-                db,
-                f"SELECT id FROM license_keys WHERE username = ? AND is_active = {is_active_value}",
-                [shared_with_user_id]
-            )
-            if not license_row:
-                raise ValueError(f"User '{shared_with_user_id}' not found")
-            recipient_user_id = str(license_row['id'])
-            logger.debug(f"Resolved username '{shared_with_user_id}' to user_id '{recipient_user_id}'")
+        # AUTH-001 FIX: Use shared utility for username resolution
+        recipient_user_id, _ = await resolve_username_to_user_id_with_db(shared_with_user_id, db)
 
-        # Prevent self-sharing
-        if created_by and recipient_user_id == created_by:
+        # SEC-001 FIX: Prevent self-sharing - check against task owner (created_by)
+        # This check happens AFTER resolution to ensure we compare actual user IDs
+        task_owner_id = task.get('created_by') or created_by
+        if recipient_user_id == task_owner_id:
             raise ValueError("Cannot share a task with yourself")
 
         # Check if share already exists (update instead)
+        # DATA-001 FIX: Don't re-activate revoked shares
         existing = await fetch_one(
             db,
             "SELECT id FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NULL",
@@ -125,7 +133,7 @@ async def share_task(
         )
 
         if existing:
-            # Update existing share
+            # Update existing active share
             await execute_sql(
                 db,
                 """
@@ -137,28 +145,42 @@ async def share_task(
             )
             share_id = existing['id']
         else:
-            # Create new share
+            # Create new share - use INSERT ... ON CONFLICT for PostgreSQL
             if DB_TYPE == "postgresql":
                 result = await fetch_one(
                     db,
                     """
                     INSERT INTO task_shares
-                    (task_id, license_key_id, shared_with_user_id, permission, created_at, created_by)
-                    VALUES ($1, $2, $3, $4, $5, $6)
+                    (task_id, license_key_id, shared_with_user_id, permission, created_at, created_by, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    ON CONFLICT (task_id, shared_with_user_id) DO UPDATE SET
+                        permission = EXCLUDED.permission,
+                        updated_at = EXCLUDED.updated_at
+                    WHERE task_shares.deleted_at IS NULL  -- Don't update revoked shares
                     RETURNING id
                     """,
-                    [task_id, license_id, recipient_user_id, permission, now, created_by]
+                    [task_id, license_id, recipient_user_id, permission, now, created_by, now]
                 )
                 share_id = result['id'] if result else None
             else:
+                # SQLite: Check if revoked share exists
+                revoked = await fetch_one(
+                    db,
+                    "SELECT id FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NOT NULL",
+                    [task_id, recipient_user_id]
+                )
+                if revoked:
+                    # Don't re-activate - raise error to inform user
+                    raise ValueError("Share was previously revoked. Please create a new share.")
+                    
                 await execute_sql(
                     db,
                     """
                     INSERT INTO task_shares
-                    (task_id, license_key_id, shared_with_user_id, permission, created_at, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (task_id, license_key_id, shared_with_user_id, permission, created_at, created_by, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    [task_id, license_id, recipient_user_id, permission, now, created_by]
+                    [task_id, license_id, recipient_user_id, permission, now, created_by, now]
                 )
                 result = await fetch_one(db, "SELECT last_insert_rowid() as id", [])
                 share_id = result['id'] if result else None
@@ -263,8 +285,18 @@ async def get_shared_tasks(
         return result
 
 
-async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str] = None) -> bool:
-    """Remove a share (revoke access)"""
+async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str] = None, requested_by_user_id: Optional[str] = None) -> bool:
+    """
+    Remove a share (revoke access).
+    
+    PERMISSION: Only owner or admin can revoke shares.
+    
+    Args:
+        share_id: The share ID to remove
+        license_id: License key ID
+        revoked_by: User ID who is revoking
+        requested_by_user_id: User ID making the request (for permission check)
+    """
     now = datetime.now(timezone.utc)
 
     async with get_db() as db:
@@ -272,13 +304,41 @@ async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str]
         share = await fetch_one(
             db,
             """
-            SELECT ts.*, t.title as task_title
+            SELECT ts.*, t.title as task_title, t.created_by as task_owner
             FROM task_shares ts
             INNER JOIN tasks t ON ts.task_id = t.id
             WHERE ts.id = ? AND ts.license_key_id = ?
             """,
             [share_id, license_id]
         )
+
+        if not share:
+            return False
+
+        # PERMISSION CHECK: Only owner or admin can revoke shares
+        if requested_by_user_id:
+            task_owner_id = share.get('task_owner')
+            is_owner = requested_by_user_id == task_owner_id
+            
+            if not is_owner:
+                # Check if requester has admin permission on this share
+                if requested_by_user_id == share.get('shared_with_user_id'):
+                    # User is trying to revoke their own share - check if admin
+                    share_permission = share.get('permission', 'read')
+                    effective_permission = get_effective_permission(share_permission, False)
+                    
+                    if not can_perform_action(ResourceAction.MANAGE_SHARES, effective_permission):
+                        logger.warning(
+                            f"User {requested_by_user_id} denied permission to revoke share {share_id}. "
+                            f"Permission level: {effective_permission}"
+                        )
+                        return False
+                else:
+                    # User is trying to revoke someone else's share - must be owner
+                    logger.warning(
+                        f"User {requested_by_user_id} denied permission to revoke share {share_id}. Not the task owner."
+                    )
+                    return False
 
         # Soft delete
         await execute_sql(

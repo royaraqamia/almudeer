@@ -38,19 +38,19 @@ async def verify_share_permission(
 ) -> bool:
     """
     Verify if a user has the required permission for a shared item.
-    
+
     P3-14: Share permission enforcement.
-    
+
     Args:
         db: Database connection
         item_id: Library item ID
         user_id: User ID to check permission for
         license_id: License key ID
         required_permission: Required permission level ('read' or 'edit' or 'admin')
-    
+
     Returns:
         bool: True if user has the required permission, False otherwise
-    
+
     Permission hierarchy:
         - admin: can read, edit, and manage shares
         - edit: can read and edit
@@ -62,14 +62,14 @@ async def verify_share_permission(
         "SELECT created_by FROM library_items WHERE id = ? AND license_key_id = ?",
         [item_id, license_id]
     )
-    
+
     if not item:
         return False
-    
+
     # Owner always has full access
     if item.get("created_by") == user_id:
         return True
-    
+
     # Check share permissions
     share = await fetch_one(
         db,
@@ -82,12 +82,12 @@ async def verify_share_permission(
         """,
         [item_id, user_id, license_id]
     )
-    
+
     if not share:
         return False
-    
+
     share_permission = share.get("permission", "read")
-    
+
     # Permission hierarchy check
     if required_permission == "read":
         return share_permission in ("read", "edit", "admin")
@@ -95,7 +95,7 @@ async def verify_share_permission(
         return share_permission in ("edit", "admin")
     elif required_permission == "admin":
         return share_permission == "admin"
-    
+
     return False
 
 
