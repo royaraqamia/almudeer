@@ -1057,6 +1057,88 @@ async def share_task(
         )
 
 
+@router.post("/bulk-share")
+@limiter.limit("5/minute")  # Stricter rate limit for bulk operations
+async def bulk_share_tasks(
+    request: Request,
+    task_ids: List[str] = Form(..., description="List of task IDs to share"),
+    shared_with_user_id: str = Form(..., description="Username/user ID of the recipient"),
+    permission: str = Form(default="read", description="Permission level: read, edit, admin"),
+    license: dict = Depends(get_license_from_header),
+    user: dict = Depends(get_current_user)
+):
+    """
+    Share multiple tasks with a user in a single request.
+    
+    PERMISSION: Only task owners can bulk share their tasks.
+    Rate limited to 5 requests/minute to prevent abuse.
+    """
+    from models.task_shares import share_task as share_task_model
+    from models.tasks import get_task
+
+    user_id = user.get("user_id")
+    license_id = license["license_id"]
+
+    # Validate permission level
+    if permission not in ('read', 'edit', 'admin'):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "INVALID_PERMISSION",
+                "message_ar": "الصلاحية يجب أن تكون: read, edit, admin",
+                "message_en": "Permission must be: read, edit, admin"
+            }
+        )
+
+    results = {
+        'success': [],
+        'failed': []
+    }
+
+    for task_id in task_ids:
+        try:
+            # Verify task exists and user owns it
+            task = await get_task(license_id, task_id, user_id)
+            if not task:
+                results['failed'].append({
+                    'task_id': task_id,
+                    'error': 'Task not found or no permission'
+                })
+                continue
+
+            # Verify user is the owner
+            if task.get("created_by") != user_id:
+                results['failed'].append({
+                    'task_id': task_id,
+                    'error': 'Not the task owner'
+                })
+                continue
+
+            result = await share_task_model(
+                task_id=task_id,
+                license_id=license_id,
+                shared_with_user_id=shared_with_user_id,
+                permission=permission,
+                created_by=user_id
+            )
+            results['success'].append(result)
+
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to share task {task_id}: {e}")
+            results['failed'].append({
+                'task_id': task_id,
+                'error': str(e)
+            })
+
+    return {
+        "success": True,
+        "results": results,
+        "message_ar": f"تمت مشاركة {len(results['success'])} مهام",
+        "message_en": f"Shared {len(results['success'])} tasks"
+    }
+
+
 # P3-14: Static routes must come before parameterized routes in FastAPI
 @router.get("/shared-with-me")
 async def get_tasks_shared_with_me(

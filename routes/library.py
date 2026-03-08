@@ -1350,6 +1350,88 @@ async def share_library_item(
             }
         )
 
+
+@router.post("/bulk-share")
+@limiter.limit("5/minute")  # Stricter rate limit for bulk operations
+async def bulk_share_library_items(
+    request: Request,
+    item_ids: List[int] = Form(..., description="List of library item IDs to share"),
+    shared_with_user_id: str = Form(..., description="Username/user ID of the recipient"),
+    permission: str = Form(default="read", description="Permission level: read, edit, admin"),
+    license: dict = Depends(get_license_from_header),
+    user: dict = Depends(get_current_user)
+):
+    """
+    Share multiple library items with a user in a single request.
+    
+    PERMISSION: Only item owners can bulk share their items.
+    Rate limited to 5 requests/minute to prevent abuse.
+    """
+    from models.library_advanced import share_item
+    from models.library import get_library_item
+
+    user_id = user.get("user_id")
+    license_id = license["license_id"]
+
+    # Validate permission level
+    if permission not in ('read', 'edit', 'admin'):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "INVALID_PERMISSION",
+                "message_ar": "الصلاحية يجب أن تكون: read, edit, admin",
+                "message_en": "Permission must be: read, edit, admin"
+            }
+        )
+
+    results = {
+        'success': [],
+        'failed': []
+    }
+
+    for item_id in item_ids:
+        try:
+            # Verify item exists and user owns it
+            item = await get_library_item(license_id, item_id, user_id=user_id)
+            if not item:
+                results['failed'].append({
+                    'item_id': item_id,
+                    'error': 'Item not found or no permission'
+                })
+                continue
+
+            # Verify user is the owner (user_id)
+            if item.get("user_id") != user_id:
+                results['failed'].append({
+                    'item_id': item_id,
+                    'error': 'Not the item owner'
+                })
+                continue
+
+            result = await share_item(
+                item_id=item_id,
+                license_id=license_id,
+                shared_with_user_id=shared_with_user_id,
+                permission=permission,
+                created_by=user_id
+            )
+            results['success'].append(result)
+
+        except Exception as e:
+            logger.error(f"Failed to share item {item_id}: {e}")
+            results['failed'].append({
+                'item_id': item_id,
+                'error': str(e)
+            })
+
+    return {
+        "success": True,
+        "results": results,
+        "message_ar": f"تمت مشاركة {len(results['success'])} عناصر",
+        "message_en": f"Shared {len(results['success'])} items"
+    }
+
+
 @router.get("/{item_id}/shares")
 @limiter.limit("30/minute")
 async def list_item_shares(
