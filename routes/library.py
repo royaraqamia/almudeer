@@ -353,7 +353,7 @@ async def upload_file(
         )
     
     # Issue #6: Validate file extension
-    file_ext = os.path.splitext(file.filename or "").lower()[1]
+    file_ext = os.path.splitext(file.filename or "")[1].lower()
     if file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
