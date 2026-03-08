@@ -55,24 +55,28 @@ async def add_knowledge_document(
     if text:
         async with get_db() as db:
             # Check if a text document already exists for this license
-            existing = await fetch_one(
-                db,
-                """SELECT id FROM knowledge_documents
-                   WHERE license_key_id = ? AND source = 'manual' AND text IS NOT NULL AND deleted_at IS NULL""",
-                [license_id]
-            )
-            if existing:
-                raise ValueError("يوجد بالفعل مستند نصي واحد فقط مسموح به")
+            if source in ['manual', 'mobile_app']:
+                existing = await fetch_one(
+                    db,
+                    """SELECT id FROM knowledge_documents
+                       WHERE license_key_id = ? AND source IN ('manual', 'mobile_app') AND text IS NOT NULL AND deleted_at IS NULL""",
+                    [license_id]
+                )
+                if existing:
+                    raise ValueError("يوجد بالفعل مستند نصي واحد فقط مسموح به")
 
-            # Check for duplicate text (same text content)
-            existing_text = await fetch_one(
+            # Check for duplicate (same filename for files, or same text content for text docs)
+            existing_doc = await fetch_one(
                 db,
                 """SELECT id FROM knowledge_documents
                    WHERE license_key_id = ? AND text = ? AND deleted_at IS NULL""",
                 [license_id, text]
             )
-            if existing_text:
-                raise ValueError("هذا المستند موجود بالفعل")
+            if existing_doc:
+                if source == 'file':
+                    raise ValueError("هذا الملف موجود بالفعل")
+                else:
+                    raise ValueError("هذا المستند موجود بالفعل")
 
     now = datetime.utcnow()
     ts_value = now if DB_TYPE == "postgresql" else now.isoformat()

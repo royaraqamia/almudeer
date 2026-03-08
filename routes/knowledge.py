@@ -154,15 +154,13 @@ async def upload_knowledge_file(
         )
         
         file_size = len(content)
-        
-        # Since it's a file, we can save its name/url in the 'text' column for mobile app compatibility
-        # Or you can adapt the mobile app later, but currently it displays `doc.text`
-        
+
+        # Save the file name in the 'text' column
         item = await add_knowledge_document(
             license_id=license["license_id"],
             user_id=user_id,
             source='file',
-            text=f"ملف: {file.filename}",
+            text=file.filename,
             file_path=public_url,
             file_size=file_size,
             mime_type=content_type
