@@ -143,7 +143,11 @@ async def upload_attachment(
         import hashlib
         await file.seek(0)
         hasher = hashlib.sha256()
-        async for chunk in file.file.iter_chunks(8192):
+        # Note: file.file is a SpooledTemporaryFile, not an async stream
+        while True:
+            chunk = file.file.read(8192)
+            if not chunk:
+                break
             hasher.update(chunk)
         file_hash = hasher.hexdigest()
         

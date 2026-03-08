@@ -381,12 +381,16 @@ async def upload_file(
         # Read file ONCE for both hash computation and magic validation
         import hashlib
         import magic
-        
+
         hasher = hashlib.sha256()
         file_sample = None
-        
+
         # Read file in chunks, compute hash, and capture sample for magic
-        async for chunk in file.file.iter_chunks(8192):
+        # Note: file.file is a SpooledTemporaryFile, not an async stream
+        while True:
+            chunk = file.file.read(8192)
+            if not chunk:
+                break
             if file_sample is None:
                 file_sample = chunk[:2048]
             hasher.update(chunk)
