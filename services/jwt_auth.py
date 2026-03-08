@@ -197,11 +197,16 @@ async def create_token_pair(
     ip_address: str = None,
     family_id: str = None,
     user_agent: str = None,
+    skip_session_revoke: bool = True,
 ) -> Dict[str, Any]:
     """
     Create both access and refresh tokens. Track device session.
 
     SECURITY FIX #7: Enforce concurrent session limits per license.
+    
+    Args:
+        skip_session_revoke: If True, skip revoking existing sessions (default for session updates).
+                            If False, revoke all existing sessions (used for fresh logins).
     """
     # Fetch current token_version for the license to embed in JWT
     from database import get_db, fetch_one
