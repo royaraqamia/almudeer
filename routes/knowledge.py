@@ -14,6 +14,7 @@ from services.jwt_auth import get_current_user_optional
 from models.knowledge import (
     get_knowledge_documents,
     add_knowledge_document,
+    update_knowledge_document,
     delete_knowledge_document
 )
 from services.file_storage_service import get_file_storage
@@ -81,7 +82,7 @@ async def create_text_document(
     """Create a new text knowledge document."""
     user_id = user.get("user_id") if user else None
     source = data.metadata.source if data.metadata else 'manual'
-    
+
     try:
         item = await add_knowledge_document(
             license_id=license["license_id"],
@@ -89,6 +90,38 @@ async def create_text_document(
             source=source,
             text=sanitize_string(data.text, max_length=15000)
         )
+        return {"success": True, "document": {
+            "id": str(item["id"]),
+            "text": item["text"],
+            "metadata": {
+                "source": item["source"],
+                "created_at": str(item["created_at"])
+            }
+        }}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/documents/{document_id}")
+async def update_text_document(
+    document_id: int,
+    data: DocumentCreate,
+    license: dict = Depends(get_license_from_header),
+    user: Optional[dict] = Depends(get_current_user_optional)
+):
+    """Update an existing text knowledge document."""
+    user_id = user.get("user_id") if user else None
+
+    try:
+        item = await update_knowledge_document(
+            license_id=license["license_id"],
+            document_id=document_id,
+            text=data.text,
+            user_id=user_id
+        )
+        
+        if not item:
+            raise HTTPException(status_code=404, detail="المستند غير موجود أو لا يمكن تعديله")
+        
         return {"success": True, "document": {
             "id": str(item["id"]),
             "text": item["text"],

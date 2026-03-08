@@ -9,6 +9,7 @@ from typing import List, Optional, Dict, Any
 
 from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db, DB_TYPE
 from models.library import get_storage_usage, MAX_STORAGE_PER_LICENSE, MAX_FILE_SIZE
+from security import sanitize_string
 
 async def get_knowledge_documents(
     license_id: int, 
@@ -50,16 +51,27 @@ async def add_knowledge_document(
     if file_size and file_size > MAX_FILE_SIZE:
         raise ValueError(f"حجم الملف كبير جداً (الحد الأقصى {MAX_FILE_SIZE / 1024 / 1024}MB)")
 
-    # Check for duplicate text documents (same license, same text, not deleted)
+    # Only allow 1 text document per license
     if text:
         async with get_db() as db:
+            # Check if a text document already exists for this license
             existing = await fetch_one(
                 db,
-                """SELECT id FROM knowledge_documents 
+                """SELECT id FROM knowledge_documents
+                   WHERE license_key_id = ? AND source = 'manual' AND text IS NOT NULL AND deleted_at IS NULL""",
+                [license_id]
+            )
+            if existing:
+                raise ValueError("يوجد بالفعل مستند نصي واحد فقط مسموح به")
+
+            # Check for duplicate text (same text content)
+            existing_text = await fetch_one(
+                db,
+                """SELECT id FROM knowledge_documents
                    WHERE license_key_id = ? AND text = ? AND deleted_at IS NULL""",
                 [license_id, text]
             )
-            if existing:
+            if existing_text:
                 raise ValueError("هذا المستند موجود بالفعل")
 
     now = datetime.utcnow()
@@ -84,6 +96,55 @@ async def add_knowledge_document(
             [license_id]
         )
         return dict(row)
+
+async def update_knowledge_document(
+    license_id: int,
+    document_id: int,
+    text: str,
+    user_id: Optional[str] = None
+) -> Optional[dict]:
+    """Update a text knowledge document."""
+    async with get_db() as db:
+        # Fetch the document first
+        doc = await fetch_one(
+            db,
+            "SELECT * FROM knowledge_documents WHERE id = ? AND license_key_id = ?",
+            [document_id, license_id]
+        )
+
+        if not doc:
+            return None
+
+        # Check user ownership if user_id is provided
+        if user_id and doc.get("user_id") != user_id:
+            return None
+
+        # Check if it's a text document (not a file)
+        if doc.get("source") != 'manual' or doc.get("file_path"):
+            return None
+
+        now = datetime.utcnow()
+        ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
+
+        # Update the document
+        await execute_sql(
+            db,
+            """
+            UPDATE knowledge_documents
+            SET text = ?, updated_at = ?
+            WHERE id = ? AND license_key_id = ?
+            """,
+            [sanitize_string(text, max_length=15000), ts_value, document_id, license_id]
+        )
+        await commit_db(db)
+
+        # Fetch the updated document
+        updated_doc = await fetch_one(
+            db,
+            "SELECT * FROM knowledge_documents WHERE id = ?",
+            [document_id]
+        )
+        return dict(updated_doc) if updated_doc else None
 
 async def delete_knowledge_document(license_id: int, document_id: int, user_id: Optional[str] = None) -> Optional[dict]:
     """Soft delete a knowledge document. Returns the document data if found for file cleanup."""
