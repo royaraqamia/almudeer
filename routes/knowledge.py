@@ -19,6 +19,7 @@ from models.knowledge import (
 )
 from services.file_storage_service import get_file_storage
 from security import sanitize_string
+from db_helper import get_db, fetch_one
 
 logger = logging.getLogger(__name__)
 
@@ -143,8 +144,20 @@ async def upload_knowledge_file(
     """Upload a file document to the knowledge base."""
     user_id = user.get("user_id") if user else None
     content_type = file.content_type or "application/octet-stream"
-        
+
     try:
+        # Check for duplicate BEFORE uploading
+        async with get_db() as db:
+            existing = await fetch_one(
+                db,
+                """SELECT id FROM knowledge_documents
+                   WHERE license_key_id = ? AND text = ? AND source = 'file' AND deleted_at IS NULL""",
+                [license["license_id"], file.filename]
+            )
+            if existing:
+                raise HTTPException(status_code=400, detail="هذا الملف موجود بالفعل")
+
+        # Now upload the file (no duplicate exists)
         content = await file.read()
         relative_path, public_url = file_storage.save_file(
             content=content,
@@ -152,7 +165,7 @@ async def upload_knowledge_file(
             mime_type=content_type,
             subfolder="knowledge"
         )
-        
+
         file_size = len(content)
 
         # Save the file name in the 'text' column
@@ -165,7 +178,7 @@ async def upload_knowledge_file(
             file_size=file_size,
             mime_type=content_type
         )
-        
+
         return {"success": True, "document": {
             "id": str(item["id"]),
             "text": item["text"],
@@ -174,6 +187,9 @@ async def upload_knowledge_file(
                 "created_at": str(item["created_at"])
             }
         }}
+    except HTTPException:
+        # Re-raise HTTP exceptions (including duplicate check)
+        raise
     except ValueError as e:
         # DB level errors (e.g. limit reached)
         raise HTTPException(status_code=400, detail=str(e))
