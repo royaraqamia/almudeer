@@ -1,0 +1,186 @@
+name: almudeer_mobile_app
+description: "Al-Mudeer Mobile App"
+publish_to: 'none'
+version: 1.0.0+16
+
+environment:
+  sdk: ^3.10.1
+
+# P3-8 FIX: All dependencies use pinned versions with ^ for compatibility
+# This ensures we get bug fixes while preventing breaking changes
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # Core UI
+  flutter_svg: ^2.2.3
+  solar_icon_pack: ^0.2.1
+  cached_network_image: ^3.4.1
+  flutter_cache_manager: ^3.4.1
+  shimmer: 3.0.0
+  figma_squircle: 0.6.3
+  flutter_image_compress: ^2.4.0
+
+  # State Management
+  provider: ^6.1.5+1
+  synchronized: ^3.4.0
+
+  # HTTP & API
+  http: ^1.6.0
+  # Certificate pinning support
+  http_interceptor: 2.0.0
+  crypto: ^3.0.6
+  mime: ^2.0.0
+
+  # Local Storage
+  shared_preferences: ^2.5.4
+  flutter_secure_storage: 9.2.4
+  # Hive for QR scanner history - pinned version
+  hive: 2.2.3
+  hive_flutter: 1.1.0
+  sqflite: ^2.4.2
+  uuid: ^4.5.3
+
+  # Utilities
+  intl: 0.20.2
+  hijri: 3.0.0
+  url_launcher: ^6.3.2
+  flutter_custom_tabs: ^2.5.0
+  video_player: ^2.11.0
+  chewie: 1.13.0
+  flutter_pdfview: 1.4.4
+  # QR Sharing support - pinned version
+  share_plus: 12.0.1
+  gal: 2.3.2
+
+  # Audio (for voice messages)
+  just_audio: 0.10.5
+  video_thumbnail: 0.5.6
+  file_picker: 10.3.10
+  http_parser: 4.1.2
+  audio_waveforms: 2.0.2
+  proximity_sensor: 1.3.10
+
+  # Message Input Features
+  emoji_picker_flutter: 4.4.0
+  image_picker: ^1.2.1
+  permission_handler: 12.0.1
+  # QR Image support - pinned version
+  path_provider: 2.1.5
+  path: 1.9.1
+
+  # Firebase Push Notifications
+  firebase_core: 4.4.0
+  firebase_messaging: 16.1.1
+  flutter_local_notifications: ^21.0.0-dev.2
+  timezone: 0.11.0
+  flutter_timezone: 5.0.1
+  web_socket_channel: 3.0.3
+  package_info_plus: 9.0.0
+  flutter_native_splash: ^2.4.7
+  photo_view: 0.15.0
+  just_waveform: ^0.0.4
+  flutter_slidable: ^4.0.3
+
+  # File Download & Sharing
+  dio: ^5.9.1
+  open_filex: ^4.7.0
+  background_downloader: ^9.5.4
+
+  # Battery & Connectivity
+  battery_plus: ^6.2.2
+  connectivity_plus: ^6.1.5
+  android_intent_plus: ^6.0.0
+  workmanager: ^0.9.0
+
+  video_compress: ^3.1.4
+  image: ^4.8.0
+  device_info_plus: 12.3.0
+  scrollable_positioned_list: 0.3.8
+  audio_session: 0.2.2
+  # QR Scanner - pinned version for stability
+  mobile_scanner: ^7.2.0
+  # QR Generator - pinned version for stability
+  qr_flutter: 4.1.0
+  hijri_picker: 3.0.0
+  flutter_contacts: 1.1.9+2
+  logger: 2.6.2
+  logging: 1.3.0
+
+  # Syntax Highlighting for Code Files
+  flutter_highlight: 0.7.0
+  highlight: 0.7.0
+  csv: ^7.1.0  # RFC 4180 compliant CSV parsing
+  math_expressions: 3.1.0
+  flutter_linkify: 6.0.0
+  flutter_callkit_incoming:
+    path: ./packages/flutter_callkit_incoming
+  receive_sharing_intent: 1.8.1
+  nearby_connections: 4.3.0
+  quran: 1.4.1
+  webview_flutter: ^4.13.1
+  audio_service: ^0.18.18
+  excel:
+    git: https://github.com/justkawal/excel.git
+  equatable: 2.0.8
+  app_links: 7.0.0
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+  mockito: ^5.4.4
+  build_runner: ^2.11.1
+
+  connectivity_plus_platform_interface: any
+  cross_file: 0.3.5+2
+  firebase_messaging_platform_interface: any
+  plugin_platform_interface: ^2.1.8
+  path_provider_platform_interface: ^2.1.2
+  flutter_local_notifications_platform_interface: any
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/json/
+    - assets/audio/
+  fonts:
+    - family: IBM Plex Sans Arabic
+      fonts:
+        - asset: assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-Bold.ttf
+          weight: 700
+    - family: Amiri Quran
+      fonts:
+        - asset: assets/fonts/Amiri_Quran/AmiriQuran-Regular.ttf
+          weight: 400
+flutter_launcher_icons:
+  android: "ic_launcher"
+  image_path: "assets/images/logo.png"
+  adaptive_icon_foreground: "assets/images/logo.png"
+  adaptive_icon_background: "#FFFFFF"
+
+flutter_native_splash:
+  color: "#E8EEFF"
+  color_dark: "#0F2E42"
+  image: "assets/images/splash-logo.png"
+  fullscreen: true
+  # Branding mode centers the icon and makes it smaller
+  android_gravity: center
+  android_12:
+    image: "assets/images/splash-logo.png"
+    color: "#E8EEFF"
+    color_dark: "#0F2E42"
+    icon_background_color: "#E8EEFF"
+    icon_background_color_dark: "#0F2E42"
