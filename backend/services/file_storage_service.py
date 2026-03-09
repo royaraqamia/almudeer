@@ -285,16 +285,13 @@ class FileStorageService:
                     if relative_path.startswith("uploads/"):
                         relative_path = relative_path.replace("uploads/", "", 1)
 
-            # Issue #28: Sanitize relative path
-            relative_path = secure_filename(relative_path)
-
-            # Construct absolute path
-            abs_path = os.path.join(self.upload_dir, relative_path)
-
-            # Security check: ensure path is inside upload_dir
+            # Security: Normalize path to remove ".." segments and resolve symlinks
+            # Then verify it stays within the upload directory
             abs_upload_dir = os.path.abspath(self.upload_dir)
-            if not os.path.abspath(abs_path).startswith(abs_upload_dir):
-                logger.warning(f"Security: Attempted to delete file outside upload directory: {abs_path}")
+            abs_path = os.path.abspath(os.path.normpath(os.path.join(self.upload_dir, relative_path)))
+            
+            if not abs_path.startswith(abs_upload_dir + os.sep) and abs_path != abs_upload_dir:
+                logger.warning(f"Security: Path traversal attempt detected: {path_or_url}")
                 return False
 
             if os.path.exists(abs_path):

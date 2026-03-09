@@ -168,7 +168,7 @@ class TelegramListenerService:
         """Start a single Telegram client and attach listeners"""
         client = None
         try:
-            logger.info(f"Starting Telegram client for license {license_id} ({phone_number})")
+            logger.info(f"Starting Telegram client for license {license_id}")
             
             client = TelegramClient(
                 StringSession(session_string),

@@ -156,7 +156,7 @@ async def cleanup_whatsapp(conn):
             ids = [row['id'] for row in rows]
             if ids:
                 deleted = await delete_messages_by_ids(conn, ids)
-                print(f"License {lic_id}: Deleted {deleted} WhatsApp self-messages (phone={phone_number})")
+                print(f"License {lic_id}: Deleted {deleted} WhatsApp self-messages")
                 deleted_total += deleted
                 
     print(f"Total WhatsApp messages cleaned: {deleted_total}")
