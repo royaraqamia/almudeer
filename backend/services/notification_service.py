@@ -6,10 +6,13 @@ Handles priority alerts, Slack/Discord integration, and notification rules
 import os
 import json
 import asyncio
+import socket
+import ipaddress
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from enum import Enum
+from urllib.parse import urlparse
 import httpx
 
 # Unified DB helper (works for both SQLite and PostgreSQL)
@@ -25,6 +28,156 @@ from db_helper import (
 # Webhook URLs from environment
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
+
+# ============ SSRF Protection ============
+
+# Private IP ranges that should be blocked
+_PRIVATE_IP_RANGES = [
+    ipaddress.ip_network('10.0.0.0/8'),      # Private network
+    ipaddress.ip_network('172.16.0.0/12'),   # Private network
+    ipaddress.ip_network('192.168.0.0/16'),  # Private network
+    ipaddress.ip_network('127.0.0.0/8'),     # Loopback
+    ipaddress.ip_network('169.254.0.0/16'),  # Link-local (cloud metadata)
+    ipaddress.ip_network('0.0.0.0/8'),       # Current network
+    ipaddress.ip_network('100.64.0.0/10'),   # Carrier-grade NAT
+    ipaddress.ip_network('192.0.0.0/24'),    # IETF Protocol Assignments
+    ipaddress.ip_network('192.0.2.0/24'),    # Documentation
+    ipaddress.ip_network('198.18.0.0/15'),   # Benchmarking
+    ipaddress.ip_network('198.51.100.0/24'), # Documentation
+    ipaddress.ip_network('203.0.113.0/24'),  # Documentation
+    ipaddress.ip_network('224.0.0.0/4'),     # Multicast
+    ipaddress.ip_network('240.0.0.0/4'),     # Reserved
+    ipaddress.ip_network('0.0.0.0/32'),      # Default route
+]
+
+# Cloud metadata endpoints (commonly targeted)
+_CLOUD_METADATA_HOSTS = {
+    '169.254.169.254',  # AWS, GCP, Azure
+    'metadata.google.internal',  # GCP
+    '168.63.129.16',  # Azure
+    '100.100.100.200',  # Alibaba Cloud
+}
+
+# Allowed URL schemes
+_ALLOWED_SCHEMES = {'https', 'http'}
+
+# Blocked hosts/paths patterns
+_BLOCKED_PATTERNS = [
+    'localhost',
+    'internal',
+    'metadata',
+    'compute',
+    'instance',
+]
+
+
+def _is_private_ip(ip: str) -> bool:
+    """Check if an IP address is in a private/reserved range"""
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        return any(ip_obj in network for network in _PRIVATE_IP_RANGES)
+    except ValueError:
+        return True  # Invalid IP, treat as private for safety
+
+
+def _resolve_and_check_hostname(hostname: str) -> bool:
+    """Resolve hostname and check if any resolved IP is private"""
+    try:
+        # Get all IP addresses for the hostname
+        addr_info = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
+        for family, socktype, proto, canonname, sockaddr in addr_info:
+            ip = sockaddr[0]
+            if _is_private_ip(ip):
+                return False  # Private IP found, block it
+        return True  # All IPs are public
+    except socket.gaierror:
+        return False  # DNS resolution failed, block it
+
+
+def _validate_webhook_url(url: str) -> tuple[bool, str]:
+    """
+    Validate webhook URL to prevent SSRF attacks.
+    
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    if not url:
+        return False, "URL is required"
+    
+    if not isinstance(url, str):
+        return False, "URL must be a string"
+    
+    # Parse URL
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False, "Invalid URL format"
+    
+    # Check scheme
+    if parsed.scheme not in _ALLOWED_SCHEMES:
+        return False, f"Only HTTP/HTTPS schemes are allowed, got: {parsed.scheme}"
+    
+    # Check hostname exists
+    hostname = parsed.hostname
+    if not hostname:
+        return False, "Hostname is required"
+    
+    # Check for blocked patterns in hostname or path
+    full_url_lower = url.lower()
+    for pattern in _BLOCKED_PATTERNS:
+        if pattern in full_url_lower:
+            return False, f"URL contains blocked pattern: {pattern}"
+    
+    # Check for cloud metadata hosts
+    if hostname in _CLOUD_METADATA_HOSTS:
+        return False, "Access to cloud metadata service is blocked"
+    
+    # Check if hostname is an IP address
+    try:
+        ipaddress.ip_address(hostname)
+        # It's an IP, check if it's private
+        if _is_private_ip(hostname):
+            return False, "Private IP addresses are not allowed"
+    except ValueError:
+        # It's a hostname, resolve and check
+        if not _resolve_and_check_hostname(hostname):
+            return False, "Hostname resolves to a private IP address"
+    
+    # Check for URL redirection tricks (e.g., https://evil.com#trusted.com)
+    # The fragment should not contain domain-like patterns
+    if parsed.fragment and ('.' in parsed.fragment or '/' in parsed.fragment):
+        return False, "URL fragment contains invalid characters"
+    
+    # Check for @ symbol which can hide the real destination
+    if '@' in parsed.netloc:
+        return False, "URL credentials notation is not allowed"
+    
+    return True, ""
+
+
+class SSRFBlockedException(Exception):
+    """Raised when a URL is blocked due to SSRF protection"""
+    pass
+
+
+def _create_ssrf_safe_client():
+    """
+    Create an httpx client with SSRF protection.
+    Uses a custom transport that blocks private IP ranges.
+    """
+    class SSRFBlockTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            # Re-validate URL before making the request
+            url = str(request.url)
+            is_valid, error = _validate_webhook_url(url)
+            if not is_valid:
+                raise SSRFBlockedException(f"SSRF protection blocked: {error}")
+            
+            # Use default transport for validated requests
+            return await httpx.AsyncHTTPTransport().handle_async_request(request)
+    
+    return httpx.AsyncClient(transport=SSRFBlockTransport())
+
 
 # Notification throttling (Flood protection)
 # Format: {(license_id, sender_contact): last_sent_timestamp}
@@ -470,18 +623,32 @@ async def send_slack_notification(
         })
     
     try:
+        # Validate URL before making request
+        is_valid, error = _validate_webhook_url(webhook_url)
+        if not is_valid:
+            return {
+                "success": False,
+                "error": f"Invalid webhook URL: {error}"
+            }
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 webhook_url,
                 json=slack_message,
                 timeout=10.0
             )
-            
+
             return {
                 "success": response.status_code == 200,
                 "status_code": response.status_code,
                 "error": None if response.status_code == 200 else response.text
             }
+    except SSRFBlockedException as e:
+        logger.warning(f"SSRF attempt blocked: {webhook_url}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
     except Exception as e:
         return {
             "success": False,
@@ -534,18 +701,32 @@ async def send_discord_notification(
     }
     
     try:
+        # Validate URL before making request
+        is_valid, error = _validate_webhook_url(webhook_url)
+        if not is_valid:
+            return {
+                "success": False,
+                "error": f"Invalid webhook URL: {error}"
+            }
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 webhook_url,
                 json=discord_message,
                 timeout=10.0
             )
-            
+
             return {
                 "success": response.status_code in [200, 204],
                 "status_code": response.status_code,
                 "error": None if response.status_code in [200, 204] else response.text
             }
+    except SSRFBlockedException as e:
+        logger.warning(f"SSRF attempt blocked: {webhook_url}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
     except Exception as e:
         return {
             "success": False,
@@ -560,7 +741,7 @@ async def send_webhook_notification(
     payload: NotificationPayload
 ) -> dict:
     """Send notification to generic webhook"""
-    
+
     webhook_payload = {
         "event": "almudeer_notification",
         "timestamp": datetime.utcnow().isoformat(),
@@ -572,20 +753,34 @@ async def send_webhook_notification(
             "metadata": payload.metadata or {}
         }
     }
-    
+
     try:
+        # Validate URL before making request
+        is_valid, error = _validate_webhook_url(webhook_url)
+        if not is_valid:
+            return {
+                "success": False,
+                "error": f"Invalid webhook URL: {error}"
+            }
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 webhook_url,
                 json=webhook_payload,
                 timeout=10.0
             )
-            
+
             return {
                 "success": response.status_code < 400,
                 "status_code": response.status_code,
                 "error": None if response.status_code < 400 else response.text
             }
+    except SSRFBlockedException as e:
+        logger.warning(f"SSRF attempt blocked: {webhook_url}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
     except Exception as e:
         return {
             "success": False,

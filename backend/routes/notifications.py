@@ -5,8 +5,9 @@ Admin broadcast for subscription reminders, team updates, and promotions
 """
 
 import os
+import re
 from fastapi import APIRouter, HTTPException, Depends, Header, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from dotenv import load_dotenv
 from rate_limiting import limiter
@@ -181,17 +182,102 @@ async def broadcast_notification(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============ SSRF Protection ============
+
+# Private IP ranges and blocked patterns for webhook URL validation
+_PRIVATE_IP_RANGES = [
+    '10.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.',
+    '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.',
+    '172.29.', '172.30.', '172.31.', '192.168.', '127.', '169.254.', '0.',
+    '100.64.', '192.0.0.', '192.0.2.', '198.18.', '198.51.100.', '203.0.113.',
+    '224.', '240.'
+]
+
+_BLOCKED_HOSTS = [
+    'localhost', 'internal', 'metadata', 'compute', 'instance',
+    '169.254.169.254', 'metadata.google.internal', '168.63.129.16',
+    '100.100.100.200'
+]
+
+
+def _validate_webhook_url_basic(url: str) -> tuple[bool, str]:
+    """
+    Basic URL validation to prevent SSRF attacks at API level.
+    This is a first line of defense; the service layer also validates.
+    """
+    if not url:
+        return False, "URL is required"
+    
+    # Must start with https://
+    if not url.startswith('https://'):
+        return False, "Webhook URL must use HTTPS scheme"
+    
+    # Extract hostname
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            return False, "Invalid hostname"
+        
+        # Check for blocked hosts
+        hostname_lower = hostname.lower()
+        for blocked in _BLOCKED_HOSTS:
+            if blocked in hostname_lower:
+                return False, f"Blocked hostname: {blocked}"
+        
+        # Check if hostname is an IP address
+        import ipaddress
+        try:
+            ip = ipaddress.ip_address(hostname)
+            # It's an IP, check if private
+            for prefix in _PRIVATE_IP_RANGES:
+                if hostname.startswith(prefix):
+                    return False, "Private IP addresses are not allowed"
+        except ValueError:
+            pass  # It's a hostname, which is fine
+        
+        # Check for @ symbol (credential injection attack)
+        if '@' in parsed.netloc:
+            return False, "URL credentials notation is not allowed"
+        
+        # Check for URL fragment tricks
+        if parsed.fragment and ('.' in parsed.fragment or '/' in parsed.fragment):
+            return False, "Invalid URL fragment"
+            
+    except Exception:
+        return False, "Invalid URL format"
+    
+    return True, ""
+
+
 # ============ Integration Schemas ============
 
 class IntegrationCreate(BaseModel):
     channel_type: str = Field(..., description="slack, discord, or webhook")
     webhook_url: str = Field(..., min_length=10)
     channel_name: Optional[str] = None
+    
+    @field_validator('webhook_url')
+    @classmethod
+    def validate_webhook_url(cls, v):
+        is_valid, error = _validate_webhook_url_basic(v)
+        if not is_valid:
+            raise ValueError(error)
+        return v
 
 
 class IntegrationTest(BaseModel):
     channel_type: str
     webhook_url: str
+    
+    @field_validator('webhook_url')
+    @classmethod
+    def validate_webhook_url(cls, v):
+        is_valid, error = _validate_webhook_url_basic(v)
+        if not is_valid:
+            raise ValueError(error)
+        return v
 
 
 class RuleCreate(BaseModel):
