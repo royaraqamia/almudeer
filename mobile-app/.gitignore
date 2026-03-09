@@ -65,3 +65,7 @@ build_stacktrace.txt
 fix_api_client.py
 dialog_results.txt
 search_results.txt
+
+# Google/Firebase secrets (NEVER commit these)
+**/google-services.json
+**/GoogleService-Info.plist
