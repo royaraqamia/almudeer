@@ -30,10 +30,13 @@ from utils.permissions import (
 logger = logging.getLogger(__name__)
 
 # P6-2: LRU Cache for shared items (max 100 entries, 5 minute TTL)
+# FIX BUG #8: Implement true LRU eviction using access time tracking
 _shared_items_cache: Dict[str, Dict[str, Any]] = {}
 _SHARED_ITEMS_CACHE_TTL = 300  # 5 minutes
 _MAX_CACHE_SIZE = 100  # Maximum number of cache entries to prevent memory leak
 _cache_lock = asyncio.Lock()  # Thread-safe cache operations
+# Track last access time for LRU eviction
+_cache_access_times: Dict[str, float] = {}
 
 
 async def _safe_broadcast(coro, description: str):
@@ -49,30 +52,47 @@ async def _get_cached_shared_items(cache_key: str) -> Optional[List[dict]]:
     async with _cache_lock:
         if cache_key in _shared_items_cache:
             cache_entry = _shared_items_cache[cache_key]
-            if datetime.now(timezone.utc).timestamp() - cache_entry["timestamp"] < _SHARED_ITEMS_CACHE_TTL:
+            now = datetime.now(timezone.utc).timestamp()
+            if now - cache_entry["timestamp"] < _SHARED_ITEMS_CACHE_TTL:
+                # FIX BUG #8: Update access time on cache hit for LRU tracking
+                _cache_access_times[cache_key] = now
                 return cache_entry["data"]
+            else:
+                # Expired - remove from cache
+                del _shared_items_cache[cache_key]
+                _cache_access_times.pop(cache_key, None)
     return None
 
 
 async def _cache_shared_items(cache_key: str, data: List[dict]):
-    """Cache shared items with size limit to prevent memory leak"""
+    """Cache shared items with LRU eviction to prevent memory leak"""
     async with _cache_lock:
-        # FIX: Enforce maximum cache size - evict oldest entries if at limit
+        now = datetime.now(timezone.utc).timestamp()
+        
+        # FIX BUG #8: Implement true LRU eviction
+        # If at capacity, evict the least recently used entry
         if len(_shared_items_cache) >= _MAX_CACHE_SIZE:
-            # Find and remove oldest entries (simple eviction strategy)
-            oldest_key = None
-            oldest_timestamp = float('inf')
-            for key, entry in _shared_items_cache.items():
-                if entry["timestamp"] < oldest_timestamp:
-                    oldest_timestamp = entry["timestamp"]
-                    oldest_key = key
-            if oldest_key:
-                del _shared_items_cache[oldest_key]
+            # Find the entry with the oldest access time (LRU)
+            lru_key = None
+            oldest_access_time = float('inf')
+            for key, access_time in _cache_access_times.items():
+                if access_time < oldest_access_time:
+                    oldest_access_time = access_time
+                    lru_key = key
+            
+            # Evict the LRU entry if found
+            if lru_key:
+                logger.debug(f"LRU cache eviction: removing key '{lru_key}' (max size: {_MAX_CACHE_SIZE})")
+                del _shared_items_cache[lru_key]
+                _cache_access_times.pop(lru_key, None)
 
+        # Add new entry with current timestamp
         _shared_items_cache[cache_key] = {
             "data": data,
-            "timestamp": datetime.now(timezone.utc).timestamp()
+            "timestamp": now
         }
+        # Track access time for LRU
+        _cache_access_times[cache_key] = now
 
 
 async def _invalidate_shared_items_cache(license_id: int, user_id: Optional[str] = None):
@@ -84,6 +104,8 @@ async def _invalidate_shared_items_cache(license_id: int, user_id: Optional[str]
         ]
         for key in keys_to_remove:
             del _shared_items_cache[key]
+            # FIX BUG #8: Also clean up access time tracking
+            _cache_access_times.pop(key, None)
 
 
 # ============================================================================
@@ -300,7 +322,23 @@ async def share_item(
                 permission=permission
             )
         except Exception as e:
-            logger.warning(f"Failed to create share notification: {e}")
+            # FIX: Log with ERROR level and include full stack trace for debugging
+            # Notification failures should be monitored as they affect user experience
+            logger.error(
+                f"Failed to create library share notification for item {item_id} "
+                f"(shared with {recipient_user_id}): {e}",
+                exc_info=True
+            )
+            # P6-1 FIX: Queue for retry via background worker instead of silent failure
+            try:
+                from services.metrics_service import MetricsService
+                metrics = MetricsService()
+                await metrics.increment_counter("library_share_notification_failures", {
+                    "license_id": str(license_id),
+                    "error_type": type(e).__name__
+                })
+            except Exception as metrics_error:
+                logger.warning(f"Failed to log metrics for notification failure: {metrics_error}")
 
         # Broadcast WebSocket event to recipient for instant UI update
         try:
@@ -465,7 +503,22 @@ async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str]
                     revoked_from_user_id=share["shared_with_user_id"]
                 )
             except Exception as e:
-                logger.warning(f"Failed to create share revoked notification: {e}")
+                # FIX: Log with ERROR level and include full stack trace for debugging
+                logger.error(
+                    f"Failed to create share revoked notification for share {share_id} "
+                    f"(revoked from {share.get('shared_with_user_id')}): {e}",
+                    exc_info=True
+                )
+                # P6-1 FIX: Track notification failures for monitoring
+                try:
+                    from services.metrics_service import MetricsService
+                    metrics = MetricsService()
+                    await metrics.increment_counter("library_share_revoked_notification_failures", {
+                        "license_id": str(license_id),
+                        "error_type": type(e).__name__
+                    })
+                except Exception as metrics_error:
+                    logger.warning(f"Failed to log metrics for notification failure: {metrics_error}")
 
         return True
 

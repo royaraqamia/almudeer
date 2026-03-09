@@ -551,6 +551,7 @@ async def bulk_delete_items(license_id: int, item_ids: List[int], user_id: Optio
     Issue #32: SQL injection prevention - validates all item_ids are integers.
     P0-3 FIX: Returns detailed result with deleted IDs and failed IDs for proper feedback.
     P0-3 FIX: Added transaction atomicity with explicit rollback on failure.
+    P3-14 FIX: Now checks admin share permission for shared items (not just ownership).
     """
     if not item_ids:
         return {"deleted_count": 0, "deleted_ids": [], "failed_ids": []}
@@ -579,27 +580,53 @@ async def bulk_delete_items(license_id: int, item_ids: List[int], user_id: Optio
             # P0-3 FIX: Get list of actually existing/accessible items BEFORE deleting
             id_placeholders = ",".join(["?"] * len(validated_item_ids))
 
-            # Issue #7: If user_id is provided, verify ownership for each item
+            # Issue #7 + P3-14 FIX: If user_id is provided, verify ownership OR admin share permission for each item
             if user_id:
-                # Get IDs of items user actually owns
-                verify_query = f"SELECT id FROM library_items WHERE id IN ({id_placeholders}) AND license_key_id = ? AND user_id = ? AND deleted_at IS NULL"
-                verify_params = validated_item_ids + [license_id, user_id]
+                accessible_ids = []
+                failed_ids = []
 
+                # Get all items with their ownership info
+                verify_query = f"""
+                    SELECT id, created_by FROM library_items 
+                    WHERE id IN ({id_placeholders}) 
+                    AND license_key_id = ? 
+                    AND deleted_at IS NULL
+                """
+                verify_params = validated_item_ids + [license_id]
                 result = await fetch_all(db, verify_query, verify_params)
-                accessible_ids = [row["id"] for row in result]
 
-                if len(accessible_ids) != len(validated_item_ids):
-                    failed_ids = [id for id in validated_item_ids if id not in accessible_ids]
+                for row in result:
+                    item_id = row["id"]
+                    created_by = row.get("created_by")
+
+                    # Owner can always delete
+                    if created_by == user_id:
+                        accessible_ids.append(item_id)
+                    else:
+                        # Check if user has admin share permission
+                        has_permission = await verify_share_permission(
+                            db, item_id, user_id, license_id, "admin"
+                        )
+                        if has_permission:
+                            accessible_ids.append(item_id)
+                        else:
+                            failed_ids.append(item_id)
+                            logger.warning(
+                                f"Bulk delete: User {user_id} denied admin permission for item {item_id}"
+                            )
+
+                # Log warning if some items failed permission check
+                if failed_ids:
                     logger.warning(
-                        f"Bulk delete: User {user_id} tried to delete {len(validated_item_ids)} items "
-                        f"but only owns {len(accessible_ids)}. Failed IDs: {failed_ids}"
+                        f"Bulk delete: User {user_id} can delete {len(accessible_ids)} items "
+                        f"but denied for {len(failed_ids)} items. Failed IDs: {failed_ids}"
                     )
 
-                # Delete only the items the user owns
+                # Delete only the items the user has access to
                 if accessible_ids:
                     delete_placeholders = ",".join(["?"] * len(accessible_ids))
-                    query = f"UPDATE library_items SET deleted_at = ? WHERE license_key_id = ? AND user_id = ? AND id IN ({delete_placeholders})"
-                    params = [ts_value, license_id, user_id] + accessible_ids
+                    query = f"UPDATE library_items SET deleted_at = ? WHERE license_key_id = ? AND id IN ({delete_placeholders})"
+                    params = [ts_value, license_id] + accessible_ids
                     await execute_sql(db, query, params)
                 else:
                     accessible_ids = []
@@ -610,6 +637,7 @@ async def bulk_delete_items(license_id: int, item_ids: List[int], user_id: Optio
 
                 result = await fetch_all(db, verify_query, verify_params)
                 accessible_ids = [row["id"] for row in result]
+                failed_ids = []  # No user_id means no permission checks needed
 
                 # Delete accessible items
                 if accessible_ids:
@@ -622,8 +650,11 @@ async def bulk_delete_items(license_id: int, item_ids: List[int], user_id: Optio
 
             await commit_db(db)
 
-            # P0-3 FIX: Calculate failed IDs
-            failed_ids = [id for id in validated_item_ids if id not in accessible_ids]
+            # P0-3 FIX: Calculate failed IDs (only if not already calculated above)
+            if user_id and 'failed_ids' not in locals():
+                failed_ids = [id for id in validated_item_ids if id not in accessible_ids]
+            elif not user_id:
+                failed_ids = [id for id in validated_item_ids if id not in accessible_ids]
 
             # Invalidate storage cache only on success
             await _invalidate_storage_cache(license_id)

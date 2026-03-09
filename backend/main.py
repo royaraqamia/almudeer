@@ -408,6 +408,18 @@ async def root():
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/apk")
 
+# APK Download endpoint - Redirects to Cloudflare R2 storage
+@app.get("/apk", tags=["System"])
+@app.get("/download/almudeer.apk", tags=["System"])
+async def download_apk():
+    """
+    APK download endpoint - redirects to Cloudflare R2 storage.
+    Supports both /apk and /download/almudeer.apk for mobile app compatibility.
+    """
+    from fastapi.responses import RedirectResponse
+    apk_url = os.getenv("APK_DOWNLOAD_URL", "https://almudeercdn.royaraqamia.com/almudeer.apk")
+    return RedirectResponse(url=apk_url)
+
 # Metrics endpoint (monitoring dashboard)
 @app.get("/metrics", tags=["System"])
 async def metrics_endpoint():

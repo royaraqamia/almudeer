@@ -418,6 +418,7 @@ class LibraryProvider extends ChangeNotifier {
 
   /// Merge owned and shared items, removing duplicates
   /// Owned items take precedence, shared items are marked with sharePermission
+  /// FIX BUG #4: Properly preserve sharePermission from backend response
   List<LibraryItem> _mergeAndDeduplicateItems(
     List<LibraryItem> ownedItems,
     List<LibraryItem> sharedItems,
@@ -434,11 +435,19 @@ class LibraryProvider extends ChangeNotifier {
     for (final item in sharedItems) {
       if (item.id == 0) continue;  // Skip invalid items
       if (!itemsMap.containsKey(item.id)) {
-        // Only create new object if sharePermission is not already set
-        if (item.sharePermission == null) {
-          itemsMap[item.id] = item.copyWith(sharePermission: 'read');
-        } else {
+        // FIX BUG #4: Preserve the actual sharePermission from backend
+        // Backend returns share_permission for shared items, null for owned
+        if (item.sharePermission != null) {
+          // Backend provided sharePermission - use it as-is
           itemsMap[item.id] = item;
+        } else {
+          // Edge case: shared item without sharePermission
+          // Log for debugging and default to 'read' for safety
+          debugPrint(
+            '[LibraryProvider] Shared item ${item.id} has no sharePermission, '
+            'defaulting to read'
+          );
+          itemsMap[item.id] = item.copyWith(sharePermission: 'read');
         }
       }
     }

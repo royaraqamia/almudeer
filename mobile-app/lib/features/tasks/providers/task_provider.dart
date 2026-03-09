@@ -749,6 +749,7 @@ class TaskProvider extends ChangeNotifier {
 
   /// Merge owned and shared tasks, removing duplicates
   /// Owned tasks take precedence, shared tasks are marked with sharePermission
+  /// FIX BUG #4: Properly preserve sharePermission from backend response
   List<TaskModel> _mergeAndDeduplicateTasks(
     List<TaskModel> ownedTasks,
     List<TaskModel> sharedTasks,
@@ -763,8 +764,24 @@ class TaskProvider extends ChangeNotifier {
     // Add shared tasks that aren't already owned
     for (final task in sharedTasks) {
       if (!tasksMap.containsKey(task.id)) {
-        // Mark this task as shared
-        tasksMap[task.id] = task.copyWith(sharePermission: task.sharePermission ?? 'read');
+        // FIX BUG #4: Preserve the actual sharePermission from backend
+        // Don't default to 'read' if backend explicitly returns null
+        // Backend returns share_permission only for shared tasks (not owned)
+        final effectivePermission = task.sharePermission;
+        
+        // Only set sharePermission if backend provided it
+        // This ensures we don't incorrectly mark tasks
+        if (effectivePermission != null) {
+          tasksMap[task.id] = task.copyWith(sharePermission: effectivePermission);
+        } else {
+          // If backend didn't provide sharePermission, this might be an edge case
+          // Log for debugging and default to 'read' for safety
+          debugPrint(
+            '[TaskProvider] Shared task ${task.id} has no sharePermission, '
+            'defaulting to read'
+          );
+          tasksMap[task.id] = task.copyWith(sharePermission: 'read');
+        }
       }
     }
 

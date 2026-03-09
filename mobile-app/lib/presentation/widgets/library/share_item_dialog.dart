@@ -92,10 +92,27 @@ class _ShareFormState extends State<_ShareForm> {
 
   void _addUsername() {
     final provider = context.read<LibraryProvider>();
-    if (provider.foundUsernameDetails != null && _usernameController.text.trim().isNotEmpty) {
+    final username = _usernameController.text.trim().replaceAll('@', '');
+    
+    if (provider.foundUsernameDetails != null && username.isNotEmpty) {
+      // FIX BUG #9: Check for duplicate username before adding
+      final isDuplicate = _selectedUsernames.any(
+        (user) => user['username'] == username
+      );
+      
+      if (isDuplicate) {
+        AnimatedToast.warning(
+          context,
+          'هذا المستخدم مُضاف بالفعل',
+        );
+        _usernameController.clear();
+        provider.clearUsernameLookup();
+        return;
+      }
+      
       setState(() {
         _selectedUsernames.add({
-          'username': _usernameController.text.trim().replaceAll('@', ''),
+          'username': username,
           'displayName': provider.foundUsernameDetails!.toString(),
         });
       });
@@ -152,9 +169,21 @@ class _ShareFormState extends State<_ShareForm> {
               successfulTaskIds.add(taskId);
               userHadSuccess = true;
             } catch (e) {
-              failedTaskIds.add(taskId);
-              userHadFailure = true;
-              debugPrint('[ShareItemDialog] Failed to share task $taskId with ${user['username']}: $e');
+              final errorMessage = e.toString().toLowerCase();
+              
+              // FIX BUG #9: Handle "already shared" gracefully - treat as success
+              if (errorMessage.contains('already') || 
+                  errorMessage.contains('existing') ||
+                  errorMessage.contains('تحديث')) {
+                // Share already exists - backend updated it successfully
+                successfulTaskIds.add(taskId);
+                userHadSuccess = true;
+                debugPrint('[ShareItemDialog] Share already exists for task $taskId with ${user['username']}, updated successfully');
+              } else {
+                failedTaskIds.add(taskId);
+                userHadFailure = true;
+                debugPrint('[ShareItemDialog] Failed to share task $taskId with ${user['username']}: $e');
+              }
             }
           }
 
@@ -204,9 +233,21 @@ class _ShareFormState extends State<_ShareForm> {
               successfulItemIds.add(itemId);
               userHadSuccess = true;
             } catch (e) {
-              failedItemIds.add(itemId);
-              userHadFailure = true;
-              debugPrint('[ShareItemDialog] Failed to share library item $itemId with ${user['username']}: $e');
+              final errorMessage = e.toString().toLowerCase();
+              
+              // FIX BUG #9: Handle "already shared" gracefully - treat as success
+              if (errorMessage.contains('already') || 
+                  errorMessage.contains('existing') ||
+                  errorMessage.contains('تحديث')) {
+                // Share already exists - backend updated it successfully
+                successfulItemIds.add(itemId);
+                userHadSuccess = true;
+                debugPrint('[ShareItemDialog] Share already exists for item $itemId with ${user['username']}, updated successfully');
+              } else {
+                failedItemIds.add(itemId);
+                userHadFailure = true;
+                debugPrint('[ShareItemDialog] Failed to share library item $itemId with ${user['username']}: $e');
+              }
             }
           }
 
