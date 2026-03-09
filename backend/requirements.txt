@@ -40,13 +40,13 @@ qrcode[pil]==7.4.2
 pillow==10.2.0
 
 # Security
-python-jose[cryptography]==3.3.0
+python-jose[cryptography]>=3.4.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 cryptography>=43.0.0
 
 # CORS
-python-multipart==0.0.6
+python-multipart>=0.0.22
 
 # Performance & Caching
 cachetools==5.3.2
@@ -96,7 +96,7 @@ python-magic==0.4.27
 
 # Security utilities
 # Issue #28: Path traversal protection (secure_filename)
-werkzeug==3.0.1
+werkzeug>=3.1.6
 
 # System Metrics
 psutil>=5.9.0
