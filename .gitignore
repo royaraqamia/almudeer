@@ -1,64 +1,10 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-ENV/
-env/
-.venv/
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Environment - CRITICAL: Never commit secrets!
-.env
-.env.local
-.env.*.local
-.env.production
-.env.backup
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Logs
-*.log
-logs/
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-
-*_output.txt
-
-# Service Accounts - CRITICAL: Contains sensitive credentials
-service_account.json
-firebase-service-account.json
-
-# Redis dump
-dump.rdb
-
-# SQLite
-*.sqlite-shm
-*.sqlite-wal
-
-# Backup files
-*.bak
-*.backup
-*.old
-
-# Migration scripts with credentials - NEVER commit these!
-scripts/*_with_creds.py
-scripts/*_local.py
+# Root .gitignore for Almudeer Monorepo
 
 # OS files
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Root IDE folders (subfolders have their own)
+/.idea/
+/.vscode/
