@@ -43,3 +43,25 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Build logs and artifacts
+build_*.txt
+build_error_full.txt
+build_final_log.txt
+build_log.txt
+build_output.txt
+build_result*.txt
+build_stacktrace.txt
+*.hprof
+
+# Gradle local repo
+/android/local-repo/
+
+# Cache files
+*.hive
+*.lock
+
+# Debug/temp files
+fix_api_client.py
+dialog_results.txt
+search_results.txt
