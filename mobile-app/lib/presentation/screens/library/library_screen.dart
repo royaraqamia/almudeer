@@ -8,7 +8,7 @@ import '../../../core/utils/haptics.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/dimensions.dart';
 import '../../../core/extensions/string_extension.dart';
-import '../../../core/utils/library_localization.dart';
+import '../../../core/localization/library_localizations.dart';
 import '../../../data/models/library_item.dart';
 import '../../providers/library_provider.dart';
 import '../../widgets/premium_fab.dart';
@@ -313,7 +313,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${LibraryLocalization.errorOpeningItem}: $e'),
+          content: Text('${LibraryLocalizations.of(context).errorOpeningItem}: $e'),
           backgroundColor: AppColors.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -345,18 +345,20 @@ class _LibraryScreenState extends State<LibraryScreen>
         // On some platforms (especially iOS), files may be selected but not directly accessible
         // In this case, we need to use the bytes instead of the path
         if (file.bytes != null && file.bytes!.isNotEmpty) {
+          if (!mounted) return;
           messenger.showSnackBar(
             SnackBar(
-              content: Text(LibraryLocalization.fileAccessError),
+              content: Text(LibraryLocalizations.of(context).fileAccessError),
               backgroundColor: AppColors.error,
               behavior: SnackBarBehavior.floating,
               duration: const Duration(seconds: 4),
             ),
           );
         } else {
+          if (!mounted) return;
           messenger.showSnackBar(
             SnackBar(
-              content: Text(LibraryLocalization.fileSelectedError),
+              content: Text(LibraryLocalizations.of(context).fileSelectedError),
               backgroundColor: AppColors.error,
               behavior: SnackBarBehavior.floating,
             ),
@@ -373,9 +375,10 @@ class _LibraryScreenState extends State<LibraryScreen>
       try {
         final fileExists = await File(filePath).exists();
         if (!fileExists) {
+          if (!mounted) return;
           messenger.showSnackBar(
             SnackBar(
-              content: Text(LibraryLocalization.fileNotFound),
+              content: Text(LibraryLocalizations.of(context).fileNotFound),
               backgroundColor: AppColors.error,
               behavior: SnackBarBehavior.floating,
             ),
@@ -383,9 +386,10 @@ class _LibraryScreenState extends State<LibraryScreen>
           return;
         }
       } catch (e) {
+        if (!mounted) return;
         messenger.showSnackBar(
           SnackBar(
-            content: Text(LibraryLocalization.fileAccessError),
+            content: Text(LibraryLocalizations.of(context).fileAccessError),
             backgroundColor: AppColors.error,
             behavior: SnackBarBehavior.floating,
           ),
@@ -407,7 +411,7 @@ class _LibraryScreenState extends State<LibraryScreen>
               children: [
                 const Icon(SolarBoldIcons.checkCircle, color: Colors.white),
                 const SizedBox(width: AppDimensions.spacing8),
-                Text(LibraryLocalization.uploadSuccess(fileName)),
+                Text(LibraryLocalizations.of(context).uploadSuccess(fileName)),
               ],
             ),
             backgroundColor: AppColors.success,
@@ -421,12 +425,12 @@ class _LibraryScreenState extends State<LibraryScreen>
         // P1: Error with retry option
         messenger.showSnackBar(
           SnackBar(
-            content: Text(LibraryLocalization.uploadFailedWithName(fileName, error.toString())),
+            content: Text(LibraryLocalizations.of(context).uploadFailedWithName(fileName, error.toString())),
             backgroundColor: AppColors.error,
             behavior: SnackBarBehavior.floating,
             duration: const Duration(seconds: 5),
             action: SnackBarAction(
-              label: LibraryLocalization.retry,
+              label: LibraryLocalizations.of(context).retry,
               textColor: Colors.white,
               onPressed: () => _pickFile(fromBottomSheet: fromBottomSheet),
             ),
@@ -441,7 +445,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       if (!mounted) return;
       messenger.showSnackBar(
         SnackBar(
-          content: Text('${LibraryLocalization.uploadFailed}: $e'),
+          content: Text('${LibraryLocalizations.of(context).uploadFailed}: $e'),
           backgroundColor: AppColors.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -481,7 +485,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             Padding(
               padding: const EdgeInsets.only(bottom: AppDimensions.spacing16),
               child: Text(
-                LibraryLocalization.addNewContent,
+                LibraryLocalizations.of(context).addNewContent,
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   fontFamily: 'IBM Plex Sans Arabic',
                   fontWeight: FontWeight.bold,
@@ -492,7 +496,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             // Note option
             Semantics(
               button: true,
-              label: LibraryLocalization.noteOption,
+              label: LibraryLocalizations.of(context).noteOption,
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
@@ -533,7 +537,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                LibraryLocalization.noteOption,
+                                LibraryLocalizations.of(context).noteOption,
                                 style: TextStyle(
                                   fontFamily: 'IBM Plex Sans Arabic',
                                   fontWeight: FontWeight.bold,
@@ -541,7 +545,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                                 ),
                               ),
                               Text(
-                                LibraryLocalization.writeNewNote,
+                                LibraryLocalizations.of(context).writeNewNote,
                                 style: TextStyle(
                                   fontFamily: 'IBM Plex Sans Arabic',
                                   fontSize: 12,
@@ -565,7 +569,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             // File option
             Semantics(
               button: true,
-              label: LibraryLocalization.uploadFile,
+              label: LibraryLocalizations.of(context).uploadFile,
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
@@ -601,7 +605,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                LibraryLocalization.uploadFile,
+                                LibraryLocalizations.of(context).uploadFile,
                                 style: TextStyle(
                                   fontFamily: 'IBM Plex Sans Arabic',
                                   fontWeight: FontWeight.bold,
@@ -609,7 +613,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                                 ),
                               ),
                               Text(
-                                LibraryLocalization.selectFromFile,
+                                LibraryLocalizations.of(context).selectFromFile,
                                 style: TextStyle(
                                   fontFamily: 'IBM Plex Sans Arabic',
                                   fontSize: 12,

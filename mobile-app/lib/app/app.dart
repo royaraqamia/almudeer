@@ -27,6 +27,7 @@ import '../presentation/providers/message_input_provider.dart';
 import '../features/tasks/providers/task_provider.dart';
 import '../presentation/providers/calculator_provider.dart';
 import '../presentation/screens/login/login_screen.dart';
+import '../core/localization/app_localizations.dart';
 import 'routes.dart';
 
 import '../features/tasks/services/task_alarm_service.dart';
@@ -349,10 +350,11 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
         Locale('ar', 'SA'),
         Locale('ar', 'SY'),
       ],
-      localizationsDelegates: const [
+      localizationsDelegates: [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
+        const AppLocalizationsDelegate(),
       ],
 
       // Navigation - use home instead of initialRoute for reliable initial build
