@@ -330,12 +330,11 @@ class FileStorageService:
                 if relative_path.startswith("uploads/"):
                     relative_path = relative_path.replace("uploads/", "", 1)
 
-        # Construct absolute path
-        abs_path = os.path.abspath(os.path.join(self.upload_dir, relative_path))
-
-        # Security check: ensure path is inside upload_dir (prevent path traversal)
+        # Security: Normalize path to remove ".." segments, then verify containment
         abs_upload_dir = os.path.abspath(self.upload_dir)
-        if not abs_path.startswith(abs_upload_dir):
+        abs_path = os.path.abspath(os.path.normpath(os.path.join(self.upload_dir, relative_path)))
+
+        if not abs_path.startswith(abs_upload_dir + os.sep) and abs_path != abs_upload_dir:
             logger.warning(f"Security: Path traversal attempt detected: {path_or_url}")
             raise ValueError("Invalid file path")
 

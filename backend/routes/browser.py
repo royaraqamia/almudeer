@@ -58,7 +58,54 @@ BLOCKED_URL_PATTERNS = [
     "192.168.",
     "10.",
     "172.16.",
+    "172.17.",
+    "172.18.",
+    "172.19.",
+    "172.20.",
+    "172.21.",
+    "172.22.",
+    "172.23.",
+    "172.24.",
+    "172.25.",
+    "172.26.",
+    "172.27.",
+    "172.28.",
+    "172.29.",
+    "172.30.",
+    "172.31.",
+    "169.254.",
+    "0.0.0.0",
 ]
+
+
+def _is_safe_url(url: str) -> bool:
+    """
+    SSRF Protection: Validate that a URL does not resolve to a private/internal IP.
+    This should be called before making any HTTP request.
+    """
+    try:
+        parsed = urlparse(url)
+        host = parsed.netloc.lower()
+        if ":" in host:
+            host = host.split(":")[0]
+        
+        # Check blocked patterns
+        for pattern in BLOCKED_URL_PATTERNS:
+            if host == pattern or host.endswith(f".{pattern}"):
+                return False
+        
+        # Resolve and check IP
+        try:
+            ip_address = socket.gethostbyname(host)
+            ip = ipaddress.ip_address(ip_address)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                return False
+        except socket.gaierror:
+            pass  # DNS resolution failure - let httpx handle it
+        
+        return True
+    except Exception:
+        return False
 
 
 class ScrapeRequest(BaseModel):
@@ -164,7 +211,13 @@ class LinkPreviewResponse(BaseModel):
 async def scrape_url(url: str, include_images: bool = True) -> tuple[str, str, list]:
     """
     Scrape a URL and return (title, content, images)
+    
+    SSRF Protection: Validates URL before making request.
     """
+    # SSRF Protection: Validate URL before making request
+    if not _is_safe_url(url):
+        raise HTTPException(status_code=400, detail="URL is blocked for security reasons")
+    
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(SCRAPE_TIMEOUT, connect=DEFAULT_TIMEOUT),
@@ -175,6 +228,10 @@ async def scrape_url(url: str, include_images: bool = True) -> tuple[str, str, l
         ) as client:
             response = await client.get(url)
             response.raise_for_status()
+            
+            # SSRF Protection: Validate final URL after redirects
+            if not _is_safe_url(str(response.url)):
+                raise HTTPException(status_code=400, detail="Redirected URL is blocked for security reasons")
             
             # Check content length header
             content_length = response.headers.get("content-length")
@@ -480,6 +537,10 @@ async def get_link_preview(
         return LinkPreviewResponse(**cached['data'])
     
     try:
+        # SSRF Protection: Validate URL before making request (defense in depth)
+        if not _is_safe_url(url):
+            raise HTTPException(status_code=400, detail="URL is blocked for security reasons")
+        
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(10.0, connect=5.0),
             follow_redirects=True,
@@ -489,6 +550,10 @@ async def get_link_preview(
         ) as client:
             response = await client.get(url)
             response.raise_for_status()
+            
+            # SSRF Protection: Validate final URL after redirects
+            if not _is_safe_url(str(response.url)):
+                raise HTTPException(status_code=400, detail="Redirected URL is blocked for security reasons")
 
         soup = BeautifulSoup(response.text, "html.parser")
 

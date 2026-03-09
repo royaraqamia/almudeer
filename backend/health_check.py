@@ -50,7 +50,9 @@ async def check_database_health() -> Dict[str, Any]:
             result = await execute_sql(db, "SELECT 1")
             return {"status": "healthy", "latency_ms": 0}
     except Exception as e:
-        return {"status": "unhealthy", "error": str(e)}
+        import logging
+        logging.error(f"Database health check failed: {e}")
+        return {"status": "unhealthy", "error": "Database connection failed"}
 
 
 async def check_redis_health() -> Dict[str, Any]:
@@ -58,7 +60,7 @@ async def check_redis_health() -> Dict[str, Any]:
     redis_url = os.getenv("REDIS_URL")
     if not redis_url:
         return {"status": "not_configured"}
-    
+
     try:
         import redis.asyncio as redis
         client = redis.from_url(redis_url)
@@ -68,7 +70,9 @@ async def check_redis_health() -> Dict[str, Any]:
     except ImportError:
         return {"status": "not_installed"}
     except Exception as e:
-        return {"status": "unhealthy", "error": str(e)}
+        import logging
+        logging.error(f"Redis health check failed: {e}")
+        return {"status": "unhealthy", "error": "Redis connection failed"}
 
 
 @router.get("/health")
