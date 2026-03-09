@@ -187,9 +187,11 @@ class FileStorageService:
             file_path = os.path.join(target_dir, unique_filename)
 
             # Issue #28: Security check - ensure path is inside target_dir
-            abs_file_path = os.path.abspath(file_path)
+            # Use normpath to resolve any ".." segments before checking
+            abs_file_path = os.path.abspath(os.path.normpath(file_path))
             abs_target_dir = os.path.abspath(target_dir)
-            if not abs_file_path.startswith(abs_target_dir):
+            # Add separator to prevent bypass via directory name prefix (e.g., images_evil)
+            if not (abs_file_path.startswith(abs_target_dir + os.sep) or abs_file_path == abs_target_dir):
                 logger.error(f"Security: Path traversal attempt detected: {file_path}")
                 raise ValueError("Invalid file path")
 
@@ -237,10 +239,12 @@ class FileStorageService:
 
             file_path = os.path.join(target_dir, unique_filename)
 
-            # Issue #28: Security check
-            abs_file_path = os.path.abspath(file_path)
+            # Issue #28: Security check - ensure path is inside target_dir
+            # Use normpath to resolve any ".." segments before checking
+            abs_file_path = os.path.abspath(os.path.normpath(file_path))
             abs_target_dir = os.path.abspath(target_dir)
-            if not abs_file_path.startswith(abs_target_dir):
+            # Add separator to prevent bypass via directory name prefix (e.g., images_evil)
+            if not (abs_file_path.startswith(abs_target_dir + os.sep) or abs_file_path == abs_target_dir):
                 logger.error(f"Security: Path traversal attempt detected: {file_path}")
                 raise ValueError("Invalid file path")
 

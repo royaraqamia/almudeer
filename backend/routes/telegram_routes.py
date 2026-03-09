@@ -4,6 +4,7 @@ Bot integration and Phone session (MTProto) management
 """
 
 import base64
+import logging
 from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -24,6 +25,8 @@ from services import (
     get_telegram_phone_service,
 )
 from dependencies import get_license_from_header
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/integrations", tags=["Telegram"])
 
@@ -192,7 +195,8 @@ async def start_telegram_phone_login(
         result = await get_telegram_phone_service().start_login(request.phone_number)
         return {"success": True, "session_id": result.get("session_id"), "phone_number": result["phone_number"]}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Error starting telegram phone login")
+        raise HTTPException(status_code=500, detail="حدث خطأ داخلي")
 
 @router.post("/telegram-phone/verify")
 async def verify_telegram_phone_code(
@@ -206,7 +210,7 @@ async def verify_telegram_phone_code(
             session_id=request.session_id,
             password=request.password
         )
-        
+
         config_id = await save_telegram_phone_session(
             license_id=license["license_id"],
             phone_number=request.phone_number,
@@ -218,9 +222,11 @@ async def verify_telegram_phone_code(
         )
         return {"success": True, "message": "تم ربط رقم Telegram بنجاح", "user": user_info}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.warning("Invalid value in telegram phone verify: %s", e)
+        raise HTTPException(status_code=400, detail="بيانات غير صحيحة")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Error verifying telegram phone code")
+        raise HTTPException(status_code=500, detail="حدث خطأ داخلي")
 
 @router.get("/telegram-phone/config")
 async def get_telegram_phone_config(license: dict = Depends(get_license_from_header)):
@@ -232,15 +238,18 @@ async def test_telegram_phone_connection(license: dict = Depends(get_license_fro
     try:
         session_string = await get_telegram_phone_session_data(license["license_id"])
         if not session_string: raise HTTPException(status_code=404, detail="لا توجد جلسة نشطة")
-        
+
         from services.telegram_listener_service import get_telegram_listener
         listener = get_telegram_listener()
         active_client = await listener.ensure_client_active(license["license_id"])
-        
+
         success, message, user_info = await get_telegram_phone_service().test_connection(session_string, client=active_client)
         return {"success": success, "message": message, "user": user_info}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Error testing telegram phone connection")
+        raise HTTPException(status_code=500, detail="حدث خطأ داخلي")
 
 @router.post("/telegram-phone/disconnect")
 async def disconnect_telegram_phone(license: dict = Depends(get_license_from_header)):

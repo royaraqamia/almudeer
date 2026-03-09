@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 import io
 import csv
 import json
+import html
 
 from dependencies import get_license_from_header
 from db_helper import get_db, fetch_all, fetch_one, DB_TYPE
@@ -208,7 +209,7 @@ def generate_html_report(data: dict, license_name: str = "شركتك") -> str:
 <html dir="rtl" lang="ar">
 <head>
     <meta charset="UTF-8">
-    <title>تقرير المدير - {license_name}</title>
+    <title>تقرير المدير - {html.escape(license_name)}</title>
     <style>
         * {{ font-family: 'Segoe UI', Tahoma, sans-serif; }}
         body {{ max-width: 800px; margin: 0 auto; padding: 20px; background: #f5f5f5; }}
@@ -230,8 +231,8 @@ def generate_html_report(data: dict, license_name: str = "شركتك") -> str:
 <body>
     <div class="header">
         <h1>🏢 تقرير المدير</h1>
-        <p>{license_name}</p>
-        <p>الفترة: {start_hijri} إلى {end_hijri}</p>
+        <p>{html.escape(license_name)}</p>
+        <p>الفترة: {html.escape(start_hijri)} إلى {html.escape(end_hijri)}</p>
     </div>
     
     <div class="card">
@@ -279,7 +280,7 @@ def generate_html_report(data: dict, license_name: str = "شركتك") -> str:
             </tr>
             {''.join(f'''
             <tr>
-                <td>{c.get('name', 'بدون اسم')}</td>
+                <td>{html.escape(c.get('name', 'بدون اسم'))}</td>
                 <td>{'⭐' if c.get('is_vip') else '-'}</td>
             </tr>
             ''' for c in customers[:10])}
@@ -297,17 +298,17 @@ def generate_html_report(data: dict, license_name: str = "شركتك") -> str:
             </tr>
             {''.join(f'''
             <tr>
-                <td>{m.get('sender_name', 'مجهول')}</td>
-                <td>{m.get('channel', '-')}</td>
-                <td>{m.get('intent', '-')}</td>
-                <td><span class="badge {'badge-positive' if m.get('sentiment') == 'إيجابي' else 'badge-negative' if m.get('sentiment') == 'سلبي' else ''}">{m.get('sentiment', '-')}</span></td>
+                <td>{html.escape(m.get('sender_name', 'مجهول'))}</td>
+                <td>{html.escape(m.get('channel', '-'))}</td>
+                <td>{html.escape(m.get('intent', '-'))}</td>
+                <td><span class="badge {'badge-positive' if m.get('sentiment') == 'إيجابي' else 'badge-negative' if m.get('sentiment') == 'سلبي' else ''}">{html.escape(m.get('sentiment', '-'))}</span></td>
             </tr>
             ''' for m in messages[:20])}
         </table>
     </div>
     
     <div class="footer">
-        <p>تم إنشاء هذا التقرير بواسطة المدير - {footer_date} {footer_time}</p>
+        <p>تم إنشاء هذا التقرير بواسطة المدير - {html.escape(footer_date)} {html.escape(footer_time)}</p>
     </div>
 </body>
 </html>
