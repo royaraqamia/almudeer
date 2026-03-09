@@ -1,0 +1,45 @@
+# Dart Analysis for Flutter Mobile App
+# Runs dart analyze and dart format checks on the mobile app
+
+name: "Dart Analysis"
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'mobile-app/**'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'mobile-app/**'
+
+jobs:
+  analyze:
+    name: Analyze (Dart)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.x'
+        cache: true
+
+    - name: Get dependencies
+      working-directory: ./mobile-app
+      run: flutter pub get
+
+    - name: Run Dart Analyzer
+      working-directory: ./mobile-app
+      run: dart analyze --fatal-infos
+
+    - name: Check Dart Formatting
+      working-directory: ./mobile-app
+      run: dart format --output=none --set-exit-if-changed .
+
+    - name: Run Flutter Tests
+      working-directory: ./mobile-app
+      run: flutter test --no-pub
