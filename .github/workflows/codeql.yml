@@ -73,6 +73,11 @@ jobs:
         # queries: security-extended,security-and-quality
 
     # Build Kotlin/Android code (required for CodeQL to trace)
+    - name: Generate Gradle Wrapper
+      if: matrix.language == 'java-kotlin'
+      working-directory: ./mobile-app/android
+      run: gradle wrapper
+
     - name: Build Android (Kotlin)
       if: matrix.language == 'java-kotlin'
       working-directory: ./mobile-app/android
