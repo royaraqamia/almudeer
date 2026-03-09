@@ -1,3 +1,5 @@
+# DISABLED: Fortify AST Scan - No credentials configured
+# To enable: Add FOD_USER, FOD_PAT, FOD_TENANT secrets to GitHub Actions
 # This workflow uses actions that are not certified by GitHub.
 # They are provided by a third-party and are governed by
 # separate terms of service, privacy policy, and support
@@ -16,15 +18,17 @@
 name: Fortify AST Scan
 
 # Customize trigger events based on your DevSecOps process and/or policy
+# DISABLED - Uncomment to enable:
+# on:
+#   push:
+#     branches: [ "main" ]
+#   pull_request:
+#     branches: [ "main" ]
+#   schedule:
+#     - cron: '33 9 * * 4'
+#   workflow_dispatch:
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    # The branches below must be a subset of the branches above
-    branches: [ "main" ]
-  schedule:
-    - cron: '33 9 * * 4'
-  workflow_dispatch:
+  workflow_dispatch:  # Only manual trigger enabled
 
 jobs:
   Fortify-AST-Scan:
