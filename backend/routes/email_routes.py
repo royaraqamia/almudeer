@@ -115,9 +115,10 @@ async def gmail_oauth_callback(
         </html>
         """
         return HTMLResponse(content=html_content)
-        
+
     except Exception as e:
-        error_html = f"<html><body><h1>❌ فشل ربط حساب Gmail</h1><p>{html.escape(str(e))}</p></body></html>"
+        logger.error(f"Gmail OAuth callback failed: {e}", exc_info=True)
+        error_html = "<html><body><h1>❌ فشل ربط حساب Gmail</h1><p>حدث خطأ داخلي أثناء ربط الحساب</p></body></html>"
         return HTMLResponse(content=error_html, status_code=400)
 
 @router.post("/config")
@@ -159,7 +160,8 @@ async def test_email_connection(license: dict = Depends(get_license_from_header)
         profile = await gmail_service.get_profile()
         return {"success": True, "message": f"الاتصال ناجح مع {profile.get('emailAddress')}"}
     except Exception as e:
-        return {"success": False, "message": f"فشل الاتصال: {str(e)}"}
+        logger.error(f"Gmail connection check failed: {e}", exc_info=True)
+        return {"success": False, "message": "فشل الاتصال: حدث خطأ داخلي"}
 
 @router.post("/fetch")
 async def fetch_emails(
@@ -199,9 +201,10 @@ async def fetch_emails(
                 received_at=email_data["received_at"],
                 attachments=email_data["attachments"]
             )
-            
+
             processed += 1
-        
+
         return {"success": True, "message": f"تم جلب {processed} رسالة جديدة", "count": processed}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"خطأ في جلب الرسائل: {str(e)}")
+        logger.error(f"Failed to fetch emails: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="حدث خطأ أثناء جلب الرسائل")

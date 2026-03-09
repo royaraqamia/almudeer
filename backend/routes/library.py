@@ -1418,10 +1418,10 @@ async def bulk_share_library_items(
             results['success'].append(result)
 
         except Exception as e:
-            logger.error(f"Failed to share item {item_id}: {e}")
+            logger.error(f"Failed to share item {item_id}: {e}", exc_info=True)
             results['failed'].append({
                 'item_id': item_id,
-                'error': str(e)
+                'error': 'An internal error occurred'
             })
 
     return {
