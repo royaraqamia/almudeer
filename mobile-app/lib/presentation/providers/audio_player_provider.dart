@@ -790,15 +790,18 @@ class AudioPlayerProvider extends ChangeNotifier {
 }
 
 /// Helper class to play from bytes in just_audio
+// ignore: experimental_member_use
 class _BufferAudioSource extends StreamAudioSource {
   final Uint8List _buffer;
 
   _BufferAudioSource(this._buffer) : super(tag: 'BufferAudioSource');
 
   @override
+  // ignore: experimental_member_use
   Future<StreamAudioResponse> request([int? start, int? end]) async {
     start ??= 0;
     end ??= _buffer.length;
+    // ignore: experimental_member_use
     return StreamAudioResponse(
       sourceLength: _buffer.length,
       contentLength: end - start,
