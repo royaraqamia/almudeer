@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:figma_squircle/figma_squircle.dart';
 import '../constants/colors.dart';
 import '../constants/dimensions.dart';
+import '../constants/animations.dart';
 import '../utils/haptics.dart';
 
 class AppGradientButton extends StatefulWidget {
@@ -116,9 +117,9 @@ class _AppGradientButtonState extends State<AppGradientButton> {
         },
         child: AnimatedScale(
           scale: _isPressed ? 0.97 : 1.0,
-          duration: const Duration(milliseconds: 100),
+          duration: AppAnimations.fast, // Apple standard: 250ms (was 100ms)
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
+            duration: AppAnimations.normal, // Apple standard: 300ms (was 200ms)
             width: effectiveWidth,
             height: effectiveHeight,
             decoration: ShapeDecoration(

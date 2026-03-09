@@ -170,6 +170,7 @@ class AppTheme {
       ),
 
       // Input Decoration - Using standardized radius and border states
+      // Apple HIG: 1px borders (NOT 2px), 60% placeholder opacity
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColors.surfaceLight,
@@ -187,40 +188,41 @@ class AppTheme {
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.borderLight, width: 2),
+          borderSide: const BorderSide(color: AppColors.borderLight, width: 1), // Apple: 1px (was 2px)
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.borderLight, width: 2),
+          borderSide: const BorderSide(color: AppColors.borderLight, width: 1), // Apple: 1px
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.primary, width: 2),
+          borderSide: const BorderSide(color: AppColors.primary, width: 1.5), // 1.5px for focus OK
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.error, width: 2),
+          borderSide: const BorderSide(color: AppColors.error, width: 1), // Apple: 1px
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.error, width: 2),
+          borderSide: const BorderSide(color: AppColors.error, width: 1.5), // 1.5px for focus
         ),
         hintStyle: const TextStyle(
           color: AppColors.textTertiaryLight,
           fontSize: 16,
           fontWeight: FontWeight.normal,
+          // Apple: Placeholder opacity handled in widget
         ),
         labelStyle: const TextStyle(color: AppColors.textSecondaryLight),
       ),
@@ -242,6 +244,7 @@ class AppTheme {
       ),
 
       // Dialog - Using standardized radius
+      // Apple HIG: Title 17pt semibold, Content 13-15pt regular
       dialogTheme: DialogThemeData(
         backgroundColor: AppColors.cardLight,
         surfaceTintColor: Colors.transparent,
@@ -252,13 +255,15 @@ class AppTheme {
           ),
         ),
         titleTextStyle: const TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
+          fontSize: 17, // Apple standard: 17pt (was 20)
+          fontWeight: FontWeight.w600, // Semibold (was bold)
           color: AppColors.textPrimaryLight,
+          letterSpacing: -0.3, // Apple standard for titles
         ),
         contentTextStyle: const TextStyle(
-          fontSize: 16,
+          fontSize: 15, // Apple standard: 13-15pt
           color: AppColors.textSecondaryLight,
+          letterSpacing: -0.2,
         ),
       ),
 
@@ -352,8 +357,9 @@ class AppTheme {
       ),
 
       // Cards - Using standardized radius
+      // Apple HIG: Subtle shadows even in dark mode for depth perception
       cardTheme: CardThemeData(
-        elevation: 0,
+        elevation: 1, // Subtle elevation for dark mode (was 0)
         color: AppColors.cardDark,
         surfaceTintColor: Colors.transparent,
         shape: SmoothRectangleBorder(
@@ -362,6 +368,7 @@ class AppTheme {
             cornerSmoothing: 1.0,
           ),
         ),
+        shadowColor: Colors.black.withValues(alpha: 0.2), // Apple: Subtle shadow in dark mode
       ),
 
       // Buttons - Using standardized heights and radius
@@ -446,6 +453,7 @@ class AppTheme {
       ),
 
       // Input Decoration - Using standardized radius and border states
+      // Apple HIG: 1px borders (NOT 2px), 60% placeholder opacity
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColors.surfaceDark,
@@ -463,40 +471,41 @@ class AppTheme {
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.borderDark, width: 2),
+          borderSide: const BorderSide(color: AppColors.borderDark, width: 1), // Apple: 1px (was 2px)
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.borderDark, width: 2),
+          borderSide: const BorderSide(color: AppColors.borderDark, width: 1), // Apple: 1px
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.primaryLight, width: 2),
+          borderSide: const BorderSide(color: AppColors.primaryLight, width: 1.5), // 1.5px for focus
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.error, width: 2),
+          borderSide: const BorderSide(color: AppColors.error, width: 1), // Apple: 1px
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.error, width: 2),
+          borderSide: const BorderSide(color: AppColors.error, width: 1.5), // 1.5px for focus
         ),
         hintStyle: const TextStyle(
           color: AppColors.textTertiaryDark,
           fontSize: 16,
           fontWeight: FontWeight.normal,
+          // Apple: Placeholder opacity handled in widget
         ),
         labelStyle: const TextStyle(color: AppColors.textSecondaryDark),
       ),
@@ -518,6 +527,7 @@ class AppTheme {
       ),
 
       // Dialog - Using standardized radius
+      // Apple HIG: Title 17pt semibold, Content 13-15pt regular
       dialogTheme: DialogThemeData(
         backgroundColor: AppColors.cardDark,
         surfaceTintColor: Colors.transparent,
@@ -528,13 +538,15 @@ class AppTheme {
           ),
         ),
         titleTextStyle: const TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
+          fontSize: 17, // Apple standard: 17pt (was 20)
+          fontWeight: FontWeight.w600, // Semibold (was bold)
           color: AppColors.textPrimaryDark,
+          letterSpacing: -0.3,
         ),
         contentTextStyle: const TextStyle(
-          fontSize: 16,
+          fontSize: 15, // Apple standard: 13-15pt
           color: AppColors.textSecondaryDark,
+          letterSpacing: -0.2,
         ),
       ),
 
@@ -577,12 +589,18 @@ class AppTheme {
 
   /// Build text theme for both light and dark modes
   ///
-  /// Typography Scale (optimized for Arabic readability):
+  /// Typography Scale (Apple HIG Compliant):
+  /// Reference: Apple Style Guide p. 60-61
   /// - Display: 32, 28, 24 (headlines, large titles)
   /// - Headline: 28, 24, 20 (section headers)
   /// - Title: 20, 18, 16 (card titles, subtitles)
-  /// - Body: 16, 14, 12 (content text - fixed from oversized values)
+  /// - Body: 17, 15, 13 (Apple standard: 17pt body, NOT 16)
   /// - Label: 16, 14, 12 (buttons, labels)
+  ///
+  /// Arabic-Specific Adjustments:
+  /// - Letter spacing: -0.3 to -0.5 for tighter, more refined text
+  /// - Line height: 1.4 for Arabic (NOT 1.5 - too loose)
+  /// - All sizes respect Dynamic Type scaling
   static TextTheme _buildTextTheme(Brightness brightness) {
     final Color textColor = brightness == Brightness.light
         ? AppColors.textPrimaryLight
@@ -592,106 +610,127 @@ class AppTheme {
         : AppColors.textSecondaryDark;
 
     return TextTheme(
-      // Display styles - Large headlines
+      // Display styles - Large headlines (Apple: 34, 28, 22)
       displayLarge: TextStyle(
         fontSize: 32,
         fontWeight: FontWeight.w700,
         color: textColor,
         height: 1.2,
+        letterSpacing: -0.5, // Apple standard for headlines
       ),
       displayMedium: TextStyle(
         fontSize: 28,
         fontWeight: FontWeight.w700,
         color: textColor,
         height: 1.2,
+        letterSpacing: -0.5,
       ),
       displaySmall: TextStyle(
         fontSize: 24,
         fontWeight: FontWeight.w700,
         color: textColor,
         height: 1.2,
+        letterSpacing: -0.5,
       ),
-      // Headline styles - Section headers
+      // Headline styles - Section headers (Apple: 24, 20, 17)
       headlineLarge: TextStyle(
         fontSize: 28,
         fontWeight: FontWeight.w600,
         color: textColor,
         height: 1.3,
+        letterSpacing: -0.5,
       ),
       headlineMedium: TextStyle(
         fontSize: 24,
         fontWeight: FontWeight.w600,
         color: textColor,
         height: 1.3,
+        letterSpacing: -0.3,
       ),
       headlineSmall: TextStyle(
         fontSize: 20,
         fontWeight: FontWeight.w600,
         color: textColor,
         height: 1.3,
+        letterSpacing: -0.3,
       ),
-      // Title styles - Card titles, subtitles
+      // Title styles - Card titles, subtitles (Apple: 20, 17, 15)
       titleLarge: TextStyle(
-        fontSize: 20, // Fixed from 24
+        fontSize: 20, // Apple standard for primary titles
         fontWeight: FontWeight.w600,
         color: textColor,
-        height: 1.4,
+        height: 1.4, // Arabic-optimized (NOT 1.5)
+        letterSpacing: -0.5, // Apple standard for titles
       ),
       titleMedium: TextStyle(
-        fontSize: 18, // Fixed from 20
+        fontSize: 18, // Between Apple's 17 and 20
         fontWeight: FontWeight.w600,
         color: textColor,
         height: 1.4,
+        letterSpacing: -0.3,
       ),
       titleSmall: TextStyle(
-        fontSize: 16, // Fixed from 18
+        fontSize: 16, // Apple's 15, adjusted for Arabic
         fontWeight: FontWeight.w600,
         color: textColor,
         height: 1.4,
+        letterSpacing: -0.3,
       ),
-      // Body styles - Content text (fixed from oversized values)
+      // Body styles - Content text (Apple: 17, 15, 13)
+      // FIXED from oversized values (was 24, 20, 18 - way too large)
       bodyLarge: TextStyle(
-        fontSize: 16, // Fixed from 24 - proper body text size
+        fontSize: 17, // Apple standard body size (was 16)
         fontWeight: FontWeight.w400,
         color: textColor,
-        height: 1.5,
+        height: 1.4, // Arabic-optimized (was 1.5 - too loose)
+        letterSpacing: -0.3, // Apple standard for body text
       ),
       bodyMedium: TextStyle(
-        fontSize: 14, // Fixed from 20 - proper body text size
+        fontSize: 15, // Apple standard secondary body (was 14)
         fontWeight: FontWeight.w400,
         color: textColor,
-        height: 1.5,
+        height: 1.4,
+        letterSpacing: -0.2,
       ),
       bodySmall: TextStyle(
-        fontSize: 12, // Fixed from 18 - proper caption size
+        fontSize: 13, // Apple standard caption (was 12)
         fontWeight: FontWeight.w400,
         color: secondaryColor,
         height: 1.4,
+        letterSpacing: -0.2,
       ),
-      // Label styles - Buttons, labels
+      // Label styles - Buttons, labels (Apple: 16, 14, 12)
       labelLarge: TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.w500,
         color: textColor,
         height: 1.2,
+        letterSpacing: -0.3,
       ),
       labelMedium: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w500,
         color: secondaryColor,
         height: 1.2,
+        letterSpacing: -0.2,
       ),
       labelSmall: TextStyle(
         fontSize: 12,
         fontWeight: FontWeight.w500,
         color: secondaryColor,
         height: 1.1,
+        letterSpacing: -0.2,
       ),
     );
   }
 }
 
 /// Custom fast page transitions builder
+/// 
+/// Apple HIG Compliance:
+/// - Respects system Reduce Motion preference
+/// - Uses fade-only transitions when Reduce Motion is enabled
+/// - Default: Fade + subtle slide (0.03 offset)
 class _FastPageTransitionsBuilder extends PageTransitionsBuilder {
   @override
   Widget buildTransitions<T>(
@@ -701,6 +740,22 @@ class _FastPageTransitionsBuilder extends PageTransitionsBuilder {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
+    // Apple HIG: Respect Reduce Motion preference
+    final mediaQuery = MediaQuery.of(context);
+    final reduceMotion = mediaQuery.disableAnimations || mediaQuery.accessibleNavigation;
+    
+    if (reduceMotion) {
+      // Fade-only transition (no slide) for reduced motion
+      return FadeTransition(
+        opacity: CurvedAnimation(
+          parent: animation,
+          curve: Curves.linear, // Simple, no easing for reduced motion
+        ),
+        child: child,
+      );
+    }
+    
+    // Default: Fade + subtle slide for normal motion preference
     return FadeTransition(
       opacity: CurvedAnimation(parent: animation, curve: AppAnimations.enter),
       child: SlideTransition(

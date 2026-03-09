@@ -105,9 +105,9 @@ class _CustomDialogState extends State<CustomDialog> {
                 Text(
                   widget.title,
                   style: theme.textTheme.titleLarge?.copyWith(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: -0.5,
+                    fontSize: 17, // Apple standard: 17pt (was 20)
+                    fontWeight: FontWeight.w600, // Semibold (was bold)
+                    letterSpacing: -0.5, // Apple standard for titles
                   ),
                   textAlign: TextAlign.center,
                 ),

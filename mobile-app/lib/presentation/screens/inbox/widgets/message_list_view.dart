@@ -6,6 +6,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../../../../core/constants/colors.dart';
 import '../../../../core/constants/dimensions.dart';
+import '../../../../core/constants/animations.dart';
 import '../../../../core/extensions/date_time_extension.dart';
 import '../../../../core/extensions/string_extension.dart'; // Added this import
 import 'package:almudeer_mobile_app/data/models/inbox_message.dart';
@@ -250,10 +251,10 @@ class _MessageListViewState extends State<MessageListView> {
       _pendingScrollPlatformId = null;
       _scrollRetryCount = 0;
 
-      // Found it! Use jumpTo for instant or scrollTo for animation
+      // Found it! Use scrollTo for smooth animation
       _itemScrollController.scrollTo(
         index: targetIndex,
-        duration: const Duration(milliseconds: 600),
+        duration: AppAnimations.standard, // Apple standard: 350ms (was 600ms)
         curve: Curves.easeInOutCubic,
         alignment: 0.5, // Center the message
       );
@@ -639,7 +640,7 @@ class _TypingDotState extends State<TypingDot>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: AppAnimations.standard, // Apple standard: 350ms (was 600ms)
     );
 
     Future.delayed(Duration(milliseconds: widget.delay), () {

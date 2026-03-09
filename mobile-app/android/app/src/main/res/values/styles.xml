@@ -18,5 +18,13 @@
          This Theme is only used starting with V2 of Flutter's Android embedding. -->
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">@drawable/splash_gradient</item>
+        <!-- Apple HIG: Dark mode support -->
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
+    
+    <!-- No animation style for reduced motion (used programmatically) -->
+    <style name="NoAnimation">
+        <item name="android:activityOpenEnterAnimation">@null</item>
+        <item name="android:activityOpenExitAnimation">@null</item>
     </style>
 </resources>

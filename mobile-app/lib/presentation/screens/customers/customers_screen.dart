@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/colors.dart';
-
 import '../../../core/constants/dimensions.dart';
+import '../../../core/constants/animations.dart';
 import '../../../core/utils/haptics.dart';
 import '../../../data/models/customer.dart';
 import '../../providers/customers_provider.dart';
@@ -53,7 +53,7 @@ class _CustomersViewState extends State<_CustomersView>
   void initState() {
     super.initState();
     _animController = AnimationController(
-      duration: const Duration(milliseconds: 800),
+      duration: AppAnimations.slow, // Apple standard: 400ms (was 800ms)
       vsync: this,
     );
   }

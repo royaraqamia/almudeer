@@ -7,6 +7,7 @@ import 'package:hijri/hijri_calendar.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/dimensions.dart';
 import '../../../core/constants/shadows.dart';
+import '../../../core/constants/animations.dart';
 import '../../../core/constants/settings_strings.dart';
 import '../../../core/utils/haptics.dart';
 
@@ -63,7 +64,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     _newDocController = TextEditingController();
 
     _animController = AnimationController(
-      duration: const Duration(milliseconds: 800),
+      duration: AppAnimations.slow, // Apple standard: 400ms (was 800ms)
       vsync: this,
     );
     _animController.forward();

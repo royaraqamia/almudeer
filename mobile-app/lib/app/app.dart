@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../core/theme/app_theme.dart';
 import '../core/constants/colors.dart';
+import '../core/constants/animations.dart';
 import '../core/services/permission_service.dart';
 import '../core/services/deep_link_service.dart';
 import '../presentation/providers/auth_provider.dart';
@@ -33,6 +34,11 @@ import 'routes.dart';
 import '../features/tasks/services/task_alarm_service.dart';
 
 /// Root application widget with theme and routing
+/// 
+/// Apple HIG Compliance:
+/// - Respects system Reduce Motion preferences
+/// - Supports Dynamic Type (text scaling)
+/// - Proper accessibility support
 class AppRoot extends StatefulWidget {
   final String initialRoute;
 
@@ -123,7 +129,8 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
       });
 
       // T+800ms: Library specific resume logic
-      Future.delayed(const Duration(milliseconds: 800), () {
+      // Apple HIG: Staggered loading for smooth UX
+      Future.delayed(AppAnimations.extended, () {
         if (mounted) context.read<LibraryProvider>().onAppResume();
       });
 
@@ -362,10 +369,29 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
       home: Container(color: AppColors.backgroundDark),
       onGenerateRoute: AppRoutes.generateRoute,
       builder: (context, child) {
+        // Apple HIG: Respect system Reduce Motion preference
+        // Check if user prefers reduced motion and apply accordingly
+        final mediaQuery = MediaQuery.of(context);
+        final reduceMotion = mediaQuery.disableAnimations || mediaQuery.accessibleNavigation;
+        
+        // Apple HIG: Support Dynamic Type (text scaling)
+        // Scale text based on system accessibility settings
+        final textScaler = MediaQuery.textScalerOf(context);
+
+        child = MediaQuery(
+          data: mediaQuery.copyWith(
+            // Reduce motion: Disable animations if user prefers
+            disableAnimations: reduceMotion,
+            // Dynamic Type: Respect system text scale
+            textScaler: textScaler,
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+
         // Apply RTL directionality
         child = Directionality(
           textDirection: TextDirection.rtl,
-          child: child ?? const SizedBox.shrink(),
+          child: child,
         );
 
         // Splash overlay during initialization

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/constants/colors.dart';
+import '../../../../core/constants/animations.dart';
 
 /// Typing indicator widget with animated dots
 class CommentTypingIndicator extends StatefulWidget {
@@ -26,7 +27,7 @@ class _CommentTypingIndicatorState extends State<CommentTypingIndicator>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: AppAnimations.standard, // Apple standard: 350ms (was 600ms)
     );
     _controller.repeat(reverse: true);
   }

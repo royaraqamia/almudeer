@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
 
 import 'package:almudeer_mobile_app/core/constants/colors.dart';
+import 'package:almudeer_mobile_app/core/constants/animations.dart';
 import 'package:almudeer_mobile_app/core/utils/haptics.dart';
 import 'package:almudeer_mobile_app/data/models/transfer_models.dart';
 import 'package:almudeer_mobile_app/presentation/providers/transfer_provider.dart';
@@ -996,7 +997,7 @@ class _AnimatedEmptyStateState extends State<_AnimatedEmptyState>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: AppAnimations.slow, // Apple standard: 400ms (was 800ms)
     );
 
     _scaleAnimation = Tween<double>(

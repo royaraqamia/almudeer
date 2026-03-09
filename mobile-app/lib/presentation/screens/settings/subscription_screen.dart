@@ -35,8 +35,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
 
   void _initAnimations() {
     // Main fade-in animation
+    // Apple HIG: 350ms standard duration (was 600ms)
     _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 600),
+      duration: AppAnimations.standard,
       vsync: this,
     );
 

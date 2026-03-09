@@ -5,6 +5,7 @@ import 'package:hijri/hijri_calendar.dart';
 import '../../../../core/constants/colors.dart';
 import '../../../../core/constants/dimensions.dart';
 import '../../../../core/constants/shadows.dart';
+import '../../../../core/constants/animations.dart';
 import '../../../../core/extensions/string_extension.dart';
 import '../../../widgets/common_widgets.dart';
 import 'data/tools_data.dart';
@@ -138,7 +139,7 @@ class _ToolCardState extends State<ToolCard>
     super.initState();
     _pressController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 100),
+      duration: AppAnimations.fast, // Apple standard: 250ms (was 100ms)
     );
     _scaleAnimation = Tween<double>(begin: 1.0, end: 0.96).animate(
       CurvedAnimation(parent: _pressController, curve: Curves.easeInOut),

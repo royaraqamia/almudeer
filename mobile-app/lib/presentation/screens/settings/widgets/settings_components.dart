@@ -3,6 +3,7 @@ import 'package:figma_squircle/figma_squircle.dart';
 
 import '../../../../core/constants/colors.dart';
 import '../../../../core/constants/dimensions.dart';
+import '../../../../core/constants/animations.dart';
 import '../../../../core/utils/haptics.dart';
 
 /// Reusable settings row widget with accessibility support
@@ -316,7 +317,7 @@ class AnimatedSettingsSection extends StatefulWidget {
     super.key,
     required this.child,
     required this.delay,
-    this.duration = const Duration(milliseconds: 800),
+    this.duration = AppAnimations.slow, // Apple standard: 400ms (was 800ms)
   });
 
   @override

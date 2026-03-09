@@ -99,8 +99,9 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Text(
             AppStrings.savedAccounts,
             style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
+              fontSize: 15, // Apple standard: 15pt for labels
+              fontWeight: FontWeight.w600, // Semibold
+              letterSpacing: -0.2, // Apple standard
               color: Theme.of(context).textTheme.labelLarge?.color,
             ),
           ),
@@ -313,6 +314,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               style: TextStyle(
                                 fontSize: 24,
                                 fontWeight: FontWeight.bold,
+                                letterSpacing: -0.5, // Apple standard for titles
                                 color: Theme.of(
                                   context,
                                 ).textTheme.headlineSmall?.color,
@@ -322,7 +324,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             Text(
                               'أدخِل مفتاح الاشتراك للمتابعة', // Subtitle
                               style: TextStyle(
-                                fontSize: 14,
+                                fontSize: 15, // Apple standard: 15pt for secondary text
+                                letterSpacing: -0.2,
                                 color: Theme.of(
                                   context,
                                 ).textTheme.bodySmall?.color,
@@ -361,6 +364,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                   hintText: 'MUDEER-XXXXXXXX-XXXXXXXX-XXXXXXXX',
                                   keyboardType: TextInputType.text,
                                   textInputAction: TextInputAction.done,
+                                  // Apple HIG: Disable autocorrect for license key input
+                                  autocorrect: false,
+                                  enableSuggestions: false,
+                                  textCapitalization: TextCapitalization.characters,
                                   onChanged: (value) {
                                     final auth = context.read<AuthProvider>();
                                     auth.clearError();

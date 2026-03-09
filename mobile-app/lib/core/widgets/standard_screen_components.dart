@@ -7,11 +7,12 @@ import '../utils/haptics.dart';
 
 /// Premium app bar action button with consistent styling across all screens
 ///
-/// Design Specifications:
-/// - Size: 40x40px touch target
+/// Design Specifications (Apple HIG Compliant):
+/// - Size: 44x44px touch target (Apple minimum, was 40px)
 /// - Icon: 24px
 /// - Hover states for tablet/desktop
 /// - Consistent with theme enhancements
+/// - Letter spacing for any text labels
 class AppBarActionButton extends StatefulWidget {
   final IconData icon;
   final VoidCallback? onPressed;
@@ -57,8 +58,8 @@ class _AppBarActionButtonState extends State<AppBarActionButton> {
             : MouseCursor.defer,
         child: AnimatedContainer(
           duration: AppAnimations.normal,
-          width: 40,
-          height: 40,
+          width: 44, // Apple HIG: 44px minimum (was 40)
+          height: 44, // Apple HIG: 44px minimum
           decoration: BoxDecoration(
             color: _isHovered
                 ? (widget.backgroundColor ??

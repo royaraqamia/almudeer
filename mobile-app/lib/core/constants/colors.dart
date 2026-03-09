@@ -7,6 +7,11 @@ import 'package:flutter/material.dart';
 /// - Primary colors maintain brand consistency across light/dark modes
 /// - Semantic colors are adjusted for optimal visibility in both themes
 /// - Dedicated colors for disabled, hover, focus, and overlay states
+///
+/// Apple HIG Compliance:
+/// - Dark Mode uses less saturated colors (reduces visual vibration)
+/// - Semantic color names follow Apple's naming conventions
+/// - Lightness indicates elevation in Dark Mode
 class AppColors {
   // Prevent instantiation
   AppColors._();
@@ -14,10 +19,14 @@ class AppColors {
   // ─────────────────────────────────────────────────────────────────
   // Primary Brand Colors (Royal Blue)
   // Tailwind blue-600/500/700 scale
+  // Apple HIG: Dark Mode uses less saturated, lighter colors
   // ─────────────────────────────────────────────────────────────────
   static const Color primary = Color(0xFF2563EB);
   static const Color primaryLight = Color(0xFF3B82F6);
-  static const Color primaryDark = Color(0xFF1D4ED8);
+  
+  // Apple HIG: Desaturated for dark mode (was #1D4ED8 - too saturated)
+  // Lighter, less saturated to reduce visual vibration in dark mode
+  static const Color primaryDark = Color(0xFF6EA8FF);
 
   // Active state background for navigation (dark theme optimized)
   // Lighter alpha for subtle pill, brighter hue for dark mode visibility
@@ -30,7 +39,7 @@ class AppColors {
 
   // Brand gradient stops (optimized for icon contrast)
   static const Color brandGradientStart = Color(0xFF2563EB);
-  static const Color brandGradientEnd = Color(0xFF1636A8); // Darkened from #1E40AF for better icon contrast
+  static const Color brandGradientEnd = Color(0xFF1636A8); // Darkened for better icon contrast
 
   // Error gradient stops
   static const List<Color> errorGradient = [
@@ -77,20 +86,36 @@ class AppColors {
 
   // ─────────────────────────────────────────────────────────────────
   // Background Colors (Light Theme)
+  // Apple HIG: Semantic names for iOS compatibility
   // ─────────────────────────────────────────────────────────────────
   static const Color backgroundLight = Color(0xFFECFBFF);
   static const Color surfaceLight = Color(0xFFF8FAFC);
   static const Color cardLight = Color(0xFFFFFFFF);
   static const Color surfaceCardLight = Color(0xFFF1F5F9); // Stat card bg
 
+  // Apple HIG Semantic Names (iOS compatibility)
+  static const Color systemBackground = Color(0xFFECFBFF);
+  static const Color secondarySystemBackground = Color(0xFFF8FAFC);
+  static const Color tertiarySystemBackground = Color(0xFFFFFFFF);
+  static const Color systemFill = Color(0x14000000);
+  static const Color secondarySystemFill = Color(0x0A000000);
+
   // ─────────────────────────────────────────────────────────────────
   // Background Colors (Dark Theme)
   // Fixed hierarchy: background < surface < card (increasing lightness)
+  // Apple HIG: Lighter surfaces indicate higher elevation
   // ─────────────────────────────────────────────────────────────────
   static const Color backgroundDark = Color(0xFF0F2E42);
   static const Color surfaceDark = Color(0xFF163A52);   // Lighter for hierarchy
   static const Color cardDark = Color(0xFF1B4461);       // Even lighter for cards
   static const Color surfaceCardDark = Color(0xFF1B4461); // Match card for consistency
+
+  // Apple HIG Semantic Names (Dark Mode - iOS compatibility)
+  static const Color systemBackgroundDark = Color(0xFF0F2E42);
+  static const Color secondarySystemBackgroundDark = Color(0xFF163A52);
+  static const Color tertiarySystemBackgroundDark = Color(0xFF1B4461);
+  static const Color systemFillDark = Color(0x14FFFFFF);
+  static const Color secondarySystemFillDark = Color(0x0AFFFFFF);
 
   // Icon background colors (for icon containers in cards)
   static const Color iconBgPrimary = Color(0xFFDBEAFE); // blue-100

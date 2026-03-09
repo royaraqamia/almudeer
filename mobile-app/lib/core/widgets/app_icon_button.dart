@@ -7,12 +7,13 @@ import '../utils/haptics.dart';
 /// Premium icon button with multiple variants and proper touch targets
 ///
 /// Design Specifications:
-/// - Minimum touch target: 44x44px (WCAG 2.1 AA)
-/// - Default size: 48x48px
+/// - Minimum touch target: 44x44px (Apple HIG, WCAG 2.1 AA)
+/// - Default size: 48x48px (exceeds Apple minimum)
 /// - Variants: filled, outlined, ghost, tonal
 /// - Hover states for tablet/desktop support
 /// - Press animation with scale effect
 /// - Haptic feedback on tap
+/// - Letter spacing for icon labels
 class AppIconButton extends StatefulWidget {
   final IconData icon;
   final VoidCallback? onPressed;

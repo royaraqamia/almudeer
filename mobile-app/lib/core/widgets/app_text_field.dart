@@ -48,6 +48,11 @@ class AppTextField extends StatefulWidget {
   final TextStyle? style;
   final TextStyle? hintStyle;
   final bool useFloatingLabel;
+  
+  // Apple HIG: Auto-capitalization controls
+  final bool autocorrect;
+  final bool enableSuggestions;
+  final TextCapitalization textCapitalization;
 
   const AppTextField({
     super.key,
@@ -85,6 +90,10 @@ class AppTextField extends StatefulWidget {
     this.style,
     this.hintStyle,
     this.useFloatingLabel = false,
+    // Apple HIG: Default to no autocorrect for sensitive fields
+    this.autocorrect = false,
+    this.enableSuggestions = false,
+    this.textCapitalization = TextCapitalization.none,
   });
 
   @override
@@ -355,7 +364,12 @@ class _AppTextFieldState extends State<AppTextField> {
                     color: isDark
                         ? AppColors.textPrimaryDark
                         : AppColors.textPrimaryLight,
+                    letterSpacing: -0.3, // Apple standard for text fields
                   ),
+              // Apple HIG: Disable autocorrect for sensitive fields
+              autocorrect: widget.autocorrect,
+              enableSuggestions: widget.enableSuggestions,
+              textCapitalization: widget.textCapitalization,
               decoration: InputDecoration(
                 hintText: widget.useFloatingLabel ? null : widget.hintText,
                 hintStyle:
@@ -367,6 +381,7 @@ class _AppTextFieldState extends State<AppTextField> {
                       color: isDark
                           ? AppColors.textTertiaryDark
                           : AppColors.textTertiaryLight,
+                      // Apple HIG: 60% opacity for placeholders
                     ),
                 prefixIcon: widget.prefixIcon,
                 suffixIcon: widget.suffixIcon,

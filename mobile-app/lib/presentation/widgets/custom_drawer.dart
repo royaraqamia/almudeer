@@ -4,6 +4,7 @@ import 'package:figma_squircle/figma_squircle.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/colors.dart';
+import '../../core/constants/animations.dart';
 import '../../app/routes.dart';
 import '../../data/models/user_info.dart';
 import '../providers/auth_provider.dart';
@@ -39,7 +40,7 @@ class _CustomDrawerState extends State<CustomDrawer>
     super.initState();
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: AppAnimations.slow, // Apple standard: 400ms for drawer (was 800ms)
     );
     _animationController.forward();
   }

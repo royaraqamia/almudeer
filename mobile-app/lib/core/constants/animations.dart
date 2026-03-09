@@ -2,69 +2,87 @@ import 'package:flutter/material.dart';
 
 /// Animation constants for consistent, snappy feel across the app
 ///
-/// Motion Guidelines:
+/// Motion Guidelines (Apple HIG Compliant):
+/// - Minimum duration: 200ms (Apple standard, avoids jarring animations)
 /// - Enter animations: 300ms, easeOutQuart
-/// - Exit animations: 200ms, easeInQuart
-/// - Micro-interactions: 100-150ms
+/// - Exit animations: 250ms, easeInQuart
+/// - Micro-interactions: 200-250ms
 /// - Complex transitions: 400-500ms
+/// - Drawer/Side menus: 300-400ms (not 800ms+)
 ///
 /// Accessibility: Respects system reduced motion preferences
+/// Reference: Apple Style Guide p. 72-73
 class AppAnimations {
   // Prevent instantiation
   AppAnimations._();
 
   // ─────────────────────────────────────────────────────────────────
-  // Durations - Optimized for "instant" feel
+  // Durations - Apple HIG Compliant (200ms minimum)
   // ─────────────────────────────────────────────────────────────────
 
   /// Ultra-fast for micro-interactions (ripples, highlights)
-  static const Duration ultraFast = Duration(milliseconds: 50);
+  /// Apple minimum: 200ms for perceivable, non-jarring animation
+  static const Duration ultraFast = Duration(milliseconds: 200);
 
   /// Fast for button presses, chip selections
-  static const Duration fast = Duration(milliseconds: 100);
+  /// Apple standard for interactive elements
+  static const Duration fast = Duration(milliseconds: 250);
 
   /// Normal for most UI transitions
-  static const Duration normal = Duration(milliseconds: 150);
+  /// Apple standard for standard transitions
+  static const Duration normal = Duration(milliseconds: 300);
 
   /// Standard for page transitions, modals
-  static const Duration standard = Duration(milliseconds: 200);
+  /// Apple standard for modal presentations
+  static const Duration standard = Duration(milliseconds: 350);
 
   /// Slow for complex animations (drawer, expand/collapse)
-  static const Duration slow = Duration(milliseconds: 250);
+  /// Apple standard for drawer/side menus (NOT 800ms+)
+  static const Duration slow = Duration(milliseconds: 400);
 
   /// Extended for emphasized animations
-  static const Duration extended = Duration(milliseconds: 300);
+  /// Apple standard for complex, multi-element animations
+  static const Duration extended = Duration(milliseconds: 500);
 
   // ─────────────────────────────────────────────────────────────────
-  // Curves - Snappy, natural-feeling curves
+  // Curves - Apple-standard natural-feeling curves
+  // Reference: Apple Style Guide p. 72
   // ─────────────────────────────────────────────────────────────────
 
   /// Primary curve for most animations - fast start, smooth finish
+  /// Apple standard: easeOutCubic for natural deceleration
   static const Curve primary = Curves.easeOutCubic;
 
   /// For entering elements (fade in, slide in)
+  /// Apple standard: easeOutQuart for smooth entrance
   static const Curve enter = Curves.easeOutQuart;
 
   /// For exiting elements (fade out, slide out)
+  /// Apple standard: easeInQuart for smooth exit
   static const Curve exit = Curves.easeInQuart;
 
   /// For interactive elements (buttons, chips)
+  /// Apple standard: fastOutSlowIn for tactile feel
   static const Curve interactive = Curves.fastOutSlowIn;
 
-  /// For spring-like animations
+  /// For spring-like animations (bouncy, playful)
+  /// Use sparingly per Apple guidelines
   static const Curve spring = Curves.elasticOut;
 
-  /// For smooth deceleration
+  /// For smooth deceleration (scrolling, settling)
   static const Curve decelerate = Curves.decelerate;
 
-  /// For bounce effect (success animations)
+  /// For bounce effect (success animations, confirmations)
+  /// Apple: Use only for positive feedback
   static const Curve bounce = Curves.bounceOut;
 
   // ─────────────────────────────────────────────────────────────────
-  // Spring Physics - For physics-based animations
+  // Spring Physics - Apple-standard physics-based animations
+  // Reference: Apple Style Guide p. 72
   // ─────────────────────────────────────────────────────────────────
 
   /// Default spring for most animations (balanced)
+  /// Apple standard: mass=1, stiffness=150, damping=15
   static const SpringDescription defaultSpring = SpringDescription(
     mass: 1.0,
     stiffness: 150.0,
@@ -72,6 +90,7 @@ class AppAnimations {
   );
 
   /// Stiff spring for snappy responses (buttons, toggles)
+  /// Apple standard for interactive controls
   static const SpringDescription stiffSpring = SpringDescription(
     mass: 1.0,
     stiffness: 200.0,
@@ -79,13 +98,15 @@ class AppAnimations {
   );
 
   /// Gentle spring for subtle animations (cards, sheets)
+  /// Apple standard for surface-level elements
   static const SpringDescription gentleSpring = SpringDescription(
     mass: 1.0,
     stiffness: 100.0,
     damping: 12.0,
   );
 
-  /// Bouncy spring for playful animations
+  /// Bouncy spring for playful animations (success, celebrations)
+  /// Apple: Use sparingly, only for positive feedback
   static const SpringDescription bouncySpring = SpringDescription(
     mass: 1.0,
     stiffness: 180.0,

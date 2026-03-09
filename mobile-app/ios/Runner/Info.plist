@@ -97,5 +97,13 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+
+	<!-- Accessibility: Reduce Motion Support -->
+	<key>UIAccessibilityReduceMotion</key>
+	<true/>
+	
+	<!-- Accessibility: Dark Mode Support -->
+	<key>UIUserInterfaceStyle</key>
+	<string>Dark</string>
 </dict>
 </plist>

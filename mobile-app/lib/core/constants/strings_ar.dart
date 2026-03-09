@@ -29,15 +29,15 @@ class AppStrings {
   static const String removeAccount = 'حذف الحساب';
   static const String confirmRemoveAccount = 'هل أنت متأكد من حذف هذا الحساب؟';
 
-  // Login Errors
+  // Login Errors - Apple HIG: Clear, actionable, not alarming
   static const String errorLicenseRequired =
-      'فضلًا، يرجى إدخال مفتاح الاشتراك للبدء';
+      'فضلًا، أدخِل مفتاح الاشتراك للبدء';
   static const String errorInvalidFormat =
-      'تنسيق المفتاح غير صحيح. تأكد من إدخله بالشكل: MUDEER-XXXX-...';
+      'التنسيق غير صحيح. تأكد من إدخاله بالشكل: MUDEER-XXXX-...';
   static const String errorInvalidKey =
-      'المفتاح غير صالح. تحقق من صحة المفتاح أو تواصل معنا للمساعدة';
+      'المفتاح غير صالح. تحقَّق من صحة المفتاح أو تواصل معنا للمساعدة';
   static const String errorConnectionFailed =
-      'تعذر الاتصال.. يرجى التحقق من الإنترنت، جزاك الله خيرًا';
+      'تعذَّر الاتصال.. يرجى التحقُّق من الإنترنت، جزاك الله خيرًا';
   static const String errorRateLimited =
       'لحماية حسابك، يرجى الانتظار {minutes} دقيقة قبل المحاولة مجددًا';
 
@@ -54,7 +54,7 @@ class AppStrings {
   static const String pullToRefresh = 'اسحب للتحديث';
   static const String loading = 'جاري التحميل...';
   static const String searchConversations = 'بحث في المحادثات...';
-  static const String noSearchResults = 'لا توجد نتائج';
+  static const String noSearchResults = 'لا توجد نتائج. جرّب كلمات مفتاحية أخرى'; // Apple HIG: More helpful
 
   // Message Status
   static const String statusPending = 'قيد الانتظار';
@@ -140,9 +140,9 @@ class AppStrings {
   static const String noConnectedChannels = 'لا توجد حسابات متصلة';
   static const String connectChannelPrompt = 'قم بربط واتساب أو تيليجرام للبدء';
 
-  // Errors
+  // Errors - Apple HIG: User-friendly, actionable
   static const String errorGeneric = 'حدث خطأ. يرجى المحاولة مرة أخرى';
-  static const String errorNetwork = 'خطأ في الاتصال. تحقق من اتصالك بالإنترنت';
+  static const String errorNetwork = 'خطأ في الاتصال. تحقَّق من اتصالك بالإنترنت';
   static const String errorTimeout = 'انتهت مهلة الطلب. يرجى المحاولة مرة أخرى';
   static const String errorAuth =
       'انتهت صلاحية الجلسة. يرجى تسجيل الدخول مرة أخرى';

@@ -3,6 +3,7 @@ import 'package:solar_icon_pack/solar_icon_pack.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/dimensions.dart';
+import '../../../core/constants/animations.dart';
 import '../../../core/utils/haptics.dart';
 import '../../../data/models/conversation.dart';
 import '../../providers/inbox_provider.dart';
@@ -38,7 +39,7 @@ class _InboxScreenState extends State<InboxScreen>
     _scrollController.addListener(_onScroll);
 
     _staggerController = AnimationController(
-      duration: const Duration(milliseconds: 800),
+      duration: AppAnimations.slow, // Apple standard: 400ms (was 800ms)
       vsync: this,
     );
 

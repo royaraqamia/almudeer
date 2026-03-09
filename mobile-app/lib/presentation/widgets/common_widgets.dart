@@ -21,6 +21,7 @@ class PremiumSkeleton extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Premium refined colors for smoother loading effect
+    // Apple standard: Slower shimmer (2000ms) for subtle, non-distracting effect
     final baseColor = isDark
         ? const Color(0xFF2C2C2C)
         : const Color(0xFFEEEEEE);
@@ -31,7 +32,7 @@ class PremiumSkeleton extends StatelessWidget {
     return Shimmer.fromColors(
       baseColor: baseColor,
       highlightColor: highlightColor,
-      period: const Duration(milliseconds: 1500),
+      period: const Duration(milliseconds: 2000), // Apple standard: 2000ms (was 1500ms)
       direction: ShimmerDirection.ltr,
       child: child,
     );
@@ -540,7 +541,7 @@ class _StaggeredAnimatedItemState extends State<StaggeredAnimatedItem>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: AppAnimations.standard, // Apple standard: 350ms (was 600ms)
     );
 
     _fadeAnimation = CurvedAnimation(
@@ -1819,7 +1820,7 @@ class AnimatedCounter extends StatefulWidget {
   const AnimatedCounter({
     super.key,
     required this.value,
-    this.duration = const Duration(milliseconds: 800),
+    this.duration = AppAnimations.extended, // Apple standard: 500ms (was 800ms)
     this.style,
     this.suffix,
     this.decimalPlaces = 0,
