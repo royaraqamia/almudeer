@@ -235,39 +235,63 @@ async def queue_notification_for_retry(notification_data: dict):
     
     # Schedule retry after delay
     retry_at = datetime.now(timezone.utc) + timedelta(seconds=_NOTIFICATION_RETRY_DELAY_SECONDS)
-    
+
     _notification_retry_queue.append({
         **notification_data,
         'retry_count': retry_count + 1,
         'retry_at': retry_at
     })
-    
+
     logger.info(
         f"Queued notification for retry ({retry_count + 1}/{_NOTIFICATION_MAX_RETRIES}): "
         f"{notification_data.get('resource_type')} {notification_data.get('resource_id')}"
     )
+    
+    # FIX: Track metric for queued retries
+    try:
+        from services.metrics_service import MetricsService
+        metrics = MetricsService()
+        await metrics.increment_counter("notification_retry_queued", {
+            "license_id": str(notification_data.get('license_id')),
+            "resource_type": notification_data.get('resource_type', 'unknown'),
+            "retry_count": str(retry_count + 1)
+        })
+    except Exception:
+        pass
 
 
 async def process_notification_retry_queue():
     """
     Process the notification retry queue.
     Should be called periodically by a background worker.
+    
+    FIX: Add monitoring for queue depth to track backlog.
     """
     now = datetime.now(timezone.utc)
     to_process = []
     remaining = []
-    
+
+    # Track queue depth metric for monitoring
+    try:
+        from services.metrics_service import MetricsService
+        metrics = MetricsService()
+        await metrics.increment_counter("notification_retry_queue_depth", {
+            "count": str(len(_notification_retry_queue))
+        })
+    except Exception:
+        pass
+
     # Separate notifications that are ready for retry
     for item in _notification_retry_queue:
         if item.get('retry_at', now) <= now:
             to_process.append(item)
         else:
             remaining.append(item)
-    
+
     # Update queue with remaining items
     _notification_retry_queue.clear()
     _notification_retry_queue.extend(remaining)
-    
+
     # Process ready notifications
     for notification_data in to_process:
         try:

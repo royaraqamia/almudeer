@@ -160,4 +160,19 @@ class AppConfig {
 
   /// Maximum URL length to prevent malformed QR codes
   static const int maxQrUrlLength = 2048;
+
+  /// Maximum data length for QR code generation (practical limit for scannability)
+  static const int maxQrDataLength = 500;
+
+  /// Hive box name for QR scanner history
+  static const String qrHistoryBoxName = 'qr_scanner_history';
+
+  /// SharedPreferences key for QR flash state
+  static const String qrFlashEnabledKey = 'qr_flash_enabled';
+
+  /// Default QR code size in pixels
+  static const double defaultQrCodeSize = 200;
+
+  /// QR code debounce duration to prevent duplicate scans
+  static const Duration qrScanDebounceDuration = Duration(seconds: 2);
 }

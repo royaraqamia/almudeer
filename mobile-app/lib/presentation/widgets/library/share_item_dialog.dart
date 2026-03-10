@@ -5,6 +5,7 @@ import 'package:solar_icon_pack/solar_icon_pack.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/dimensions.dart';
 import '../../../core/utils/haptics.dart';
+import '../../../core/utils/share_error_codes.dart';
 import '../../../core/widgets/app_gradient_button.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../providers/library_provider.dart';
@@ -200,12 +201,11 @@ class _ShareFormState extends State<_ShareForm> {
               successfulTaskIds.add(taskId);
               userHadSuccess = true;
             } catch (e) {
-              final errorMessage = e.toString().toLowerCase();
+              // FIX: Use error codes instead of string matching
+              final errorCode = ShareErrorHelper.extractErrorCode(e);
               
-              // FIX BUG #9: Handle "already shared" gracefully - treat as success
-              if (errorMessage.contains('already') || 
-                  errorMessage.contains('existing') ||
-                  errorMessage.contains('تحديث')) {
+              // Handle "already shared" gracefully - treat as success
+              if (ShareErrorHelper.isSoftError(errorCode)) {
                 // Share already exists - backend updated it successfully
                 successfulTaskIds.add(taskId);
                 userHadSuccess = true;
@@ -267,12 +267,11 @@ class _ShareFormState extends State<_ShareForm> {
               successfulItemIds.add(itemId);
               userHadSuccess = true;
             } catch (e) {
-              final errorMessage = e.toString().toLowerCase();
+              // FIX: Use error codes instead of string matching
+              final errorCode = ShareErrorHelper.extractErrorCode(e);
               
-              // FIX BUG #9: Handle "already shared" gracefully - treat as success
-              if (errorMessage.contains('already') || 
-                  errorMessage.contains('existing') ||
-                  errorMessage.contains('تحديث')) {
+              // Handle "already shared" gracefully - treat as success
+              if (ShareErrorHelper.isSoftError(errorCode)) {
                 // Share already exists - backend updated it successfully
                 successfulItemIds.add(itemId);
                 userHadSuccess = true;

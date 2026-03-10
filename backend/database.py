@@ -312,10 +312,33 @@ async def _init_sqlite_tables(db):
     """)
     
     await db.execute("""
-        CREATE INDEX IF NOT EXISTS idx_device_sessions_family 
+        CREATE INDEX IF NOT EXISTS idx_device_sessions_family
         ON device_sessions(family_id)
     """)
-    
+
+    # Indexes for knowledge_documents table
+    await db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_knowledge_license_deleted
+        ON knowledge_documents(license_key_id, deleted_at)
+    """)
+
+    await db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_knowledge_user
+        ON knowledge_documents(license_key_id, user_id, deleted_at)
+    """)
+
+    await db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_knowledge_source
+        ON knowledge_documents(license_key_id, source, deleted_at)
+    """)
+
+    # Unique constraint to prevent duplicate file uploads per license
+    await db.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_unique_file
+        ON knowledge_documents(license_key_id, text, source, deleted_at)
+        WHERE source = 'file' AND text IS NOT NULL AND deleted_at IS NULL
+    """)
+
     await db.commit()
 
 
@@ -523,8 +546,32 @@ async def _init_postgresql_tables(conn):
     """)
     
     await conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_device_sessions_family 
+        CREATE INDEX IF NOT EXISTS idx_device_sessions_family
         ON device_sessions(family_id)
+    """)
+
+    # Indexes for knowledge_documents table
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_knowledge_license_deleted
+        ON knowledge_documents(license_key_id, deleted_at)
+    """)
+
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_knowledge_user
+        ON knowledge_documents(license_key_id, user_id, deleted_at)
+    """)
+
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_knowledge_source
+        ON knowledge_documents(license_key_id, source, deleted_at)
+    """)
+
+    # Unique constraint to prevent duplicate file uploads per license
+    # PostgreSQL uses partial unique indexes with WHERE clause
+    await conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_unique_file
+        ON knowledge_documents(license_key_id, text, source)
+        WHERE source = 'file' AND text IS NOT NULL AND deleted_at IS NULL
     """)
 
 

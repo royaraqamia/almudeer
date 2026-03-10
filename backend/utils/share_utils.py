@@ -7,6 +7,38 @@ from typing import Optional, Tuple
 from db_helper import get_db, fetch_one, DB_TYPE
 
 
+# ============================================================================
+# SHARE ERROR CODES
+# ============================================================================
+# Error codes for consistent error handling between backend and mobile
+# Mobile app should match on these codes instead of error message strings
+
+class ShareErrorCode:
+    """Error codes for share operations"""
+    # Task share errors
+    TASK_NOT_FOUND = "TASK_NOT_FOUND"
+    TASK_OWNER_ONLY = "TASK_OWNER_ONLY"
+    SELF_SHARE = "SELF_SHARE"
+    SHARE_REVOKED = "SHARE_REVOKED"
+    USER_NOT_FOUND = "USER_NOT_FOUND"
+    INVALID_PERMISSION = "INVALID_PERMISSION"
+    
+    # Library share errors
+    ITEM_NOT_FOUND = "ITEM_NOT_FOUND"
+    ITEM_OWNER_ONLY = "ITEM_OWNER_ONLY"
+    SELF_ITEM_SHARE = "SELF_ITEM_SHARE"
+    ITEM_SHARE_REVOKED = "ITEM_SHARE_REVOKED"
+    
+    # General errors
+    INVALID_SHARE = "INVALID_SHARE"
+    SHARE_FAILED = "SHARE_FAILED"
+    PERMISSION_DENIED = "PERMISSION_DENIED"
+
+
+# ============================================================================
+# SHARING UTILITIES
+# ============================================================================
+
 async def resolve_username_to_user_id(username: str) -> Tuple[str, bool]:
     """
     Resolve a username to a user_id (license_id).
@@ -97,13 +129,45 @@ def validate_share_permission(permission: str) -> bool:
 def normalize_permission(permission: Optional[str]) -> str:
     """
     Normalize permission to a valid default if invalid.
-    
+
     Args:
         permission: Permission level to normalize
-        
+
     Returns:
         Valid permission level (defaults to 'read')
     """
     if permission and validate_share_permission(permission):
         return permission
     return 'read'
+
+
+def get_share_error_code(error_message: str) -> str:
+    """
+    Map an error message to a standardized error code.
+    
+    Args:
+        error_message: The error message string
+        
+    Returns:
+        A standardized error code from ShareErrorCode
+    """
+    error_lower = error_message.lower()
+    
+    if 'yourself' in error_lower:
+        return ShareErrorCode.SELF_SHARE
+    elif 'task' in error_lower and 'not found' in error_lower:
+        return ShareErrorCode.TASK_NOT_FOUND
+    elif 'item' in error_lower and 'not found' in error_lower:
+        return ShareErrorCode.ITEM_NOT_FOUND
+    elif 'not found' in error_lower:
+        return ShareErrorCode.USER_NOT_FOUND
+    elif 'permission' in error_lower or 'privilege' in error_lower:
+        return ShareErrorCode.PERMISSION_DENIED
+    elif 'revoked' in error_lower:
+        return ShareErrorCode.SHARE_REVOKED
+    elif 'owner' in error_lower:
+        return ShareErrorCode.TASK_OWNER_ONLY
+    elif 'user' in error_lower and 'not found' in error_lower:
+        return ShareErrorCode.USER_NOT_FOUND
+    else:
+        return ShareErrorCode.INVALID_SHARE

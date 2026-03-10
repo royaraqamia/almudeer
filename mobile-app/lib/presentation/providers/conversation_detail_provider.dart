@@ -72,6 +72,9 @@ class ConversationDetailProvider extends ChangeNotifier {
   String? _editingMessageBody;
 
   Failure? _failure;
+  
+  // Error callback for UI to display error messages (e.g., edit failures)
+  ValueChanged<String>? onError;
 
   // Throttled notification for high-frequency events
   Timer? _throttleTimer;
@@ -750,6 +753,9 @@ class ConversationDetailProvider extends ChangeNotifier {
       // API Call (Backgrounded for instant responsiveness)
       _inboxRepository.editMessage(messageId, newBody).catchError((e) {
         debugPrint("Failed to edit message (background): $e");
+
+        // Notify UI of the error so user knows the edit didn't sync
+        onError?.call("فشل مزامنة التعديل: ${e.toString()}");
 
         // Rollback on background failure
         final listAfterError = _memoryMessages[contact] ?? [];
@@ -1501,17 +1507,41 @@ class ConversationDetailProvider extends ChangeNotifier {
         final newBody = data['new_body'];
         final senderContact = data['sender_contact'] as String?;
         final recipientContact = data['recipient_contact'] as String?;
+        final editedAt = data['edited_at'] as String?;
         final forceRefresh = data['force_refresh'] as bool? ?? false;
 
         debugPrint('[ConversationDetailProvider] Received message_edited event: msgId=$msgId, senderContact=$senderContact, recipientContact=$recipientContact, newBody=$newBody, forceRefresh=$forceRefresh');
         debugPrint('[ConversationDetailProvider] Using contact=$contact for message update (from outer scope)');
+
+        // Validation: Ensure required fields are present
+        if (msgId == null || newBody == null || newBody.isEmpty) {
+          debugPrint('[ConversationDetailProvider] Invalid message_edited event: missing required fields');
+          return;
+        }
+
+        // Validation: Verify edited_at timestamp is reasonable
+        if (editedAt != null) {
+          try {
+            final editedTime = DateTime.parse(editedAt).toUtc();
+            final now = DateTime.now().toUtc();
+            // Reject if timestamp is in the future (with 5 second grace) or older than 30 days
+            if (editedTime.isAfter(now.add(const Duration(seconds: 5))) ||
+                editedTime.isBefore(now.subtract(const Duration(days: 30)))) {
+              debugPrint('[ConversationDetailProvider] Invalid edited_at timestamp: $editedAt');
+              return;
+            }
+          } catch (e) {
+            debugPrint('[ConversationDetailProvider] Failed to parse edited_at: $e');
+            return;
+          }
+        }
 
         if (_memoryMessages.containsKey(contact)) {
           final current = _memoryMessages[contact] ?? [];
           // Peer-to-peer sync: Recipients use 'alm_{outboxId}' as platformMessageId
           // Also check outboxId for direct matching on recipient side
           final idx = current.indexWhere(
-            (m) => m.id == msgId || 
+            (m) => m.id == msgId ||
                    m.platformMessageId == 'alm_$msgId' ||
                    m.outboxId == msgId,
           );
@@ -1521,7 +1551,7 @@ class ConversationDetailProvider extends ChangeNotifier {
             updatedList[idx] = updatedList[idx].copyWith(
               body: newBody,
               isEdited: true,
-              editedAt: data['edited_at'],
+              editedAt: editedAt,
             );
             _memoryMessages[contact] = updatedList;
             debugPrint('[ConversationDetailProvider] Updated message body to: $newBody');
@@ -1532,7 +1562,7 @@ class ConversationDetailProvider extends ChangeNotifier {
                 .applyRemoteMessageEdit(
                   msgId as int,
                   newBody as String,
-                  data['edited_at'] as String?,
+                  editedAt,
                 )
                 .catchError(
                   (e) => debugPrint('Error persisting remote edit: $e'),

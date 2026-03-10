@@ -116,11 +116,55 @@ class BrowserDownloadManager {
     _tasksController.add(_tasksBox.values.toList());
   }
 
+  /// Sanitize filename to prevent path traversal and invalid characters
+  String _sanitizeFileName(String name) {
+    // Remove or replace path traversal sequences
+    name = name.replaceAll('../', '').replaceAll('..\\', '');
+    
+    // Remove null bytes and other control characters
+    name = name.replaceAll(RegExp(r'[\x00-\x1f\x7f]'), '');
+    
+    // Replace invalid filename characters with underscore
+    // Windows: < > : " / \ | ? *
+    // Also remove leading/trailing dots and spaces (Windows issue)
+    name = name.replaceAll(RegExp(r'[<>:"/\\\\|?*]'), '_');
+    name = name.trim();
+    
+    // Remove leading/trailing dots (problematic on Windows and Unix)
+    name = name.replaceAll(RegExp(r'^\.+|\.+$'), '');
+    
+    // Limit filename length (most filesystems support 255 chars)
+    if (name.length > 200) {
+      // Preserve extension
+      final lastDot = name.lastIndexOf('.');
+      if (lastDot > 0 && lastDot < name.length - 1) {
+        final ext = name.substring(lastDot);
+        name = name.substring(0, 200 - ext.length) + ext;
+      } else {
+        name = name.substring(0, 200);
+      }
+    }
+    
+    // If empty after sanitization, generate a safe default
+    if (name.isEmpty || name == '.' || name == '..') {
+      return 'download_${DateTime.now().millisecondsSinceEpoch}';
+    }
+    
+    return name;
+  }
+
   Future<void> startDownload(String url, {String? fileName}) async {
     final id = DateTime.now().millisecondsSinceEpoch.toString();
+    
+    // Extract filename from URL or use provided one
     var name = fileName ?? url.split('/').last;
+    
+    // Sanitize filename to prevent path traversal and invalid characters
+    name = _sanitizeFileName(name);
+    
+    // Ensure filename has valid format
     if (name.isEmpty || !name.contains('.')) {
-      name = 'download_${DateTime.now().millisecondsSinceEpoch}';
+      name = 'download_${DateTime.now().millisecondsSinceEpoch}.bin';
     }
 
     // We don't need broad storage permissions here since we save to app documents

@@ -127,14 +127,15 @@ class MockKnowledgeRepository extends _i1.Mock
 
   @override
   _i5.Future<void> uploadKnowledgeFile(
-    String? filePath, {
+    String filePath, {
+    int maxRetries = 0,
     void Function(double)? onProgress,
   }) =>
       (super.noSuchMethod(
             Invocation.method(
               #uploadKnowledgeFile,
               [filePath],
-              {#onProgress: onProgress},
+              {#maxRetries: maxRetries, #onProgress: onProgress},
             ),
             returnValue: _i5.Future<void>.value(),
             returnValueForMissingStub: _i5.Future<void>.value(),

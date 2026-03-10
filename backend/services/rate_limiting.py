@@ -5,14 +5,23 @@ Async rate limiter for WebSocket and internal services.
 
 import time
 import asyncio
-from typing import Dict, List
+from typing import Dict, List, Optional
+
+
+class RateLimitExceeded(Exception):
+    """Exception raised when rate limit is exceeded."""
+
+    def __init__(self, message: str = "Rate limit exceeded", retry_after: Optional[int] = None):
+        self.message = message
+        self.retry_after = retry_after
+        super().__init__(self.message)
 
 
 class RateLimiter:
     """
     Async in-memory rate limiter using sliding window.
     Thread-safe for concurrent requests.
-    
+
     Usage:
         rate_limiter = RateLimiter()
         if await rate_limiter.is_allowed("user:123", max_requests=10, period_seconds=60):
@@ -123,3 +132,38 @@ class RateLimiter:
                 return max(1, min(retry_after, period_seconds))
 
             return 1
+
+
+# Global rate limiter instance for general use
+_global_rate_limiter = RateLimiter()
+
+
+async def check_rate_limit(
+    identifier: str,
+    action: str = "default",
+    max_requests: int = 10,
+    window_seconds: int = 60
+) -> None:
+    """
+    Check if a request is allowed based on rate limiting rules.
+    Raises RateLimitExceeded if the limit is exceeded.
+
+    Args:
+        identifier: Unique identifier for the rate limit bucket (e.g., "knowledge:123")
+        action: Action type for more granular rate limiting (e.g., "upload", "create")
+        max_requests: Maximum number of requests allowed in the window
+        window_seconds: Time window in seconds
+
+    Raises:
+        RateLimitExceeded: If the rate limit is exceeded
+    """
+    key = f"{identifier}:{action}"
+
+    if not await _global_rate_limiter.is_allowed(key, max_requests=max_requests, period_seconds=window_seconds):
+        retry_after = await _global_rate_limiter.get_retry_after(
+            key, max_requests=max_requests, period_seconds=window_seconds
+        )
+        raise RateLimitExceeded(
+            message=f"Rate limit exceeded for {action}. Try again in {retry_after} seconds.",
+            retry_after=retry_after
+        )

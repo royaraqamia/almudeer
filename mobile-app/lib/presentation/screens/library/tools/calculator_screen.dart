@@ -491,6 +491,10 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
                   ),
                   itemBuilder: (context, index) {
                     final entry = provider.history[index];
+                    // Display format: strip timestamp (after |) for display
+                    final displayEntry = entry.contains('|') 
+                        ? entry.split('|')[0] 
+                        : entry;
                     return Container(
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(12),
@@ -501,7 +505,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
                           vertical: 8,
                         ),
                         title: Text(
-                          entry,
+                          displayEntry,
                           style: const TextStyle(
                             fontSize: 17,
                             fontFamily: 'IBM Plex Sans Arabic',

@@ -41,19 +41,65 @@ async def test_edit_message_almudeer_no_time_limit():
          patch("models.inbox.commit_db", AsyncMock()), \
          patch("models.inbox.upsert_conversation_state", AsyncMock()):
 
-        result = await edit_outbox_message(message_id, license_id, "New body")
+        result = await edit_outbox_message(message_id, license_id, "New body", edited_by="test_user")
 
         assert result["success"] is True
         assert result["edit_count"] == 1
         # Verify update was called
         mock_execute_sql.assert_called()
 
+
+@pytest.mark.asyncio
+async def test_edit_message_stores_edited_by():
+    """Test that the edited_by field is stored for audit trail."""
+    license_id = 1
+    message_id = 100
+    created_at = datetime.now(timezone.utc) - timedelta(minutes=30)
+
+    message = {
+        "id": message_id,
+        "license_key_id": license_id,
+        "channel": "almudeer",
+        "created_at": created_at,
+        "body": "Original body",
+        "original_body": None,
+        "edit_count": 0,
+        "recipient_email": "test@example.com",
+        "recipient_id": None,
+        "deleted_at": None
+    }
+
+    updated_message = {"edit_count": 1}
+    mock_fetch_one = AsyncMock(side_effect=[message, updated_message])
+    mock_execute_sql = AsyncMock()
+
+    mock_db = MagicMock()
+    mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+    mock_db.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("models.inbox.get_db", return_value=mock_db), \
+         patch("models.inbox.fetch_one", mock_fetch_one), \
+         patch("models.inbox.execute_sql", mock_execute_sql), \
+         patch("models.inbox.commit_db", AsyncMock()), \
+         patch("models.inbox.upsert_conversation_state", AsyncMock()):
+
+        await edit_outbox_message(message_id, license_id, "New body", edited_by="alice")
+
+        # Verify edited_by was passed to the SQL call for outbox_messages
+        mock_execute_sql.assert_called()
+        # Check the first call (outbox_messages UPDATE) contains edited_by
+        first_call_args = mock_execute_sql.call_args_list[0][0]
+        sql_query = first_call_args[1]
+        params = first_call_args[2]
+        assert "edited_by" in sql_query
+        assert "alice" in params
+
 @pytest.mark.asyncio
 async def test_edit_message_external_channels_restricted():
     """Test that external channels (WhatsApp, Telegram) cannot be edited."""
     license_id = 1
     message_id = 101
-    
+
     for channel in ['telegram', 'whatsapp', 'gmail']:
         message = {
             "id": message_id,
@@ -62,18 +108,18 @@ async def test_edit_message_external_channels_restricted():
             "created_at": datetime.now(timezone.utc),
             "body": "Original body"
         }
-        
+
         mock_fetch_one = AsyncMock(return_value=message)
-        
+
         mock_db = MagicMock()
         mock_db.__aenter__ = AsyncMock(return_value=mock_db)
         mock_db.__aexit__ = AsyncMock(return_value=None)
-        
+
         with patch("models.inbox.get_db", return_value=mock_db), \
              patch("models.inbox.fetch_one", mock_fetch_one):
-            
+
             with pytest.raises(ValueError, match=f"لا يمكن تعديل الرسائل المرسلة عبر {channel}"):
-                await edit_outbox_message(message_id, license_id, "New body")
+                await edit_outbox_message(message_id, license_id, "New body", edited_by="test_user")
 
 @pytest.mark.asyncio
 async def test_edit_message_external_channel_restricted():
@@ -104,7 +150,7 @@ async def test_edit_message_external_channel_restricted():
          patch("models.inbox.fetch_one", mock_fetch_one):
 
         with pytest.raises(ValueError, match="لا يمكن تعديل الرسائل المرسلة عبر generic"):
-            await edit_outbox_message(message_id, license_id, "New body")
+            await edit_outbox_message(message_id, license_id, "New body", edited_by="test_user")
 
 
 @pytest.mark.asyncio
@@ -136,4 +182,4 @@ async def test_edit_message_deleted_not_allowed():
          patch("models.inbox.fetch_one", mock_fetch_one):
 
         with pytest.raises(ValueError, match="لا يمكن تعديل الرسائل المحذوفة"):
-            await edit_outbox_message(message_id, license_id, "New body")
+            await edit_outbox_message(message_id, license_id, "New body", edited_by="test_user")

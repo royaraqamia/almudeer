@@ -18,9 +18,16 @@ class CalculatorDisplay extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
+    // Check if result is an error message (any of the Arabic error strings)
+    final isError = result == 'خطأ' || 
+                    result == 'غير معرّف' || 
+                    result == 'صيغة غير صحيحة' || 
+                    result == 'تعبير غير صحيح' ||
+                    result == 'Error';
+
     return GestureDetector(
       onTap: () {
-        if (result.isNotEmpty && result != 'Error') {
+        if (result.isNotEmpty && !isError) {
           Clipboard.setData(ClipboardData(text: result));
           Haptics.mediumTap();
           AnimatedToast.success(context, 'تم نسخ النتيجة');
@@ -45,24 +52,28 @@ class CalculatorDisplay extends StatelessWidget {
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   reverse: true,
-                  child: AnimatedDefaultTextStyle(
-                    duration: const Duration(milliseconds: 200),
-                    curve: Curves.easeOut,
-                    style: TextStyle(
-                      fontSize: needsSmallText
-                          ? 24
-                          : expression.length > 10
-                              ? 32
-                              : 48,
-                      fontWeight: FontWeight.w300,
-                      color: isDark ? Colors.white : Colors.black87,
-                      fontFamily: 'IBM Plex Sans Arabic',
-                      letterSpacing: -1,
-                      height: 1.2,
-                    ),
-                    child: Text(
-                      expression.isEmpty ? '0' : expression,
-                      maxLines: needsSmallText ? 2 : null,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: AnimatedDefaultTextStyle(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOut,
+                      style: TextStyle(
+                        fontSize: needsSmallText
+                            ? 24
+                            : expression.length > 10
+                                ? 32
+                                : 48,
+                        fontWeight: FontWeight.w300,
+                        color: isDark ? Colors.white : Colors.black87,
+                        fontFamily: 'IBM Plex Sans Arabic',
+                        letterSpacing: -1,
+                        height: 1.2,
+                      ),
+                      child: Text(
+                        expression.isEmpty ? '0' : expression,
+                        maxLines: needsSmallText ? 2 : null,
+                      ),
                     ),
                   ),
                 ),
@@ -71,11 +82,11 @@ class CalculatorDisplay extends StatelessWidget {
                   duration: const Duration(milliseconds: 200),
                   opacity: result.isNotEmpty ? 1.0 : 0.0,
                   child: Text(
-                    result == 'Error' ? 'خطأ' : result,
+                    isError ? 'خطأ' : result,
                     style: TextStyle(
                       fontSize: needsSmallText ? 20 : 28,
                       fontWeight: FontWeight.w400,
-                      color: result == 'Error'
+                      color: isError
                           ? Colors.red
                           : (isDark ? Colors.white70 : Colors.black54),
                       fontFamily: 'IBM Plex Sans Arabic',

@@ -97,6 +97,11 @@ class CalculatorProvider extends ChangeNotifier {
   }
 
   void append(String value) {
+    // Input validation: prevent very long expressions
+    if (_expression.length >= 500) {
+      return;
+    }
+
     if (_expression.isEmpty) {
       if (isOperator(value) && value != '-') return;
       _expression = value;
@@ -150,38 +155,122 @@ class CalculatorProvider extends ChangeNotifier {
         x == '^';
   }
 
+  /// Validates that parentheses are balanced and properly ordered
+  bool _areParenthesesBalanced(String expr) {
+    int balance = 0;
+    for (int i = 0; i < expr.length; i++) {
+      if (expr[i] == '(') {
+        balance++;
+      } else if (expr[i] == ')') {
+        balance--;
+        // If balance goes negative, we have a closing paren without opening
+        if (balance < 0) return false;
+      }
+    }
+    // Balance should be 0 if all parens are matched
+    return balance == 0;
+  }
+
+  /// Validates domain constraints for scientific functions
+  /// Returns error message if invalid, null if valid
+  String? _validateScientificFunctions(String expr) {
+    // Check for sqrt of negative numbers: sqrt(-...)
+    final sqrtNegative = RegExp(r'sqrt\s*\(\s*-');
+    if (sqrtNegative.hasMatch(expr)) {
+      return 'جذر تربيعي لسالب'; // Square root of negative
+    }
+
+    // Check for log(0) or log of negative numbers
+    final logZeroOrNegative = RegExp(r'log\s*\(\s*(-?0|-[^0-9])');
+    if (logZeroOrNegative.hasMatch(expr)) {
+      return 'لوغاريتم صفر أو سالب'; // Log of zero or negative
+    }
+
+    // Check for ln(0) or ln of negative numbers
+    final lnZeroOrNegative = RegExp(r'ln\s*\(\s*(-?0|-[^0-9])');
+    if (lnZeroOrNegative.hasMatch(expr)) {
+      return 'لوغاريتم طبيعي لصفر أو سالب'; // Natural log of zero or negative
+    }
+
+    return null; // Valid
+  }
+
   Future<void> evaluate() async {
     if (_expression.isEmpty) return;
     if (isOperator(_expression[_expression.length - 1])) return;
+
+    // Validate parentheses are balanced
+    if (!_areParenthesesBalanced(_expression)) {
+      _result = 'تعبير غير صحيح'; // Invalid expression
+      _expression = '';
+      notifyListeners();
+      return;
+    }
+
+    // Validate scientific function domains
+    final domainError = _validateScientificFunctions(_expression);
+    if (domainError != null) {
+      _result = domainError;
+      _expression = '';
+      notifyListeners();
+      return;
+    }
 
     try {
       String finalExpression = _expression;
       finalExpression = finalExpression.replaceAll('×', '*');
       finalExpression = finalExpression.replaceAll('÷', '/');
 
+      // Scientific functions mapping for math_expressions library
+      // The library uses: sin, cos, tan, log (base 10), ln (natural log), sqrt
+      // No transformation needed for these functions
+
       // Enhanced Percentage Logic:
       // Case 1: num + val% => num + (num * val/100)
       // Case 2: num - val% => num - (num * val/100)
-      // Case 3: else num% => (num * 0.01)
+      // Case 3: num × val% => num * (val/100)
+      // Case 4: num ÷ val% => num / (val/100)
+      // Case 5: else num% => (num * 0.01)
 
+      // Handle percentage with any operator (+, -, *, /, ×, ÷)
       finalExpression = finalExpression.replaceAllMapped(
-        RegExp(r'(\d+\.?\d*)\s*([+\-])\s*(-?\d+\.?\d*)%'),
+        RegExp(r'(\d+\.?\d*)\s*([+\-*/×÷])\s*(-?\d+\.?\d*)%'),
         (match) {
           final base = match.group(1);
           final op = match.group(2);
           final percentage = match.group(3);
-          return '$base$op($base*($percentage*0.01))';
+          // Normalize × and ÷ to * and / for calculation
+          final normalizedOp = op == '×' ? '*' : (op == '÷' ? '/' : op);
+          // FIX: For multiplication/division, use (percentage * 0.01) directly
+          // For addition/subtraction, use (base * percentage * 0.01)
+          if (normalizedOp == '*' || normalizedOp == '/') {
+            return '$base$normalizedOp($percentage*0.01)';
+          } else {
+            return '$base$normalizedOp($base*($percentage*0.01))';
+          }
         },
       );
 
       finalExpression = finalExpression.replaceAllMapped(
-        RegExp(r'(\d+\.?\d*)%'),
+        RegExp(r'(?<!\d)(\d+\.?\d*)%'),
         (match) => '(${match.group(1)}*0.01)',
       );
 
       GrammarParser p = GrammarParser();
       Expression exp = p.parse(finalExpression);
       double eval = RealEvaluator().evaluate(exp).toDouble();
+
+      // Handle Infinity and NaN
+      if (!eval.isFinite) {
+        if (eval.isInfinite) {
+          _result = 'غير معرّف'; // Undefined (infinity)
+        } else {
+          _result = 'خطأ'; // Error (NaN)
+        }
+        _expression = '';
+        notifyListeners();
+        return;
+      }
 
       _result = eval.toString();
       if (_result.endsWith('.0')) {
@@ -193,7 +282,15 @@ class CalculatorProvider extends ChangeNotifier {
       _result = '';
       notifyListeners();
     } catch (e) {
-      _result = 'Error';
+      // Provide more specific error messages based on the exception
+      if (e is FormatException) {
+        _result = 'صيغة غير صحيحة'; // Invalid format
+      } else if (e.toString().contains('parse')) {
+        _result = 'تعبير غير صحيح'; // Invalid expression
+      } else {
+        _result = 'خطأ'; // Generic error
+      }
+      _expression = ''; // Clear invalid expression
       notifyListeners();
     }
   }
@@ -205,10 +302,15 @@ class CalculatorProvider extends ChangeNotifier {
       return;
     }
 
-    // Check for open parentheses
-    int openCount = '('.allMatches(_expression).length;
-    int closeCount = ')'.allMatches(_expression).length;
-    if (openCount > closeCount) {
+    // Validate parentheses are balanced before calculating preview
+    if (!_areParenthesesBalanced(_expression)) {
+      _result = '';
+      return;
+    }
+
+    // Skip preview for scientific functions with domain errors
+    // (will show error on evaluate instead)
+    if (_validateScientificFunctions(_expression) != null) {
       _result = '';
       return;
     }
@@ -218,20 +320,52 @@ class CalculatorProvider extends ChangeNotifier {
       finalExpression = finalExpression.replaceAll('×', '*');
       finalExpression = finalExpression.replaceAll('÷', '/');
 
+      // Scientific functions are supported by math_expressions library:
+      // sin, cos, tan, log (base 10), ln (natural log), sqrt
+
+      // Handle percentage with any operator (+, -, *, /, ×, ÷)
       finalExpression = finalExpression.replaceAllMapped(
-        RegExp(r'(\d+\.?\d*)%'),
+        RegExp(r'(\d+\.?\d*)\s*([+\-*/×÷])\s*(-?\d+\.?\d*)%'),
+        (match) {
+          final base = match.group(1);
+          final op = match.group(2);
+          final percentage = match.group(3);
+          // Normalize × and ÷ to * and / for calculation
+          final normalizedOp = op == '×' ? '*' : (op == '÷' ? '/' : op);
+          // FIX: For multiplication/division, use (percentage * 0.01) directly
+          // For addition/subtraction, use (base * percentage * 0.01)
+          if (normalizedOp == '*' || normalizedOp == '/') {
+            return '$base$normalizedOp($percentage*0.01)';
+          } else {
+            return '$base$normalizedOp($base*($percentage*0.01))';
+          }
+        },
+      );
+
+      finalExpression = finalExpression.replaceAllMapped(
+        RegExp(r'(?<!\d)(\d+\.?\d*)%'),
         (match) => '(${match.group(1)}*0.01)',
       );
 
-      GrammarParser p = GrammarParser();
-      Expression exp = p.parse(finalExpression);
-      double eval = RealEvaluator().evaluate(exp).toDouble();
+      try {
+        GrammarParser p = GrammarParser();
+        Expression exp = p.parse(finalExpression);
+        double eval = RealEvaluator().evaluate(exp).toDouble();
 
-      String preview = eval.toString();
-      if (preview.endsWith('.0')) {
-        preview = preview.substring(0, preview.length - 2);
+        // Handle Infinity and NaN
+        if (!eval.isFinite) {
+          _result = '';
+          return;
+        }
+
+        String preview = eval.toString();
+        if (preview.endsWith('.0')) {
+          preview = preview.substring(0, preview.length - 2);
+        }
+        _result = preview;
+      } catch (e) {
+        _result = '';
       }
-      _result = preview;
     } catch (e) {
       _result = '';
     }
@@ -259,7 +393,12 @@ class CalculatorProvider extends ChangeNotifier {
   }
 
   Future<void> _addToHistory(String entry) async {
-    _history.insert(0, entry);
+    // Add timestamp to entry for better tracking and deduplication
+    // Format: "expression = result|timestamp"
+    final timestamp = DateTime.now().toIso8601String();
+    final timestampedEntry = '$entry|$timestamp';
+
+    _history.insert(0, timestampedEntry);
     if (_history.length > 50) _history.removeLast();
 
     final prefs = await SharedPreferences.getInstance();
@@ -278,8 +417,12 @@ class CalculatorProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _syncToBackend() async {
+  Future<void> _syncToBackend({int retryCount = 0}) async {
     if (_userId == null || _userId!.isEmpty) return;
+    
+    const maxRetries = 3;
+    const retryDelay = Duration(seconds: 2);
+    
     try {
       // Get existing preferences or create minimal update with just calculator history
       var prefs = await _settingsRepository.getLocalPreferences();
@@ -298,14 +441,32 @@ class CalculatorProvider extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('Calculator sync to backend failed: $e');
+      // Retry with exponential backoff
+      if (retryCount < maxRetries) {
+        debugPrint('Calculator: Retrying sync in ${retryDelay.inSeconds}s (attempt ${retryCount + 1}/$maxRetries)');
+        await Future.delayed(retryDelay);
+        await _syncToBackend(retryCount: retryCount + 1);
+      } else {
+        debugPrint('Calculator: Max retries reached. History saved locally but not synced to backend.');
+      }
     }
   }
 
   Future<void> _syncFromBackend() async {
     if (_userId == null || _userId!.isEmpty) return;
 
+    // Capture current userId to detect changes during async operation
+    final originalUserId = _userId;
+
     try {
       final prefs = await _settingsRepository.getPreferences();
+      
+      // CRITICAL: Check if userId changed during the async call
+      if (originalUserId != _userId) {
+        debugPrint('Calculator: User changed during sync ($originalUserId -> $_userId), discarding sync result');
+        return;
+      }
+      
       debugPrint('Calculator: Backend returned ${prefs.calculatorHistory.length} history entries');
       // Only merge if backend has history
       // If backend is empty, keep local history (it might be new unsynced data)
@@ -342,11 +503,14 @@ class CalculatorProvider extends ChangeNotifier {
   }
 
   void restoreFromHistory(String entry) {
-    // Entry format is "$expression = $result"
-    final parts = entry.split(' = ');
-    if (parts.length == 2) {
-      _expression = parts[1]; // Restore the result as the new expression
-      _result = '';
+    // Entry format is "$expression = $result|$timestamp"
+    // Strip timestamp for restoration
+    final parts = entry.split('|');
+    final expressionAndResult = parts[0];
+    final calcParts = expressionAndResult.split(' = ');
+    if (calcParts.length == 2) {
+      _expression = calcParts[0]; // Restore the original expression
+      _result = calcParts[1];     // Keep result as preview
       notifyListeners();
     }
   }

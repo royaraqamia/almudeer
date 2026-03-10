@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import '../../core/constants/app_config.dart';
 
 /// QR Scan result model
 class QrScanResult {
@@ -36,7 +37,7 @@ class QrScanResult {
 
 /// Provider for QR scanner state management and scan history
 class QrScannerProvider extends ChangeNotifier {
-  static const String _boxName = 'qr_scanner_history';
+  static const String _boxName = AppConfig.qrHistoryBoxName;
   static const String _settingsKey = 'scanner_settings';
 
   Box<Map>? _historyBox;

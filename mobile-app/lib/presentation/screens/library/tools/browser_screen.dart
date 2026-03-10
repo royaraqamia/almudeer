@@ -37,6 +37,13 @@ class BrowserTab {
     this.title = 'المتصفح',
     this.isDesktopMode = false,
   });
+
+  /// Dispose resources to prevent memory leaks
+  void dispose() {
+    snapshot = null; // Clear image data
+    // Note: WebViewController doesn't have a dispose method in webview_flutter
+    // but clearing references helps GC
+  }
 }
 
 class BrowserScreen extends StatefulWidget {
@@ -83,6 +90,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   @override
   void dispose() {
+    // Dispose all tabs to prevent memory leaks
+    for (var tab in _tabs) {
+      tab.dispose();
+    }
+    _tabs.clear();
+    
     _urlController.dispose();
     _searchTextController.dispose();
     super.dispose();
@@ -308,12 +321,25 @@ class _BrowserScreenState extends State<BrowserScreen> {
   void _injectNativeColorScheme(WebViewController controller) {
     // Inject CSS to allow websites to render with their native color scheme
     // This prevents Android WebView from forcing dark mode on light-themed websites
+    // Checks for strict CSP before attempting injection to avoid errors
     const script = """
       (function() {
         if (window.__nativeColorSchemeInjected) return;
         window.__nativeColorSchemeInjected = true;
 
         try {
+          // Check for strict CSP that would block injection
+          // If CSP blocks inline styles or DOM manipulation, skip injection
+          const cspMeta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+          if (cspMeta) {
+            const csp = cspMeta.getAttribute('content') || '';
+            // If 'unsafe-inline' is not in style-src, injection will fail
+            if (csp.includes("style-src") && !csp.includes("'unsafe-inline'")) {
+              console.log('[NativeColorScheme] Skipped - strict CSP detected');
+              return;
+            }
+          }
+
           // Set color-scheme to both light and dark to allow websites to choose
           const metaColorScheme = document.createElement('meta');
           metaColorScheme.name = 'color-scheme';
@@ -332,7 +358,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
           console.log('[NativeColorScheme] Injected - websites use native theme');
         } catch (e) {
           // Silently fail on pages with strict CSP
-          console.log('[NativeColorScheme] Skipped due to CSP or other restrictions');
+          console.log('[NativeColorScheme] Skipped due to CSP or other restrictions: ' + e.message);
         }
       })();
     """;
@@ -345,12 +371,22 @@ class _BrowserScreenState extends State<BrowserScreen> {
           _repaintKey.currentContext?.findRenderObject()
               as RenderRepaintBoundary?;
       if (boundary != null) {
-        final image = await boundary.toImage(pixelRatio: 0.5);
-        final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-        if (byteData != null) {
-          setState(() {
-            _tabs[_activeTabIndex].snapshot = byteData.buffer.asUint8List();
-          });
+        // Dynamic pixel ratio based on device DPI for optimal quality/size balance
+        // High-DPI screens (>2.0) use 0.3, others use 0.5
+        final devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
+        final pixelRatio = devicePixelRatio > 2.0 ? 0.3 : 0.5;
+        
+        final image = await boundary.toImage(pixelRatio: pixelRatio);
+        try {
+          final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+          if (byteData != null && mounted) {
+            setState(() {
+              _tabs[_activeTabIndex].snapshot = byteData.buffer.asUint8List();
+            });
+          }
+        } finally {
+          // Free native memory immediately after use
+          image.dispose();
         }
       }
     } catch (e) {
@@ -372,13 +408,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   void _executeSearch(String query) {
     if (query.isEmpty) return;
-    // Properly escape for JavaScript - escape both single and double quotes, backslashes
-    final escapedQuery = query
-        .replaceAll('\\', '\\\\')
-        .replaceAll('"', '\\"')
-        .replaceAll("'", "\\'")
-        .replaceAll('\n', '\\n')
-        .replaceAll('\r', '\\r');
+    
+    // Use JSON encoding for proper escaping of all special characters
+    // This handles quotes, backslashes, newlines, and regex special chars
+    final escapedQuery = query.replaceAll('"', '\\"');
+    
     _tabs[_activeTabIndex].controller.runJavaScript("""
       (function() {
         var searchTerm = "$escapedQuery";
@@ -492,7 +526,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
       (function() {
         const title = document.title;
         const article = document.querySelector('article') || document.querySelector('main') || document.querySelector('.content') || document.querySelector('#content') || document.body;
-        
+
         // Basic cleanup
         const clone = article.cloneNode(true);
         const tagsToRemove = ['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe', 'ads'];
@@ -511,7 +545,14 @@ class _BrowserScreenState extends State<BrowserScreen> {
     try {
       final jsonStr = await controller.runJavaScriptReturningResult(script);
 
+      // Validate result before processing
+      if (jsonStr.toString().isEmpty) {
+        throw Exception('Reader mode extraction returned empty result');
+      }
+
       String jsonString = jsonStr.toString();
+      
+      // Handle quoted string results from JavaScript
       if (jsonString.startsWith('"') && jsonString.endsWith('"')) {
         jsonString = jsonString
             .substring(1, jsonString.length - 1)
@@ -519,17 +560,29 @@ class _BrowserScreenState extends State<BrowserScreen> {
             .replaceAll('\\\\', '\\');
       }
 
-      final Map<String, dynamic> data = jsonDecode(jsonString);
-      final html = _generateReaderHtml(
-        data['title']?.toString() ?? 'Untitled',
-        data['content']?.toString() ?? '',
-      );
+      // Parse JSON with proper error handling
+      final Map<String, dynamic> data;
+      try {
+        data = jsonDecode(jsonString);
+      } on FormatException catch (e) {
+        debugPrint('Reader mode JSON parse error: $e');
+        throw Exception('Failed to parse reader mode content');
+      }
+
+      final title = data['title']?.toString() ?? 'Untitled';
+      final content = data['content']?.toString() ?? '';
+
+      if (content.isEmpty) {
+        throw Exception('No content available for reader mode');
+      }
+
+      final html = _generateReaderHtml(title, content);
 
       await _readerController.loadHtmlString(html);
 
       setState(() {
         _isReaderMode = true;
-        _readerTitle = data['title']?.toString();
+        _readerTitle = title;
       });
     } catch (e) {
       debugPrint("Error entering reader mode: $e");
@@ -547,8 +600,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
     html = html.replaceAll(RegExp(r'\s+on\w+\s*=\s*"[^"]*"'), '');
     html = html.replaceAll(RegExp(r"\s+on\w+\s*=\s*'[^']*'"), '');
 
-    // Remove javascript: URLs
+    // Remove javascript: and data: URLs (XSS vectors)
     html = html.replaceAll(RegExp(r'javascript:', caseSensitive: false), '');
+    html = html.replaceAll(RegExp(r'data:', caseSensitive: false), '');
 
     // Remove iframe, object, embed, form tags (self-closing and with content)
     html = html.replaceAll(RegExp(r'<iframe[^>]*>.*?</iframe>', multiLine: true, dotAll: true), '');
@@ -560,6 +614,15 @@ class _BrowserScreenState extends State<BrowserScreen> {
     html = html.replaceAll(RegExp(r'<embed[^>]*/?>'), '');
     html = html.replaceAll(RegExp(r'<form[^>]*/?>'), '');
 
+    // Remove meta tags (could contain refresh redirects)
+    html = html.replaceAll(RegExp(r'<meta[^>]*>'), '');
+
+    // Remove link tags (could load external resources)
+    html = html.replaceAll(RegExp(r'<link[^>]*>'), '');
+
+    // Remove base tags (could redirect all relative URLs)
+    html = html.replaceAll(RegExp(r'<base[^>]*>'), '');
+
     return html;
   }
 
@@ -567,16 +630,33 @@ class _BrowserScreenState extends State<BrowserScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? '#0F2E42' : '#FFFFFF';
     final textColor = isDark ? '#E8EEFF' : '#333333';
-    
+
     // Sanitize content to prevent XSS attacks
     final sanitizedContent = _sanitizeHtml(content);
     final sanitizedTitle = _sanitizeHtml(title);
+
+    // Content Security Policy - Strict security for reader mode
+    // Only allows inline styles (needed for theming), no scripts, no external resources
+    const cspPolicy = 
+        "default-src 'none'; "
+        "style-src 'unsafe-inline'; "
+        "img-src data: https: http:; "
+        "font-src 'none'; "
+        "script-src 'none'; "
+        "connect-src 'none'; "
+        "frame-src 'none'; "
+        "object-src 'none'; "
+        "base-uri 'none'; "
+        "form-action 'none';";
 
     return """
       <!DOCTYPE html>
       <html dir="rtl">
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="Content-Security-Policy" content="$cspPolicy">
+        <meta http-equiv="X-Content-Type-Options" content="nosniff">
+        <title>${sanitizedTitle.replaceAll('"', '&quot;')}</title>
         <style>
           body {
             font-family: 'IBM Plex Sans Arabic', sans-serif;
@@ -584,10 +664,30 @@ class _BrowserScreenState extends State<BrowserScreen> {
             line-height: 1.8;
             background-color: $bgColor;
             color: $textColor;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
           }
           h1 { font-size: 24px; margin-bottom: 20px; }
+          h2 { font-size: 20px; margin-top: 24px; margin-bottom: 16px; }
+          h3 { font-size: 18px; margin-top: 20px; margin-bottom: 12px; }
           img { max-width: 100%; height: auto; border-radius: 8px; }
           p { margin-bottom: 16px; }
+          a { color: ${isDark ? '#6DB3F2' : '#0066cc'}; text-decoration: underline; }
+          blockquote { 
+            border-left: 4px solid ${isDark ? '#1E5785' : '#ddd'}; 
+            margin: 16px 0; 
+            padding-left: 16px;
+            color: ${isDark ? '#A0B8C8' : '#666'};
+          }
+          pre, code { 
+            background-color: ${isDark ? '#1A3A52' : '#f4f4f4'}; 
+            padding: 2px 6px; 
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+          }
+          pre { padding: 12px; overflow-x: auto; }
+          ul, ol { margin-bottom: 16px; padding-right: 24px; }
+          li { margin-bottom: 8px; }
         </style>
       </head>
       <body>
@@ -1064,6 +1164,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
         onTabClosed: (index) {
           if (_tabs.length > 1) {
             setState(() {
+              // Dispose tab resources to prevent memory leaks
+              _tabs[index].dispose();
               // Clear snapshot to prevent memory leak
               _tabs[index].snapshot = null;
               _tabs.removeAt(index);

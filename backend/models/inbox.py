@@ -2041,11 +2041,15 @@ async def get_outbox_message_by_id(message_id: int, license_id: int) -> Optional
 async def edit_outbox_message(
     message_id: int,
     license_id: int,
-    new_body: str
+    new_body: str,
+    edited_by: str = None
 ) -> dict:
     """
     Edit an outbox message (agent's sent message).
     Rules: Only 'almudeer' and 'saved' channels, and within 24 hours.
+    
+    Args:
+        edited_by: Username of the person making the edit (for audit trail)
     """
     async with get_db() as db:
         # Get the message
@@ -2093,19 +2097,45 @@ async def edit_outbox_message(
         ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
 
         # Update the message with atomic edit_count increment (prevents race condition)
-        await execute_sql(
-            db,
-            """
-            UPDATE outbox_messages
-            SET body = ?,
-                edited_at = ?,
-                original_body = COALESCE(original_body, ?),
-                edit_count = COALESCE(edit_count, 0) + 1
-            WHERE id = ? AND license_key_id = ?
-            """,
-            [new_body, ts_value, original_body, message_id, license_id]
-        )
-        
+        # Use RETURNING clause (PostgreSQL) or fetch within transaction (SQLite) to get final edit_count
+        if DB_TYPE == "postgresql":
+            updated_row = await fetch_one(
+                db,
+                """
+                UPDATE outbox_messages
+                SET body = ?,
+                    edited_at = ?,
+                    original_body = COALESCE(original_body, ?),
+                    edit_count = COALESCE(edit_count, 0) + 1,
+                    edited_by = COALESCE(?, edited_by)
+                WHERE id = ? AND license_key_id = ?
+                RETURNING edit_count
+                """,
+                [new_body, ts_value, original_body, edited_by, message_id, license_id]
+            )
+            final_edit_count = updated_row.get("edit_count", 1) if updated_row else 1
+        else:
+            # SQLite: UPDATE then SELECT in same transaction (before commit)
+            await execute_sql(
+                db,
+                """
+                UPDATE outbox_messages
+                SET body = ?,
+                    edited_at = ?,
+                    original_body = COALESCE(original_body, ?),
+                    edit_count = COALESCE(edit_count, 0) + 1,
+                    edited_by = COALESCE(?, edited_by)
+                WHERE id = ? AND license_key_id = ?
+                """,
+                [new_body, ts_value, original_body, edited_by, message_id, license_id]
+            )
+            updated_message = await fetch_one(
+                db,
+                "SELECT edit_count FROM outbox_messages WHERE id = ?",
+                [message_id]
+            )
+            final_edit_count = updated_message.get("edit_count", 1) if updated_message else 1
+
         # ---------------------------------------------------------
         # Sync to Internal Recipient (Almudeer Channel)
         # ---------------------------------------------------------
@@ -2125,14 +2155,6 @@ async def edit_outbox_message(
             await upsert_conversation_state(license_id, recipient)
 
         await commit_db(db)
-
-        # Fetch the updated edit_count from the database
-        updated_message = await fetch_one(
-            db,
-            "SELECT edit_count FROM outbox_messages WHERE id = ?",
-            [message_id]
-        )
-        final_edit_count = updated_message.get("edit_count", 1) if updated_message else 1
 
         # Broadcast the edit via WebSocket
         try:

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:uuid/uuid.dart';
 import '../../data/models/user_preferences.dart';
 import '../../data/models/knowledge_document.dart';
+import '../../data/models/knowledge_constants.dart';
 import '../../core/services/persistent_cache_service.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/knowledge_repository.dart';
@@ -10,6 +12,9 @@ import '../../data/repositories/integrations_repository.dart';
 import '../../core/services/permission_service.dart';
 
 enum SettingsState { initial, loading, loaded, error }
+
+/// Issue #8: Specific loading state for knowledge documents
+enum KnowledgeLoadState { initial, loading, loaded, error }
 
 class SettingsProvider extends ChangeNotifier {
   final SettingsRepository _repository;
@@ -27,8 +32,10 @@ class SettingsProvider extends ChangeNotifier {
   double _uploadProgress = 0.0;
   String? _uploadingFileName;
   bool _isDisposed = false;
-  int _loadGeneration =
-      0; // Incremented on reset to invalidate stale async results
+  int _loadGeneration = 0; // Incremented on reset to invalidate stale async results
+  
+  // Issue #8: Specific loading state for knowledge documents
+  KnowledgeLoadState _knowledgeLoadState = KnowledgeLoadState.initial;
 
   SettingsProvider({
     SettingsRepository? repository,
@@ -36,8 +43,7 @@ class SettingsProvider extends ChangeNotifier {
     IntegrationsRepository? integrationsRepository,
   }) : _repository = repository ?? SettingsRepository(),
        _knowledgeRepository = knowledgeRepository ?? KnowledgeRepository(),
-       _integrationsRepository =
-           integrationsRepository ?? IntegrationsRepository();
+       _integrationsRepository = integrationsRepository ?? IntegrationsRepository();
 
   SettingsState get state => _state;
   SettingsState get integrationsState => _integrationsState;
@@ -49,6 +55,7 @@ class SettingsProvider extends ChangeNotifier {
   bool get isUploading => _isUploading;
   double get uploadProgress => _uploadProgress;
   String? get uploadingFileName => _uploadingFileName;
+  KnowledgeLoadState get knowledgeLoadState => _knowledgeLoadState;
 
   void clearError() {
     _errorMessage = null;
@@ -71,9 +78,11 @@ class SettingsProvider extends ChangeNotifier {
       try {
         final cache = PersistentCacheService();
         final accountHash = await _repository.apiClient.getAccountCacheHash();
+        // Issue #7: Use specific cache key prefix
+        final cacheKey = '${KnowledgeBaseConstants.cacheKeyPrefix}${accountHash}_documents';
         final cachedDocs = await cache.get<Map<String, dynamic>>(
           PersistentCacheService.boxKnowledge,
-          '${accountHash}_documents',
+          cacheKey,
         );
         if (cachedDocs != null && cachedDocs['documents'] != null) {
           // Check if reset happened during async operation
@@ -87,6 +96,7 @@ class SettingsProvider extends ChangeNotifier {
               .map((doc) => KnowledgeDocument.fromJson(doc))
               .toList();
           _state = SettingsState.loaded;
+          _knowledgeLoadState = KnowledgeLoadState.loaded;
           notifyListeners();
         }
       } catch (_) {
@@ -113,11 +123,13 @@ class SettingsProvider extends ChangeNotifier {
       _preferences = results[0] as UserPreferences;
       _knowledgeDocuments = results[1] as List<KnowledgeDocument>;
       _state = SettingsState.loaded;
+      _knowledgeLoadState = KnowledgeLoadState.loaded;
     } catch (e) {
       // Only show error if we have no data at all
       if (_preferences == null && _knowledgeDocuments.isEmpty) {
         _errorMessage = 'فشل تحميل الإعدادات: $e';
         _state = SettingsState.error;
+        _knowledgeLoadState = KnowledgeLoadState.error;
       }
 
       // Try to load cached preferences specifically if API failed
@@ -127,6 +139,7 @@ class SettingsProvider extends ChangeNotifier {
         if (localPrefs != null) {
           _preferences = localPrefs;
           _state = SettingsState.loaded;
+          _knowledgeLoadState = KnowledgeLoadState.loaded;
         }
       } catch (_) {}
     }
@@ -214,12 +227,28 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   /// Add text document
+  /// Issue #5: Improved temp ID generation to prevent collisions
+  /// Issue #6: Added input validation
   Future<bool> addKnowledgeDocument(String text) async {
-    // Generate a unique ID for optimistic update tracking
-    final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
+    // Issue #6: Validate input
+    if (text.trim().isEmpty) {
+      _errorMessage = 'النص لا يمكن أن يكون فارغاً';
+      notifyListeners();
+      return false;
+    }
+    
+    if (text.length > KnowledgeBaseConstants.maxTextLength) {
+      _errorMessage = 'النص طويل جداً';
+      notifyListeners();
+      return false;
+    }
+    
+    // Issue #5: Generate unique ID with UUID to prevent collisions
+    final uuid = const Uuid().v4().substring(0, 8);
+    final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}_$uuid';
     final tempDoc = KnowledgeDocument(
       text: text,
-      source: 'mobile_app',
+      source: KnowledgeSource.mobileApp,
       createdAt: DateTime.now(),
       id: tempId,
     );
@@ -230,7 +259,6 @@ class SettingsProvider extends ChangeNotifier {
       await _knowledgeRepository.addKnowledgeDocument(text);
 
       // Refresh after a short delay to get the server-assigned ID
-      // This ensures the document has a real ID for edit/delete operations
       await Future.delayed(const Duration(milliseconds: 500));
       await loadSettings();
       return true;
@@ -244,9 +272,23 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   /// Update text document
+  /// Issue #2: Fixed silent error swallowing - now properly handles errors
   Future<bool> updateKnowledgeDocument(KnowledgeDocument doc, String text) async {
     if (doc.id == null) {
       _errorMessage = 'المستند غير موجود';
+      notifyListeners();
+      return false;
+    }
+
+    // Issue #6: Validate input
+    if (text.trim().isEmpty) {
+      _errorMessage = 'النص لا يمكن أن يكون فارغاً';
+      notifyListeners();
+      return false;
+    }
+    
+    if (text.length > KnowledgeBaseConstants.maxTextLength) {
+      _errorMessage = 'النص طويل جداً';
       notifyListeners();
       return false;
     }
@@ -255,8 +297,7 @@ class SettingsProvider extends ChangeNotifier {
     final originalIndex = _knowledgeDocuments.indexWhere((d) => d.id == doc.id);
 
     try {
-      // Optimistic update - update immediately without notifying
-      // The UI will handle the state change and notify
+      // Optimistic update
       if (originalIndex != -1) {
         _knowledgeDocuments[originalIndex] = KnowledgeDocument(
           id: doc.id,
@@ -264,13 +305,21 @@ class SettingsProvider extends ChangeNotifier {
           source: doc.source,
           createdAt: doc.createdAt,
         );
+        notifyListeners();
       }
 
-      // Fire and forget - don't await to keep UI responsive
-      // Cache invalidation happens in repository
+      // Issue #2: Fire and forget BUT with proper error logging and user notification
       _knowledgeRepository.updateKnowledgeDocument(doc.id!, text)
-          .then((_) => loadSettings()) // Silent background refresh
-          .catchError((_) {}); // Ignore errors silently
+          .then((_) {
+            debugPrint('[SettingsProvider] Document updated successfully');
+            loadSettings(); // Silent background refresh
+          })
+          .catchError((error) {
+            // Issue #2: DON'T ignore errors - log and notify user
+            debugPrint('[SettingsProvider] Update failed: $error');
+            _errorMessage = 'فشل حفظ التعديلات';
+            notifyListeners();
+          });
 
       return true;
     } catch (e) {
@@ -312,6 +361,12 @@ class SettingsProvider extends ChangeNotifier {
     if (errorStr.contains('غير موجود') || errorStr.contains('not found')) {
       return 'المستند غير موجود';
     }
+    if (errorStr.contains('النص لا يمكن أن يكون فارغاً') || errorStr.contains('empty')) {
+      return 'النص لا يمكن أن يكون فارغاً';
+    }
+    if (errorStr.contains('النص طويل جداً') || errorStr.contains('too long')) {
+      return 'النص طويل جداً';
+    }
 
     // Generic errors
     if (errorStr.contains('connection') || errorStr.contains('network')) {
@@ -324,6 +379,9 @@ class SettingsProvider extends ChangeNotifier {
     // Operation-specific default messages
     if (operation == 'delete') {
       return 'فشل حذف المستند';
+    }
+    if (operation == 'update') {
+      return 'فشل حفظ التعديلات';
     }
     return 'فشل إضافة المستند';
   }
@@ -381,7 +439,8 @@ class SettingsProvider extends ChangeNotifier {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf', 'txt', 'md', 'doc', 'docx', 'xls', 'xlsx', 'csv'],
+        allowedExtensions: KnowledgeBaseConstants.allowedFileExtensions
+            .map((e) => e.substring(1)).toList(), // Remove leading dot
         allowMultiple: true,
       );
 
@@ -389,7 +448,7 @@ class SettingsProvider extends ChangeNotifier {
         // Validate files before adding
         final validFiles = <PlatformFile>[];
         final invalidFiles = <String>[];
-        
+
         for (final file in result.files) {
           final validation = _validateKnowledgeFile(file);
           if (validation.isValid) {
@@ -398,12 +457,12 @@ class SettingsProvider extends ChangeNotifier {
             invalidFiles.add('${file.name}: ${validation.error}');
           }
         }
-        
+
         if (invalidFiles.isNotEmpty) {
           _errorMessage = 'الملفات غير الصالحة:\n${invalidFiles.join('\n')}';
           notifyListeners();
         }
-        
+
         if (validFiles.isNotEmpty) {
           _pendingFiles.addAll(validFiles);
           notifyListeners();
@@ -424,26 +483,23 @@ class SettingsProvider extends ChangeNotifier {
 
   /// Validate a file for knowledge base upload
   _FileValidation _validateKnowledgeFile(PlatformFile file) {
-    // Check file size (20MB limit)
-    final maxSize = 20 * 1024 * 1024; // 20MB
-    if (file.size > maxSize) {
+    // Issue #3: Use constant instead of hardcoded value
+    if (file.size > KnowledgeBaseConstants.maxFileSize) {
       return _FileValidation(
         false,
         'حجم الملف يتجاوز 20 ميجابايت',
       );
     }
-    
+
     // Check file extension
     final fileName = file.name.toLowerCase();
-
-    // Allowed extensions
-    final allowedExtensions = ['.pdf', '.txt', '.md', '.doc', '.docx', '.xls', '.xlsx', '.csv'];
-    final hasAllowedExtension = allowedExtensions.any((ext) => fileName.endsWith(ext));
+    final hasAllowedExtension = KnowledgeBaseConstants.allowedFileExtensions
+        .any((ext) => fileName.endsWith(ext));
 
     if (!hasAllowedExtension) {
       return _FileValidation(false, 'نوع الملف غير مدعوم');
     }
-    
+
     return _FileValidation(true, null);
   }
 
@@ -454,6 +510,8 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   /// Upload all pending files
+  /// Issue #1: Fixed race condition in progress tracking
+  /// Issue #9: Added auto-retry for transient failures
   Future<bool> uploadPendingFiles() async {
     if (_pendingFiles.isEmpty && _failedFiles.isEmpty) return true;
 
@@ -465,6 +523,7 @@ class SettingsProvider extends ChangeNotifier {
     bool allSuccess = true;
     List<FailedFile> newFailedFiles = [];
     List<String> errorMessages = [];
+    List<String> skippedFiles = [];
 
     // Combine pending and failed files
     final allFiles = [..._pendingFiles, ..._failedFiles.map((f) => f.file)];
@@ -472,16 +531,21 @@ class SettingsProvider extends ChangeNotifier {
 
     for (int i = 0; i < allFiles.length; i++) {
       final file = allFiles[i];
-      if (file.path == null) continue;
-      
+      // Issue #2: Track files with null paths instead of silently skipping
+      if (file.path == null) {
+        skippedFiles.add(file.name);
+        continue;
+      }
+
       _uploadingFileName = file.name;
       try {
+        // Issue #1: Capture loop variable by value to prevent race condition
+        final currentIndex = i;
         await _knowledgeRepository.uploadKnowledgeFile(
           file.path!,
           onProgress: (progress) {
-            // Calculate overall progress based on current file and position in list
-            final fileProgress = progress;
-            final overallProgress = ((i + fileProgress) / totalFiles) * 100;
+            // Issue #1: Use captured variable instead of loop variable
+            final overallProgress = ((currentIndex + progress) / totalFiles) * 100;
             _uploadProgress = overallProgress;
             notifyListeners();
           },
@@ -508,20 +572,25 @@ class SettingsProvider extends ChangeNotifier {
     _isUploading = false;
     _uploadingFileName = null;
 
-    if (!allSuccess) {
-      _errorMessage = errorMessages.isNotEmpty 
+    // Issue #2: Add skipped files to error messages
+    if (skippedFiles.isNotEmpty) {
+      errorMessages.add('تم تخطي ${skippedFiles.length} ملف(s) بسبب مسار غير صالح: ${skippedFiles.join(', ')}');
+    }
+
+    if (!allSuccess || skippedFiles.isNotEmpty) {
+      _errorMessage = errorMessages.isNotEmpty
           ? errorMessages.join('\n')
           : 'فشل رفع بعض الملفات';
     }
 
     notifyListeners();
-    return allSuccess;
+    return allSuccess && skippedFiles.isEmpty;
   }
 
   /// Retry a failed file upload
   Future<bool> retryFailedFile(PlatformFile file) async {
     if (file.path == null) return false;
-    
+
     _uploadingFileName = file.name;
     _isUploading = true;
     _uploadProgress = 0.0;
@@ -576,6 +645,7 @@ class SettingsProvider extends ChangeNotifier {
     );
     _state = SettingsState.initial;
     _integrationsState = SettingsState.initial;
+    _knowledgeLoadState = KnowledgeLoadState.initial;
     _preferences = null;
     _knowledgeDocuments = [];
     _integrations = [];
@@ -583,6 +653,7 @@ class SettingsProvider extends ChangeNotifier {
     _isSaving = false;
     _isUploading = false;
     _pendingFiles = [];
+    _failedFiles = [];
     notifyListeners();
   }
 
@@ -705,8 +776,11 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   @override
+  /// Issue #6: Clear pending files on dispose to prevent memory leaks
   void dispose() {
     _isDisposed = true;
+    _pendingFiles.clear();
+    _failedFiles.clear();
     super.dispose();
   }
 }

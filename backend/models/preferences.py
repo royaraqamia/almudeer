@@ -56,7 +56,8 @@ async def get_preferences(license_id: int) -> dict:
         # Create default preferences including AI tone defaults
         # We store defaults as JSON for consistency with new standard
         default_langs_json = json.dumps(["ar"])
-        
+        default_calc_history_json = json.dumps([])
+
         await execute_sql(
             db,
             """
@@ -65,10 +66,11 @@ async def get_preferences(license_id: int) -> dict:
                 tone,
                 language,
                 preferred_languages,
-                notifications_enabled
-            ) VALUES (?, 'formal', 'ar', ?, ?)
+                notifications_enabled,
+                calculator_history
+            ) VALUES (?, 'formal', 'ar', ?, ?, ?)
             """,
-            [license_id, default_langs_json, True]
+            [license_id, default_langs_json, True, default_calc_history_json]
         )
         await commit_db(db)
 

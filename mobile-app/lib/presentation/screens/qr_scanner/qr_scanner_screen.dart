@@ -4,14 +4,17 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 
 import '../../../../core/constants/colors.dart';
+import '../../../../core/constants/app_config.dart';
 import '../../widgets/scanner_overlay.dart';
 import '../../widgets/animated_toast.dart';
 import '../../widgets/loading_overlay.dart';
 import '../../widgets/qr_generator.dart';
 import '../../../services/qr_action_handler.dart';
 import '../../../core/utils/haptics.dart';
+import '../../providers/qr_scanner_provider.dart';
 
 class QRScannerScreen extends StatefulWidget {
   const QRScannerScreen({super.key});
@@ -27,9 +30,12 @@ class _QRScannerScreenState extends State<QRScannerScreen>
   bool _isHandlingResult = false;
   bool _isCameraInitialized = false;
   DateTime? _lastScanTime;
+  
+  // Provider reference for history
+  QrScannerProvider? _provider;
 
-  // Debounce duration
-  static const _debounceDuration = Duration(seconds: 2);
+  // Debounce duration from app config
+  static final _debounceDuration = AppConfig.qrScanDebounceDuration;
 
   // Tab controller
   late TabController _tabController;
@@ -47,6 +53,16 @@ class _QRScannerScreenState extends State<QRScannerScreen>
     _initializeCamera();
     // Load persisted flash state
     _loadFlashState();
+    // Get provider and set up history callback after build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _provider = context.read<QrScannerProvider?>();
+        // Set static callback for QRActionHandler
+        if (_provider != null) {
+          QRActionHandler.setHistoryCallback(_provider!.addToHistory);
+        }
+      }
+    });
   }
 
   /// Initialize camera with proper permission handling
@@ -98,20 +114,38 @@ class _QRScannerScreenState extends State<QRScannerScreen>
   Future<void> _loadFlashState() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final isFlashOn = prefs.getBool('qr_flash_enabled') ?? false;
+      final isFlashOn = prefs.getBool(AppConfig.qrFlashEnabledKey) ?? false;
       if (mounted && isFlashOn) {
         setState(() {
           _isFlashOn = isFlashOn;
         });
-        // Turn on flash after controller is ready
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted && _controller?.value.isInitialized == true) {
-            _controller?.toggleTorch();
+        // Turn on flash only after controller is fully initialized
+        // Wait for next frame to ensure controller is ready
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          // Double-check controller state before toggling
+          final controller = _controller;
+          if (controller == null || !controller.value.isInitialized) {
+            debugPrint('Flash toggle skipped: controller not initialized');
+            return;
+          }
+          // Check if device has torch capability
+          if (controller.value.torchState != TorchState.off &&
+              controller.value.torchState != TorchState.on) {
+            debugPrint('Flash toggle skipped: torch not available');
+            return;
+          }
+          try {
+            controller.toggleTorch();
+          } catch (e) {
+            // Handle camera-specific errors gracefully
+            debugPrint('Failed to toggle torch: $e');
           }
         });
       }
     } catch (e) {
-      // Ignore errors loading flash state
+      // Ignore errors loading flash state (non-critical feature)
+      debugPrint('Error loading flash state: $e');
     }
   }
 
@@ -119,7 +153,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
   Future<void> _saveFlashState(bool isFlashOn) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('qr_flash_enabled', isFlashOn);
+      await prefs.setBool(AppConfig.qrFlashEnabledKey, isFlashOn);
     } catch (e) {
       // Ignore errors saving flash state
     }
@@ -157,6 +191,8 @@ class _QRScannerScreenState extends State<QRScannerScreen>
     _controller?.dispose();
     _controller = null;
     _isCameraInitialized = false;
+    // Clear static callback to prevent memory leak
+    QRActionHandler.clearHistoryCallback();
     super.dispose();
   }
 
@@ -208,7 +244,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
     if (!mounted) return;
 
     try {
-      // Note: handleResult may use context, but we've checked mounted above
+      // Note: handleResult now saves history via the static callback set in initState
       // and AnimatedToast checks mounted internally
       await QRActionHandler.handleResult(context, code);
     } catch (e) {
@@ -230,6 +266,34 @@ class _QRScannerScreenState extends State<QRScannerScreen>
 
   /// Pick image from gallery with proper cleanup and error handling
   Future<void> _pickImageFromGallery() async {
+    // Check photos permission first (iOS 14+)
+    try {
+      final photosStatus = await Permission.photos.status;
+      if (photosStatus.isDenied) {
+        final result = await Permission.photos.request();
+        if (!result.isGranted) {
+          if (mounted) {
+            if (result.isPermanentlyDenied) {
+              AnimatedToast.error(
+                context,
+                'يرجى تفعيل صلاحية الوصول للمعرض من الإعدادات',
+              );
+              await Future.delayed(const Duration(seconds: 2));
+              if (mounted) {
+                await openAppSettings();
+              }
+            } else {
+              AnimatedToast.error(context, 'تم رفض صلاحية الوصول للمعرض');
+            }
+          }
+          return;
+        }
+      }
+    } catch (e) {
+      // Permission check failed - continue anyway, may fail later
+      debugPrint('Photo permission check failed: $e');
+    }
+    
     final ImagePicker picker = ImagePicker();
     XFile? image;
 
@@ -676,12 +740,23 @@ class _QRScannerScreenState extends State<QRScannerScreen>
 
   /// Toggle flash with state persistence and error handling
   Future<void> _toggleFlash() async {
-    if (_controller == null || !_controller!.value.isInitialized) {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      debugPrint('Flash toggle skipped: controller not initialized');
+      return;
+    }
+
+    // Check if torch is available
+    if (controller.value.torchState != TorchState.off &&
+        controller.value.torchState != TorchState.on) {
+      if (mounted) {
+        AnimatedToast.error(context, 'الإضاءة غير متاحة في هذا الجهاز');
+      }
       return;
     }
 
     try {
-      await _controller!.toggleTorch();
+      await controller.toggleTorch();
       final newState = !_isFlashOn;
       setState(() {
         _isFlashOn = newState;
@@ -689,6 +764,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
       // Persist flash state
       await _saveFlashState(newState);
     } catch (e) {
+      debugPrint('Failed to toggle torch: $e');
       if (mounted) {
         AnimatedToast.error(context, 'فشل تغيير الإضاءة');
       }

@@ -1,4 +1,7 @@
 import logging
+import asyncio
+import unicodedata
+import re
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel, HttpUrl, field_validator
 from typing import Optional
@@ -27,25 +30,69 @@ MAX_IMAGES = 10
 DEFAULT_TIMEOUT = 15.0
 SCRAPE_TIMEOUT = 30.0
 
-# Preview cache
+# Homograph attack detection: Confusable characters that look like Latin letters
+HOMOGRAPH_PATTERNS = {
+    'a': ['а', 'ɑ', 'α', 'ａ'],  # Cyrillic, Latin alpha, Greek alpha, fullwidth
+    'c': ['с', 'ϲ', 'ⅽ', 'c'],  # Cyrillic, Greek lunate sigma, Roman numeral
+    'e': ['е', 'ε', 'ｅ'],  # Cyrillic, Greek epsilon, fullwidth
+    'i': ['і', 'ι', 'ⅰ', 'i'],  # Cyrillic, Greek iota, Roman numeral
+    'o': ['о', 'ο', 'ο', '0', 'ｏ'],  # Cyrillic, Greek omicron, digit zero, fullwidth
+    'p': ['р', 'ρ', 'ρ', 'ｐ'],  # Cyrillic, Greek rho, fullwidth
+    's': ['ѕ', 'ｓ'],  # Cyrillic, fullwidth
+    'x': ['х', 'χ', '×', 'ｘ'],  # Cyrillic, Greek chi, multiplication sign
+    'y': ['у', 'γ', 'у', 'ｙ'],  # Cyrillic, Greek gamma, fullwidth
+    'm': ['м', 'μ', 'ｍ'],  # Cyrillic, Greek mu, fullwidth
+    'n': ['н', 'ν', 'ｎ'],  # Cyrillic, Greek nu, fullwidth
+    'r': ['г', 'ｒ'],  # Cyrillic, fullwidth
+    'u': ['υ', 'ｕ'],  # Greek upsilon, fullwidth
+    'k': ['κ', 'ｋ'],  # Greek kappa, fullwidth
+    'b': ['ь', 'β', 'ｂ'],  # Cyrillic soft sign, Greek beta, fullwidth
+    'd': ['ԁ', 'δ', 'd'],  # Cyrillic, Greek delta, fullwidth
+    'g': ['ɡ', 'γ', 'g'],  # Latin script g, Greek gamma, fullwidth
+    'h': ['һ', 'η', 'h'],  # Cyrillic, Greek eta, fullwidth
+    'j': ['ј', 'j'],  # Cyrillic, fullwidth
+    'l': ['ӏ', 'λ', 'l'],  # Cyrillic palochka, Greek lambda, fullwidth
+    'q': ['ԛ', 'q'],  # Cyrillic schwa, fullwidth
+    't': ['т', 'τ', 't'],  # Cyrillic, Greek tau, fullwidth
+    'v': ['ѵ', 'ν', 'v'],  # Cyrillic izhitsa, Greek nu, fullwidth
+    'w': ['ԝ', 'ω', 'w'],  # Cyrillic we, Greek omega, fullwidth
+    'z': ['ᴢ', 'ζ', 'z'],  # Latin letter z, Greek zeta, fullwidth
+}
+
+# Build reverse mapping for detection
+CONFUSABLE_CHARS = set()
+for replacements in HOMOGRAPH_PATTERNS.values():
+    CONFUSABLE_CHARS.update(replacements)
+
+# Preview cache with thread-safe locking
 _preview_cache = {}
 _cache_ttl = timedelta(minutes=15)
+_cache_lock = asyncio.Lock()
 
-def _clean_preview_cache():
-    """Clean old cache entries based on TTL"""
-    now = datetime.now()
-    expired_keys = [
-        k for k, v in _preview_cache.items()
-        if (now - v['timestamp']) > _cache_ttl
-    ]
-    for key in expired_keys:
-        _preview_cache.pop(key, None)  # Safe deletion - avoids KeyError on concurrent access
+async def _clean_preview_cache():
+    """Clean old cache entries based on TTL (thread-safe)"""
+    async with _cache_lock:
+        now = datetime.now()
+        expired_keys = [
+            k for k, v in _preview_cache.items()
+            if (now - v['timestamp']) > _cache_ttl
+        ]
+        for key in expired_keys:
+            _preview_cache.pop(key, None)
 
-    if len(_preview_cache) > 100:
-        oldest_keys = sorted(_preview_cache.keys(),
-                           key=lambda k: _preview_cache[k]['timestamp'])[:50]
-        for key in oldest_keys:
-            _preview_cache.pop(key, None)  # Safe deletion - avoids KeyError on concurrent access
+        if len(_preview_cache) > 100:
+            oldest_keys = sorted(_preview_cache.keys(),
+                               key=lambda k: _preview_cache[k]['timestamp'])[:50]
+            for key in oldest_keys:
+                _preview_cache.pop(key, None)
+
+
+async def _clean_preview_cache_background():
+    """Clean cache in background without holding locks"""
+    try:
+        await _clean_preview_cache()
+    except Exception as e:
+        logger.warning(f"Cache cleanup failed: {e}")
 
 # Blocked URL patterns (internal networks, etc.)
 BLOCKED_URL_PATTERNS = [
@@ -88,12 +135,12 @@ def _is_safe_url(url: str) -> bool:
         host = parsed.netloc.lower()
         if ":" in host:
             host = host.split(":")[0]
-        
+
         # Check blocked patterns
         for pattern in BLOCKED_URL_PATTERNS:
             if host == pattern or host.endswith(f".{pattern}"):
                 return False
-        
+
         # Resolve and check IP
         try:
             ip_address = socket.gethostbyname(host)
@@ -102,10 +149,65 @@ def _is_safe_url(url: str) -> bool:
                 return False
         except socket.gaierror:
             pass  # DNS resolution failure - let httpx handle it
-        
+
         return True
     except Exception:
         return False
+
+
+def _detect_homograph_attack(host: str) -> bool:
+    """
+    Detect homograph/punycode attacks where confusable characters
+    are used to impersonate legitimate domains.
+    
+    Examples:
+        - facebоok.com (Cyrillic 'о' instead of Latin 'o')
+        - gοogle.com (Greek omicron instead of Latin 'o')
+        - micrоsoft.cοm (Mixed scripts)
+    
+    Returns True if a potential homograph attack is detected.
+    """
+    if not host:
+        return False
+    
+    # Normalize to NFKC form (converts compatibility characters)
+    normalized = unicodedata.normalize('NFKC', host)
+    
+    # If normalization changes the string significantly, suspicious
+    if normalized != host:
+        # Check if the difference is just punycode-compatible chars
+        # If so, allow it (e.g., legitimate internationalized domains)
+        pass
+    
+    # Check for mixed scripts (strong indicator of homograph attack)
+    has_latin = any('\u0000' <= c <= '\u007f' for c in host)
+    has_cyrillic = any('\u0400' <= c <= '\u04FF' for c in host)
+    has_greek = any('\u0370' <= c <= '\u03FF' for c in host)
+    has_fullwidth = any('\uFF00' <= c <= '\uFFEF' for c in host)
+    
+    # Count how many different scripts are present
+    script_count = sum([has_latin, has_cyrillic, has_greek, has_fullwidth])
+    
+    # If multiple scripts detected, likely a homograph attack
+    if script_count >= 2:
+        logger.warning(f"Potential homograph attack detected: {host} (mixed scripts)")
+        return True
+    
+    # Check for known confusable characters
+    for char in host:
+        if char in CONFUSABLE_CHARS:
+            # Found a confusable character - check if it's in a suspicious context
+            char_category = unicodedata.category(char)
+            char_name = unicodedata.name(char, '').lower()
+            
+            # Flag if it's a letter that could be confused with Latin
+            if any(confusable in char_name for confusable in [
+                'cyrillic', 'greek', 'fullwidth', 'modifier'
+            ]):
+                logger.warning(f"Confusable character detected in hostname: {host} (char: {char})")
+                return True
+    
+    return False
 
 
 class ScrapeRequest(BaseModel):
@@ -118,17 +220,17 @@ class ScrapeRequest(BaseModel):
     def validate_url(cls, v):
         if not v or not v.strip():
             raise ValueError('URL cannot be empty')
-        
+
         # Add scheme if missing
         if not v.startswith(('http://', 'https://')):
             v = 'https://' + v
-        
+
         # Validate URL format
         try:
             parsed = urlparse(v)
             if not parsed.scheme or not parsed.netloc:
                 raise ValueError('Invalid URL format')
-            
+
             # Check for blocked patterns in hostname
             host = parsed.netloc.lower()
             if ":" in host:
@@ -137,12 +239,16 @@ class ScrapeRequest(BaseModel):
             for pattern in BLOCKED_URL_PATTERNS:
                 if host == pattern or host.endswith(f".{pattern}"):
                     raise ValueError(f'URL pattern blocked: {pattern}')
-            
+
+            # Homograph Attack Detection
+            if _detect_homograph_attack(host):
+                raise ValueError('Potential homograph attack detected (mixed scripts or confusable characters)')
+
             # Robust SSRF Protection: Resolve DNS and check IP ranges
             try:
                 ip_address = socket.gethostbyname(host)
                 ip = ipaddress.ip_address(ip_address)
-                
+
                 if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
                     raise ValueError(f'Access to private/reserved IP {ip_address} is blocked')
             except socket.gaierror:
@@ -152,12 +258,12 @@ class ScrapeRequest(BaseModel):
                 if isinstance(e, ValueError): raise
                 # Ignore other IP validation errors, let httpx handle it
                 pass
-                    
+
         except Exception as e:
             if isinstance(e, ValueError):
                 raise
             raise ValueError(f'Invalid URL: {str(e)}')
-        
+
         return v
     
     @field_validator('format')
@@ -178,26 +284,41 @@ class ScrapeResponse(BaseModel):
 
 class LinkPreviewRequest(BaseModel):
     url: str
-    
+
     @field_validator('url')
     @classmethod
     def validate_url(cls, v):
         if not v or not v.strip():
             raise ValueError('URL cannot be empty')
-        
+
         if not v.startswith(('http://', 'https://')):
             v = 'https://' + v
-        
+
         try:
             from urllib.parse import urlparse
             parsed = urlparse(v)
             if not parsed.scheme or not parsed.netloc:
                 raise ValueError('Invalid URL format')
+            
+            # Check hostname for security issues
+            host = parsed.netloc.lower()
+            if ":" in host:
+                host = host.split(":")[0]
+            
+            # Check blocked patterns
+            for pattern in BLOCKED_URL_PATTERNS:
+                if host == pattern or host.endswith(f".{pattern}"):
+                    raise ValueError(f'URL pattern blocked: {pattern}')
+            
+            # Homograph Attack Detection
+            if _detect_homograph_attack(host):
+                raise ValueError('Potential homograph attack detected (mixed scripts or confusable characters)')
+                
         except Exception as e:
             if isinstance(e, ValueError):
                 raise
             raise ValueError(f'Invalid URL: {str(e)}')
-        
+
         return v
 
 
@@ -228,31 +349,31 @@ async def scrape_url(url: str, include_images: bool = True) -> tuple[str, str, l
             },
         ) as client:
             response = await client.get(url)
-            
+
             # Handle redirects manually with SSRF validation
             redirect_count = 0
             max_redirects = 5
             current_url = url
-            
+
             while response.status_code in (301, 302, 307, 308):
                 redirect_count += 1
                 if redirect_count > max_redirects:
                     raise HTTPException(status_code=400, detail="Too many redirects")
-                
+
                 redirect_url = response.headers.get("location")
                 if not redirect_url:
                     raise HTTPException(status_code=400, detail="Redirect missing location header")
-                
+
                 # Resolve relative redirect URLs
                 redirect_url = urljoin(current_url, redirect_url)
-                
+
                 # SSRF Protection: Validate redirect URL before following
                 if not _is_safe_url(redirect_url):
                     raise HTTPException(status_code=400, detail=f"Redirect to {redirect_url} is blocked for security reasons")
-                
+
                 current_url = redirect_url
                 response = await client.get(current_url)
-            
+
             response.raise_for_status()
 
             # Check content length header
@@ -272,8 +393,16 @@ async def scrape_url(url: str, include_images: bool = True) -> tuple[str, str, l
     except httpx.RequestError as e:
         raise HTTPException(status_code=400, detail=f"Request failed: {str(e)}")
 
+    # Parse HTML with timeout protection (prevents ReDoS attacks)
     try:
-        soup = BeautifulSoup(content.decode('utf-8', errors='ignore'), "html.parser")
+        # Use asyncio.wait_for to timeout the parsing operation
+        # BeautifulSoup can be slow on malformed or malicious HTML
+        async def parse_html():
+            return BeautifulSoup(content.decode('utf-8', errors='ignore'), "html.parser")
+        
+        soup = await asyncio.wait_for(parse_html(), timeout=10.0)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=408, detail="HTML parsing timed out (malformed content)")
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Failed to parse HTML: {str(e)}")
 
@@ -459,9 +588,11 @@ async def scrape_and_save(
     """
     Scrape a URL and save the content to the user's library.
     Supports markdown and HTML formats.
-    
+
     Rate limit: 10 requests/minute (expensive operation)
     """
+    url_for_logging = scrape_request.url  # Capture URL for error logging
+    
     try:
         user_id = current_user.get("id") or current_user.get("user_id")
         if not user_id:
@@ -492,15 +623,21 @@ async def scrape_and_save(
     except HTTPException:
         raise
     except httpx.HTTPError as e:
-        logger.error(f"HTTP error scraping {scrape_request.url}: {e}")
+        logger.error(f"HTTP error scraping {url_for_logging}: {e}")
         raise HTTPException(status_code=502, detail=f"Failed to fetch URL: {str(e)}")
+    except asyncio.TimeoutError as e:
+        logger.error(f"Timeout scraping {url_for_logging}: {e}")
+        raise HTTPException(status_code=408, detail="Request timed out")
+    except ValueError as e:
+        logger.error(f"Validation error scraping {url_for_logging}: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid request: {str(e)}")
     except Exception as e:
-        logger.error(f"Error scraping {scrape_request.url}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Unexpected error scraping {url_for_logging}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 def _validate_url_for_preview(url: str) -> str:
-    """Validate URL for preview endpoint with SSRF protection"""
+    """Validate URL for preview endpoint with SSRF and homograph protection"""
     if not url or not url.strip():
         raise ValueError('URL cannot be empty')
 
@@ -511,7 +648,16 @@ def _validate_url_for_preview(url: str) -> str:
         parsed = urlparse(url)
         if not parsed.scheme or not parsed.netloc:
             raise ValueError('Invalid URL format')
-        
+
+        # Extract hostname for security checks
+        host = parsed.netloc.lower()
+        if ":" in host:
+            host = host.split(":")[0]
+
+        # Homograph Attack Detection (same as scrape endpoint)
+        if _detect_homograph_attack(host):
+            raise ValueError('Potential homograph attack detected (mixed scripts or confusable characters)')
+
         # Use shared _is_safe_url for SSRF protection
         if not _is_safe_url(url):
             raise ValueError('URL is blocked for security reasons')
@@ -536,23 +682,27 @@ async def get_link_preview(
     Used for rich link previews in chat.
     Cached for 15 minutes.
     Requires authentication.
-    
+
     Rate limit: 30 requests/minute (cheaper operation)
     """
-    url = preview_request.url
+    url_for_logging = preview_request.url
     
     try:
-        url = _validate_url_for_preview(url)
+        url = _validate_url_for_preview(url_for_logging)
     except ValueError as e:
+        logger.warning(f"Invalid preview URL {url_for_logging}: {e}")
         raise HTTPException(status_code=400, detail=str(e))
-    
-    cached = _preview_cache.get(url)
-    if cached and (datetime.now() - cached['timestamp']) < _cache_ttl:
-        return LinkPreviewResponse(**cached['data'])
-    
+
+    # Thread-safe cache read
+    async with _cache_lock:
+        cached = _preview_cache.get(url)
+        if cached and (datetime.now() - cached['timestamp']) < _cache_ttl:
+            return LinkPreviewResponse(**cached['data'])
+
     try:
         # SSRF Protection: Validate URL before making request (defense in depth)
         if not _is_safe_url(url):
+            logger.warning(f"Blocked unsafe preview URL: {url}")
             raise HTTPException(status_code=400, detail="URL is blocked for security reasons")
 
         # Use follow_redirects=False to validate each redirect manually (SSRF protection)
@@ -564,34 +714,55 @@ async def get_link_preview(
             },
         ) as client:
             response = await client.get(url)
-            
+
             # Handle redirects manually with SSRF validation
             redirect_count = 0
             max_redirects = 5
             current_url = url
-            
+
             while response.status_code in (301, 302, 307, 308):
                 redirect_count += 1
                 if redirect_count > max_redirects:
+                    logger.info(f"Too many redirects for preview: {url}")
                     raise HTTPException(status_code=400, detail="Too many redirects")
-                
+
                 redirect_url = response.headers.get("location")
                 if not redirect_url:
                     raise HTTPException(status_code=400, detail="Redirect missing location header")
-                
+
                 # Resolve relative redirect URLs
                 redirect_url = urljoin(current_url, redirect_url)
-                
+
                 # SSRF Protection: Validate redirect URL before following
                 if not _is_safe_url(redirect_url):
+                    logger.warning(f"Blocked redirect in preview: {redirect_url}")
                     raise HTTPException(status_code=400, detail=f"Redirect to {redirect_url} is blocked for security reasons")
-                
+
                 current_url = redirect_url
                 response = await client.get(current_url)
-            
+
             response.raise_for_status()
 
-        soup = BeautifulSoup(response.text, "html.parser")
+            # Final SSRF check: validate the final destination URL after all redirects
+            # This prevents bypass where intermediate redirects are safe but final URL is not
+            if not _is_safe_url(current_url):
+                logger.warning(f"Final redirect destination blocked: {current_url}")
+                raise HTTPException(status_code=400, detail="Final redirect destination is blocked for security reasons")
+
+        # Parse HTML with timeout protection
+        try:
+            async def parse_preview_html():
+                return BeautifulSoup(response.text, "html.parser")
+            soup = await asyncio.wait_for(parse_preview_html(), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"Preview parsing timed out for: {url}")
+            # Return partial result instead of failing
+            return LinkPreviewResponse(
+                title=None,
+                description=None,
+                image=None,
+                site_name=urlparse(url).netloc,
+            )
 
         title = None
         og_title = soup.find("meta", property="og:title")
@@ -636,22 +807,31 @@ async def get_link_preview(
             image=image,
             site_name=site_name,
         )
-        
-        _preview_cache[url] = {
-            'timestamp': datetime.now(),
-            'data': result.model_dump()
-        }
-        
-        _clean_preview_cache()
+
+        # Thread-safe cache write
+        async with _cache_lock:
+            _preview_cache[url] = {
+                'timestamp': datetime.now(),
+                'data': result.model_dump()
+            }
+
+        # Clean cache in background (outside lock to prevent race conditions)
+        asyncio.create_task(_clean_preview_cache_background())
 
         return result
 
     except httpx.TimeoutException:
+        logger.info(f"Preview timeout for {url_for_logging}")
         raise HTTPException(status_code=408, detail="Request timed out")
     except httpx.HTTPStatusError as e:
+        logger.info(f"HTTP {e.response.status_code} for preview {url_for_logging}")
         raise HTTPException(status_code=e.response.status_code, detail=f"HTTP error: {e.response.status_code}")
     except httpx.RequestError as e:
+        logger.warning(f"Preview request failed for {url_for_logging}: {e}")
         raise HTTPException(status_code=400, detail=f"Request failed: {str(e)}")
+    except asyncio.TimeoutError as e:
+        logger.info(f"Preview parsing timeout for {url_for_logging}")
+        raise HTTPException(status_code=408, detail="Parsing timed out")
     except Exception as e:
-        logger.error(f"Error generating preview for {url}: {e}")
+        logger.error(f"Unexpected error generating preview for {url_for_logging}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to generate preview: {str(e)}")

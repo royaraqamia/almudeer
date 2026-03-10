@@ -4,7 +4,7 @@ Customers, Analytics, Preferences, Voice Transcription
 """
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import Optional, List, Union
 from datetime import datetime, timedelta
 
@@ -210,6 +210,27 @@ class PreferencesUpdate(BaseModel):
     athkar_stats: Optional[str] = None
     # Accepts List[str] from clients; backend serializes to JSON string for storage
     calculator_history: Optional[Union[str, List[str]]] = None
+
+    @validator('calculator_history')
+    def validate_calculator_history_length(cls, v):
+        """Validate calculator history doesn't exceed maximum length"""
+        if v is None:
+            return v
+        if isinstance(v, list):
+            if len(v) > 50:
+                raise ValueError('Calculator history cannot exceed 50 entries')
+            return v
+        if isinstance(v, str):
+            # If it's a JSON string, parse and check length
+            try:
+                import json
+                parsed = json.loads(v)
+                if isinstance(parsed, list) and len(parsed) > 50:
+                    raise ValueError('Calculator history cannot exceed 50 entries')
+            except (json.JSONDecodeError, TypeError):
+                pass  # Not a valid JSON string, skip validation
+            return v
+        return v
 
 
 # ============ Preferences Routes ============

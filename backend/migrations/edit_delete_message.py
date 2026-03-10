@@ -71,18 +71,29 @@ async def ensure_message_edit_delete_schema():
         try:
             if DB_TYPE == "postgresql":
                 await execute_sql(db, """
-                    ALTER TABLE outbox_messages 
+                    ALTER TABLE outbox_messages
                     ADD COLUMN IF NOT EXISTS edit_count INTEGER DEFAULT 0
                 """)
             else:
                 await execute_sql(db, """
-                    ALTER TABLE outbox_messages 
+                    ALTER TABLE outbox_messages
                     ADD COLUMN edit_count INTEGER DEFAULT 0
                 """)
             logger.info("Added edit_count column to outbox_messages")
         except Exception as e:
             if "duplicate column" not in str(e).lower() and "already exists" not in str(e).lower():
                 logger.debug(f"edit_count column might already exist: {e}")
-        
+
+        # Add edited_by column for audit trail (tracks which user made the edit)
+        try:
+            await execute_sql(db, """
+                ALTER TABLE outbox_messages
+                ADD COLUMN edited_by TEXT
+            """)
+            logger.info("Added edited_by column to outbox_messages")
+        except Exception as e:
+            if "duplicate column" not in str(e).lower() and "already exists" not in str(e).lower():
+                logger.debug(f"edited_by column might already exist: {e}")
+
         await commit_db(db)
         logger.info("Message edit/delete schema migration complete")

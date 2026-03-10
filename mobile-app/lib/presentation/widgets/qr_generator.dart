@@ -4,6 +4,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/constants/colors.dart';
+import '../../core/constants/app_config.dart';
 import '../widgets/animated_toast.dart';
 
 /// QR Code Generator Widget with validation and accessibility
@@ -15,7 +16,7 @@ class QRGenerator extends StatelessWidget {
   final String? semanticLabel;
 
   /// Maximum data length for QR codes (practical limit for good scannability)
-  static const int maxDataLength = 500;
+  static const int maxDataLength = AppConfig.maxQrDataLength;
 
   QRGenerator({
     super.key,
@@ -42,15 +43,11 @@ class QRGenerator extends StatelessWidget {
   }
 
   /// Get appropriate error correction level based on data size
+  /// Always use High (H) error correction for best durability and scannability
   static int _getErrorCorrectionLevel(String data) {
-    // Use higher error correction for larger data
-    if (data.length > 300) {
-      return QrErrorCorrectLevel.H; // 30% error correction
-    } else if (data.length > 150) {
-      return QrErrorCorrectLevel.Q; // 25% error correction
-    } else {
-      return QrErrorCorrectLevel.H; // Default to high (30%) for better durability
-    }
+    // Use high error correction (30%) for all cases
+    // This provides the best durability against damage and better scannability
+    return QrErrorCorrectLevel.H;
   }
 
   @override
@@ -72,28 +69,60 @@ class QRGenerator extends StatelessWidget {
       );
     }
 
-    return Semantics(
-      label: semanticLabel ?? 'رمز QR يحتوي على: $data',
-      image: true,
-      child: RepaintBoundary(
-        child: QrImageView(
-          data: data,
-          version: QrVersions.auto,
-          size: size,
-          backgroundColor: backgroundColor ?? Colors.white,
-          eyeStyle: const QrEyeStyle(
-            eyeShape: QrEyeShape.square,
-            color: AppColors.primary,
+    // Generate QR code with error handling
+    try {
+      return Semantics(
+        label: semanticLabel ?? 'رمز QR يحتوي على: $data',
+        image: true,
+        child: RepaintBoundary(
+          child: QrImageView(
+            data: data,
+            version: QrVersions.auto,
+            size: size,
+            backgroundColor: backgroundColor ?? Colors.white,
+            eyeStyle: const QrEyeStyle(
+              eyeShape: QrEyeShape.square,
+              color: AppColors.primary,
+            ),
+            dataModuleStyle: const QrDataModuleStyle(
+              dataModuleShape: QrDataModuleShape.square,
+              color: AppColors.primary,
+            ),
+            // Use high error correction for better scannability
+            errorCorrectionLevel: _getErrorCorrectionLevel(data),
           ),
-          dataModuleStyle: const QrDataModuleStyle(
-            dataModuleShape: QrDataModuleShape.square,
-            color: AppColors.primary,
-          ),
-          // Use high error correction for better scannability
-          errorCorrectionLevel: _getErrorCorrectionLevel(data),
         ),
-      ),
-    );
+      );
+    } catch (e) {
+      // Handle QR generation errors (e.g., invalid characters)
+      debugPrint('QR generation failed: $e');
+      return Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: Colors.amber.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.warning_amber_rounded,
+              color: Colors.amber,
+              size: 32,
+            ),
+            SizedBox(height: 4),
+            Text(
+              'فشل إنشاء QR',
+              style: TextStyle(
+                color: Colors.amber,
+                fontSize: 10,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
   }
 }
 
@@ -169,7 +198,14 @@ class _QRBottomSheetContentState extends State<_QRBottomSheetContent> {
           subject: widget.title,
         ),
       );
+    } on PlatformException catch (e) {
+      // Handle platform-specific sharing errors
+      debugPrint('Share failed: ${e.code} - ${e.message}');
+      if (mounted) {
+        AnimatedToast.error(context, 'فشل المشاركة');
+      }
     } catch (e) {
+      debugPrint('Share failed: $e');
       if (mounted) {
         AnimatedToast.error(context, 'فشل المشاركة: ${e.toString()}');
       }

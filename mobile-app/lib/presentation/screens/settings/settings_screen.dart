@@ -15,6 +15,7 @@ import '../../providers/settings_provider.dart';
 import '../../widgets/common_widgets.dart';
 import '../../../data/models/user_preferences.dart';
 import '../../../data/models/knowledge_document.dart';
+import '../../../data/models/knowledge_constants.dart';
 
 import './widgets/integrations_section.dart';
 import './widgets/settings_components.dart';
@@ -329,14 +330,15 @@ class _SettingsScreenState extends State<SettingsScreen>
 
     // Filter to get only the text document (source='manual' or 'mobile_app')
     final textDocs = docs.where((doc) {
-      final isManual = doc.source == 'manual' || doc.source == 'mobile_app';
+      final isManual = doc.source == KnowledgeSource.manual ||
+          doc.source == KnowledgeSource.mobileApp;
       return isManual;
     }).toList();
     final hasTextDoc = textDocs.isNotEmpty;
     final textDoc = hasTextDoc ? textDocs.first : null;
 
     // Filter to get only file documents (source='file')
-    final fileDocs = docs.where((doc) => doc.source == 'file').toList();
+    final fileDocs = docs.where((doc) => doc.source == KnowledgeSource.file).toList();
 
     return PremiumCard(
       padding: const EdgeInsets.all(AppDimensions.paddingMedium),

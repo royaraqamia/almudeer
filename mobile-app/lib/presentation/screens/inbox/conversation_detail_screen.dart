@@ -48,6 +48,18 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _detailProvider = context.read<ConversationDetailProvider>();
+    // Set up error callback to show toasts when operations fail
+    _detailProvider.onError = (String errorMessage) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    };
   }
 
   @override

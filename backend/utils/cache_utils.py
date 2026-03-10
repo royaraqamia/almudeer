@@ -25,6 +25,10 @@ _DEFAULT_CACHE_TTL_SECONDS = int(os.getenv("SHARE_CACHE_TTL_SECONDS", "300"))  #
 _DEFAULT_MAX_CACHE_SIZE = int(os.getenv("SHARE_CACHE_MAX_SIZE", "100"))
 _CACHE_METRICS_ENABLED = os.getenv("CACHE_METRICS_ENABLED", "true").lower() == "true"
 
+# FIX: Rate limiting for prefix invalidation to prevent cache stampede
+_PREFIX_INVALIDATION_COOLDOWN_SECONDS = 1
+_last_prefix_invalidation: dict = {}  # Track last invalidation time per prefix
+
 
 class LRUCache:
     """
@@ -170,7 +174,22 @@ class LRUCache:
         """
         Invalidate all cache entries starting with a prefix.
         Ensures complete cleanup of both cache and access times.
+        
+        FIX: Rate limiting to prevent cache stampede during bulk operations.
+        If called too frequently for the same prefix, subsequent calls are no-ops.
         """
+        import time
+        now = time.time()
+        
+        # Rate limit check - skip if called too recently for same prefix
+        cache_key = f"{self.name}:{prefix}"
+        last_invalidation = _last_prefix_invalidation.get(cache_key, 0)
+        if (now - last_invalidation) < _PREFIX_INVALIDATION_COOLDOWN_SECONDS:
+            logger.debug(f"[{self.name}] Skipping prefix invalidation (rate limited): {prefix}")
+            return
+        
+        _last_prefix_invalidation[cache_key] = now
+        
         async with self._lock:
             # Build list first to avoid modifying dict during iteration
             keys_to_delete = [k for k in self._cache.keys() if k.startswith(prefix)]
@@ -266,6 +285,8 @@ async def broadcast_safe(coro: Awaitable, description: str):
     Wrapper to safely execute broadcast coroutines without raising exceptions.
     Prevents background broadcast failures from affecting main operations.
     
+    FIX: Track broadcast failures with metrics for monitoring.
+
     Usage:
         asyncio.create_task(
             broadcast_safe(
@@ -278,3 +299,14 @@ async def broadcast_safe(coro: Awaitable, description: str):
         await coro
     except Exception as e:
         logger.warning(f"Failed to {description}: {e}", exc_info=True)
+        
+        # FIX: Track broadcast failures with metrics
+        try:
+            from services.metrics_service import MetricsService
+            metrics = MetricsService()
+            await metrics.increment_counter("websocket_broadcast_failures", {
+                "description": description,
+                "error_type": type(e).__name__
+            })
+        except Exception:
+            pass

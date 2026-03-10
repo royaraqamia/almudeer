@@ -495,14 +495,14 @@ class InboxMessage {
     try {
       final createdTS = timestamp ?? createdAt;
       final created = DateTime.parse(createdTS).toUtc();
-      if (DateTime.now().toUtc().difference(created).inHours > 24) {
+      if (DateTime.now().toUtc().difference(created) > const Duration(hours: 24)) {
         return false;
       }
     } catch (e) {
       // If parsing fails, fall back to createdAt (which is guaranteed non-null in constructor)
       try {
         final created = DateTime.parse(createdAt).toUtc();
-        if (DateTime.now().toUtc().difference(created).inHours > 24) {
+        if (DateTime.now().toUtc().difference(created) > const Duration(hours: 24)) {
           return false;
         }
       } catch (e2) {

@@ -526,8 +526,10 @@ async def edit_message_route(message_id: int, request: Request, license: dict = 
         raise HTTPException(status_code=400, detail=e.message)
 
     try:
+        # Pass username for audit trail (who edited the message)
+        edited_by = license.get("username")
         # edit_outbox_message already handles websocket broadcasting
-        result = await edit_outbox_message(message_id, license["license_id"], new_body)
+        result = await edit_outbox_message(message_id, license["license_id"], new_body, edited_by=edited_by)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

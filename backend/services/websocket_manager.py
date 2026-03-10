@@ -883,18 +883,40 @@ async def broadcast_customer_updated(license_id: int, customer_data: Dict[str, A
 
 # ============ Message Edit/Delete Broadcasting ============
 
-async def broadcast_message_edited(
+# Debouncing for rapid message edits (prevents spam on fast typing)
+_edit_debounce_tasks: Dict[int, asyncio.Task] = {}
+_EDIT_DEBOUNCE_DELAY = 0.5  # seconds
+
+
+async def _debounced_broadcast_edit(
     license_id: int,
     message_id: int,
     new_body: str,
     edited_at: str,
-    sender_contact: str = None,
-    edit_count: int = 1
+    sender_contact: str,
+    edit_count: int
 ):
-    """
-    Broadcast when a message is edited.
-    Notifies both the sender (multi-device) and the recipient (if internal).
-    """
+    """Internal function to perform the actual broadcast after debounce delay"""
+    await asyncio.sleep(_EDIT_DEBOUNCE_DELAY)
+    
+    # Remove from pending tasks
+    _edit_debounce_tasks.pop(message_id, None)
+    
+    # Perform the actual broadcast
+    await _perform_broadcast_edit(
+        license_id, message_id, new_body, edited_at, sender_contact, edit_count
+    )
+
+
+async def _perform_broadcast_edit(
+    license_id: int,
+    message_id: int,
+    new_body: str,
+    edited_at: str,
+    sender_contact: str,
+    edit_count: int
+):
+    """Actual broadcast logic (extracted for debouncing)"""
     manager = get_websocket_manager()
 
     from db_helper import get_db, fetch_one
@@ -937,10 +959,9 @@ async def broadcast_message_edited(
                 logger.info(f"[broadcast_message_edited] Peer lookup for '{sender_contact}': {peer_row}")
                 if peer_row:
                     peer_license_id = peer_row["id"]
-                    # For the peer, we need to include BOTH sender and recipient
-                    # The peer (recipient) needs to know:
-                    # - sender_contact: who sent the edit (the editor, i.e., license_id's username)
-                    # - recipient_contact: which conversation this belongs to (the peer's username)
+                    # For the peer recipient:
+                    # - sender_contact: the person who edited (us)
+                    # - recipient_contact: the peer themselves (to identify which conversation)
                     owner_row = await fetch_one(db, "SELECT username FROM license_keys WHERE id = ?", [license_id])
                     logger.info(f"[broadcast_message_edited] Owner lookup for license {license_id}: {owner_row}")
                     if owner_row:
@@ -954,16 +975,16 @@ async def broadcast_message_edited(
                         peer_payload["force_refresh"] = True
                         logger.info(f"[broadcast_message_edited] Sending to peer license {peer_license_id}: {peer_payload}")
                         logger.info(f"[broadcast_message_edited] Peer payload details: sender_contact={peer_payload.get('sender_contact')}, recipient_contact={peer_payload.get('recipient_contact')}")
-                        
+
                         ws_message = WebSocketMessage(
                             event="message_edited",
                             data=peer_payload
                         )
                         logger.info(f"[broadcast_message_edited] WebSocketMessage created: event={ws_message.event}, data={ws_message.data}")
-                        
+
                         await manager.send_to_license(peer_license_id, ws_message)
                         logger.info(f"[broadcast_message_edited] send_to_license completed for peer license {peer_license_id}")
-                        
+
                         # Store the edit in Redis for replay on reconnect (TTL: 1 hour)
                         if manager._pubsub.is_available:
                             try:
@@ -983,6 +1004,36 @@ async def broadcast_message_edited(
                     logger.info(f"[broadcast_message_edited] Recipient '{sender_contact}' is not an internal license user (external channel or email)")
     except Exception as e:
         logger.warning(f"Failed to notify peer of message edit: {e}", exc_info=True)
+
+
+async def broadcast_message_edited(
+    license_id: int,
+    message_id: int,
+    new_body: str,
+    edited_at: str,
+    sender_contact: str = None,
+    edit_count: int = 1
+):
+    """
+    Broadcast when a message is edited.
+    Notifies both the sender (multi-device) and the recipient (if internal).
+    Uses debouncing to prevent spam from rapid edits.
+    """
+    # Cancel any pending debounce task for this message
+    if message_id in _edit_debounce_tasks:
+        _edit_debounce_tasks[message_id].cancel()
+        try:
+            await _edit_debounce_tasks[message_id]
+        except asyncio.CancelledError:
+            pass
+    
+    # Create new debounce task
+    task = asyncio.create_task(
+        _debounced_broadcast_edit(
+            license_id, message_id, new_body, edited_at, sender_contact, edit_count
+        )
+    )
+    _edit_debounce_tasks[message_id] = task
 
 
 async def broadcast_message_deleted(license_id: int, message_id: int, sender_contact: str = None):

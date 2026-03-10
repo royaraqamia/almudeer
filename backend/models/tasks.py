@@ -49,14 +49,17 @@ async def verify_task_access(
         return True
 
     # Check task_shares for permission-based access
+    # FIX: Add expires_at check to prevent expired shares from granting access
+    now = datetime.now(timezone.utc)
     share = await fetch_one(
         db,
         """
         SELECT permission FROM task_shares
         WHERE task_id = ? AND shared_with_user_id = ? AND license_key_id = ?
         AND deleted_at IS NULL
+        AND (expires_at IS NULL OR expires_at > ?)
         """,
-        [task_id, user_id, license_id]
+        [task_id, user_id, license_id, now]
     )
 
     if share:
@@ -275,6 +278,8 @@ async def get_tasks(
         # Use UNION instead of DISTINCT to avoid ORDER BY issues
         # FIX: Only return share_permission for tasks shared WITH the user (not owned by user)
         # FIX: Filter out soft-deleted tasks (is_deleted = 0)
+        # FIX: Add expires_at check to prevent expired shares from granting access
+        now = datetime.now(timezone.utc)
         base_query = """
             SELECT t.*,
                    CASE WHEN t.created_by = ? THEN NULL ELSE ts.permission END as share_permission
@@ -283,6 +288,7 @@ async def get_tasks(
                 AND ts.shared_with_user_id = ?
                 AND ts.license_key_id = ?
                 AND ts.deleted_at IS NULL
+                AND (ts.expires_at IS NULL OR ts.expires_at > ?)
             WHERE t.license_key_id = ?
             AND t.is_deleted = 0
             AND (
@@ -291,7 +297,7 @@ async def get_tasks(
                 OR ts.id IS NOT NULL
             )
         """
-        params = [user_id, user_id, license_id, license_id, user_id]
+        params = [user_id, user_id, license_id, now, license_id, user_id]
 
         # Cursor-based pagination (more efficient for large datasets)
         if cursor:
@@ -348,15 +354,18 @@ async def get_task(license_id: int, task_id: str, user_id: str) -> Optional[dict
             return None
 
         # P4-2: Fetch user's share permission if they're not the owner
+        # FIX: Add expires_at check to prevent expired shares from granting access
         if task_dict.get('created_by') != user_id:
+            now = datetime.now(timezone.utc)
             share = await fetch_one(
                 db,
                 """
                 SELECT permission FROM task_shares
                 WHERE task_id = ? AND shared_with_user_id = ? AND license_key_id = ?
                 AND deleted_at IS NULL
+                AND (expires_at IS NULL OR expires_at > ?)
                 """,
-                [task_id, user_id, license_id]
+                [task_id, user_id, license_id, now]
             )
             if share:
                 task_dict['share_permission'] = share.get('permission')

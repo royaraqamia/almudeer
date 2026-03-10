@@ -1338,37 +1338,43 @@ async def share_library_item(
         }
     except ValueError as e:
         # FIX: Sanitize error messages - don't expose internal details
+        # FIX: Return standardized error codes for mobile app to match on
         error_msg = str(e)
         logger.warning(f"Share library item validation error: {error_msg}")
         
+        # Get standardized error code
+        from utils.share_utils import get_share_error_code, ShareErrorCode
+        error_code = get_share_error_code(error_msg)
+
         # Map to safe, user-friendly messages
-        error_lower = error_msg.lower()
-        if 'yourself' in error_lower:
+        if error_code == ShareErrorCode.SELF_SHARE:
             safe_msg_ar = 'لا يمكنك مشاركة العنصر مع نفسك'
             safe_msg_en = 'Cannot share an item with yourself'
-        elif 'not found' in error_lower:
+        elif error_code == ShareErrorCode.ITEM_NOT_FOUND:
             safe_msg_ar = 'العنصر غير موجود'
             safe_msg_en = 'Item not found'
-        elif 'permission' in error_lower or 'privilege' in error_lower:
+        elif error_code == ShareErrorCode.PERMISSION_DENIED:
             safe_msg_ar = 'ليس لديك صلاحية مشاركة هذا العنصر'
             safe_msg_en = 'You do not have permission to share this item'
-        elif 'revoked' in error_lower:
+        elif error_code == ShareErrorCode.SHARE_REVOKED:
             safe_msg_ar = 'تم إلغاء هذه المشاركة سابقاً. يرجى إنشاء مشاركة جديدة.'
             safe_msg_en = 'This share was previously revoked. Please create a new share.'
-        elif 'user' in error_lower and 'not found' in error_lower:
+        elif error_code == ShareErrorCode.USER_NOT_FOUND:
             safe_msg_ar = 'المستخدم غير موجود'
             safe_msg_en = 'User not found'
-        elif 'storage' in error_lower or 'limit' in error_lower:
+        elif 'storage' in error_msg.lower() or 'limit' in error_msg.lower():
             safe_msg_ar = 'تجاوزت حد التخزين المسموح به'
             safe_msg_en = 'Storage limit exceeded'
+            error_code = 'STORAGE_LIMIT_EXCEEDED'
         else:
             safe_msg_ar = 'بيانات المشاركة غير صحيحة'
             safe_msg_en = 'Invalid share data'
-        
+            error_code = ShareErrorCode.INVALID_SHARE
+
         raise HTTPException(
             status_code=400,
             detail={
-                "code": "SHARE_FAILED",
+                "code": error_code,
                 "message_ar": safe_msg_ar,
                 "message_en": safe_msg_en
             }

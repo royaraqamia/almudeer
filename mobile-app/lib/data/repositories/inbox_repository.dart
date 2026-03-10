@@ -521,14 +521,17 @@ class InboxRepository {
     int messageId,
     String newBody,
   ) async {
-    // Local Update
-    if (messageId > 0) {
-      await _localDataSource.updateMessageStatus(
-        messageId,
-        'replied',
-        editedBody: newBody,
-      );
+    // Validate message ID - must be a positive synced message
+    if (messageId <= 0) {
+      throw ArgumentError('Cannot edit unsynced message (id: $messageId)');
     }
+
+    // Local Update
+    await _localDataSource.updateMessageStatus(
+      messageId,
+      'replied',
+      editedBody: newBody,
+    );
 
     if (_connectivityService.isOnline) {
       final result = await _apiClient.patch(
