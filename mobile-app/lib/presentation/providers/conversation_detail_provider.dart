@@ -1564,7 +1564,7 @@ class ConversationDetailProvider extends ChangeNotifier {
 
         debugPrint('[ConversationDetailProvider] Using targetContact=$targetContact for message update (activeContact=$_activeContact)');
 
-        if (targetContact != null && _memoryMessages.containsKey(targetContact)) {
+        if (_memoryMessages.containsKey(targetContact)) {
           final current = _memoryMessages[targetContact] ?? [];
           // Peer-to-peer sync: Recipients use 'alm_{outboxId}' as platformMessageId
           // Also check outboxId for direct matching on recipient side
