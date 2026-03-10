@@ -1225,12 +1225,15 @@ class ConversationDetailProvider extends ChangeNotifier {
       // Check if the edited message is the LATEST one in our memory list
       // The list is typically reversed (index 0 is newest)
       final msgs = _memoryMessages[_activeContact!] ?? [];
-      if (msgs.isNotEmpty && msgs.first.id == id) {
-        // Only then do we update the inbox snippet to reflect the new body
-        inboxProvider.updateMessageEdit(
-          senderContact: _activeContact!,
-          body: newBody,
-        );
+      if (msgs.isNotEmpty) {
+        final latestMessage = msgs.first;
+        if (latestMessage.id == id) {
+          // Only then do we update the inbox snippet to reflect the new body
+          inboxProvider.updateMessageEdit(
+            senderContact: _activeContact!,
+            body: newBody,
+          );
+        }
       }
 
       // FIX: Clear draft for this contact - edited messages should not be saved as drafts
@@ -1492,8 +1495,11 @@ class ConversationDetailProvider extends ChangeNotifier {
         if (_memoryMessages.containsKey(contact)) {
           final current = _memoryMessages[contact] ?? [];
           // Peer-to-peer sync: Recipients use 'alm_{outboxId}' as platformMessageId
+          // Also check outboxId for direct matching on recipient side
           final idx = current.indexWhere(
-            (m) => m.id == msgId || m.platformMessageId == 'alm_$msgId',
+            (m) => m.id == msgId || 
+                   m.platformMessageId == 'alm_$msgId' ||
+                   m.outboxId == msgId,
           );
           debugPrint('[ConversationDetailProvider] Found message at index=$idx in contact=$contact');
           if (idx != -1) {

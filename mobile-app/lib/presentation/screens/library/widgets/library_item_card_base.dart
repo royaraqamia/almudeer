@@ -114,8 +114,9 @@ abstract class LibraryItemCardStateBase<T extends StatefulWidget> extends State<
       final isMedia = item.type != 'note' && item.type != 'task';
       if (isMedia && _localPath == null) {
         await downloadFile();
-        // Check mounted and localPath after async operation
-        if (mounted && !_disposed && _localPath != null) {
+        // Check mounted after async operation
+        // Allow viewing even if download failed (will use streaming/remote URL)
+        if (mounted && !_disposed) {
           onView();
         }
       } else {

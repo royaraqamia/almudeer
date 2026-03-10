@@ -34,14 +34,16 @@ class _LibraryScreenState extends State<LibraryScreen>
   final Set<String> _loadedCategories = {};
   // Track which categories have already been animated
   final Set<String> _animatedCategories = {};
-  late String _hijriDate;
+  // Guard against rapid filter changes to prevent race conditions
+  bool _isChangingFilter = false;
+  // Store retry context for file uploads
+  bool? _lastUploadFromBottomSheet;
 
   @override
   void initState() {
     super.initState();
     // Use user's locale preference for Hijri calendar
     HijriCalendar.setLocal('en');
-    _hijriDate = HijriCalendar.now().toFormat('DD, dd MMMM yyyy').toEnglishNumbers;
     _loadedCategories.add(_selectedType);
     _scrollController.addListener(_onScroll);
     // Defer fetch until after build to avoid setState() during build
@@ -68,7 +70,10 @@ class _LibraryScreenState extends State<LibraryScreen>
   }
 
   void _onScroll() {
-    if (!mounted) return;
+    // Check mounted and scroll controller validity to prevent operations after disposal
+    if (!mounted || !_scrollController.hasClients) return;
+    // Ensure scroll position is valid before triggering fetch
+    if (!_scrollController.position.hasPixels) return;
     if (_scrollController.position.pixels >=
         _scrollController.position.maxScrollExtent - 200) {
       final provider = context.read<LibraryProvider>();
@@ -76,6 +81,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         // Fire-and-forget with error handling to prevent uncaught exceptions
         provider.fetchItems(loadMore: true, category: _selectedType)
             .catchError((error) {
+          if (!mounted) return;
           debugPrint('[LibraryScreen] Scroll-triggered fetch failed: $error');
           // Don't show snackbar for scroll loads - too intrusive
           // The provider will retry on next scroll event
@@ -85,18 +91,23 @@ class _LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _onFilterChanged(String type) async {
-    if (_selectedType == type) return;
-    setState(() {
-      _selectedType = type;
-      _loadedCategories.add(type);
-    });
+    if (_selectedType == type || _isChangingFilter) return;
+    _isChangingFilter = true;
+    try {
+      setState(() {
+        _selectedType = type;
+        _loadedCategories.add(type);
+      });
 
-    // Provider automatically detects category change and forces refresh
-    await context.read<LibraryProvider>().fetchItems(category: type);
+      // Provider automatically detects category change and forces refresh
+      await context.read<LibraryProvider>().fetchItems(category: type);
 
-    // Reset scroll position to avoid jarring scroll jumps
-    if (_scrollController.hasClients) {
-      _scrollController.jumpTo(0);
+      // Reset scroll position to avoid jarring scroll jumps
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
+    } finally {
+      _isChangingFilter = false;
     }
   }
 
@@ -174,6 +185,8 @@ class _LibraryScreenState extends State<LibraryScreen>
     final provider = context.watch<LibraryProvider>();
     final items = context.select((LibraryProvider p) => p.items);
     final theme = Theme.of(context);
+    // Compute Hijri date dynamically to ensure it's always current
+    final hijriDate = HijriCalendar.now().toFormat('DD, dd MMMM yyyy').toEnglishNumbers;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -197,7 +210,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                     // P0: Accessible header with proper Semantics
                     SliverToBoxAdapter(
                       child: LibraryHeader(
-                        date: _hijriDate,
+                        date: hijriDate,
                       ),
                     ),
                     
@@ -295,8 +308,14 @@ class _LibraryScreenState extends State<LibraryScreen>
           ),
         );
         if (!mounted) return;
-        // Note: No need to manually refresh - the provider's WebSocket stream
-        // handles sync automatically. Optimistic updates ensure UI stays current.
+        // Refresh to ensure we have the latest data from WebSocket sync
+        // This handles cases where WebSocket may be disconnected or delayed
+        await context.read<LibraryProvider>().fetchItems(
+          category: _selectedType,
+          refresh: true,
+        ).catchError((error) {
+          debugPrint('[LibraryScreen] Refresh after note edit failed: $error');
+        });
         return;
       }
 
@@ -311,6 +330,13 @@ class _LibraryScreenState extends State<LibraryScreen>
         ),
       );
       if (!mounted) return;
+      // Refresh after viewing files to catch any updates
+      await context.read<LibraryProvider>().fetchItems(
+        category: _selectedType,
+        refresh: true,
+      ).catchError((error) {
+        debugPrint('[LibraryScreen] Refresh after file view failed: $error');
+      });
     } catch (e) {
       if (!mounted) return;
       // Log full error for debugging but show sanitized message to user
@@ -402,6 +428,9 @@ class _LibraryScreenState extends State<LibraryScreen>
       }
 
       // Provider handles upload with progress on the item card
+      // Store context for retry in case of failure
+      _lastUploadFromBottomSheet = fromBottomSheet;
+      
       provider.uploadFile(filePath).then((_) {
         if (!mounted) return;
 
@@ -426,7 +455,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       }).catchError((error) {
         if (!mounted) return;
 
-        // P1: Error with retry option
+        // P1: Error with retry option - use stored context for proper retry
         messenger.showSnackBar(
           SnackBar(
             content: Text(LibraryLocalizations.of(context).uploadFailedWithName(fileName, error.toString())),
@@ -436,7 +465,11 @@ class _LibraryScreenState extends State<LibraryScreen>
             action: SnackBarAction(
               label: LibraryLocalizations.of(context).retry,
               textColor: Colors.white,
-              onPressed: () => _pickFile(fromBottomSheet: fromBottomSheet),
+              onPressed: () {
+                // Use stored values to ensure retry uses correct context
+                final retryFromBottomSheet = _lastUploadFromBottomSheet ?? fromBottomSheet;
+                _pickFile(fromBottomSheet: retryFromBottomSheet);
+              },
             ),
           ),
         );
@@ -447,9 +480,11 @@ class _LibraryScreenState extends State<LibraryScreen>
       }
     } catch (e) {
       if (!mounted) return;
+      // Log full error for debugging but show sanitized message to user
+      debugPrint('[LibraryScreen] File picker error: $e');
       messenger.showSnackBar(
         SnackBar(
-          content: Text('${LibraryLocalizations.of(context).uploadFailed}: $e'),
+          content: Text(LibraryLocalizations.of(context).uploadFailed),
           backgroundColor: AppColors.error,
           behavior: SnackBarBehavior.floating,
         ),

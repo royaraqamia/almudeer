@@ -74,11 +74,17 @@ class _CustomersViewState extends State<_CustomersView>
   }
 
   void _openCustomerDetail(Customer customer) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => CustomerDetailScreen(customer: customer.toJson()),
-      ),
-    );
+    try {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => CustomerDetailScreen(customer: customer.toJson()),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        AnimatedToast.error(context, 'فشل فتح تفاصيل الشخص');
+      }
+    }
   }
 
   @override
@@ -253,10 +259,14 @@ class _CustomersViewState extends State<_CustomersView>
     final phoneController = TextEditingController();
     final emailController = TextEditingController();
     final usernameController = TextEditingController();
+    VoidCallback? usernameLookupListener;
 
-    usernameController.addListener(() {
+    // Store listener reference for proper disposal
+    usernameLookupListener = () {
+      if (!context.mounted) return;
       context.read<CustomersProvider>().lookupUsername(usernameController.text);
-    });
+    };
+    usernameController.addListener(usernameLookupListener);
 
     PremiumBottomSheet.show(
       context: context,
@@ -440,6 +450,13 @@ class _CustomersViewState extends State<_CustomersView>
         },
       ),
     );
+
+    // Clean up listener and controllers after modal closes
+    usernameController.removeListener(usernameLookupListener);
+    nameController.dispose();
+    phoneController.dispose();
+    emailController.dispose();
+    usernameController.dispose();
   }
 
   Widget _buildPremiumEmptyState(ThemeData theme) {

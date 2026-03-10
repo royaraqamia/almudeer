@@ -32,13 +32,13 @@ class GlobalTaskCreate(BaseModel):
 
 class GlobalNoteCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
-    content: str = Field(..., min_length=1, max_length=5000)
+    content: Optional[str] = Field(None, max_length=5000)
     item_type: str = Field(default="note")
 
 
 class GlobalNoteUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
-    content: Optional[str] = Field(None, min_length=1, max_length=5000)
+    content: Optional[str] = Field(None, max_length=5000)
     customer_id: Optional[int] = None
 
 

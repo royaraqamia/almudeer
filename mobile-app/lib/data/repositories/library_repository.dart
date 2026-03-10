@@ -49,12 +49,14 @@ class LibraryRepository {
 
   /// Get items (Offline First strategy)
   /// Returns a stream that emits local data first, then updates with remote data
+  /// When skipCacheEmission is true, only emits remote data (useful for category switches)
   Stream<List<LibraryItem>> getItemsStream({
     int? customerId,
     String? category,
     String? searchQuery,
     int page = 1,
     int pageSize = 20,
+    bool skipCacheEmission = false,
   }) async* {
     // Get license ID - the API client will handle JWT authentication
     // The backend requires JWT token which is sent automatically by ApiClient
@@ -83,7 +85,8 @@ class LibraryRepository {
 
     // 1. Emit cached data first (only for the first page)
     // P0-3: Check cache validity before using cached data
-    if (page == 1) {
+    // Skip cache emission when explicitly requested (e.g., category switches to prevent flash of wrong items)
+    if (page == 1 && !skipCacheEmission) {
       final isCacheValid = await _db.isCacheValid(licenseKeyId: licenseId, type: category);
       final cachedItems = await _db.getCachedItems(
         licenseKeyId: licenseId,
@@ -158,16 +161,16 @@ class LibraryRepository {
     }
 
     // Issue #23: Fixed category mapping to match backend expectations
+    // Backend expects plural forms: 'notes', 'files' (see backend/models/library.py)
     if (category != null) {
       String? backendCategory;
-      // Backend expects singular forms: 'note', 'file'
       if (category == 'notes' || category == 'note') {
-        backendCategory = 'note';
+        backendCategory = 'notes';  // Backend filters: type = 'note'
         // FIX: Include content field for notes so we can compare with local changes
         queryParams['include_content'] = 'true';
         debugPrint('[LibraryRepository] Fetching notes with include_content=true, category=$category');
       } else if (category == 'files' || category == 'file') {
-        backendCategory = 'file';
+        backendCategory = 'files';  // Backend filters: type IN ('image', 'audio', 'video', 'file')
       } else if (category == 'tools') {
         // Tools category - not implemented in backend yet
         // Return empty list to prevent errors

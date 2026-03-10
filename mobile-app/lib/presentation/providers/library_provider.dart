@@ -243,6 +243,9 @@ class LibraryProvider extends ChangeNotifier {
       _categoryChangeToken++;
       // Cancel any in-flight request for the previous category
       _inFlightCategoryToken = _categoryChangeToken;
+      // Clear items immediately to prevent showing stale items from previous category
+      _items = [];
+      notifyListeners();
       // Clean up pending updates from the OLD category to prevent memory leaks
       // and stale data when switching between notes/files
       _cleanupPendingUpdatesForCategory(oldCategory);
@@ -287,6 +290,9 @@ class LibraryProvider extends ChangeNotifier {
     await _itemsSubscription?.cancel();
     _itemsSubscription = null;
 
+    // Skip cache emission when category changed to prevent flash of wrong items
+    final bool shouldSkipCache = categoryChanged;
+
     _itemsSubscription = _repository
         .getItemsStream(
           customerId: customerId,
@@ -294,6 +300,7 @@ class LibraryProvider extends ChangeNotifier {
           searchQuery: _currentQuery,
           page: _currentPage,
           pageSize: _pageSize,
+          skipCacheEmission: shouldSkipCache,
         )
         .listen(
           (newItems) async {
@@ -342,19 +349,22 @@ class LibraryProvider extends ChangeNotifier {
             // Merge owned and shared items
             final allItems = _mergeAndDeduplicateItems(newItems, _sharedItems);
 
+            // Client-side filtering as safety net to ensure only correct category items are shown
+            // This prevents flashes of wrong items when backend or cache returns unexpected data
+            final filteredItems = _filterItemsByCategory(allItems, _currentCategory);
+
             if (loadMore) {
               // Append new items, filtering out duplicates by ID
               final existingIds = _items.map((i) => i.id).toSet();
-              final uniqueNewItems = allItems
+              final uniqueNewItems = filteredItems
                   .where((i) => !existingIds.contains(i.id))
                   .toList();
               _items.addAll(uniqueNewItems);
-              _hasMore = newItems.length >= _pageSize;
+              _hasMore = filteredItems.length >= _pageSize;
               _isFetchingMore = false;
             } else {
-              // FIX: Merge optimistic updates with stream data
-              // Keep local changes if they match what we recently saved (pending sync)
-              _items = allItems.map((remoteItem) {
+              // Apply client-side filtering to ensure category correctness
+              _items = filteredItems.map((remoteItem) {
                 // First try direct ID match
                 int optimisticIndex = _items.indexWhere((i) => i.id == remoteItem.id);
                 
@@ -512,6 +522,25 @@ class LibraryProvider extends ChangeNotifier {
     return itemsMap.values.toList();
   }
 
+  /// Filter items by category as a safety net to prevent wrong items from showing
+  /// Notes category: only 'note' type
+  /// Files category: 'file', 'image', 'audio', 'video' types
+  List<LibraryItem> _filterItemsByCategory(List<LibraryItem> items, String category) {
+    if (category == 'notes') {
+      return items.where((item) => item.type == 'note').toList();
+    } else if (category == 'files') {
+      return items
+          .where((item) =>
+              item.type == 'file' ||
+              item.type == 'image' ||
+              item.type == 'audio' ||
+              item.type == 'video')
+          .toList();
+    }
+    // Tools or unknown category - return as-is
+    return items;
+  }
+
   /// Remove pending updates for items that no longer exist in the list
   void _cleanupStalePendingUpdates() {
     final itemIds = _items.map((i) => i.id).toSet();
@@ -526,10 +555,12 @@ class LibraryProvider extends ChangeNotifier {
   /// This prevents stale note updates from persisting when switching to files category
   void _cleanupPendingUpdatesForCategory(String category) {
     // Get IDs of items in the new category
+    // Files category includes multiple types: file, image, audio, video
     final categoryItemIds = _items
-        .where((item) => 
+        .where((item) =>
           (category == 'notes' && item.type == 'note') ||
-          (category == 'files' && item.type == 'file'))
+          (category == 'files' && 
+            (item.type == 'file' || item.type == 'image' || item.type == 'audio' || item.type == 'video')))
         .map((i) => i.id)
         .toSet();
     

@@ -431,6 +431,10 @@ class InboxMessage {
       'is_forwarded': isForwarded,
       'attachments': attachments,
       'edited_at': editedAt,
+      'is_edited': isEdited,
+      'is_deleted': isDeleted,
+      'outbox_id': outboxId,
+      'send_status': sendStatus.name,
       'thread_id': threadId,
       'reply_count': replyCount,
     };

@@ -51,7 +51,6 @@ class _LibraryItemCardState extends LibraryItemCardStateBase<LibraryItemCard>
   @override
   void initState() {
     super.initState();
-    checkCache();
     _controller = AnimationController(
       duration: AppAnimations.fast,
       vsync: this,
@@ -59,6 +58,7 @@ class _LibraryItemCardState extends LibraryItemCardStateBase<LibraryItemCard>
     _scaleAnimation = Tween<double>(begin: 1.0, end: 0.98).animate(
       CurvedAnimation(parent: _controller, curve: AppAnimations.interactive),
     );
+    checkCache();
   }
 
   @override
@@ -103,13 +103,13 @@ class _LibraryItemCardState extends LibraryItemCardStateBase<LibraryItemCard>
               return Transform.scale(
                 scale: _scaleAnimation.value,
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(AppDimensions.radiusCard),
                   child: Container(
                     decoration: ShapeDecoration(
                       color: isDark ? AppColors.cardDark : theme.cardColor,
                       shape: SmoothRectangleBorder(
                         borderRadius: SmoothBorderRadius(
-                          cornerRadius: 16,
+                          cornerRadius: AppDimensions.radiusCard,
                           cornerSmoothing: 1.0,
                         ),
                         side: isSelected
@@ -188,7 +188,7 @@ class _LibraryItemCardState extends LibraryItemCardStateBase<LibraryItemCard>
                           ),
                         ),
                       // Show shared badge for items shared with the user
-                      if (widget.item.isShared || widget.item.sharePermission != null)
+                      if (widget.item.isShared && widget.item.sharePermission != null)
                         Positioned(
                           top: AppDimensions.spacing8,
                           right: AppDimensions.spacing8,
@@ -198,20 +198,20 @@ class _LibraryItemCardState extends LibraryItemCardStateBase<LibraryItemCard>
                               vertical: AppDimensions.spacing4,
                             ),
                             decoration: BoxDecoration(
-                              color: getPermissionColor(widget.item.sharePermission ?? 'read').withValues(alpha: 0.9),
+                              color: getPermissionColor(widget.item.sharePermission!).withValues(alpha: 0.9),
                               borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
-                                  getPermissionIcon(widget.item.sharePermission ?? 'read'),
+                                  getPermissionIcon(widget.item.sharePermission!),
                                   size: AppDimensions.iconSmall,
                                   color: Colors.white,
                                 ),
                                 const SizedBox(width: AppDimensions.spacing4),
                                 Text(
-                                  getPermissionLabel(widget.item.sharePermission ?? 'read'),
+                                  getPermissionLabel(widget.item.sharePermission!),
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 10,
@@ -434,7 +434,7 @@ class _LibraryItemListCardState extends LibraryItemCardStateBase<LibraryItemList
                           ),
                         ),
                       // Show shared badge for items shared with the user
-                      if (widget.item.isShared || widget.item.sharePermission != null)
+                      if (widget.item.isShared && widget.item.sharePermission != null)
                         Positioned(
                           top: AppDimensions.spacing8,
                           right: AppDimensions.spacing8,
@@ -444,20 +444,20 @@ class _LibraryItemListCardState extends LibraryItemCardStateBase<LibraryItemList
                               vertical: AppDimensions.spacing4,
                             ),
                             decoration: BoxDecoration(
-                              color: getPermissionColor(widget.item.sharePermission ?? 'read').withValues(alpha: 0.9),
+                              color: getPermissionColor(widget.item.sharePermission!).withValues(alpha: 0.9),
                               borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
-                                  getPermissionIcon(widget.item.sharePermission ?? 'read'),
+                                  getPermissionIcon(widget.item.sharePermission!),
                                   size: AppDimensions.iconSmall,
                                   color: Colors.white,
                                 ),
                                 const SizedBox(width: AppDimensions.spacing4),
                                 Text(
-                                  getPermissionLabel(widget.item.sharePermission ?? 'read'),
+                                  getPermissionLabel(widget.item.sharePermission!),
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 10,
@@ -553,7 +553,7 @@ class _LibraryItemListCardState extends LibraryItemCardStateBase<LibraryItemList
               ),
               const SizedBox(height: 2),
               Text(
-                '${_formatBytes(uploadedBytes)} / ${_formatBytes(totalBytes)}',
+                '${formatBytes(uploadedBytes)} / ${formatBytes(totalBytes)}',
                 style: TextStyle(
                   fontSize: 10,
                   color: isDark ? Colors.white70 : Colors.black54,
@@ -568,16 +568,5 @@ class _LibraryItemListCardState extends LibraryItemCardStateBase<LibraryItemList
 
   Widget _buildItemPreview(LibraryItem item) {
     return buildItemPreview(item);
-  }
-
-  String _formatBytes(int bytes) {
-    const suffixes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    double dBytes = bytes.toDouble();
-    int iSafety = 0;
-    while (dBytes >= 1024 && iSafety < suffixes.length - 1) {
-      dBytes /= 1024;
-      iSafety++;
-    }
-    return '${dBytes.toStringAsFixed(iSafety == 0 ? 0 : 1)} ${suffixes[iSafety]}';
   }
 }

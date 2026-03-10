@@ -890,12 +890,25 @@ async def broadcast_message_edited(license_id: int, message_id: int, new_body: s
     """
     manager = get_websocket_manager()
 
-    # payload for sync
+    from db_helper import get_db, fetch_one
+    from logging_config import get_logger
+    logger = get_logger(__name__)
+
+    # Fetch message details first to populate payload correctly
+    async with get_db() as db:
+        msg = await fetch_one(db, "SELECT channel, recipient_email, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
+        
+        # Resolve sender_contact if not provided
+        if not sender_contact and msg:
+            sender_contact = msg.get("recipient_email") or msg.get("recipient_id")
+
+    # payload for sync - includes recipient_contact for proper conversation identification
     payload = {
         "message_id": message_id,
         "new_body": new_body,
         "edited_at": edited_at,
-        "sender_contact": sender_contact
+        "sender_contact": sender_contact,
+        "recipient_contact": sender_contact  # Add recipient_contact for conversation identification
     }
 
     # 1. Send to self (multi-device sync)
@@ -905,19 +918,8 @@ async def broadcast_message_edited(license_id: int, message_id: int, new_body: s
     ))
 
     # 2. Check if peer is an internal almudeer user and notify them
-    from db_helper import get_db, fetch_one
-    from logging_config import get_logger
-    logger = get_logger(__name__)
     try:
         async with get_db() as db:
-            # If sender_contact wasn't provided, try to find it
-            if not sender_contact:
-                msg = await fetch_one(db, "SELECT channel, recipient_email, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
-                if msg:
-                   sender_contact = msg.get("recipient_email") or msg.get("recipient_id")
-                   payload["sender_contact"] = sender_contact
-            else:
-                msg = await fetch_one(db, "SELECT channel, recipient_email, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
 
             logger.info(f"[broadcast_message_edited] Message {message_id} edit: channel={msg.get('channel') if msg else 'N/A'}, sender_contact={sender_contact}")
 

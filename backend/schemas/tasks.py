@@ -76,7 +76,7 @@ class TaskResponse(TaskBase):
         from_attributes = True
 
 class TaskCommentCreate(BaseModel):
-    content: str = Field(..., min_length=1)
+    content: Optional[str] = Field(None)
     attachments: Optional[List[Attachment]] = []
 
 class TaskCommentResponse(BaseModel):

@@ -22,6 +22,19 @@ import '../../widgets/customers/customer_contact_card.dart';
 import '../inbox/conversation_detail_screen.dart';
 import '../../../core/extensions/string_extension.dart';
 
+// Constants for customer data keys
+const _kIsAlmudeerUserKeys = ['is_almudeer_user', 'isAlmudeerUser'];
+const _kIsOnlineKey = 'is_online';
+const _kLastSeenAtKey = 'last_seen_at';
+const _kUsernameKey = 'username';
+const _kNameKey = 'name';
+const _kPhoneKey = 'phone';
+const _kEmailKey = 'email';
+const _kIdKey = 'id';
+const _kProfilePicUrlKey = 'profile_pic_url';
+const _kImageKey = 'image';
+const _kIsVipKey = 'is_vip';
+
 /// Premium Customer detail screen with enhanced UI
 class CustomerDetailScreen extends StatefulWidget {
   final Map<String, dynamic> customer;
@@ -36,24 +49,30 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     with SingleTickerProviderStateMixin {
   final CustomersRepository _repository = CustomersRepository();
   late Map<String, dynamic> _customer;
-  bool _isSaving = false;
+  bool _isSaving = false; // ignore: unused_field - used for UI state during save operations
+  bool _isLoadingFullDetails = false;
+  bool _isUsernameLookupEnabled = true;
 
   // Controllers for editing
   late TextEditingController _nameController;
   late TextEditingController _phoneController;
   late TextEditingController _emailController;
   late TextEditingController _usernameController;
+  VoidCallback? _usernameLookupListener;
 
   // Animation controller for stagger animations
   late final AnimationController _animController;
 
+  // Cached values to avoid context access during build
+  bool? _isCurrentUser;
+  bool? _isAlmudeerUser;
+
   /// Check if this customer is the current logged-in user
-  bool get _isCurrentUser {
-    final authProvider = context.read<AuthProvider>();
+  bool _checkIsCurrentUser(AuthProvider authProvider) {
     final currentUserUsername = authProvider.userInfo?.username;
-    final customerUsername = _customer['username']?.toString();
+    final customerUsername = _customer[_kUsernameKey]?.toString();
     final currentUserLicenseId = authProvider.userInfo?.licenseId?.toString();
-    final customerLicenseId = _customer['id']?.toString();
+    final customerLicenseId = _customer[_kIdKey]?.toString();
 
     if (currentUserUsername != null &&
         customerUsername != null &&
@@ -70,6 +89,38 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     return false;
   }
 
+  /// Check if customer is an Almudeer user (supports both key formats)
+  bool _checkIsAlmudeerUser() {
+    for (final key in _kIsAlmudeerUserKeys) {
+      final value = _customer[key];
+      if (value == true || value == 1) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Check if customer is online (supports both bool and int formats)
+  bool _checkIsOnline() {
+    final value = _customer[_kIsOnlineKey];
+    return value == true || value == 1;
+  }
+
+  /// Check if customer is new (not in the saved customers list)
+  bool _checkIsNewContact() {
+    final customerId = _customer[_kIdKey] as int?;
+    final customerUsername = _customer[_kUsernameKey]?.toString();
+    final customerPhone = _customer[_kPhoneKey]?.toString();
+    final customerEmail = _customer[_kEmailKey]?.toString();
+
+    final customersProvider = context.read<CustomersProvider>();
+    return customerId != null
+        ? !customersProvider.customers.any((c) => c.id == customerId)
+        : customersProvider.getCustomerByContact(
+            customerUsername ?? customerPhone ?? customerEmail,
+          ) == null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -80,10 +131,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     _emailController = TextEditingController();
     _usernameController = TextEditingController();
 
-    _usernameController.addListener(() {
-      final username = _usernameController.text.trim();
-      context.read<CustomersProvider>().lookupUsername(username);
-    });
+    _setupUsernameLookupListener();
 
     _animController = AnimationController(
       duration: const Duration(milliseconds: 400),
@@ -91,43 +139,63 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     );
     _animController.forward();
 
-    _subscribeToStatus();
-    _loadFullDetails();
+    // Cache values that depend on context
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final authProvider = context.read<AuthProvider>();
+      setState(() {
+        _isCurrentUser = _checkIsCurrentUser(authProvider);
+        _isAlmudeerUser = _checkIsAlmudeerUser();
+      });
+      _subscribeToStatus();
+      _loadFullDetails();
+    });
+  }
+
+  void _setupUsernameLookupListener() {
+    _usernameLookupListener = () {
+      if (!_isUsernameLookupEnabled || !mounted) return;
+      final username = _usernameController.text.trim();
+      if (username.isNotEmpty) {
+        context.read<CustomersProvider>().lookupUsername(username);
+      }
+    };
+    _usernameController.addListener(_usernameLookupListener!);
   }
 
   void _subscribeToStatus({bool immediate = false}) {
-    final username = _customer['username'] ?? _customer['senderContact'];
-    if (username != null &&
-        (_customer['is_almudeer_user'] == true ||
-            _customer['is_almudeer_user'] == 1 ||
-            _customer['isAlmudeerUser'] == true ||
-            _customer['isAlmudeerUser'] == 1)) {
-      final lastSeen = _customer['last_seen_at'];
-      final isOnline =
-          _customer['is_online'] == true || _customer['is_online'] == 1;
+    if (_isAlmudeerUser != true) return;
 
-      void action() {
-        if (mounted) {
-          context.read<ConversationDetailProvider>().loadConversation(
-            username.toString(),
-            channel: 'almudeer',
-            fresh: false,
-            lastSeenAt: lastSeen,
-            isOnline: isOnline,
-          );
-        }
-      }
+    final username = _customer[_kUsernameKey] ?? _customer['senderContact'];
+    if (username == null) return;
+    
+    final lastSeen = _customer[_kLastSeenAtKey];
+    final isOnline = _checkIsOnline();
 
-      if (immediate) {
-        action();
-      } else {
-        WidgetsBinding.instance.addPostFrameCallback((_) => action());
+    void action() {
+      if (mounted) {
+        context.read<ConversationDetailProvider>().loadConversation(
+          username.toString(),
+          channel: 'almudeer',
+          fresh: false,
+          lastSeenAt: lastSeen,
+          isOnline: isOnline,
+        );
       }
+    }
+
+    if (immediate) {
+      action();
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => action());
     }
   }
 
   @override
   void dispose() {
+    if (_usernameLookupListener != null) {
+      _usernameController.removeListener(_usernameLookupListener!);
+    }
     _nameController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
@@ -137,8 +205,10 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
   }
 
   Future<void> _loadFullDetails() async {
-    final id = _customer['id'];
-    if (id == null) return;
+    final id = _customer[_kIdKey];
+    if (id == null || _isLoadingFullDetails) return;
+
+    setState(() => _isLoadingFullDetails = true);
 
     try {
       final response = await _repository.getCustomerDetail(id as int);
@@ -146,20 +216,25 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
           (response.containsKey('customer') ? response['customer'] : response)
               as Map<String, dynamic>?;
 
-      if (mounted && fullDetails != null && !_isSaving) {
+      if (mounted && fullDetails != null) {
         setState(() {
           _customer = fullDetails;
+          _isAlmudeerUser = _checkIsAlmudeerUser();
         });
       }
     } catch (_) {
-      // Fail silently in background
+      // Ignore errors silently
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingFullDetails = false);
+      }
     }
   }
 
   String get _displayName {
-    return _customer['name'] ??
-        _customer['phone'] ??
-        _customer['email'] ??
+    return _customer[_kNameKey] ??
+        _customer[_kPhoneKey] ??
+        _customer[_kEmailKey] ??
         'شخص';
   }
 
@@ -207,37 +282,32 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
 
   Future<void> _openEditCustomer() async {
     Haptics.lightTap();
-    context.read<CustomersProvider>().clearUsernameLookup();
+    final customersProvider = context.read<CustomersProvider>();
+    customersProvider.clearUsernameLookup();
 
-    _nameController.text = _customer['name'] ?? '';
-    _phoneController.text = _customer['phone'] ?? '';
-    _emailController.text = _customer['email'] ?? '';
-    _usernameController.text = _customer['username'] ?? '';
+    // Disable username lookup listener during modal
+    setState(() => _isUsernameLookupEnabled = false);
 
-    final String initialName = _customer['name'] ?? '';
-    final String initialPhone = _customer['phone'] ?? '';
-    final String initialEmail = _customer['email'] ?? '';
-    final String initialUsername = _customer['username'] ?? '';
+    _nameController.text = _customer[_kNameKey] ?? '';
+    _phoneController.text = _customer[_kPhoneKey] ?? '';
+    _emailController.text = _customer[_kEmailKey] ?? '';
+    _usernameController.text = _customer[_kUsernameKey] ?? '';
 
-    final bool isNewContact = !(() {
-      final customerId = _customer['id'] as int?;
-      final customerUsername = _customer['username']?.toString();
-      final customerPhone = _customer['phone']?.toString();
-      final customerEmail = _customer['email']?.toString();
-      return customerId != null
-          ? context.read<CustomersProvider>().customers.any((c) => c.id == customerId)
-          : context.read<CustomersProvider>().getCustomerByContact(
-              customerUsername ?? customerPhone ?? customerEmail,
-            ) != null;
-    })();
+    final String initialName = _customer[_kNameKey] ?? '';
+    final String initialPhone = _customer[_kPhoneKey] ?? '';
+    final String initialEmail = _customer[_kEmailKey] ?? '';
+    final String initialUsername = _customer[_kUsernameKey] ?? '';
+
+    // Calculate isNewContact at modal open time (will be recalculated at save time)
+    final bool wasNewContact = _checkIsNewContact();
 
     final result = await PremiumBottomSheet.show<dynamic>(
       context: context,
-      title: isNewContact ? 'إضافة' : 'تعديل',
+      title: wasNewContact ? 'إضافة' : 'تعديل',
       child: StatefulBuilder(
         builder: (context, setModalState) {
           bool hasChanges() {
-            if (isNewContact) return _nameController.text.trim().isNotEmpty;
+            if (wasNewContact) return _nameController.text.trim().isNotEmpty;
             return _nameController.text.trim() != initialName ||
                 _phoneController.text.trim() != initialPhone ||
                 _emailController.text.trim() != initialEmail ||
@@ -368,13 +438,18 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                         Navigator.of(context).pop(true);
                       }
                     : null,
-                text: isNewContact ? 'إضافة' : 'حفظ التَّغييرات',
+                text: wasNewContact ? 'إضافة' : 'حفظ التَّغييرات',
               ),
             ],
           );
         },
       ),
     );
+
+    // Re-enable username lookup listener after modal closes
+    if (mounted) {
+      setState(() => _isUsernameLookupEnabled = true);
+    }
 
     if (result == true) {
       await _saveCustomerDetails();
@@ -400,41 +475,33 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
   Future<void> _saveCustomerDetails() async {
     try {
       final data = {
-        'name': _nameController.text.trim().isEmpty
+        _kNameKey: _nameController.text.trim().isEmpty
             ? null
             : _nameController.text.trim(),
-        'phone': _phoneController.text.trim().isEmpty
+        _kPhoneKey: _phoneController.text.trim().isEmpty
             ? null
             : _phoneController.text.trim(),
-        'email': _emailController.text.trim().isEmpty
+        _kEmailKey: _emailController.text.trim().isEmpty
             ? null
             : _emailController.text.trim(),
-        'username': _usernameController.text.trim().isEmpty
+        _kUsernameKey: _usernameController.text.trim().isEmpty
             ? null
             : _usernameController.text.trim(),
       };
 
-      if (data['name'] == null) {
+      if (data[_kNameKey] == null) {
         AnimatedToast.error(context, 'يرجى إدخال الاسم');
         return;
       }
 
-      final customerId = _customer['id'] as int?;
-      final customerUsername = _customer['username']?.toString();
-      final customerPhone = _customer['phone']?.toString();
-      final customerEmail = _customer['email']?.toString();
-
-      final customersProvider = context.read<CustomersProvider>();
-      final isInCustomersList = customerId != null
-          ? customersProvider.customers.any((c) => c.id == customerId)
-          : customersProvider.getCustomerByContact(
-              customerUsername ?? customerPhone ?? customerEmail,
-            ) != null;
+      // Recalculate isNewContact at save time for accurate state
+      final wasNewContact = _checkIsNewContact();
+      final customerId = _customer[_kIdKey] as int?;
 
       setState(() => _isSaving = true);
 
       Map<String, dynamic> response;
-      if (isInCustomersList && customerId != null) {
+      if (!wasNewContact && customerId != null) {
         response = await _repository.updateCustomer(customerId, data);
       } else {
         response = await _repository.addCustomer(data);
@@ -443,33 +510,37 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
       final isSuccess =
           response['success'] == true ||
           response.containsKey('customer') ||
-          response.containsKey('id');
+          response.containsKey(_kIdKey);
 
       if (mounted && isSuccess) {
         final savedCustomer =
             (response['customer'] ?? response) as Map<String, dynamic>;
 
-        final newId = savedCustomer['id'] ?? response['id'];
+        final newId = savedCustomer[_kIdKey] ?? response[_kIdKey];
 
         setState(() {
           _customer = {..._customer, ...data, ...savedCustomer};
-          if (newId != null) _customer['id'] = newId;
+          if (newId != null) _customer[_kIdKey] = newId;
           _isSaving = false;
+          // Update cached values
+          _isAlmudeerUser = _checkIsAlmudeerUser();
         });
 
-        if (mounted) {
+        // Defer provider update to avoid setState during build
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
           try {
-            if (isInCustomersList && customerId != null) {
+            if (!wasNewContact && customerId != null) {
               context.read<CustomersProvider>().updateCustomerInList(_customer);
             } else {
               context.read<CustomersProvider>().refresh();
             }
           } catch (_) {}
-        }
+        });
 
         AnimatedToast.success(
           context,
-          isInCustomersList && customerId != null
+          !wasNewContact && customerId != null
               ? 'تمَّ تحديث البيانات بنجاح'
               : 'تمَّت الإضافة بنجاح',
         );
@@ -478,7 +549,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
         AnimatedToast.error(
           context,
           response['error'] ??
-              (isInCustomersList && customerId != null ? 'فشل تحديث البيانات' : 'فشلت الإضافة'),
+              (!wasNewContact && customerId != null ? 'فشل تحديث البيانات' : 'فشلت الإضافة'),
         );
       }
     } catch (e) {
@@ -492,24 +563,10 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isVip = _customer['is_vip'] == true || _customer['is_vip'] == 1;
-
-    final customerId = _customer['id'] as int?;
-    final customerUsername = _customer['username']?.toString();
-    final customerPhone = _customer['phone']?.toString();
-    final customerEmail = _customer['email']?.toString();
-
-    final customersProvider = context.read<CustomersProvider>();
-    final isInCustomersList = customerId != null
-        ? customersProvider.customers.any((c) => c.id == customerId)
-        : customersProvider.getCustomerByContact(
-            customerUsername ?? customerPhone ?? customerEmail,
-          ) != null;
-
-    final isNewContact = !isInCustomersList;
+    final isVip = _customer[_kIsVipKey] == true || _customer[_kIsVipKey] == 1;
 
     return Scaffold(
-      floatingActionButton: _isCurrentUser
+      floatingActionButton: _isCurrentUser == true
           ? null
           : Padding(
               padding: EdgeInsets.only(
@@ -521,7 +578,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                 gradientColors: const [Color(0xFF2563EB), Color(0xFF0891B2)],
                 onPressed: _openEditCustomer,
                 icon: Icon(
-                  isNewContact ? SolarBoldIcons.userPlus : SolarBoldIcons.pen,
+                  _checkIsNewContact() ? SolarBoldIcons.userPlus : SolarBoldIcons.pen,
                   color: Colors.white,
                   size: 32,
                 ),
@@ -580,7 +637,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
 
   Widget _buildPremiumHeaderCard(ThemeData theme, bool isVip) {
     final isDark = theme.brightness == Brightness.dark;
-    final avatarHeroTag = 'avatar_${_customer['username'] ?? _customer['id'] ?? _customer['phone'] ?? 'unknown'}';
+    final avatarHeroTag = 'avatar_${_customer[_kUsernameKey] ?? _customer[_kIdKey] ?? _customer[_kPhoneKey] ?? 'unknown'}';
 
     return Center(
       child: Column(
@@ -599,17 +656,14 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
             ),
             textAlign: TextAlign.center,
           ),
-          if (_customer['is_almudeer_user'] == true ||
-              _customer['is_almudeer_user'] == 1 ||
-              _customer['isAlmudeerUser'] == true ||
-              _customer['isAlmudeerUser'] == 1) ...[
+          if (_isAlmudeerUser == true) ...[
             Consumer<ConversationDetailProvider>(
               builder: (context, provider, _) {
                 final isTyping = provider.isPeerTyping;
                 final isRecording = provider.isPeerRecording;
                 final isOnline = provider.isPeerOnline;
                 final lastSeen =
-                    provider.peerLastSeen ?? _customer['last_seen_at'];
+                    provider.peerLastSeen ?? _customer[_kLastSeenAtKey];
 
                 Widget? statusWidget;
                 if (isTyping) {
@@ -671,14 +725,14 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                 SizedBox(
                   width: 140,
                   child: AppGradientButton(
-                    onPressed: _isCurrentUser
+                    onPressed: _isCurrentUser == true
                         ? _navigateToSavedMessages
                         : _navigateToInternalChat,
-                    text: _isCurrentUser ? 'رسائلي' : 'مراسلة',
-                    icon: _isCurrentUser
+                    text: _isCurrentUser == true ? 'رسائلي' : 'مراسلة',
+                    icon: _isCurrentUser == true
                         ? SolarBoldIcons.bookmark
                         : SolarBoldIcons.chatLine,
-                    gradientColors: _isCurrentUser
+                    gradientColors: _isCurrentUser == true
                         ? const [Color(0xFF10B981), Color(0xFF059669)]
                         : const [Color(0xFF0EA5E9), Color(0xFF2563EB)],
                   ),
@@ -692,29 +746,30 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
   }
 
   Future<void> _navigateToInternalChat() async {
-    final username = _customer['username'];
-    if (username == null || username.toString().isEmpty) {
+    final usernameObj = _customer[_kUsernameKey];
+    final username = usernameObj?.toString();
+    if (username == null || username.isEmpty) {
       AnimatedToast.error(context, 'لا يوجد معرِّف لهذا الشَّخص للمراسلة');
       return;
     }
 
     // Get avatar URL from customer data (prefer profile_pic_url, then image)
-    final imageUrl = _customer['profile_pic_url'] ?? _customer['image'];
+    final imageUrl = _customer[_kProfilePicUrlKey] ?? _customer[_kImageKey];
 
     final conversation = Conversation(
       id: -1,
       channel: 'almudeer',
-      senderName: _customer['name'],
-      senderContact: username.toString(),
-      senderId: username.toString(),
+      senderName: _customer[_kNameKey],
+      senderContact: username,
+      senderId: username,
       body: '',
       status: 'active',
       createdAt: DateTime.now().toIso8601String(),
       messageCount: 0,
       unreadCount: 0,
       avatarUrl: imageUrl,
-      lastSeenAt: _customer['last_seen_at'],
-      isOnline: _customer['is_online'] == true || _customer['is_online'] == 1,
+      lastSeenAt: _customer[_kLastSeenAtKey],
+      isOnline: _checkIsOnline(),
     );
 
     await Navigator.of(context).push(
@@ -751,7 +806,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
   }
 
   Widget _buildPremiumAvatar(ThemeData theme, bool isVip, bool isDark) {
-    final imageUrl = _customer['profile_pic_url'] ?? _customer['image'];
+    final imageUrl = _customer[_kProfilePicUrlKey] ?? _customer[_kImageKey];
 
     return AppAvatar(
       radius: 48,

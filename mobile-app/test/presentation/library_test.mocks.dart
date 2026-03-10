@@ -82,6 +82,7 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
     String? searchQuery,
     int? page = 1,
     int? pageSize = 20,
+    bool skipCacheEmission = false,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#getItemsStream, [], {
@@ -90,6 +91,7 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
               #searchQuery: searchQuery,
               #page: page,
               #pageSize: pageSize,
+              #skipCacheEmission: skipCacheEmission,
             }),
             returnValue: _i6.Stream<List<_i3.LibraryItem>>.empty(),
           )

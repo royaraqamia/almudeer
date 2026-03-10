@@ -114,12 +114,12 @@ class ErrorCode:
 class NoteCreate(BaseModel):
     customer_id: Optional[int] = None
     title: str = Field(..., min_length=1, max_length=200)
-    content: str = Field(..., min_length=1, max_length=MAX_NOTE_CONTENT_LENGTH)
-    
+    content: Optional[str] = Field(None, max_length=MAX_NOTE_CONTENT_LENGTH)
+
     # Issue #10: Validate content length
     @validator('content')
     def validate_content_length(cls, v):
-        if len(v) > MAX_NOTE_CONTENT_LENGTH:
+        if v is not None and len(v) > MAX_NOTE_CONTENT_LENGTH:
             raise ValueError(f"الملاحظة طويلة جداً (الحد الأقصى {MAX_NOTE_CONTENT_LENGTH} حرف)")
         return v
 
