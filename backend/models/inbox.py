@@ -2057,9 +2057,13 @@ async def edit_outbox_message(
         
         if not message:
             raise ValueError("الرسالة غير موجودة")
-        
+
+        # Check if message is deleted
+        if message.get("deleted_at"):
+            raise ValueError("لا يمكن تعديل الرسائل المحذوفة")
+
         channel = message.get("channel")
-        
+
         # Channel-specific restrictions: Only almudeer and saved (Drafts) are editable
         if channel not in ['almudeer', 'saved']:
             raise ValueError(f"لا يمكن تعديل الرسائل المرسلة عبر {channel}")
@@ -2084,23 +2088,22 @@ async def edit_outbox_message(
         
         # Store original body if this is the first edit
         original_body = message.get("original_body") or message.get("body", "")
-        current_edit_count = message.get("edit_count", 0) or 0
-        
+
         now = datetime.now(timezone.utc)
         ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
-        
-        # Update the message
+
+        # Update the message with atomic edit_count increment (prevents race condition)
         await execute_sql(
             db,
             """
-            UPDATE outbox_messages 
-            SET body = ?, 
+            UPDATE outbox_messages
+            SET body = ?,
                 edited_at = ?,
                 original_body = COALESCE(original_body, ?),
-                edit_count = ?
+                edit_count = COALESCE(edit_count, 0) + 1
             WHERE id = ? AND license_key_id = ?
             """,
-            [new_body, ts_value, original_body, current_edit_count + 1, message_id, license_id]
+            [new_body, ts_value, original_body, message_id, license_id]
         )
         
         # ---------------------------------------------------------
@@ -2122,7 +2125,15 @@ async def edit_outbox_message(
             await upsert_conversation_state(license_id, recipient)
 
         await commit_db(db)
-        
+
+        # Fetch the updated edit_count from the database
+        updated_message = await fetch_one(
+            db,
+            "SELECT edit_count FROM outbox_messages WHERE id = ?",
+            [message_id]
+        )
+        final_edit_count = updated_message.get("edit_count", 1) if updated_message else 1
+
         # Broadcast the edit via WebSocket
         try:
             from services.websocket_manager import broadcast_message_edited
@@ -2131,18 +2142,19 @@ async def edit_outbox_message(
                 message_id=message_id,
                 new_body=new_body,
                 edited_at=ts_value if isinstance(ts_value, str) else ts_value.isoformat(),
-                sender_contact=recipient
+                sender_contact=recipient,
+                edit_count=final_edit_count
             )
         except Exception as e:
             from logging_config import get_logger
             get_logger(__name__).warning(f"Broadcast failed in edit_outbox_message: {e}")
-            
+
         return {
             "success": True,
             "message": "تم تعديل الرسالة بنجاح",
             "body": new_body,
             "edited_at": now.isoformat(),
-            "edit_count": current_edit_count + 1
+            "edit_count": final_edit_count
         }
 
 

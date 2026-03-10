@@ -512,6 +512,11 @@ class LibraryRepository {
                 // Remove the temporary local item if we had one
                 if (localId != null) {
                   await _db.deleteItem(localId);
+                  
+                  // FIX: Update any pending update actions to use the real server ID
+                  // This prevents "ITEM_NOT_FOUND" errors when update actions reference
+                  // a temp ID that no longer exists after successful creation
+                  await _updatePendingActionsForTempId(localId, realItem.id);
                 }
                 success = true;
                 anySucceeded = true;
@@ -548,6 +553,9 @@ class LibraryRepository {
                   // Remove temp item if exists
                   if (localId != null) {
                     await _db.deleteItem(localId);
+                    
+                    // FIX: Update any pending update actions to use the real server ID
+                    await _updatePendingActionsForTempId(localId, item.id);
                   }
                   success = true;
                   anySucceeded = true;
@@ -599,20 +607,24 @@ class LibraryRepository {
             final localVersion = payload['local_version'] as int?;
 
             if (_isTempId(id)) {
-              // Temp item, wait for its creation to complete or finding a way to update pending create payload
-              // For simplicity, we can just skip updating temp items until they are synced,
-              // BUT we already updated them in local cache, which is good for UI.
-              // To handle this properly, we could find the 'create' action for this localId and update ITS payload.
+              // Temp item - check if there's a pending create action for this ID
               final list = await _db.getPendingActions();
+              bool foundCreate = false;
+              
               for (var a in list) {
                 if (a['action_type'] == 'create' && a['local_id'] == id) {
+                  // Merge this update into the pending create action
                   final newPayload = jsonDecode(a['payload']);
                   if (payload['title'] != null) {
                     newPayload['title'] = payload['title'];
                   }
                   if (payload['content'] != null) {
                     newPayload['content'] = payload['content'];
-                  } // Update the pending create action
+                  }
+                  if (payload['customer_id'] != null) {
+                    newPayload['customer_id'] = payload['customer_id'];
+                  }
+                  
                   await _db.removePendingAction(a['id']);
                   await _db.addPendingAction(
                     actionType: 'create',
@@ -621,12 +633,22 @@ class LibraryRepository {
                     localId: id,
                   );
                   success = true;
+                  foundCreate = true;
+                  if (kDebugMode) {
+                    print('LibraryRepository: Merged update into pending create for temp ID $id');
+                  }
                   break;
                 }
               }
-              if (!success) {
-                // If create action not found (maybe already processing?), just keep update for later
-                success = false;
+              
+              if (!foundCreate) {
+                // Create action already processed - this update should have been updated by _updatePendingActionsForTempId
+                // If we reach here, something went wrong. Clear this orphaned action.
+                if (kDebugMode) {
+                  print('LibraryRepository: Update for temp ID $id found no pending create - clearing orphaned action');
+                }
+                success = true; // Mark as success to remove the stale action
+                await _db.removePendingAction(actionId);
               }
             } else {
               // P1-7 FIX: Check for conflict with server version
@@ -1077,6 +1099,34 @@ class LibraryRepository {
     // Also remove from local cache if it exists
     await _db.deleteItem(itemId);
     _failedSyncAttempts.remove(actionId);
+  }
+
+  /// FIX: Update pending update actions that reference a temp ID to use the real server ID
+  /// This is called after a successful create sync to prevent "ITEM_NOT_FOUND" errors
+  /// when update actions reference a temp ID that no longer exists
+  Future<void> _updatePendingActionsForTempId(int tempId, int realId) async {
+    final pendingActions = await _db.getPendingActions();
+    
+    for (var action in pendingActions) {
+      if (action['action_type'] == 'update') {
+        final payload = jsonDecode(action['payload'] as String);
+        final id = payload['id'] as int?;
+        
+        if (id == tempId) {
+          // Update the payload with the real server ID
+          payload['id'] = realId;
+          await _db.removePendingAction(action['id']);
+          await _db.addPendingAction(
+            actionType: 'update',
+            itemType: 'any',
+            payload: payload,
+          );
+          if (kDebugMode) {
+            print('LibraryRepository: Updated pending update action from temp ID $tempId to real ID $realId');
+          }
+        }
+      }
+    }
   }
 
   /// P0-4 FIX: Proper dispose handling to prevent sync during disposal

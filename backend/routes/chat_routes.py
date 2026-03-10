@@ -514,10 +514,17 @@ async def cleanup_inbox_status_route(license: dict = Depends(get_license_from_he
 @router.patch("/messages/{message_id}/edit")
 async def edit_message_route(message_id: int, request: Request, license: dict = Depends(get_license_from_header)):
     from models.inbox import edit_outbox_message
+    from validators import validate_text_length, ValidationError
     data = await request.json()
     new_body = data.get("body", "").strip()
     if not new_body: raise HTTPException(status_code=400, detail="النص فارغ")
-    
+
+    # Validate message length (same as creation)
+    try:
+        validate_text_length(new_body, max_length=10000, field_name="body")
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+
     try:
         # edit_outbox_message already handles websocket broadcasting
         result = await edit_outbox_message(message_id, license["license_id"], new_body)

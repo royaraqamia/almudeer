@@ -724,6 +724,13 @@ class ConversationDetailProvider extends ChangeNotifier {
     final index = currentList.indexWhere((m) => m.id == messageId);
     if (index == -1) return false;
 
+    // Check if message can be edited (channel rules, time window, etc.)
+    final message = currentList[index];
+    if (!message.canEdit) {
+      debugPrint("Message cannot be edited (channel restrictions or time window exceeded)");
+      return false;
+    }
+
     // Save old message for rollback
     final oldMessage = currentList[index];
 

@@ -409,9 +409,20 @@ class LibraryDatabase {
 
   Future<void> updateItem(int id, Map<String, dynamic> updates) async {
     final db = await database;
+    
+    // FIX: Convert boolean values to integers (1/0) as SQLite doesn't support booleans
+    final sanitizedUpdates = <String, dynamic>{};
+    for (final entry in updates.entries) {
+      if (entry.value is bool) {
+        sanitizedUpdates[entry.key] = entry.value == true ? 1 : 0;
+      } else {
+        sanitizedUpdates[entry.key] = entry.value;
+      }
+    }
+    
     await db.update(
       'c_library_items',
-      {...updates, 'updated_at': DateTime.now().toIso8601String()},
+      {...sanitizedUpdates, 'updated_at': DateTime.now().toIso8601String()},
       where: 'id = ?',
       whereArgs: [id],
     );

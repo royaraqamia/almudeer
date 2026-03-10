@@ -494,15 +494,15 @@ class InboxMessage {
     // 24-hour edit window
     try {
       final createdTS = timestamp ?? createdAt;
-      final created = DateTime.parse(createdTS);
-      if (DateTime.now().difference(created) > const Duration(hours: 24)) {
+      final created = DateTime.parse(createdTS).toUtc();
+      if (DateTime.now().toUtc().difference(created).inHours > 24) {
         return false;
       }
     } catch (e) {
       // If parsing fails, fall back to createdAt (which is guaranteed non-null in constructor)
       try {
-        final created = DateTime.parse(createdAt);
-        if (DateTime.now().difference(created) > const Duration(hours: 24)) {
+        final created = DateTime.parse(createdAt).toUtc();
+        if (DateTime.now().toUtc().difference(created).inHours > 24) {
           return false;
         }
       } catch (e2) {

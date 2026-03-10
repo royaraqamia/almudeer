@@ -883,7 +883,14 @@ async def broadcast_customer_updated(license_id: int, customer_data: Dict[str, A
 
 # ============ Message Edit/Delete Broadcasting ============
 
-async def broadcast_message_edited(license_id: int, message_id: int, new_body: str, edited_at: str, sender_contact: str = None):
+async def broadcast_message_edited(
+    license_id: int,
+    message_id: int,
+    new_body: str,
+    edited_at: str,
+    sender_contact: str = None,
+    edit_count: int = 1
+):
     """
     Broadcast when a message is edited.
     Notifies both the sender (multi-device) and the recipient (if internal).
@@ -897,7 +904,7 @@ async def broadcast_message_edited(license_id: int, message_id: int, new_body: s
     # Fetch message details first to populate payload correctly
     async with get_db() as db:
         msg = await fetch_one(db, "SELECT channel, recipient_email, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
-        
+
         # Resolve sender_contact if not provided
         if not sender_contact and msg:
             sender_contact = msg.get("recipient_email") or msg.get("recipient_id")
@@ -908,7 +915,8 @@ async def broadcast_message_edited(license_id: int, message_id: int, new_body: s
         "new_body": new_body,
         "edited_at": edited_at,
         "sender_contact": sender_contact,
-        "recipient_contact": sender_contact  # Add recipient_contact for conversation identification
+        "recipient_contact": sender_contact,  # Add recipient_contact for conversation identification
+        "edit_count": edit_count  # Include edit count for UI display
     }
 
     # 1. Send to self (multi-device sync)

@@ -250,5 +250,56 @@ class TestChatActions:
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.delete("/api/integrations/conversations/old_chat_123")
-                
+
                 assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_edit_message_empty_body(self, mock_license_dependency, app):
+        """Test that editing with empty body returns 400"""
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.patch(
+                "/api/integrations/messages/100/edit",
+                json={"body": "   "}
+            )
+            assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_edit_message_length_validation(self, mock_license_dependency, app):
+        """Test that editing with too long body returns 400"""
+        # Create a message that exceeds 10000 characters
+        long_body = "x" * 15000
+
+        with patch("models.inbox.edit_outbox_message") as mock_edit:
+            # Should not even call edit_outbox_message due to validation
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                response = await client.patch(
+                    "/api/integrations/messages/100/edit",
+                    json={"body": long_body}
+                )
+                assert response.status_code == 400
+                # Verify edit_outbox_message was NOT called (validation happens first)
+                mock_edit.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_edit_message_success(self, mock_license_dependency, app):
+        """Test successful message edit"""
+        with patch("models.inbox.edit_outbox_message", new_callable=AsyncMock) as mock_edit:
+            mock_edit.return_value = {
+                "success": True,
+                "message": "تم تعديل الرسالة بنجاح",
+                "body": "Updated body",
+                "edited_at": "2026-03-10T12:00:00Z",
+                "edit_count": 1
+            }
+
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                response = await client.patch(
+                    "/api/integrations/messages/100/edit",
+                    json={"body": "Updated body"}
+                )
+                assert response.status_code == 200
+                assert response.json()["success"] is True
+                mock_edit.assert_called_once()
