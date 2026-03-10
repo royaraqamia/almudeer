@@ -6,31 +6,73 @@ import 'package:almudeer_mobile_app/core/services/offline_sync_service.dart';
 import '../../data/local/athkar_data.dart';
 
 class AthkarProvider extends ChangeNotifier {
-  static const String _storageKey = 'athkar_counts';
-  static const String _lastResetDateKey = 'athkar_last_reset_date';
-  static const String _misbahaKey = 'misbaha_count';
+  // Namespaced storage keys to prevent collisions
+  static const String _prefix = 'almudeer_athkar_';
+  static const String _storageKey = '${_prefix}counts';
+  static const String _lastResetDateKey = '${_prefix}last_reset_date';
+  static const String _misbahaKey = '${_prefix}misbaha_count';
 
   final OfflineSyncService? _syncService;
   Map<String, int> _counts = {};
   int _misbahaCount = 0;
   bool _isLoading = true;
+  bool _disposed = false;
   Timer? _debounceTimer;
+  int _consecutiveSyncFailures = 0;
+  static const int _maxRetryAttempts = 3;
+  Duration _syncRetryDelay = const Duration(seconds: 5);
 
   Map<String, int> get counts => _counts;
   int get misbahaCount => _misbahaCount;
   bool get isLoading => _isLoading;
+  int get consecutiveSyncFailures => _consecutiveSyncFailures;
+  // For testing purposes only
+  @visibleForTesting
+  bool get disposed => _disposed;
 
   AthkarProvider({OfflineSyncService? syncService})
     : _syncService = syncService {
     _init();
   }
-  // ... (rest of the file handles sync in _saveToStorage)
 
   Future<void> _init() async {
     await _loadFromStorage();
-    await _checkDailyReset();
+    final lastResetDate = await _getLastResetDate();
+    final todayStr = _getTodayString();
+    
+    // Check if reset is needed before loading server data
+    if (lastResetDate != todayStr) {
+      await resetAll();
+      await _saveLastResetDate(todayStr);
+    }
+    
+    // Load server data only if last reset was today (prevents old server data from overriding reset)
+    final shouldMergeServerData = lastResetDate == todayStr;
+    if (shouldMergeServerData) {
+      await _loadFromServer();
+    } else {
+      debugPrint('AthkarProvider: Skipping server merge - local reset is newer');
+    }
+    
     _isLoading = false;
-    notifyListeners();
+    if (!_disposed) {
+      notifyListeners();
+    }
+  }
+
+  String _getTodayString() {
+    final now = DateTime.now();
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  }
+
+  Future<String> _getLastResetDate() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_lastResetDateKey) ?? '';
+  }
+
+  Future<void> _saveLastResetDate(String date) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_lastResetDateKey, date);
   }
 
   Future<void> _loadFromStorage() async {
@@ -44,22 +86,56 @@ class AthkarProvider extends ChangeNotifier {
       }
 
       _misbahaCount = prefs.getInt(_misbahaKey) ?? 0;
-    } catch (e) {
-      debugPrint('Error loading athkar counts: $e');
+    } catch (e, stackTrace) {
+      debugPrint('AthkarProvider: Failed to load counts from storage: $e');
+      debugPrint('AthkarProvider: Stack trace: $stackTrace');
       _counts = {};
     }
   }
 
+  Future<void> _loadFromServer() async {
+    if (_syncService == null) return;
+
+    try {
+      final serverData = await _syncService.getAthkarProgress();
+      if (serverData != null && serverData['success'] == true) {
+        final athkar = serverData['athkar'];
+        if (athkar != null) {
+          final counts = athkar['counts'] as Map<String, dynamic>?;
+          final misbaha = athkar['misbaha'] as int?;
+
+          if (counts != null) {
+            // Validate and sanitize server data to prevent corruption
+            _counts = counts.map((key, value) {
+              if (value is int) {
+                return MapEntry(key, value >= 0 ? value : 0);
+              } else if (value is num) {
+                return MapEntry(key, value.toInt());
+              } else {
+                debugPrint('Invalid athkar count value for $key: $value');
+                return MapEntry(key, 0);
+              }
+            });
+          }
+          if (misbaha != null && misbaha >= 0) {
+            _misbahaCount = misbaha;
+          }
+          debugPrint('AthkarProvider: Loaded athkar progress from server');
+        }
+      }
+    } catch (e, stackTrace) {
+      debugPrint('AthkarProvider: Failed to load athkar progress from server: $e');
+      debugPrint('AthkarProvider: Stack trace: $stackTrace');
+    }
+  }
+
   Future<void> _checkDailyReset() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? lastResetStr = prefs.getString(_lastResetDateKey);
-    final now = DateTime.now();
-    final todayStr =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final lastResetStr = await _getLastResetDate();
+    final todayStr = _getTodayString();
 
     if (lastResetStr != todayStr) {
       await resetAll();
-      await prefs.setString(_lastResetDateKey, todayStr);
+      await _saveLastResetDate(todayStr);
     }
   }
 
@@ -120,6 +196,8 @@ class AthkarProvider extends ChangeNotifier {
   }
 
   Future<void> _saveToStorage() async {
+    if (_disposed) return;
+
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_storageKey, json.encode(_counts));
@@ -128,13 +206,26 @@ class AthkarProvider extends ChangeNotifier {
       if (_syncService != null) {
         await _syncService.queueAthkarProgress(_counts, _misbahaCount);
       }
-    } catch (e) {
-      debugPrint('Error saving athkar counts: $e');
+      _consecutiveSyncFailures = 0;
+      _syncRetryDelay = const Duration(seconds: 5); // Reset delay on success
+    } catch (e, stackTrace) {
+      debugPrint('AthkarProvider: Failed to save athkar counts: $e');
+      debugPrint('AthkarProvider: Stack trace: $stackTrace');
+      _consecutiveSyncFailures++;
+
+      if (_consecutiveSyncFailures >= _maxRetryAttempts) {
+        debugPrint('AthkarProvider: ⚠️ Sync failed $_consecutiveSyncFailures times. Data saved locally only. Next retry in ${_syncRetryDelay.inSeconds}s');
+        // Exponential backoff: double the delay for next retry (max 5 minutes)
+        _syncRetryDelay = Duration(
+          seconds: (_syncRetryDelay.inSeconds * 2).clamp(5, 300),
+        );
+      }
     }
   }
 
   @override
   void dispose() {
+    _disposed = true;
     _debounceTimer?.cancel();
     super.dispose();
   }

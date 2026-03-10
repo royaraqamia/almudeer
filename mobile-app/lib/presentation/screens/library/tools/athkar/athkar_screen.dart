@@ -163,12 +163,22 @@ class _AthkarListState extends State<_AthkarList> {
     // Calculate total progress
     int totalTarget = 0;
     int totalCurrent = 0;
+    int cappedItemsCount = 0;
+    
     for (var item in widget.athkar) {
       totalTarget += item.count;
-      totalCurrent += (provider.getCount(item.id) > item.count)
-          ? item.count
-          : provider.getCount(item.id);
+      final currentCount = provider.getCount(item.id);
+      if (currentCount > item.count) {
+        cappedItemsCount++;
+        debugPrint('AthkarScreen: Item ${item.id} has count $currentCount exceeding target ${item.count} (possible server sync issue)');
+      }
+      totalCurrent += (currentCount > item.count) ? item.count : currentCount;
     }
+    
+    if (cappedItemsCount > 0) {
+      debugPrint('AthkarScreen: $cappedItemsCount item(s) had counts exceeding targets. Data may be from outdated server sync.');
+    }
+    
     final double totalProgress = totalTarget > 0
         ? totalCurrent / totalTarget
         : 0.0;

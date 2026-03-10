@@ -66,8 +66,10 @@ class Endpoints {
   // Preferences
   static const String preferences = '/api/preferences';
 
-  // Features (including Quran)
+  // Features (including Quran & Athkar)
   static const String features = '/api/features';
+  static const String quranProgress = '/api/quran/progress';
+  static const String athkarProgress = '/api/athkar/progress';
 
   // Chat Features
   static String markRead(int messageId) =>

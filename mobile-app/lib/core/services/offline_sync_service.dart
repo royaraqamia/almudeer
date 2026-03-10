@@ -312,11 +312,23 @@ class OfflineSyncService extends ChangeNotifier {
   Future<Map<String, dynamic>?> getQuranProgress() async {
     try {
       final response = await _inboxRepository.apiClient.get(
-        '/api/quran/progress',
+        Endpoints.quranProgress,
       );
       return response;
     } catch (e) {
       debugPrint('Error fetching quran progress: $e');
+    }
+    return null;
+  }
+
+  Future<Map<String, dynamic>?> getAthkarProgress() async {
+    try {
+      final response = await _inboxRepository.apiClient.get(
+        Endpoints.athkarProgress,
+      );
+      return response;
+    } catch (e) {
+      debugPrint('Error fetching athkar progress: $e');
     }
     return null;
   }

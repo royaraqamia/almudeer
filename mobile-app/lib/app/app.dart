@@ -229,9 +229,8 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
       // Load tasks
       context.read<TaskProvider>().loadTasks();
 
-      // Load Quran data (tafsir and translation)
+      // Load Quran data (tafsir)
       context.read<QuranProvider>().loadTafsir();
-      context.read<QuranProvider>().loadTranslation();
 
       // Load Athkar (daily reminders)
       context.read<AthkarProvider>().checkAndResetIfNeeded();

@@ -33,8 +33,10 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
 
   int _currentReciter = 0;
   bool _isLoadingAudio = false;
-  AudioPlayerProvider? _audioProvider;
-  
+
+  // Track which verses have been requested for remote tafsir to prevent duplicate requests
+  final Set<String> _requestedTafsirVerses = {};
+
   static const List<Map<String, String>> _reciters = [
     {'name': 'عبدالرحمن السديس', 'server': 'https://server8.mp3quran.net/sds/'},
     {'name': 'مشاري العفاسي', 'server': 'https://server8.mp3quran.net/afs/'},
@@ -49,9 +51,6 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
   void initState() {
     super.initState();
     _itemPositionsListener.itemPositions.addListener(_onScroll);
-
-    // Save audio provider reference for use in dispose
-    _audioProvider = context.read<AudioPlayerProvider>();
 
     // Load tafsir data outside of build phase
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -105,24 +104,73 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
     }
   }
 
-  Future<void> _loadAndPlaySurah() async {
+  /// Fallback servers for each reciter - used when primary server fails
+  static const List<List<String>> _reciterFallbackServers = [
+    // Corresponds to _reciters order - backup mp3quran.net mirrors
+    ['https://server7.mp3quran.net/sds/'],  // السديس
+    ['https://server11.mp3quran.net/afs/'], // العفاسي
+    ['https://server8.mp3quran.net/ghamdi/'], // الغامدي
+    ['https://server7.mp3quran.net/maher/'], // المعيقلي
+    ['https://server11.mp3quran.net/husr/'], // الحصري
+    ['https://server7.mp3quran.net/minsh/'], // المنشاوي
+    ['https://server11.mp3quran.net/ayyub/'], // أيوب
+  ];
+
+  /// Track failed servers to avoid retrying them
+  final Set<String> _failedServers = {};
+
+  Future<void> _loadAndPlaySurah({int retryCount = 0}) async {
+    // Get audio provider safely
+    final audioProvider = context.read<AudioPlayerProvider>();
+
     // Don't show loading if already playing this surah
-    final isCurrentSurah = _audioProvider?.currentAudioTitle == quran.getSurahNameArabic(widget.surahNumber);
-    if (!isCurrentSurah || !_audioProvider!.isPlaying) {
+    final isCurrentSurah = audioProvider.currentAudioTitle == quran.getSurahNameArabic(widget.surahNumber);
+    if (!isCurrentSurah || !audioProvider.isPlaying) {
       setState(() => _isLoadingAudio = true);
     }
 
     try {
-      final serverUrl = _reciters[_currentReciter]['server']!;
+      // Try primary server first
+      String serverUrl = _reciters[_currentReciter]['server']!;
+      
+      // If primary failed before, try fallback
+      final primaryServerKey = '${_currentReciter}_primary';
+      if (_failedServers.contains(primaryServerKey) && retryCount == 0) {
+        final fallbackServers = _reciterFallbackServers[_currentReciter];
+        if (fallbackServers.isNotEmpty) {
+          serverUrl = fallbackServers[0];
+          debugPrint('Using fallback server for reciter ${_reciters[_currentReciter]['name']}');
+        }
+      }
+      
       final paddedSurah = widget.surahNumber.toString().padLeft(3, '0');
       final url = '$serverUrl$paddedSurah.mp3';
       final surahName = quran.getSurahNameArabic(widget.surahNumber);
 
-      await _audioProvider!.playQuranRecitation(url, surahName);
+      await audioProvider.playQuranRecitation(url, surahName);
+      
+      // Success - clear failed server mark
+      _failedServers.remove(primaryServerKey);
     } catch (e) {
-      debugPrint('Error loading audio: $e');
+      debugPrint('Error loading audio (attempt ${retryCount + 1}): $e');
+      
+      // Mark primary server as failed
+      final primaryServerKey = '${_currentReciter}_primary';
+      _failedServers.add(primaryServerKey);
+      
+      // Retry once with fallback server
+      if (retryCount < 1 && _reciterFallbackServers[_currentReciter].isNotEmpty) {
+        debugPrint('Retrying with fallback server...');
+        await Future.delayed(const Duration(milliseconds: 500));
+        await _loadAndPlaySurah(retryCount: retryCount + 1);
+        return;
+      }
+      
       if (mounted) {
-        AnimatedToast.error(context, 'خطأ في تحميل الصوت');
+        AnimatedToast.error(
+          context, 
+          'خطأ في تحميل الصوت - تأكد من اتصال الإنترنت',
+        );
       }
     } finally {
       if (mounted) {
@@ -133,7 +181,8 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
 
   void _changeReciter(int index) {
     setState(() => _currentReciter = index);
-    _audioProvider?.stopQuranRecitation();
+    final audioProvider = context.read<AudioPlayerProvider>();
+    audioProvider.stopQuranRecitation();
     _loadAndPlaySurah();
   }
 
@@ -281,8 +330,12 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
                     verseNumber,
                   );
 
-                  // Fetch remote tafsir lazily (outside build phase)
-                  if (tafsirText.isEmpty && quranProvider.selectedTafsir != 'local') {
+                  // Fetch remote tafsir lazily (outside build phase) - only once per verse
+                  final verseKey = '${widget.surahNumber}:$verseNumber';
+                  if (tafsirText.isEmpty && 
+                      quranProvider.selectedTafsir != 'local' &&
+                      !_requestedTafsirVerses.contains(verseKey)) {
+                    _requestedTafsirVerses.add(verseKey);
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       context.read<QuranProvider>().fetchRemoteTafsirIfNeeded(
                         widget.surahNumber,

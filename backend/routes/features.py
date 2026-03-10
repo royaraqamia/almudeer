@@ -3,7 +3,7 @@ Al-Mudeer - Feature Routes
 Customers, Analytics, Preferences, Voice Transcription
 """
 
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Request
 from pydantic import BaseModel, Field, validator
 from typing import Optional, List, Union
 from datetime import datetime, timedelta
@@ -26,6 +26,7 @@ from models import (
 from security import sanitize_email, sanitize_phone, sanitize_string
 from dependencies import get_license_from_header, get_optional_license_from_header
 from db_helper import get_db, fetch_all
+from rate_limiting import limiter
 
 router = APIRouter(prefix="/api", tags=["Features"])
 
@@ -233,6 +234,44 @@ class PreferencesUpdate(BaseModel):
         return v
 
 
+# ============ Athkar Schemas ============
+
+class AthkarProgressUpdate(BaseModel):
+    """Schema for updating athkar progress with validation"""
+    counts: dict = Field(default_factory=dict)
+    misbaha: int = Field(default=0, ge=0)
+
+    @validator('counts')
+    def validate_counts(cls, v):
+        """Validate athkar counts: limit items and ensure valid values"""
+        if not isinstance(v, dict):
+            raise ValueError('counts must be a dictionary')
+        
+        # Limit to reasonable number of items (prevent abuse)
+        if len(v) > 100:
+            raise ValueError('Too many athkar items (max 100)')
+        
+        # Ensure all keys are strings and values are non-negative integers
+        for key, value in v.items():
+            if not isinstance(key, str):
+                raise ValueError(f'Athkar item key must be a string, got {type(key).__name__}')
+            if not isinstance(value, (int, float)):
+                raise ValueError(f'Count for {key} must be a number, got {type(value).__name__}')
+            if isinstance(value, float):
+                v[key] = int(value)  # Convert floats to ints
+            if v[key] < 0:
+                raise ValueError(f'Count for {key} cannot be negative')
+        
+        return v
+
+    @validator('misbaha')
+    def validate_misbaha(cls, v):
+        """Validate misbaha count is non-negative"""
+        if v < 0:
+            raise ValueError('Misbaha count cannot be negative')
+        return v
+
+
 # ============ Preferences Routes ============
 
 # ============ Preferences Routes ============
@@ -249,7 +288,7 @@ async def get_quran_progress(license: dict = Depends(get_license_from_header)):
     """Get Quran reading progress for cross-device sync"""
     prefs = await get_preferences(license["license_id"])
     quran_progress = prefs.get('quran_progress')
-    
+
     if quran_progress:
         import json
         try:
@@ -257,25 +296,104 @@ async def get_quran_progress(license: dict = Depends(get_license_from_header)):
             return {"success": True, "progress": data}
         except:
             return {"success": True, "progress": None}
-    
+
     return {"success": True, "progress": None}
 
 
+@router.patch("/quran/progress")
+async def update_quran_progress(
+    data: dict,
+    license: dict = Depends(get_license_from_header)
+):
+    """
+    Update Quran reading progress for cross-device sync.
+
+    Expects JSON body with:
+    - last_surah: integer (1-114)
+    - last_verse: integer (positive)
+    """
+    import json
+    from routes.sync import _validate_quran_progress
+
+    # Validate the progress data
+    validation_error = _validate_quran_progress(data)
+    if validation_error:
+        # Bilingual error message (Arabic/English)
+        raise HTTPException(
+            status_code=400, 
+            detail={
+                "error": validation_error,
+                "error_en": _translate_validation_error(validation_error)
+            }
+        )
+
+    await update_preferences(
+        license["license_id"],
+        quran_progress=json.dumps(data)
+    )
+    return {"success": True, "message": "تم حفظ تقدم القراءة"}
+
+
+def _translate_validation_error(arabic_error: str) -> str:
+    """Translate common validation errors to English for API responses."""
+    translations = {
+        "تنسيق البيانات غير صالح: يجب أن يكون كائن JSON": "Invalid data format: must be a JSON object",
+        "البيانات غير مكتملة: رقم السورة مطلوب": "Incomplete data: surah number is required",
+        "البيانات غير مكتملة: رقم الآية مطلوب": "Incomplete data: verse number is required",
+        "رقم السورة غير صالح: يجب أن يكون رقماً صحيحاً": "Invalid surah number: must be an integer",
+        "رقم السورة غير صالح: يجب أن يكون بين 1 و 114": "Invalid surah number: must be between 1 and 114",
+        "رقم الآية غير صالح: يجب أن يكون رقماً صحيحاً": "Invalid verse number: must be an integer",
+        "رقم الآية غير صالح: يجب أن يكون رقماً موجباً": "Invalid verse number: must be a positive number",
+    }
+    
+    # Check for exact match first
+    if arabic_error in translations:
+        return translations[arabic_error]
+    
+    # Check for partial match (for dynamic errors with numbers)
+    for arabic_key, english_val in translations.items():
+        if arabic_key.split(':')[0] in arabic_error:
+            return english_val
+    
+    return "Invalid Quran progress data"
+
+
 @router.get("/athkar/progress")
-async def get_athkar_progress(license: dict = Depends(get_license_from_header)):
+@limiter.limit("60/minute")  # Rate limiting to prevent abuse
+async def get_athkar_progress(
+    request: Request,
+    license: dict = Depends(get_license_from_header)
+):
     """Get Athkar counts and misbaha for cross-device sync"""
     prefs = await get_preferences(license["license_id"])
     athkar_stats = prefs.get('athkar_stats')
-    
+
     if athkar_stats:
         import json
         try:
             data = json.loads(athkar_stats) if isinstance(athkar_stats, str) else athkar_stats
             return {"success": True, "athkar": data}
-        except:
+        except json.JSONDecodeError as e:
+            logger.warning(f"Invalid JSON in athkar_stats: {athkar_stats}, error: {e}")
             return {"success": True, "athkar": None}
-    
+
     return {"success": True, "athkar": None}
+
+
+@router.patch("/athkar/progress")
+@limiter.limit("30/minute")  # 30 requests per minute to prevent abuse
+async def update_athkar_progress(
+    request: Request,
+    data: AthkarProgressUpdate,
+    license: dict = Depends(get_license_from_header)
+):
+    """Update Athkar counts and misbaha for cross-device sync"""
+    import json
+    await update_preferences(
+        license["license_id"],
+        athkar_stats=json.dumps(data.dict())
+    )
+    return {"success": True, "message": "تم حفظ تقدم الأذكار"}
 
 
 @router.patch("/preferences")

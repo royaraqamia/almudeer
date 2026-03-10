@@ -1,5 +1,7 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -12,6 +14,7 @@ class AthkarReminderService {
   static const String _eveningHourKey = 'athkar_evening_hour';
   static const String _eveningMinuteKey = 'athkar_evening_minute';
   static const String _enabledKey = 'athkar_reminders_enabled';
+  static const String _lastTimezoneKey = 'athkar_last_timezone';
 
   final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
@@ -21,9 +24,66 @@ class AthkarReminderService {
   int _eveningHour = 17;
   int _eveningMinute = 0;
   bool _enabled = true;
+  String? _lastTimezone;
 
   Future<void> initialize() async {
     await _loadSettings();
+    await _initializeTimeZone();
+    await _checkTimezoneChange();
+  }
+
+  Future<void> _initializeTimeZone() async {
+    try {
+      tz.initializeTimeZones();
+      await _setLocalTimeZone();
+    } catch (e) {
+      debugPrint('AthkarReminderService: Failed to initialize timezone: $e');
+    }
+  }
+
+  Future<void> _setLocalTimeZone() async {
+    try {
+      final timeZone = await FlutterTimezone.getLocalTimezone();
+      // Extract timezone ID from TimezoneInfo object
+      String timeZoneId = timeZone.toString().trim();
+      if (timeZoneId.startsWith('TimezoneInfo(')) {
+        final match = RegExp(r'TimezoneInfo\(([^,]+)').firstMatch(timeZoneId);
+        if (match != null) {
+          timeZoneId = match.group(1)!.trim();
+        }
+      }
+      tz.setLocalLocation(tz.getLocation(timeZoneId));
+      debugPrint('AthkarReminderService: Timezone set to $timeZoneId');
+    } catch (e) {
+      debugPrint('AthkarReminderService: Failed to set timezone: $e');
+    }
+  }
+
+  /// Check if timezone has changed since last run and reschedule if needed
+  Future<void> _checkTimezoneChange() async {
+    try {
+      final currentTimezone = await FlutterTimezone.getLocalTimezone();
+      // Extract timezone ID from TimezoneInfo object
+      String currentTimezoneId = currentTimezone.toString().trim();
+      if (currentTimezoneId.startsWith('TimezoneInfo(')) {
+        final match = RegExp(r'TimezoneInfo\(([^,]+)').firstMatch(currentTimezoneId);
+        if (match != null) {
+          currentTimezoneId = match.group(1)!.trim();
+        }
+      }
+      if (_lastTimezone != null && _lastTimezone != currentTimezoneId) {
+        debugPrint('AthkarReminderService: Timezone changed from $_lastTimezone to $currentTimezoneId, rescheduling reminders');
+        await scheduleReminders();
+      }
+      await _saveTimezone(currentTimezoneId);
+    } catch (e) {
+      debugPrint('AthkarReminderService: Failed to check timezone change: $e');
+    }
+  }
+
+  Future<void> _saveTimezone(String timezone) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_lastTimezoneKey, timezone);
   }
 
   Future<void> _loadSettings() async {
@@ -33,6 +93,7 @@ class AthkarReminderService {
     _eveningHour = prefs.getInt(_eveningHourKey) ?? 17;
     _eveningMinute = prefs.getInt(_eveningMinuteKey) ?? 0;
     _enabled = prefs.getBool(_enabledKey) ?? true;
+    _lastTimezone = prefs.getString(_lastTimezoneKey);
   }
 
   Future<void> setMorningTime(int hour, int minute) async {
@@ -66,14 +127,16 @@ class AthkarReminderService {
   Future<void> scheduleReminders() async {
     if (!_enabled) {
       await cancelAll();
+      debugPrint('AthkarReminderService: Reminders disabled, cancelled all scheduled notifications');
       return;
     }
     try {
       await _scheduleMorning();
       await _scheduleEvening();
-      debugPrint('Athkar reminders scheduled successfully');
-    } catch (e) {
-      debugPrint('Error scheduling athkar reminders: $e');
+      debugPrint('AthkarReminderService: Reminders scheduled successfully');
+    } catch (e, stackTrace) {
+      debugPrint('AthkarReminderService: Failed to schedule reminders: $e');
+      debugPrint('AthkarReminderService: Stack trace: $stackTrace');
     }
   }
 

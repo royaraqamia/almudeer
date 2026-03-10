@@ -63,6 +63,54 @@ class SyncResponse(BaseModel):
     server_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+def _validate_quran_progress(data: dict) -> Optional[str]:
+    """
+    Validate Quran progress data to prevent invalid/corrupt data.
+
+    Returns None if valid, or an error message string if invalid.
+    Error messages are in Arabic for consistency with API responses.
+    """
+    from constants.quran_data import SURAHS_VERSE_COUNT, SURAHS_NAMES_ARABIC
+
+    if not isinstance(data, dict):
+        return "تنسيق البيانات غير صالح: يجب أن يكون كائن JSON"
+
+    last_surah = data.get('last_surah')
+    last_verse = data.get('last_verse')
+
+    # Validate surah number (1-114)
+    if last_surah is None:
+        return "البيانات غير مكتملة: رقم السورة مطلوب"
+    if not isinstance(last_surah, int):
+        try:
+            last_surah = int(last_surah)
+        except (ValueError, TypeError):
+            return "رقم السورة غير صالح: يجب أن يكون رقماً صحيحاً"
+
+    if last_surah < 1 or last_surah > 114:
+        return f"رقم السورة غير صالح: يجب أن يكون بين 1 و 114، تم إدخال {last_surah}"
+
+    # Validate verse number (must be positive)
+    if last_verse is None:
+        return "البيانات غير مكتملة: رقم الآية مطلوب"
+    if not isinstance(last_verse, int):
+        try:
+            last_verse = int(last_verse)
+        except (ValueError, TypeError):
+            return "رقم الآية غير صالح: يجب أن يكون رقماً صحيحاً"
+
+    if last_verse < 1:
+        return f"رقم الآية غير صالح: يجب أن يكون رقماً موجباً، تم إدخال {last_verse}"
+
+    # Validate verse count against actual surah verse count
+    max_verses = SURAHS_VERSE_COUNT.get(last_surah, 286)
+    if last_verse > max_verses:
+        surah_name = SURAHS_NAMES_ARABIC.get(last_surah, f"سورة {last_surah}")
+        return f"رقم الآية غير صالح: {surah_name} لها {max_verses} آيات فقط، تم إدخال {last_verse}"
+
+    return None
+
+
 @router.post("/batch", response_model=SyncResponse)
 async def sync_batch(
     request: Request,
@@ -290,8 +338,18 @@ async def _process_operation(op: SyncOperation, license_id: int, background_task
             from models.preferences import update_preferences
             key = "quran_progress" if op.type == "sync_quran_progress" else "athkar_stats"
             data = op.payload.get("data")
-            
+
             if data is not None:
+                # VALIDATION: Ensure Quran progress data is valid
+                if key == "quran_progress":
+                    validation_error = _validate_quran_progress(data)
+                    if validation_error:
+                        return SyncResult(
+                            operation_id=op.id,
+                            success=False,
+                            error=validation_error
+                        )
+                
                 success = await update_preferences(license_id, **{key: json.dumps(data)})
                 return SyncResult(operation_id=op.id, success=success)
             else:
