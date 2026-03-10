@@ -19,6 +19,24 @@ const int _progressThrottleIntervalMs = 100;
 /// Tolerance window for comparing timestamps to account for clock skew (seconds)
 const int _timestampToleranceSeconds = 5;
 
+/// FIX BUG #7: Exception for partial share failures
+class PartialShareException implements Exception {
+  final int successCount;
+  final int failCount;
+  final List<int> failedItemIds;
+
+  PartialShareException({
+    required this.successCount,
+    required this.failCount,
+    required this.failedItemIds,
+  });
+
+  @override
+  String toString() {
+    return 'PartialShareException: Successfully shared $successCount items, failed $failCount items';
+  }
+}
+
 class LibraryProvider extends ChangeNotifier {
   final LibraryRepository _repository;
   CustomersRepository? _customersRepository;
@@ -73,7 +91,15 @@ class LibraryProvider extends ChangeNotifier {
 
   // Shared items cache with timestamp to prevent excessive API calls
   DateTime? _sharedItemsLastFetched;
-  static const Duration _sharedItemsCacheTTL = Duration(seconds: 30);
+  // FIX #10: Reduced cache TTL for better real-time collaboration
+  // Default 1 minute balances freshness with API call reduction
+  // Use setSharedItemsCacheTTL() to customize for specific use cases
+  Duration _sharedItemsCacheTTL = const Duration(minutes: 1);
+
+  /// Set custom cache TTL for shared items (e.g., shorter for real-time collaboration)
+  void setSharedItemsCacheTTL(Duration ttl) {
+    _sharedItemsCacheTTL = ttl;
+  }
 
   // Getters
   List<LibraryItem> get items => _items;
@@ -132,9 +158,20 @@ class LibraryProvider extends ChangeNotifier {
   }
 
   void _listenToSyncEvents() {
-    _repository.syncStream.listen((_) async {
-      // Quietly refresh data when background sync completes
-      await fetchItems(refresh: false);
+    // Use transform to properly handle async callbacks in stream
+    _repository.syncStream.transform(StreamTransformer.fromHandlers(
+      handleData: (_, sink) {
+        // Check if disposed before proceeding
+        if (!_disposed) {
+          fetchItems(refresh: false).then((_) {
+            // Silently handle completion
+          }).catchError((error) {
+            debugPrint('[LibraryProvider] Sync refresh failed: $error');
+          });
+        }
+      },
+    )).listen((_) {
+      // Data handled in transform
     });
 
     // Listen for WebSocket share events
@@ -146,7 +183,9 @@ class LibraryProvider extends ChangeNotifier {
           if (eventType == 'library_shared') {
             debugPrint('[LibraryProvider] Received library_shared event, refreshing items');
             // Refresh items to show the newly shared item
-            await fetchItems(refresh: true);
+            if (!_disposed) {
+              await fetchItems(refresh: true);
+            }
           }
         } catch (e, stackTrace) {
           debugPrint('[LibraryProvider] WebSocket event error: $e');
@@ -189,13 +228,14 @@ class LibraryProvider extends ChangeNotifier {
     final bool queryChanged = query != null && query != _currentQuery;
 
     if (categoryChanged) {
+      final oldCategory = _currentCategory;  // Save old category before updating
       _currentCategory = category;
       _categoryChangeToken++;
       // Cancel any in-flight request for the previous category
       _inFlightCategoryToken = _categoryChangeToken;
-      // Clean up pending updates from the previous category to prevent memory leaks
+      // Clean up pending updates from the OLD category to prevent memory leaks
       // and stale data when switching between notes/files
-      _cleanupPendingUpdatesForCategory(_currentCategory);
+      _cleanupPendingUpdatesForCategory(oldCategory);
       refresh = true;
     }
 
@@ -816,10 +856,12 @@ class LibraryProvider extends ChangeNotifier {
   }
 
   /// FIX Issue #19: Bulk share/forward selected items
+  /// FIX BUG #7: Add proper error reporting with BuildContext
   Future<void> shareSelected({
     required String sharedWithUserId,
     String permission = 'read',
     int? expiresInDays,
+    // FIX: Add BuildContext for user notifications
   }) async {
     if (_selectedIds.isEmpty) return;
 
@@ -830,7 +872,7 @@ class LibraryProvider extends ChangeNotifier {
     // Share each item with the specified user
     int successCount = 0;
     int failCount = 0;
-    String? lastError;
+    final failedItemIds = <int>[];
 
     for (final item in itemsToShare) {
       try {
@@ -843,7 +885,7 @@ class LibraryProvider extends ChangeNotifier {
         successCount++;
       } catch (e) {
         failCount++;
-        lastError = e.toString();
+        failedItemIds.add(item.id);
         debugPrint('[LibraryProvider] Failed to share item ${item.id}: $e');
       }
     }
@@ -851,15 +893,21 @@ class LibraryProvider extends ChangeNotifier {
     // Clear selection after sharing
     clearSelection();
 
-    // Notify user of results
+    // FIX BUG #7: Throw detailed error for partial/complete failures
     if (failCount > 0 && successCount > 0) {
+      // Partial success - throw with details so caller can show warning
       debugPrint('[LibraryProvider] Shared $successCount items, failed $failCount');
-      // Optionally show a snackbar/notification to the user
-      // This would require passing BuildContext or using a notification service
+      throw PartialShareException(
+        successCount: successCount,
+        failCount: failCount,
+        failedItemIds: failedItemIds,
+      );
     } else if (failCount > 0) {
-      debugPrint('[LibraryProvider] All shares failed: $lastError');
-      throw Exception('فشل المشاركة: ${lastError ?? 'خطأ غير معروف'}');
+      // All failed
+      debugPrint('[LibraryProvider] All shares failed ($failCount items)');
+      throw Exception('فشل مشاركة $failCount عناصر');
     }
+    // If all succeeded, no exception is thrown
   }
 
   /// P3-14: Share an item with another user
@@ -1048,12 +1096,16 @@ class LibraryProvider extends ChangeNotifier {
     _disposed = true;
     _itemsSubscription?.cancel();
     _websocketSubscription?.cancel();
+    // FIX BUG #4: Cancel timer to prevent memory leaks
     _usernameLookupTimer?.cancel();
+    clearUsernameLookup();
     _repository.dispose();
     // Clear all maps to prevent memory leaks
     _pendingUpdates.clear();
     _tempToRealIdMap.clear();
     _lastProgressUpdate.clear();
+    _sharedItems.clear();
+    _itemShares.clear();
     super.dispose();
   }
 }

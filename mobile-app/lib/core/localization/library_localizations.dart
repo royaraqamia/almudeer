@@ -67,4 +67,32 @@ class LibraryLocalizations {
   String uploadFailedWithName(String fileName, String error) => _isArabic
       ? 'فشل رفع "$fileName": $error'
       : 'Failed to upload "$fileName": $error';
+
+  String get uploading => _isArabic
+      ? 'جاري الرفع...'
+      : 'Uploading...';
+
+  String get selected => _isArabic
+      ? 'محدد'
+      : 'Selected';
+
+  String get notSelected => _isArabic
+      ? 'غير محدد'
+      : 'Not selected';
+
+  String get permissionEdit => _isArabic
+      ? 'تعديل'
+      : 'Edit';
+
+  String get permissionAdmin => _isArabic
+      ? 'مدير'
+      : 'Admin';
+
+  String get permissionRead => _isArabic
+      ? 'قراءة'
+      : 'Read';
+
+  String downloadFailed(String fileName) => _isArabic
+      ? 'فشل تحميل "$fileName"'
+      : 'Failed to download "$fileName"';
 }

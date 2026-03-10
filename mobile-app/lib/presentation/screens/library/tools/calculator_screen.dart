@@ -7,6 +7,7 @@ import 'package:almudeer_mobile_app/presentation/widgets/calculator/calculator_b
 import 'package:almudeer_mobile_app/presentation/widgets/calculator/calculator_display.dart';
 import 'package:almudeer_mobile_app/core/constants/colors.dart';
 import 'package:almudeer_mobile_app/presentation/widgets/premium_bottom_sheet.dart';
+import 'package:figma_squircle/figma_squircle.dart';
 
 class CalculatorScreen extends StatefulWidget {
   const CalculatorScreen({super.key});
@@ -18,306 +19,524 @@ class CalculatorScreen extends StatefulWidget {
 class _CalculatorScreenState extends State<CalculatorScreen> {
   bool _isScientific = false;
 
+  void _toggleScientificMode() {
+    setState(() {
+      _isScientific = !_isScientific;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<CalculatorProvider>();
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      appBar: AppBar(
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        backgroundColor: Colors.transparent,
-        systemOverlayStyle: SystemUiOverlayStyle(
-          statusBarIconBrightness: theme.brightness == Brightness.light
-              ? Brightness.dark
-              : Brightness.light,
-          statusBarBrightness: theme.brightness == Brightness.light
-              ? Brightness.light
-              : Brightness.dark,
+      appBar: _buildAppBar(theme, isDark),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: _buildBackgroundGradient(isDark),
         ),
-        title: Text(
-          'الحاسبة',
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontSize: 18,
-            fontWeight: FontWeight.w500,
-            letterSpacing: -0.5,
-          ),
-        ),
-        centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(SolarLinearIcons.arrowRight, size: 24),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(
-              _isScientific
-                  ? SolarLinearIcons.calculator
-                  : SolarLinearIcons.sidebarCode,
-              size: 24,
-              color: _isScientific ? AppColors.primary : null,
-            ),
-            onPressed: () => setState(() => _isScientific = !_isScientific),
-            tooltip: _isScientific ? 'الوضع العادي' : 'الوضع العلمي',
-          ),
-          IconButton(
-            icon: const Icon(SolarLinearIcons.history, size: 24),
-            onPressed: () => _showHistory(context, provider),
-            tooltip: 'السجل',
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            flex: _isScientific ? 2 : 3,
-            child: CalculatorDisplay(
-              expression: provider.expression,
-              result: provider.result,
-            ),
-          ),
-          Expanded(
-            flex: 5,
-            child: SafeArea(
-              top: false,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                child: Column(
-                  children: [
-                    if (_isScientific) ..._buildScientificRows(provider),
-                    ..._buildStandardRows(provider),
-                  ],
+        child: Column(
+          children: [
+            Expanded(
+              flex: _isScientific ? 3 : 4,
+              child: _CalculatorDisplayContainer(
+                child: CalculatorDisplay(
+                  expression: provider.expression,
+                  result: provider.result,
                 ),
               ),
             ),
+            Expanded(
+              flex: _isScientific ? 4 : 5,
+              child: _buildKeypad(provider),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar(ThemeData theme, bool isDark) {
+    return AppBar(
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      backgroundColor: Colors.transparent,
+      systemOverlayStyle: SystemUiOverlayStyle(
+        statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+        statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+      ),
+      title: Text(
+        'الحاسبة',
+        style: theme.textTheme.titleLarge?.copyWith(
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.5,
+          color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+        ),
+      ),
+      centerTitle: true,
+      leading: IconButton(
+        icon: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: isDark
+                ? AppColors.surfaceDark.withValues(alpha: 0.5)
+                : AppColors.surfaceLight.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Icon(
+            SolarLinearIcons.arrowRight,
+            size: 20,
+          ),
+        ),
+        onPressed: () => Navigator.of(context).pop(),
+      ),
+      actions: [
+        _buildToggleButton(isDark),
+        const SizedBox(width: 4),
+        _buildHistoryButton(isDark),
+        const SizedBox(width: 12),
+      ],
+    );
+  }
+
+  Widget _buildToggleButton(bool isDark) {
+    return GestureDetector(
+      onTap: _toggleScientificMode,
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: _isScientific
+              ? AppColors.primary.withValues(alpha: 0.12)
+              : (isDark
+                  ? AppColors.surfaceDark.withValues(alpha: 0.5)
+                  : AppColors.surfaceLight.withValues(alpha: 0.5)),
+          borderRadius: BorderRadius.circular(12),
+          border: _isScientific
+              ? Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.3),
+                  width: 1,
+                )
+              : null,
+        ),
+        child: Icon(
+          _isScientific
+              ? SolarLinearIcons.calculator
+              : SolarLinearIcons.sidebarCode,
+          size: 20,
+          color: _isScientific ? AppColors.primary : null,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHistoryButton(bool isDark) {
+    return GestureDetector(
+      onTap: () => _showHistory(context, context.read<CalculatorProvider>()),
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: isDark
+              ? AppColors.surfaceDark.withValues(alpha: 0.5)
+              : AppColors.surfaceLight.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(
+          SolarLinearIcons.history,
+          size: 20,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKeypad(CalculatorProvider provider) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        borderRadius: SmoothBorderRadius(
+          cornerRadius: 28,
+          cornerSmoothing: 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 20,
+            offset: const Offset(0, -4),
           ),
         ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+          child: Column(
+            children: [
+              if (_isScientific) ...[
+                ..._buildScientificRows(provider),
+                const SizedBox(height: 8),
+              ],
+              ..._buildStandardRows(provider),
+            ],
+          ),
+        ),
       ),
     );
   }
 
   List<Widget> _buildStandardRows(CalculatorProvider provider) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return [
-      Expanded(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            CalculatorButton(
-              text: 'AC',
-              onTap: () => provider.clear(),
-              color: Colors.orange[100],
-              textColor: Colors.orange[900],
-            ),
-            CalculatorButton(
-              text: 'DEL',
-              onTap: () => provider.delete(),
-              color: Colors.orange[100],
-              textColor: Colors.orange[900],
-            ),
-            CalculatorButton(
-              text: '%',
-              onTap: () => provider.append('%'),
-              color: AppColors.primary.withValues(alpha: 0.1),
-              textColor: AppColors.primary,
-            ),
-            CalculatorButton(
-              text: '÷',
-              onTap: () => provider.append('÷'),
-              color: AppColors.primary.withValues(alpha: 0.1),
-              textColor: AppColors.primary,
-            ),
-          ],
+      _buildButtonRow([
+        CalculatorButton(
+          text: 'AC',
+          onTap: () => provider.clear(),
+          color: isDark ? Colors.orange[900] : Colors.orange[100],
+          textColor: isDark ? Colors.orange[100] : Colors.orange[900],
         ),
-      ),
-      Expanded(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            CalculatorButton(text: '7', onTap: () => provider.append('7')),
-            CalculatorButton(text: '8', onTap: () => provider.append('8')),
-            CalculatorButton(text: '9', onTap: () => provider.append('9')),
-            CalculatorButton(
-              text: '×',
-              onTap: () => provider.append('×'),
-              color: AppColors.primary.withValues(alpha: 0.1),
-              textColor: AppColors.primary,
-            ),
-          ],
+        CalculatorButton(
+          text: 'DEL',
+          onTap: () => provider.delete(),
+          color: isDark ? Colors.orange[900] : Colors.orange[100],
+          textColor: isDark ? Colors.orange[100] : Colors.orange[900],
         ),
-      ),
-      Expanded(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            CalculatorButton(text: '4', onTap: () => provider.append('4')),
-            CalculatorButton(text: '5', onTap: () => provider.append('5')),
-            CalculatorButton(text: '6', onTap: () => provider.append('6')),
-            CalculatorButton(
-              text: '-',
-              onTap: () => provider.append('-'),
-              color: AppColors.primary.withValues(alpha: 0.1),
-              textColor: AppColors.primary,
-            ),
-          ],
+        CalculatorButton(
+          text: '%',
+          onTap: () => provider.append('%'),
+          color: AppColors.primary.withValues(alpha: 0.08),
+          textColor: AppColors.primary,
         ),
-      ),
-      Expanded(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            CalculatorButton(text: '1', onTap: () => provider.append('1')),
-            CalculatorButton(text: '2', onTap: () => provider.append('2')),
-            CalculatorButton(text: '3', onTap: () => provider.append('3')),
-            CalculatorButton(
-              text: '+',
-              onTap: () => provider.append('+'),
-              color: AppColors.primary.withValues(alpha: 0.1),
-              textColor: AppColors.primary,
-            ),
-          ],
+        CalculatorButton(
+          text: '÷',
+          onTap: () => provider.append('÷'),
+          color: AppColors.primary.withValues(alpha: 0.08),
+          textColor: AppColors.primary,
         ),
-      ),
-      Expanded(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            CalculatorButton(
-              text: '0',
-              onTap: () => provider.append('0'),
-              isLarge: true,
-            ),
-            CalculatorButton(text: '.', onTap: () => provider.append('.')),
-            CalculatorButton(
-              text: '=',
-              onTap: () => provider.evaluate(),
-              color: AppColors.primary,
-              textColor: Colors.white,
-            ),
-          ],
+      ]),
+      const SizedBox(height: 8),
+      _buildButtonRow([
+        CalculatorButton(
+          text: '7',
+          onTap: () => provider.append('7'),
+          color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
         ),
-      ),
+        CalculatorButton(
+          text: '8',
+          onTap: () => provider.append('8'),
+          color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+        ),
+        CalculatorButton(
+          text: '9',
+          onTap: () => provider.append('9'),
+          color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+        ),
+        CalculatorButton(
+          text: '×',
+          onTap: () => provider.append('×'),
+          color: AppColors.primary.withValues(alpha: 0.08),
+          textColor: AppColors.primary,
+        ),
+      ]),
+      const SizedBox(height: 8),
+      _buildButtonRow([
+        CalculatorButton(
+          text: '4',
+          onTap: () => provider.append('4'),
+          color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+        ),
+        CalculatorButton(
+          text: '5',
+          onTap: () => provider.append('5'),
+          color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+        ),
+        CalculatorButton(
+          text: '6',
+          onTap: () => provider.append('6'),
+          color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+        ),
+        CalculatorButton(
+          text: '-',
+          onTap: () => provider.append('-'),
+          color: AppColors.primary.withValues(alpha: 0.08),
+          textColor: AppColors.primary,
+        ),
+      ]),
+      const SizedBox(height: 8),
+      _buildButtonRow([
+        CalculatorButton(
+          text: '1',
+          onTap: () => provider.append('1'),
+          color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+        ),
+        CalculatorButton(
+          text: '2',
+          onTap: () => provider.append('2'),
+          color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+        ),
+        CalculatorButton(
+          text: '3',
+          onTap: () => provider.append('3'),
+          color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+        ),
+        CalculatorButton(
+          text: '+',
+          onTap: () => provider.append('+'),
+          color: AppColors.primary.withValues(alpha: 0.08),
+          textColor: AppColors.primary,
+        ),
+      ]),
+      const SizedBox(height: 8),
+      _buildButtonRow([
+        CalculatorButton(
+          text: '0',
+          onTap: () => provider.append('0'),
+          isLarge: true,
+          color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+        ),
+        CalculatorButton(
+          text: '.',
+          onTap: () => provider.append('.'),
+          color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+        ),
+        CalculatorButton(
+          text: '=',
+          onTap: () => provider.evaluate(),
+          color: AppColors.primary,
+          textColor: Colors.white,
+        ),
+      ]),
     ];
+  }
+
+  Widget _buildButtonRow(List<Widget> buttons) {
+    return Expanded(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: buttons,
+      ),
+    );
   }
 
   List<Widget> _buildScientificRows(CalculatorProvider provider) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return [
-      Expanded(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            CalculatorButton(
-              text: 'sin',
-              onTap: () => provider.append('sin('),
-              color: Colors.blueGrey[50],
-              textColor: Colors.blueGrey[800],
-            ),
-            CalculatorButton(
-              text: 'cos',
-              onTap: () => provider.append('cos('),
-              color: Colors.blueGrey[50],
-              textColor: Colors.blueGrey[800],
-            ),
-            CalculatorButton(
-              text: 'tan',
-              onTap: () => provider.append('tan('),
-              color: Colors.blueGrey[50],
-              textColor: Colors.blueGrey[800],
-            ),
-            CalculatorButton(
-              text: 'log',
-              onTap: () => provider.append('log('),
-              color: Colors.blueGrey[50],
-              textColor: Colors.blueGrey[800],
-            ),
-          ],
+      _buildButtonRow([
+        CalculatorButton(
+          text: 'sin',
+          onTap: () => provider.append('sin('),
+          color: isDark
+              ? AppColors.primary.withValues(alpha: 0.06)
+              : AppColors.primary.withValues(alpha: 0.05),
+          textColor: AppColors.primary,
         ),
-      ),
-      Expanded(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            CalculatorButton(
-              text: '(',
-              onTap: () => provider.append('('),
-              color: Colors.blueGrey[50],
-              textColor: Colors.blueGrey[800],
-            ),
-            CalculatorButton(
-              text: ')',
-              onTap: () => provider.append(')'),
-              color: Colors.blueGrey[50],
-              textColor: Colors.blueGrey[800],
-            ),
-            CalculatorButton(
-              text: '√',
-              onTap: () => provider.append('sqrt('),
-              color: Colors.blueGrey[50],
-              textColor: Colors.blueGrey[800],
-            ),
-            CalculatorButton(
-              text: '^',
-              onTap: () => provider.append('^'),
-              color: Colors.blueGrey[50],
-              textColor: Colors.blueGrey[800],
-            ),
-          ],
+        CalculatorButton(
+          text: 'cos',
+          onTap: () => provider.append('cos('),
+          color: isDark
+              ? AppColors.primary.withValues(alpha: 0.06)
+              : AppColors.primary.withValues(alpha: 0.05),
+          textColor: AppColors.primary,
         ),
-      ),
+        CalculatorButton(
+          text: 'tan',
+          onTap: () => provider.append('tan('),
+          color: isDark
+              ? AppColors.primary.withValues(alpha: 0.06)
+              : AppColors.primary.withValues(alpha: 0.05),
+          textColor: AppColors.primary,
+        ),
+        CalculatorButton(
+          text: 'log',
+          onTap: () => provider.append('log('),
+          color: isDark
+              ? AppColors.primary.withValues(alpha: 0.06)
+              : AppColors.primary.withValues(alpha: 0.05),
+          textColor: AppColors.primary,
+        ),
+      ]),
+      const SizedBox(height: 8),
+      _buildButtonRow([
+        CalculatorButton(
+          text: '(',
+          onTap: () => provider.append('('),
+          color: isDark
+              ? AppColors.primary.withValues(alpha: 0.06)
+              : AppColors.primary.withValues(alpha: 0.05),
+          textColor: AppColors.primary,
+        ),
+        CalculatorButton(
+          text: ')',
+          onTap: () => provider.append(')'),
+          color: isDark
+              ? AppColors.primary.withValues(alpha: 0.06)
+              : AppColors.primary.withValues(alpha: 0.05),
+          textColor: AppColors.primary,
+        ),
+        CalculatorButton(
+          text: '√',
+          onTap: () => provider.append('sqrt('),
+          color: isDark
+              ? AppColors.primary.withValues(alpha: 0.06)
+              : AppColors.primary.withValues(alpha: 0.05),
+          textColor: AppColors.primary,
+        ),
+        CalculatorButton(
+          text: '^',
+          onTap: () => provider.append('^'),
+          color: isDark
+              ? AppColors.primary.withValues(alpha: 0.06)
+              : AppColors.primary.withValues(alpha: 0.05),
+          textColor: AppColors.primary,
+        ),
+      ]),
     ];
   }
 
+  LinearGradient _buildBackgroundGradient(bool isDark) {
+    return LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: isDark
+          ? [
+              AppColors.backgroundDark,
+              AppColors.backgroundDark.withValues(alpha: 0.8),
+            ]
+          : [
+              AppColors.backgroundLight,
+              AppColors.backgroundLight.withValues(alpha: 0.5),
+            ],
+    );
+  }
+
   void _showHistory(BuildContext context, CalculatorProvider provider) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     PremiumBottomSheet.show(
       context: context,
-      title: 'سجلُّ العمليَّات',
+      title: 'سجلُّ العمليَّات',
       maxHeight: 600,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (provider.history.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 40),
-              child: Text(
-                'السِّجلُّ فارغ',
-                style: TextStyle(
-                  fontFamily: 'IBM Plex Sans Arabic',
-                  color: Colors.grey,
-                ),
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? AppColors.surfaceDark.withValues(alpha: 0.3)
+                    : AppColors.surfaceLight.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    SolarLinearIcons.calendar,
+                    size: 48,
+                    color: isDark
+                        ? AppColors.textTertiaryDark
+                        : AppColors.textTertiaryLight,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'السِّجلُّ فارغ',
+                    style: TextStyle(
+                      fontFamily: 'IBM Plex Sans Arabic',
+                      fontSize: 16,
+                      color: isDark
+                          ? AppColors.textSecondaryDark
+                          : AppColors.textSecondaryLight,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'ستظهر هنا العمليَّات المُنفَّذة',
+                    style: TextStyle(
+                      fontFamily: 'IBM Plex Sans Arabic',
+                      fontSize: 13,
+                      color: isDark
+                          ? AppColors.textTertiaryDark
+                          : AppColors.textTertiaryLight,
+                    ),
+                  ),
+                ],
               ),
             )
           else
             Flexible(
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: provider.history.length,
-                separatorBuilder: (context, index) => Divider(
-                  height: 1,
-                  color: Colors.white.withValues(alpha: 0.10),
+              child: Container(
+                constraints: const BoxConstraints(maxHeight: 450),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? AppColors.surfaceDark.withValues(alpha: 0.3)
+                      : AppColors.surfaceLight.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                itemBuilder: (context, index) {
-                  final entry = provider.history[index];
-                  return ListTile(
-                    title: Text(
-                      entry,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontFamily: 'IBM Plex Sans Arabic',
+                child: ListView.separated(
+                  padding: const EdgeInsets.all(12),
+                  shrinkWrap: true,
+                  itemCount: provider.history.length,
+                  separatorBuilder: (context, index) => Divider(
+                    height: 1,
+                    color: isDark
+                        ? AppColors.borderDark.withValues(alpha: 0.3)
+                        : AppColors.borderLight.withValues(alpha: 0.3),
+                  ),
+                  itemBuilder: (context, index) {
+                    final entry = provider.history[index];
+                    return Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      textAlign: TextAlign.start,
-                    ),
-                    onTap: () {
-                      provider.restoreFromHistory(entry);
-                      Navigator.pop(context);
-                    },
-                  );
-                },
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        title: Text(
+                          entry,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontFamily: 'IBM Plex Sans Arabic',
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.start,
+                        ),
+                        onTap: () {
+                          provider.restoreFromHistory(entry);
+                          Navigator.pop(context);
+                        },
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           const SizedBox(height: 16),
         ],
       ),
+    );
+  }
+}
+
+/// A decorative container for the calculator display area
+class _CalculatorDisplayContainer extends StatelessWidget {
+  final Widget child;
+
+  const _CalculatorDisplayContainer({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 40, 24, 24),
+      child: child,
     );
   }
 }

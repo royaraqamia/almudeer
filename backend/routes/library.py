@@ -450,32 +450,32 @@ async def upload_file(
                 item_type = "audio"
             elif actual_mime.startswith("video/"):
                 item_type = "video"
-                
+
     except ImportError as e:
-        # python-magic not installed - log warning but continue (graceful degradation)
-        logger.warning(f"python-magic not installed, skipping content validation: {e}")
-        # Still compute hash even without magic
-        try:
-            import hashlib
-            # Reset to beginning for hashing
-            file.file.seek(0)
-            hasher = hashlib.sha256()
-            # Read in chunks
-            while True:
-                chunk = file.file.read(8192)
-                if not chunk:
-                    break
-                hasher.update(chunk)
-            file_hash = hasher.hexdigest()
-            # Reset to beginning for saving
-            file.file.seek(0)
-        except Exception as hash_error:
-            logger.warning(f"Failed to compute file hash: {hash_error}")
+        # FIX: python-magic is REQUIRED for security - do not allow graceful degradation
+        # File content validation is critical for preventing malicious uploads
+        logger.error(f"python-magic is not installed - this is a required dependency: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": ErrorCode.INTERNAL_ERROR,
+                "message_ar": "خطأ في الخادم: مكتبة التحقق من الملفات مفقودة",
+                "message_en": "Server error: File validation library is missing"
+            }
+        )
     except HTTPException:
         # Re-raise HTTP exceptions (like content mismatch)
         raise
     except Exception as e:
-        logger.warning(f"Failed to compute file hash or validate content: {e}")
+        logger.error(f"Failed to compute file hash or validate content: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": ErrorCode.INTERNAL_ERROR,
+                "message_ar": "فشل التحقق من محتوى الملف",
+                "message_en": "Failed to validate file content"
+            }
+        )
 
     # Reset file pointer for saving (in case magic was used)
     try:
@@ -1311,7 +1311,7 @@ async def share_library_item(
             permission=share_data.permission,
             created_by=user_id
         )
-        
+
         # Track analytics
         from models.library_advanced import track_item_access
         await track_item_access(
@@ -1324,29 +1324,58 @@ async def share_library_item(
                 'permission': share_data.permission
             }
         )
-        
+
         return {
             "success": True,
             "share": result,
             "message": "تمت المشاركة بنجاح"
         }
     except ValueError as e:
+        # FIX: Sanitize error messages - don't expose internal details
+        error_msg = str(e)
+        logger.warning(f"Share library item validation error: {error_msg}")
+        
+        # Map to safe, user-friendly messages
+        error_lower = error_msg.lower()
+        if 'yourself' in error_lower:
+            safe_msg_ar = 'لا يمكنك مشاركة العنصر مع نفسك'
+            safe_msg_en = 'Cannot share an item with yourself'
+        elif 'not found' in error_lower:
+            safe_msg_ar = 'العنصر غير موجود'
+            safe_msg_en = 'Item not found'
+        elif 'permission' in error_lower or 'privilege' in error_lower:
+            safe_msg_ar = 'ليس لديك صلاحية مشاركة هذا العنصر'
+            safe_msg_en = 'You do not have permission to share this item'
+        elif 'revoked' in error_lower:
+            safe_msg_ar = 'تم إلغاء هذه المشاركة سابقاً. يرجى إنشاء مشاركة جديدة.'
+            safe_msg_en = 'This share was previously revoked. Please create a new share.'
+        elif 'user' in error_lower and 'not found' in error_lower:
+            safe_msg_ar = 'المستخدم غير موجود'
+            safe_msg_en = 'User not found'
+        elif 'storage' in error_lower or 'limit' in error_lower:
+            safe_msg_ar = 'تجاوزت حد التخزين المسموح به'
+            safe_msg_en = 'Storage limit exceeded'
+        else:
+            safe_msg_ar = 'بيانات المشاركة غير صحيحة'
+            safe_msg_en = 'Invalid share data'
+        
         raise HTTPException(
             status_code=400,
             detail={
                 "code": "SHARE_FAILED",
-                "message_ar": str(e),
-                "message_en": str(e)
+                "message_ar": safe_msg_ar,
+                "message_en": safe_msg_en
             }
         )
     except Exception as e:
         logger.error(f"Share failed: {e}", exc_info=True)
+        # FIX: Don't expose internal error details to users
         raise HTTPException(
             status_code=500,
             detail={
                 "code": "INTERNAL_ERROR",
-                "message_ar": "حدث خطأ أثناء المشاركة",
-                "message_en": "An error occurred while sharing"
+                "message_ar": "حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.",
+                "message_en": "An unexpected error occurred. Please try again."
             }
         )
 

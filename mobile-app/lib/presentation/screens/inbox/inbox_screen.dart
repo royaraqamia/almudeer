@@ -110,7 +110,9 @@ class _InboxScreenState extends State<InboxScreen>
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: kBottomNavigationBarHeight + 24),
+        padding: const EdgeInsets.only(
+          bottom: AppDimensions.bottomNavHeight + AppDimensions.spacing24,
+        ),
         child: PremiumFAB(
           onPressed: _navigateToCustomers,
           standalone: false, // Use gradient circle style

@@ -60,20 +60,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
     _isNewTask = widget.task == null;
 
     // Initialize permission state
-    if (!_isNewTask && widget.task != null) {
-      // FIX: Check if current user is the owner by comparing createdBy with currentUserId
-      // Legacy tasks (createdBy == null) are treated as owned by the current user
-      final currentUserId = context.read<TaskProvider>().currentUserId;
-      final isOwner = widget.task!.createdBy == null || widget.task!.createdBy == currentUserId;
-      _permissionLevel = getEffectivePermission(widget.task!.sharePermission, isOwner);
-      _canEdit = canEdit(_permissionLevel);
-      _canShare = canShare(_permissionLevel);
-    } else {
-      // New task - user is owner
-      _permissionLevel = PermissionLevel.owner;
-      _canEdit = true;
-      _canShare = true;
-    }
+    _initPermissions();
     
     if (!_isNewTask) {
       final t = widget.task!;
@@ -101,6 +88,36 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
 
     _titleController.addListener(_onChanged);
     _descriptionController.addListener(_onChanged);
+  }
+
+  /// FIX BUG #1: Initialize permissions with proper null check for currentUserId
+  /// Waits for TaskProvider to load current user if needed
+  Future<void> _initPermissions() async {
+    if (_isNewTask || widget.task == null) {
+      // New task - user is owner
+      _permissionLevel = PermissionLevel.owner;
+      _canEdit = true;
+      _canShare = true;
+      return;
+    }
+
+    final provider = context.read<TaskProvider>();
+    // Wait for user to be loaded if needed
+    if (provider.currentUserId == null) {
+      await provider.loadCurrentUser();
+    }
+    
+    final currentUserId = provider.currentUserId;
+    // FIX: Check if current user is the owner by comparing createdBy with currentUserId
+    // Legacy tasks (createdBy == null) are treated as owned by the current user
+    final isOwner = widget.task!.createdBy == null || widget.task!.createdBy == currentUserId;
+    _permissionLevel = getEffectivePermission(widget.task!.sharePermission, isOwner);
+    _canEdit = canEdit(_permissionLevel);
+    _canShare = canShare(_permissionLevel);
+    
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override

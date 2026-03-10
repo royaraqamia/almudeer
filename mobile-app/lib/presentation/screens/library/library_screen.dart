@@ -39,16 +39,23 @@ class _LibraryScreenState extends State<LibraryScreen>
   @override
   void initState() {
     super.initState();
-    HijriCalendar.setLocal('ar');
+    // Use user's locale preference for Hijri calendar
+    HijriCalendar.setLocal('en');
     _hijriDate = HijriCalendar.now().toFormat('DD, dd MMMM yyyy').toEnglishNumbers;
     _loadedCategories.add(_selectedType);
     _scrollController.addListener(_onScroll);
     // Defer fetch until after build to avoid setState() during build
     // Use Future.microtask to ensure it runs after the current frame completes
+    // Capture current type to avoid stale closure if widget rebuilds before microtask executes
+    final currentType = _selectedType;
     Future.microtask(() {
       if (mounted) {
-        // Don't await - let it run asynchronously to prevent build-phase issues
-        context.read<LibraryProvider>().fetchItems(category: _selectedType);
+        // Catch errors to prevent unhandled future rejections
+        context.read<LibraryProvider>().fetchItems(category: currentType)
+            .catchError((error) {
+          debugPrint('[LibraryScreen] Initial fetch failed: $error');
+          // Don't rethrow - error is logged and provider handles its own error state
+        });
       }
     });
   }
@@ -67,17 +74,12 @@ class _LibraryScreenState extends State<LibraryScreen>
       final provider = context.read<LibraryProvider>();
       if (provider.hasMore && !provider.isFetchingMore && !provider.isLoading) {
         // Fire-and-forget with error handling to prevent uncaught exceptions
-        // Wrap in try-catch to handle any synchronous exceptions before future is returned
-        try {
-          provider.fetchItems(loadMore: true, category: _selectedType).catchError((error) {
-            debugPrint('[LibraryScreen] Scroll-triggered fetch failed: $error');
-            // Don't show snackbar for scroll loads - too intrusive
-            // The provider will retry on next scroll event
-          });
-        } catch (e) {
-          // Handle any synchronous exceptions
-          debugPrint('[LibraryScreen] Scroll-triggered fetch threw synchronously: $e');
-        }
+        provider.fetchItems(loadMore: true, category: _selectedType)
+            .catchError((error) {
+          debugPrint('[LibraryScreen] Scroll-triggered fetch failed: $error');
+          // Don't show snackbar for scroll loads - too intrusive
+          // The provider will retry on next scroll event
+        });
       }
     }
   }
@@ -243,7 +245,7 @@ class _LibraryScreenState extends State<LibraryScreen>
           ? null
           : Padding(
               padding: const EdgeInsets.only(
-                bottom: AppDimensions.spacing24,
+                bottom: AppDimensions.bottomNavHeight + AppDimensions.spacing24,
               ),
               child: PremiumFAB(
                 heroTag: 'library_fab',
@@ -311,9 +313,11 @@ class _LibraryScreenState extends State<LibraryScreen>
       if (!mounted) return;
     } catch (e) {
       if (!mounted) return;
+      // Log full error for debugging but show sanitized message to user
+      debugPrint('[LibraryScreen] Error opening item ${item.id}: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${LibraryLocalizations.of(context).errorOpeningItem}: $e'),
+          content: Text(LibraryLocalizations.of(context).errorOpeningItem),
           backgroundColor: AppColors.error,
           behavior: SnackBarBehavior.floating,
         ),

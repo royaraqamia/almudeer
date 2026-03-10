@@ -194,7 +194,7 @@ class TaskWorker:
 
 
 # ============================================================================
-# P3-14: SHARE NOTIFICATIONS
+# P3-14 / P4: SHARE NOTIFICATIONS (Consolidated)
 # ============================================================================
 
 async def create_share_notification(
@@ -206,12 +206,12 @@ async def create_share_notification(
     permission: str
 ):
     """
-    Create a notification when an item is shared with a user.
-    
+    Create a notification when a library item is shared with a user.
+
     P3-14: Notify users when items are shared with them.
     """
     now = datetime.now(timezone.utc)
-    
+
     async with get_db() as db:
         try:
             await execute_sql(
@@ -231,32 +231,54 @@ async def create_share_notification(
                 ]
             )
             await commit_db(db)
-            
+
             logger.info(
                 f"Created share notification: {item_title} shared with {shared_with_user_id}"
             )
-            
+
             return True
         except Exception as e:
             logger.error(f"Failed to create share notification: {e}", exc_info=True)
             return False
 
 
-async def create_task_share_notification(
+async def create_resource_shared_notification(
     license_id: int,
-    task_id: str,
-    task_title: str,
+    resource_type: str,  # 'task' or 'library'
+    resource_id: str,
+    resource_title: str,
     shared_by_user_id: str,
     shared_with_user_id: str,
-    permission: str
+    permission: str = 'read',
+    priority: str = 'normal'
 ):
     """
-    Create a notification when a task is shared.
-
-    P4-2: Notify users when they receive shared tasks.
+    Consolidated notification for any resource share (tasks or library items).
+    
+    FIX: Replaces duplicate create_task_share_notification and create_task_shared_notification.
+    
+    Args:
+        license_id: License key ID
+        resource_type: Type of resource ('task' or 'library')
+        resource_id: ID of the resource
+        resource_title: Title/name of the resource
+        shared_by_user_id: User who shared the resource
+        shared_with_user_id: User receiving the share
+        permission: Permission level (read/edit/admin)
+        priority: Notification priority ('normal' or 'high')
     """
     now = datetime.now(timezone.utc)
-
+    
+    # Localized messages based on resource type
+    if resource_type == 'task':
+        notification_type = 'task_shared'
+        title = 'تمت مشاركة مهمة معك'
+        message = f'{shared_by_user_id} شارك معك المهمة: {resource_title}'
+    else:  # library
+        notification_type = 'library_share'
+        title = 'تمت مشاركة عنصر معك'
+        message = f'{shared_by_user_id} شارك معك: {resource_title} ({permission})'
+    
     async with get_db() as db:
         try:
             await execute_sql(
@@ -266,39 +288,52 @@ async def create_task_share_notification(
                 (license_key_id, type, priority, title, message, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                [
-                    license_id,
-                    'task_shared',
-                    'normal',
-                    'تمت مشاركة مهمة',
-                    f'{shared_by_user_id} شارك معك المهمة: {task_title}',
-                    now
-                ]
+                [license_id, notification_type, priority, title, message, now]
             )
             await commit_db(db)
-
-            logger.info(f"Created task share notification for {task_title}")
-
+            
+            logger.info(f"Created {resource_type} share notification: {resource_title}")
             return True
         except Exception as e:
-            logger.error(f"Failed to create task share notification: {e}", exc_info=True)
+            logger.error(f"Failed to create resource share notification: {e}", exc_info=True)
             return False
 
 
 async def create_share_revoked_notification(
     license_id: int,
-    task_id: str,
-    task_title: str,
+    resource_id: str,
+    resource_title: str,
     revoked_by_user_id: str,
-    revoked_from_user_id: str
+    revoked_from_user_id: str,
+    resource_type: str = 'task'
 ):
     """
     Create a notification when a share is revoked.
+    
+    FIX: Consolidated for both task and library share revocations.
 
     P6-2: Notify users when sharing access is revoked.
+    
+    Args:
+        license_id: License key ID
+        resource_id: ID of the resource (task_id or item_id)
+        resource_title: Title/name of the resource
+        revoked_by_user_id: User who revoked the share
+        revoked_from_user_id: User whose access was revoked
+        resource_type: Type of resource ('task' or 'library')
     """
     now = datetime.now(timezone.utc)
-
+    
+    # Localized messages based on resource type
+    if resource_type == 'library':
+        notification_type = 'share_revoked'
+        title = 'تم إزالة صلاحية الوصول'
+        message = f'{revoked_by_user_id} أزال صلاحية الوصول إلى: {resource_title}'
+    else:  # task
+        notification_type = 'share_revoked'
+        title = 'تم إزالة صلاحية الوصول'
+        message = f'{revoked_by_user_id} أزال صلاحية الوصول إلى: {resource_title}'
+    
     async with get_db() as db:
         try:
             await execute_sql(
@@ -308,22 +343,63 @@ async def create_share_revoked_notification(
                 (license_key_id, type, priority, title, message, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
+                [license_id, notification_type, 'normal', title, message, now]
+            )
+            await commit_db(db)
+            
+            logger.info(f"Created share revoked notification for: {resource_title}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to create share revoked notification: {e}", exc_info=True)
+            return False
+
+
+async def create_task_visibility_changed_notification(
+    license_id: int,
+    task_id: str,
+    task_title: str,
+    changed_by_user_id: str,
+    affected_user_id: str,
+    new_visibility: str
+):
+    """
+    Create a notification when task visibility changes.
+
+    P4-2: Notify users when task becomes shared or private.
+    """
+    now = datetime.now(timezone.utc)
+
+    async with get_db() as db:
+        try:
+            message = (
+                f'{changed_by_user_id} جعل المهمة "{task_title}" مشتركة'
+                if new_visibility == 'shared'
+                else f'{changed_by_user_id} جعل المهمة "{task_title}" خاصة'
+            )
+
+            await execute_sql(
+                db,
+                """
+                INSERT INTO notifications
+                (license_key_id, type, priority, title, message, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
                 [
                     license_id,
-                    'share_revoked',
+                    'task_visibility_changed',
                     'normal',
-                    'تم إزالة صلاحية الوصول',
-                    f'{revoked_by_user_id} أزال صلاحية الوصول إلى: {task_title}',
+                    'تغيرت صلاحية الوصول للمهمة',
+                    message,
                     now
                 ]
             )
             await commit_db(db)
 
-            logger.info(f"Created share revoked notification for {task_title}")
+            logger.info(f"Created task visibility change notification for: {task_title}")
 
             return True
         except Exception as e:
-            logger.error(f"Failed to create share revoked notification: {e}", exc_info=True)
+            logger.error(f"Failed to create task visibility notification: {e}", exc_info=True)
             return False
 
 
@@ -692,4 +768,50 @@ async def check_transfer_failure_rate(license_id: int, threshold: float = 0.1) -
             
         except Exception as e:
             logger.error(f"Failed to check transfer failure rate: {e}", exc_info=True)
-            return {"success": False, "error": str(e)}
+            return {"success": False, "alert": False, "error": str(e)}
+
+
+# ============================================================================
+# CACHE METRICS RECORDING
+# ============================================================================
+
+async def record_cache_metrics():
+    """
+    Record cache metrics for monitoring.
+    Called periodically to track cache performance.
+    
+    FIX #4: Added cache metrics recording for monitoring.
+    """
+    try:
+        from services.metrics_service import MetricsService
+        from utils.cache_utils import get_shared_tasks_cache, get_shared_items_cache
+        
+        metrics = MetricsService()
+        
+        # Record shared tasks cache metrics
+        tasks_cache = get_shared_tasks_cache()
+        tasks_stats = tasks_cache.get_stats()
+        
+        await metrics.increment_counter("cache_shared_tasks_size", {"count": str(tasks_stats["size"])})
+        await metrics.increment_counter("cache_shared_tasks_hits", {"count": str(tasks_stats["hits"])})
+        await metrics.increment_counter("cache_shared_tasks_misses", {"count": str(tasks_stats["misses"])})
+        await metrics.increment_counter("cache_shared_tasks_evictions", {"count": str(tasks_stats["evictions"])})
+        await metrics.increment_counter("cache_shared_tasks_hit_rate", {"rate": str(tasks_stats["hit_rate_percent"])})
+        
+        # Record shared items cache metrics
+        items_cache = get_shared_items_cache()
+        items_stats = items_cache.get_stats()
+        
+        await metrics.increment_counter("cache_shared_items_size", {"count": str(items_stats["size"])})
+        await metrics.increment_counter("cache_shared_items_hits", {"count": str(items_stats["hits"])})
+        await metrics.increment_counter("cache_shared_items_misses", {"count": str(items_stats["misses"])})
+        await metrics.increment_counter("cache_shared_items_evictions", {"count": str(items_stats["evictions"])})
+        await metrics.increment_counter("cache_shared_items_hit_rate", {"rate": str(items_stats["hit_rate_percent"])})
+        
+        logger.debug(f"Cache metrics recorded: tasks={tasks_stats['hit_rate_percent']}% hit rate, items={items_stats['hit_rate_percent']}% hit rate")
+        
+    except ImportError:
+        # Metrics service not available - skip recording
+        logger.debug("Metrics service not available, skipping cache metrics recording")
+    except Exception as e:
+        logger.warning(f"Failed to record cache metrics: {e}", exc_info=True)

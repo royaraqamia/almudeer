@@ -9,7 +9,6 @@ Permission Levels:
 - edit: Can VIEW, EDIT, and SHARE. Cannot DELETE.
 - admin: Full access - VIEW, EDIT, SHARE, DELETE (same as owner).
 """
-import asyncio
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db, DB_TYPE
@@ -22,92 +21,29 @@ from utils.permissions import (
     get_effective_permission,
     validate_permission_for_action,
 )
+from utils.cache_utils import (
+    get_shared_tasks_cache,
+    broadcast_safe,
+)
 
 logger = logging.getLogger(__name__)
 
-# Simple in-memory cache for shared tasks
-# FIX BUG #8: Implement true LRU eviction using access time tracking
-_shared_tasks_cache: dict = {}
-_SHARED_TASKS_CACHE_TTL = 300  # 5 minutes
-_MAX_CACHE_SIZE = 100  # Maximum number of cache entries
-_cache_lock = asyncio.Lock()  # Thread-safe cache operations
-# Track last access time for LRU eviction
-_cache_access_times: dict = {}
-
-
-async def _safe_broadcast(coro, description: str):
-    """Wrapper to catch exceptions from background broadcast tasks"""
-    try:
-        await coro
-    except Exception as e:
-        logger.warning(f"Failed to {description}: {e}", exc_info=True)
-
-
-async def _get_cached_shared_tasks(cache_key: str) -> Optional[List[dict]]:
-    """Get cached shared tasks if not expired"""
-    async with _cache_lock:
-        if cache_key in _shared_tasks_cache:
-            cache_entry = _shared_tasks_cache[cache_key]
-            now = datetime.now(timezone.utc).timestamp()
-            if now - cache_entry["timestamp"] < _SHARED_TASKS_CACHE_TTL:
-                # FIX BUG #8: Update access time on cache hit for LRU tracking
-                _cache_access_times[cache_key] = now
-                return cache_entry["data"]
-            else:
-                # Expired - remove from cache
-                del _shared_tasks_cache[cache_key]
-                _cache_access_times.pop(cache_key, None)
-    return None
-
-
-async def _cache_shared_tasks(cache_key: str, data: List[dict]):
-    """Cache shared tasks with LRU eviction to prevent memory leak"""
-    async with _cache_lock:
-        now = datetime.now(timezone.utc).timestamp()
-        
-        # FIX BUG #8: Implement true LRU eviction
-        # If at capacity, evict the least recently used entry
-        if len(_shared_tasks_cache) >= _MAX_CACHE_SIZE:
-            # Find the entry with the oldest access time (LRU)
-            lru_key = None
-            oldest_access_time = float('inf')
-            for key, access_time in _cache_access_times.items():
-                if access_time < oldest_access_time:
-                    oldest_access_time = access_time
-                    lru_key = key
-            
-            # Evict the LRU entry if found
-            if lru_key:
-                logger.debug(f"LRU cache eviction: removing key '{lru_key}' (max size: {_MAX_CACHE_SIZE})")
-                del _shared_tasks_cache[lru_key]
-                _cache_access_times.pop(lru_key, None)
-
-        # Add new entry with current timestamp
-        _shared_tasks_cache[cache_key] = {
-            "data": data,
-            "timestamp": now
-        }
-        # Track access time for LRU
-        _cache_access_times[cache_key] = now
-
 
 async def _invalidate_shared_tasks_cache(license_id: int, user_id: Optional[str] = None):
-    """Invalidate shared tasks cache"""
-    async with _cache_lock:
-        # Invalidate all permission levels for this user
-        if user_id:
-            for perm in ['read', 'edit', 'admin', 'all']:
-                cache_key = f"{license_id}|{user_id}|{perm}"
-                _shared_tasks_cache.pop(cache_key, None)
-                # FIX BUG #8: Also clean up access time tracking
-                _cache_access_times.pop(cache_key, None)
-        else:
-            # Invalidate all caches for this license (expensive, use sparingly)
-            keys_to_delete = [k for k in _shared_tasks_cache.keys() if k.startswith(f"{license_id}|")]
-            for key in keys_to_delete:
-                del _shared_tasks_cache[key]
-                # FIX BUG #8: Also clean up access time tracking
-                _cache_access_times.pop(key, None)
+    """Invalidate shared tasks cache
+
+    FIX: Ensure complete cleanup of both cache and access times to prevent memory leaks.
+    """
+    cache = get_shared_tasks_cache()
+    
+    # Invalidate all permission levels for this user
+    if user_id:
+        for perm in ['read', 'edit', 'admin', 'all']:
+            cache_key = f"{license_id}|{user_id}|{perm}"
+            await cache.invalidate(cache_key)
+    else:
+        # Invalidate all caches for this license (expensive, use sparingly)
+        await cache.invalidate_prefix(f"{license_id}|")
 
 
 async def share_task(
@@ -145,11 +81,14 @@ async def share_task(
         # SEC-001 FIX: Prevent self-sharing - check against task owner (created_by)
         # This check happens AFTER resolution to ensure we compare actual user IDs
         task_owner_id = task.get('created_by') or created_by
+        if not task_owner_id:
+            raise ValueError("Task owner could not be determined")
         if recipient_user_id == task_owner_id:
             raise ValueError("Cannot share a task with yourself")
 
         # Check if share already exists (update instead)
         # DATA-001 FIX: Don't re-activate revoked shares
+        # FIX P1: Use INSERT ... ON CONFLICT for SQLite as well to prevent race conditions
         existing = await fetch_one(
             db,
             "SELECT id FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NULL",
@@ -187,29 +126,59 @@ async def share_task(
                 )
                 share_id = result['id'] if result else None
             else:
-                # SQLite: Check if revoked share exists
-                revoked = await fetch_one(
-                    db,
-                    "SELECT id FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NOT NULL",
-                    [task_id, recipient_user_id]
-                )
-                if revoked:
-                    # Don't re-activate - raise error to inform user
-                    raise ValueError("Share was previously revoked. Please create a new share.")
-                    
-                await execute_sql(
-                    db,
-                    """
-                    INSERT INTO task_shares
-                    (task_id, license_key_id, shared_with_user_id, permission, created_at, created_by, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [task_id, license_id, recipient_user_id, permission, now, created_by, now]
-                )
-                result = await fetch_one(db, "SELECT last_insert_rowid() as id", [])
-                share_id = result['id'] if result else None
+                # FIX P1 + FIX #9: SQLite race condition prevention with SAVEPOINT
+                # Use SAVEPOINT for nested operations to prevent deadlocks
+                await execute_sql(db, "SAVEPOINT share_task_sp")
+                try:
+                    # Re-check for existing share under lock
+                    existing_under_lock = await fetch_one(
+                        db,
+                        "SELECT id FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NULL",
+                        [task_id, recipient_user_id]
+                    )
 
-        # Mark task as shared
+                    if existing_under_lock:
+                        # Another transaction created it - update instead
+                        await execute_sql(
+                            db,
+                            """
+                            UPDATE task_shares
+                            SET permission = ?, updated_at = ?
+                            WHERE id = ?
+                            """,
+                            [permission, now, existing_under_lock['id']]
+                        )
+                        share_id = existing_under_lock['id']
+                    else:
+                        # Check if revoked share exists
+                        revoked = await fetch_one(
+                            db,
+                            "SELECT id FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NOT NULL",
+                            [task_id, recipient_user_id]
+                        )
+                        if revoked:
+                            await execute_sql(db, "ROLLBACK TO share_task_sp")
+                            raise ValueError("Share was previously revoked. Please create a new share.")
+
+                        await execute_sql(
+                            db,
+                            """
+                            INSERT INTO task_shares
+                            (task_id, license_key_id, shared_with_user_id, permission, created_at, created_by, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            [task_id, license_id, recipient_user_id, permission, now, created_by, now]
+                        )
+                        result = await fetch_one(db, "SELECT last_insert_rowid() as id", [])
+                        share_id = result['id'] if result else None
+
+                    await execute_sql(db, "RELEASE SAVEPOINT share_task_sp")
+                    await commit_db(db)
+                except Exception:
+                    await execute_sql(db, "ROLLBACK TO share_task_sp")
+                    raise
+
+        # Mark task as shared (already committed, but this needs its own transaction)
         await execute_sql(
             db,
             "UPDATE tasks SET is_shared = 1 WHERE id = ?",
@@ -221,16 +190,18 @@ async def share_task(
         # Invalidate cache for the recipient so they see the shared task immediately
         await _invalidate_shared_tasks_cache(license_id, recipient_user_id)
 
-        # P4-2: Create notification for recipient
+        # P4-2: Create notification for recipient using consolidated function
         try:
-            from workers import create_task_share_notification
-            await create_task_share_notification(
+            from workers import create_resource_shared_notification
+            await create_resource_shared_notification(
                 license_id=license_id,
-                task_id=task_id,
-                task_title=task.get("title", "Unknown"),
+                resource_type='task',
+                resource_id=task_id,
+                resource_title=task.get("title", "Unknown"),
                 shared_by_user_id=created_by or "Unknown",
                 shared_with_user_id=recipient_user_id,
-                permission=permission
+                permission=permission,
+                priority='high'  # Task shares are high priority
             )
         except Exception as e:
             # FIX: Log with ERROR level and include full stack trace for debugging
@@ -260,7 +231,7 @@ async def share_task(
 
             if recipient_license_id:
                 asyncio.create_task(
-                    _safe_broadcast(
+                    broadcast_safe(
                         broadcast_task_shared(
                             license_id=recipient_license_id,
                             task_id=task_id,
@@ -273,8 +244,27 @@ async def share_task(
                 )
             else:
                 logger.warning(f"Could not find recipient license for username: {shared_with_user_id}")
+                # Track metric for missing recipient license
+                try:
+                    from services.metrics_service import MetricsService
+                    metrics = MetricsService()
+                    await metrics.increment_counter("task_share_missing_recipient_license", {
+                        "license_id": str(license_id)
+                    })
+                except Exception:
+                    pass
         except Exception as e:
             logger.warning(f"Failed to queue broadcast task share event: {e}")
+            # FIX: Track WebSocket broadcast failures for monitoring
+            try:
+                from services.metrics_service import MetricsService
+                metrics = MetricsService()
+                await metrics.increment_counter("task_share_broadcast_failures", {
+                    "license_id": str(license_id),
+                    "error_type": type(e).__name__
+                })
+            except Exception:
+                pass
 
         return {
             "task_id": task_id,
@@ -288,18 +278,24 @@ async def get_shared_tasks(
     user_id: str,
     permission: Optional[str] = None
 ) -> List[dict]:
-    """Get tasks shared with a user"""
+    """Get tasks shared with a user
+    
+    FIX: Added share expiration check to prevent expired shares from granting access.
+    """
     # Create cache key
     cache_key = f"{license_id}|{user_id}|{permission or 'all'}"
+    cache = get_shared_tasks_cache()
 
     # Try cache first
-    cached = await _get_cached_shared_tasks(cache_key)
+    cached = await cache.get(cache_key)
     if cached is not None:
         logger.debug(f"Cache hit for shared tasks: {cache_key}")
         return cached
 
     async with get_db() as db:
         # Note: is_deleted is INTEGER (0/1) in both SQLite and PostgreSQL
+        # FIX: Added share expiration check (expires_at IS NULL OR expires_at > now)
+        now = datetime.now(timezone.utc)
         query = """
             SELECT t.*, ts.permission, ts.expires_at
             FROM tasks t
@@ -307,9 +303,10 @@ async def get_shared_tasks(
             WHERE ts.shared_with_user_id = ?
             AND ts.license_key_id = ?
             AND ts.deleted_at IS NULL
+            AND (ts.expires_at IS NULL OR ts.expires_at > ?)
             AND t.is_deleted = 0
         """
-        params = [user_id, license_id]
+        params = [user_id, license_id, now]
 
         if permission:
             query += " AND ts.permission = ?"
@@ -319,7 +316,7 @@ async def get_shared_tasks(
         result = [dict(row) for row in rows]
 
         # Cache the result
-        await _cache_shared_tasks(cache_key, result)
+        await cache.set(cache_key, result)
         logger.debug(f"Cached shared tasks: {cache_key}")
 
         return result

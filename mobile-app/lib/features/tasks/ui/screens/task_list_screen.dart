@@ -135,7 +135,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
         ),
         floatingActionButton: Padding(
           padding: const EdgeInsets.only(
-            bottom: kBottomNavigationBarHeight + 24,
+            bottom: AppDimensions.bottomNavHeight + AppDimensions.spacing24,
           ),
           child: _buildFAB(context),
         ),

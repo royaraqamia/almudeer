@@ -31,45 +31,60 @@ class CalculatorDisplay extends StatelessWidget {
         }
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
         alignment: Alignment.bottomRight,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.end,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              reverse: true,
-              child: AnimatedDefaultTextStyle(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOut,
-                style: TextStyle(
-                  fontSize: expression.length > 10 ? 32 : 48,
-                  fontWeight: FontWeight.w300,
-                  color: isDark ? Colors.white : Colors.black87,
-                  fontFamily: 'IBM Plex Sans Arabic',
-                  letterSpacing: -1,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final availableHeight = constraints.maxHeight;
+            final needsSmallText = availableHeight < 100;
+
+            return Column(
+              mainAxisAlignment: MainAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  reverse: true,
+                  child: AnimatedDefaultTextStyle(
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeOut,
+                    style: TextStyle(
+                      fontSize: needsSmallText
+                          ? 24
+                          : expression.length > 10
+                              ? 32
+                              : 48,
+                      fontWeight: FontWeight.w300,
+                      color: isDark ? Colors.white : Colors.black87,
+                      fontFamily: 'IBM Plex Sans Arabic',
+                      letterSpacing: -1,
+                      height: 1.2,
+                    ),
+                    child: Text(
+                      expression.isEmpty ? '0' : expression,
+                      maxLines: needsSmallText ? 2 : null,
+                    ),
+                  ),
                 ),
-                child: Text(expression.isEmpty ? '0' : expression),
-              ),
-            ),
-            const SizedBox(height: 8),
-            AnimatedOpacity(
-              duration: const Duration(milliseconds: 200),
-              opacity: result.isNotEmpty ? 1.0 : 0.0,
-              child: Text(
-                result == 'Error' ? 'خطأ' : result,
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w400,
-                  color: result == 'Error'
-                      ? Colors.red
-                      : (isDark ? Colors.white70 : Colors.black54),
-                  fontFamily: 'IBM Plex Sans Arabic',
+                SizedBox(height: needsSmallText ? 4 : 8),
+                AnimatedOpacity(
+                  duration: const Duration(milliseconds: 200),
+                  opacity: result.isNotEmpty ? 1.0 : 0.0,
+                  child: Text(
+                    result == 'Error' ? 'خطأ' : result,
+                    style: TextStyle(
+                      fontSize: needsSmallText ? 20 : 28,
+                      fontWeight: FontWeight.w400,
+                      color: result == 'Error'
+                          ? Colors.red
+                          : (isDark ? Colors.white70 : Colors.black54),
+                      fontFamily: 'IBM Plex Sans Arabic',
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );

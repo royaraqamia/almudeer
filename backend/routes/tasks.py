@@ -1035,24 +1035,51 @@ async def share_task(
             "message_en": "Task shared successfully"
         }
     except ValueError as e:
+        # FIX: Sanitize error messages - don't expose internal details
+        error_msg = str(e)
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Share task validation error: {error_msg}")
+        
+        # Map to safe, user-friendly messages
+        error_lower = error_msg.lower()
+        if 'yourself' in error_lower:
+            safe_msg_ar = 'لا يمكنك مشاركة المهمة مع نفسك'
+            safe_msg_en = 'Cannot share a task with yourself'
+        elif 'not found' in error_lower:
+            safe_msg_ar = 'المهمة غير موجودة'
+            safe_msg_en = 'Task not found'
+        elif 'permission' in error_lower or 'privilege' in error_lower:
+            safe_msg_ar = 'ليس لديك صلاحية مشاركة هذه المهمة'
+            safe_msg_en = 'You do not have permission to share this task'
+        elif 'revoked' in error_lower:
+            safe_msg_ar = 'تم إلغاء هذه المشاركة سابقاً. يرجى إنشاء مشاركة جديدة.'
+            safe_msg_en = 'This share was previously revoked. Please create a new share.'
+        elif 'user' in error_lower and 'not found' in error_lower:
+            safe_msg_ar = 'المستخدم غير موجود'
+            safe_msg_en = 'User not found'
+        else:
+            safe_msg_ar = 'بيانات المشاركة غير صحيحة'
+            safe_msg_en = 'Invalid share data'
+        
         raise HTTPException(
             status_code=400,
             detail={
                 "code": "INVALID_SHARE",
-                "message_ar": str(e),
-                "message_en": str(e)
+                "message_ar": safe_msg_ar,
+                "message_en": safe_msg_en
             }
         )
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
-        logger.error(f"Failed to share task: {e}")
+        logger.error(f"Failed to share task: {e}", exc_info=True)
+        # FIX: Don't expose internal error details to users
         raise HTTPException(
             status_code=500,
             detail={
                 "code": "SHARE_FAILED",
-                "message_ar": "فشل مشاركة المهمة",
-                "message_en": "Failed to share task"
+                "message_ar": "حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.",
+                "message_en": "An unexpected error occurred. Please try again."
             }
         )
 
@@ -1069,12 +1096,17 @@ async def bulk_share_tasks(
 ):
     """
     Share multiple tasks with a user in a single request.
-    
+
     PERMISSION: Only task owners can bulk share their tasks.
     Rate limited to 5 requests/minute to prevent abuse.
+
+    FIX: Supports partial success - returns detailed info about successes and failures.
     """
     from models.task_shares import share_task as share_task_model
     from models.tasks import get_task
+    from db_helper import get_db
+    import logging
+    logger = logging.getLogger(__name__)
 
     user_id = user.get("user_id")
     license_id = license["license_id"]
@@ -1090,30 +1122,59 @@ async def bulk_share_tasks(
             }
         )
 
-    results = {
-        'success': [],
-        'failed': []
-    }
+    # Validate all tasks first before sharing
+    validation_errors = []
+    valid_task_ids = []
 
     for task_id in task_ids:
         try:
-            # Verify task exists and user owns it
             task = await get_task(license_id, task_id, user_id)
             if not task:
-                results['failed'].append({
+                validation_errors.append({
                     'task_id': task_id,
-                    'error': 'Task not found or no permission'
+                    'error': 'Task not found or no permission',
+                    'error_ar': 'المهمة غير موجودة أو لا تملك صلاحية الوصول إليها'
                 })
                 continue
 
-            # Verify user is the owner
             if task.get("created_by") != user_id:
-                results['failed'].append({
+                validation_errors.append({
                     'task_id': task_id,
-                    'error': 'Not the task owner'
+                    'error': 'Not the task owner',
+                    'error_ar': 'لست مالك هذه المهمة'
                 })
                 continue
 
+            valid_task_ids.append(task_id)
+        except Exception as e:
+            logger.error(f"Validation failed for task {task_id}: {e}")
+            validation_errors.append({
+                'task_id': task_id,
+                'error': str(e),
+                'error_ar': 'خطأ في التحقق من المهمة'
+            })
+
+    # If ALL tasks failed validation, return error immediately
+    if not valid_task_ids:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "VALIDATION_FAILED",
+                "message_ar": "فشل التحقق من جميع المهام",
+                "message_en": "Validation failed for all tasks",
+                "errors": validation_errors
+            }
+        )
+
+    # Execute shares - each in its own transaction for partial success support
+    results = {
+        'successful': [],
+        'failed': [],
+        'validation_failed': validation_errors
+    }
+
+    for task_id in valid_task_ids:
+        try:
             result = await share_task_model(
                 task_id=task_id,
                 license_id=license_id,
@@ -1121,22 +1182,79 @@ async def bulk_share_tasks(
                 permission=permission,
                 created_by=user_id
             )
-            results['success'].append(result)
-
-        except Exception as e:
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to share task {task_id}: {e}")
-            results['failed'].append({
+            results['successful'].append({
                 'task_id': task_id,
-                'error': str(e)
+                'shared_with': shared_with_user_id,
+                'permission': permission
             })
 
+        except ValueError as e:
+            # Expected errors (e.g., self-share prevention, share was revoked)
+            error_msg = str(e)
+            logger.warning(f"Failed to share task {task_id}: {error_msg}")
+            results['failed'].append({
+                'task_id': task_id,
+                'error': error_msg,
+                'error_ar': _get_share_error_arabic(error_msg)
+            })
+
+        except Exception as e:
+            # Unexpected errors
+            error_msg = str(e)
+            logger.error(f"Failed to share task {task_id}: {error_msg}", exc_info=True)
+            results['failed'].append({
+                'task_id': task_id,
+                'error': 'Share operation failed',
+                'error_ar': 'فشلت عملية المشاركة'
+            })
+
+    # Return detailed results - partial success is OK
+    success_count = len(results['successful'])
+    failed_count = len(results['failed'])
+    validation_failed_count = len(validation_errors)
+
+    # If ALL operations failed, return error
+    if success_count == 0:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "BULK_SHARE_FAILED",
+                "message_ar": f"فشلت مشاركة جميع المهام: {failed_count + validation_failed_count} أخطاء",
+                "message_en": f"All tasks failed to share: {failed_count + validation_failed_count} errors",
+                "results": results
+            }
+        )
+
+    # Return partial success results
+    status_code = 207 if (failed_count > 0 or validation_failed_count > 0) else 200
     return {
         "success": True,
+        "partial_success": failed_count > 0 or validation_failed_count > 0,
+        "summary": {
+            "total_requested": len(task_ids),
+            "successful": success_count,
+            "failed": failed_count,
+            "validation_failed": validation_failed_count
+        },
         "results": results,
-        "message_ar": f"تمت مشاركة {len(results['success'])} مهام",
-        "message_en": f"Shared {len(results['success'])} tasks"
+        "message_ar": f"تمت مشاركة {success_count} مهام بنجاح، فشل {failed_count} مهام، فشل التحقق من {validation_failed_count} مهام",
+        "message_en": f"Successfully shared {success_count} tasks, failed {failed_count} tasks, validation failed {validation_failed_count} tasks"
     }
+
+
+def _get_share_error_arabic(error_msg: str) -> str:
+    """Get Arabic translation for common share errors"""
+    error_lower = error_msg.lower()
+    if 'yourself' in error_lower:
+        return 'لا يمكنك مشاركة المهمة مع نفسك'
+    elif 'revoked' in error_lower:
+        return 'تم إلغاء هذه المشاركة سابقاً. يرجى إنشاء مشاركة جديدة.'
+    elif 'not found' in error_lower:
+        return 'المهمة غير موجودة'
+    elif 'permission' in error_lower:
+        return 'ليس لديك صلاحية مشاركة هذه المهمة'
+    else:
+        return 'فشلت عملية المشاركة'
 
 
 # P3-14: Static routes must come before parameterized routes in FastAPI
@@ -1174,7 +1292,9 @@ async def get_tasks_shared_with_me(
 
 
 @router.get("/{task_id}/shares")
+@limiter.limit("10/minute")
 async def get_task_shares(
+    request: Request,
     task_id: str,
     license: dict = Depends(get_license_from_header),
     user: dict = Depends(get_current_user)
@@ -1215,14 +1335,16 @@ async def get_task_shares(
 
 
 @router.delete("/shares/{share_id}")
+@limiter.limit("10/minute")
 async def revoke_task_share(
+    request: Request,
     share_id: int,
     license: dict = Depends(get_license_from_header),
     user: dict = Depends(get_current_user)
 ):
     """
     Revoke a task share.
-    
+
     PERMISSION: Only task owner or admin users can revoke shares.
     """
     from models.task_shares import remove_share, get_task
@@ -1314,7 +1436,9 @@ async def revoke_task_share(
 
 
 @router.patch("/shares/{share_id}/permission")
+@limiter.limit("10/minute")
 async def update_task_share_permission(
+    request: Request,
     share_id: int,
     permission: str,
     license: dict = Depends(get_license_from_header),

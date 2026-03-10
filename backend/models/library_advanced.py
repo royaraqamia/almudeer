@@ -26,86 +26,30 @@ from utils.permissions import (
     get_effective_permission,
     validate_permission_for_action,
 )
+from utils.cache_utils import (
+    get_shared_items_cache,
+    broadcast_safe,
+)
 
 logger = logging.getLogger(__name__)
 
-# P6-2: LRU Cache for shared items (max 100 entries, 5 minute TTL)
-# FIX BUG #8: Implement true LRU eviction using access time tracking
-_shared_items_cache: Dict[str, Dict[str, Any]] = {}
-_SHARED_ITEMS_CACHE_TTL = 300  # 5 minutes
-_MAX_CACHE_SIZE = 100  # Maximum number of cache entries to prevent memory leak
-_cache_lock = asyncio.Lock()  # Thread-safe cache operations
-# Track last access time for LRU eviction
-_cache_access_times: Dict[str, float] = {}
-
-
-async def _safe_broadcast(coro, description: str):
-    """Wrapper to catch exceptions from background broadcast tasks"""
-    try:
-        await coro
-    except Exception as e:
-        logger.warning(f"Failed to {description}: {e}", exc_info=True)
-
-
-async def _get_cached_shared_items(cache_key: str) -> Optional[List[dict]]:
-    """Get cached shared items if not expired"""
-    async with _cache_lock:
-        if cache_key in _shared_items_cache:
-            cache_entry = _shared_items_cache[cache_key]
-            now = datetime.now(timezone.utc).timestamp()
-            if now - cache_entry["timestamp"] < _SHARED_ITEMS_CACHE_TTL:
-                # FIX BUG #8: Update access time on cache hit for LRU tracking
-                _cache_access_times[cache_key] = now
-                return cache_entry["data"]
-            else:
-                # Expired - remove from cache
-                del _shared_items_cache[cache_key]
-                _cache_access_times.pop(cache_key, None)
-    return None
-
-
-async def _cache_shared_items(cache_key: str, data: List[dict]):
-    """Cache shared items with LRU eviction to prevent memory leak"""
-    async with _cache_lock:
-        now = datetime.now(timezone.utc).timestamp()
-        
-        # FIX BUG #8: Implement true LRU eviction
-        # If at capacity, evict the least recently used entry
-        if len(_shared_items_cache) >= _MAX_CACHE_SIZE:
-            # Find the entry with the oldest access time (LRU)
-            lru_key = None
-            oldest_access_time = float('inf')
-            for key, access_time in _cache_access_times.items():
-                if access_time < oldest_access_time:
-                    oldest_access_time = access_time
-                    lru_key = key
-            
-            # Evict the LRU entry if found
-            if lru_key:
-                logger.debug(f"LRU cache eviction: removing key '{lru_key}' (max size: {_MAX_CACHE_SIZE})")
-                del _shared_items_cache[lru_key]
-                _cache_access_times.pop(lru_key, None)
-
-        # Add new entry with current timestamp
-        _shared_items_cache[cache_key] = {
-            "data": data,
-            "timestamp": now
-        }
-        # Track access time for LRU
-        _cache_access_times[cache_key] = now
-
 
 async def _invalidate_shared_items_cache(license_id: int, user_id: Optional[str] = None):
-    """Invalidate shared items cache for a license or user"""
-    async with _cache_lock:
-        keys_to_remove = [
-            key for key in _shared_items_cache.keys()
-            if key.startswith(f"{license_id}|") and (user_id is None or user_id in key.split('|')[1])
-        ]
-        for key in keys_to_remove:
-            del _shared_items_cache[key]
-            # FIX BUG #8: Also clean up access time tracking
-            _cache_access_times.pop(key, None)
+    """Invalidate shared items cache for a license or user
+
+    FIX BUG #5: Invalidate all permission variants to prevent cache inconsistency.
+    FIX: Ensure complete cleanup of both cache and access times to prevent memory leaks.
+    """
+    cache = get_shared_items_cache()
+    
+    # FIX: Invalidate all permission levels for this user
+    if user_id:
+        for perm in ['read', 'edit', 'admin', 'all']:
+            cache_key = f"{license_id}|{user_id}|{perm}"
+            await cache.invalidate(cache_key)
+    else:
+        # Invalidate all caches for this license
+        await cache.invalidate_prefix(f"{license_id}|")
 
 
 # ============================================================================
@@ -349,7 +293,7 @@ async def share_item(
 
             if recipient_license_id:
                 asyncio.create_task(
-                    _safe_broadcast(
+                    broadcast_safe(
                         broadcast_library_shared(
                             license_id=recipient_license_id,
                             item_id=item_id,
@@ -362,8 +306,27 @@ async def share_item(
                 )
             else:
                 logger.warning(f"Could not find recipient license for user_id: {recipient_user_id}")
+                # Track metric for missing recipient license
+                try:
+                    from services.metrics_service import MetricsService
+                    metrics = MetricsService()
+                    await metrics.increment_counter("library_share_missing_recipient_license", {
+                        "license_id": str(license_id)
+                    })
+                except Exception:
+                    pass
         except Exception as e:
             logger.warning(f"Failed to queue broadcast library share event: {e}")
+            # FIX: Track WebSocket broadcast failures for monitoring
+            try:
+                from services.metrics_service import MetricsService
+                metrics = MetricsService()
+                await metrics.increment_counter("library_share_broadcast_failures", {
+                    "license_id": str(license_id),
+                    "error_type": type(e).__name__
+                })
+            except Exception:
+                pass
 
         return {
             "item_id": item_id,
@@ -380,18 +343,22 @@ async def get_shared_items(
     """Get items shared with a user
 
     P6-2: Implements caching for better performance.
+    FIX: Added share expiration check to prevent expired shares from granting access.
     """
     # Create cache key
     cache_key = f"{license_id}|{user_id}|{permission or 'all'}"
+    cache = get_shared_items_cache()
 
     # Try cache first
-    cached = await _get_cached_shared_items(cache_key)
+    cached = await cache.get(cache_key)
     if cached is not None:
         logger.debug(f"Cache hit for shared items: {cache_key}")
         return cached
 
     async with get_db() as db:
         try:
+            # FIX: Added share expiration check (expires_at IS NULL OR expires_at > now)
+            now = datetime.now(timezone.utc)
             query = """
                 SELECT li.*, ls.permission, ls.expires_at
                 FROM library_items li
@@ -399,9 +366,10 @@ async def get_shared_items(
                 WHERE ls.shared_with_user_id = ?
                 AND ls.license_key_id = ?
                 AND ls.deleted_at IS NULL
+                AND (ls.expires_at IS NULL OR ls.expires_at > ?)
                 AND li.deleted_at IS NULL
             """
-            params = [user_id, license_id]
+            params = [user_id, license_id, now]
 
             if permission:
                 query += " AND ls.permission = ?"
@@ -410,11 +378,11 @@ async def get_shared_items(
             logger.debug(f"Executing query: {query} with params: {params}")
             rows = await fetch_all(db, query, params)
             result = [dict(row) for row in rows]
-            
+
             logger.debug(f"Query returned {len(result)} rows")
 
             # Cache the result
-            await _cache_shared_items(cache_key, result)
+            await cache.set(cache_key, result)
             logger.debug(f"Cached shared items: {cache_key}")
 
             return result

@@ -171,21 +171,49 @@ class TaskSyncService {
   }
 
   /// Share a task with a user - P4-2
+  /// FIX BUG #2: Add proper error handling with localized messages
   Future<Map<String, dynamic>> shareTask({
     required String taskId,
     required String sharedWithUserId,
     required String permission,
     int? expiresInDays,
   }) async {
-    final response = await _apiClient.post(
-      '$_endpoint/$taskId/share',
-      body: {
-        'shared_with_user_id': sharedWithUserId,
-        'permission': permission,
-        'expires_in_days': expiresInDays,
-      },
-    );
-    return response;
+    try {
+      final response = await _apiClient.post(
+        '$_endpoint/$taskId/share',
+        body: {
+          'shared_with_user_id': sharedWithUserId,
+          'permission': permission,
+          'expires_in_days': expiresInDays,
+        },
+      );
+      
+      // Check for backend error response
+      if (response['success'] != true) {
+        final detail = response['detail'];
+        final errorMessage = detail?['message_ar'] ?? detail?['message_en'] ?? 'فشل مشاركة المهمة';
+        throw Exception(errorMessage);
+      }
+      
+      return response;
+    } on ApiException catch (e) {
+      debugPrint('[SyncService] Share task API error: $e');
+      // Handle specific HTTP status codes
+      if (e.statusCode == 403) {
+        throw Exception('ليس لديك صلاحية مشاركة هذه المهمة');
+      } else if (e.statusCode == 404) {
+        throw Exception('المهمة غير موجودة');
+      } else if (e.statusCode == 400) {
+        throw Exception(e.message);
+      }
+      rethrow;
+    } catch (e) {
+      debugPrint('[SyncService] Share task failed: $e');
+      if (e is Exception) {
+        rethrow;
+      }
+      throw Exception('حدث خطأ غير متوقع أثناء مشاركة المهمة');
+    }
   }
 
   /// Fetch tasks shared with the current user - P4-2

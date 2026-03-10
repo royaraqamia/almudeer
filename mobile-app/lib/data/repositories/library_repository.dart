@@ -33,13 +33,16 @@ class LibraryRepository {
   
   // P0-4 FIX: Track disposal state to prevent operations during/after disposal
   bool _isDisposed = false;
-  
+
   // P1-7 FIX: Track local versions for conflict detection
   final Map<int, int> _localVersions = {};
 
   // Issue #16: Track failed sync attempts
   final Map<int, int> _failedSyncAttempts = {};
   static const int maxSyncRetries = 3;
+
+  // FIX: Track sync scheduling to prevent race conditions from multiple rapid calls
+  bool _syncScheduled = false;
 
   ApiClient get apiClient => _apiClient;
   Stream<void> get syncStream => _syncController.stream;
@@ -86,7 +89,7 @@ class LibraryRepository {
         licenseKeyId: licenseId,
         type: category,
       );
-      
+
       if (searchQuery != null && searchQuery.isNotEmpty) {
         yield cachedItems
             .where(
@@ -97,10 +100,11 @@ class LibraryRepository {
       } else {
         yield cachedItems;
       }
-      
+
       // P0-3: If cache is expired, force refresh from remote
+      // Cache exists but is stale - continue to fetch fresh data below
       if (!isCacheValid && cachedItems.isNotEmpty) {
-        // Cache exists but is stale - will refresh below
+        debugPrint('[LibraryRepository] Cache expired, will refresh from remote');
       }
     }
 
@@ -177,9 +181,8 @@ class LibraryRepository {
       if (backendCategory != null) {
         queryParams['category'] = backendCategory;
       }
-    } else {
-      debugPrint('[LibraryRepository] Fetching with NO category - content may be missing!');
     }
+    // Note: Null category is valid for fetching all items
 
     if (searchQuery != null && searchQuery.isNotEmpty) {
       queryParams['search'] = searchQuery;
@@ -398,11 +401,26 @@ class LibraryRepository {
   }
 
   /// Schedule sync to run asynchronously
+  /// FIX: Prevents race conditions from multiple rapid sync requests
   void scheduleSync() {
+    // Prevent multiple sync operations from being scheduled simultaneously
+    if (_syncScheduled) {
+      if (kDebugMode) {
+        print('LibraryRepository: Sync already scheduled, skipping duplicate request');
+      }
+      return;
+    }
+    
+    _syncScheduled = true;
     // Run sync in next microtask to avoid blocking UI
     // Using Future.delayed to ensure it runs after current frame
     Future.delayed(Duration.zero, () async {
-      await _performSyncInternal();
+      try {
+        await _performSyncInternal();
+      } finally {
+        // Reset flag after sync completes
+        _syncScheduled = false;
+      }
     });
   }
 
@@ -613,7 +631,7 @@ class LibraryRepository {
               int? serverVersion;
               try {
                 final currentItem = await _apiClient.get(Endpoints.libraryItem(id));
-                if (currentItem['success'] == true) {
+                if (currentItem['success'] == true && currentItem['item'] != null) {
                   serverVersion = currentItem['item']['version'] as int?;
                 }
               } on ItemNotFoundException catch (e) {

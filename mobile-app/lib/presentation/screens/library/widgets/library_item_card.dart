@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:figma_squircle/figma_squircle.dart';
-import 'package:path/path.dart' as p;
 import 'package:solar_icon_pack/solar_icon_pack.dart';
 
 import '../../../../core/constants/colors.dart';
@@ -10,11 +8,10 @@ import '../../../../core/constants/shadows.dart';
 import '../../../../core/constants/animations.dart';
 import '../../../../core/utils/haptics.dart';
 import '../../../../core/extensions/string_extension.dart';
-import '../../../../core/services/media_cache_manager.dart';
+import '../../../../core/localization/library_localizations.dart';
 import '../../../../data/models/library_item.dart';
 import '../../../providers/library_provider.dart';
-import '../../../widgets/video_thumbnail_widget.dart';
-import '../../../widgets/animated_toast.dart';
+import 'library_item_card_base.dart';
 
 /// ✅ P0: Accessible Library Item Card
 /// - P0: Proper Semantics labels
@@ -37,19 +34,24 @@ class LibraryItemCard extends StatefulWidget {
   State<LibraryItemCard> createState() => _LibraryItemCardState();
 }
 
-class _LibraryItemCardState extends State<LibraryItemCard>
+class _LibraryItemCardState extends LibraryItemCardStateBase<LibraryItemCard>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
-  String? _localPath;
-  bool _isDownloading = false;
-  int _downloadedBytes = 0;
-  int _totalBytes = 0;
+
+  @override
+  LibraryItem get item => widget.item;
+  
+  @override
+  LibraryProvider get provider => widget.provider;
+  
+  @override
+  VoidCallback get onView => widget.onView;
 
   @override
   void initState() {
     super.initState();
-    _checkCache();
+    checkCache();
     _controller = AnimationController(
       duration: AppAnimations.fast,
       vsync: this,
@@ -63,60 +65,7 @@ class _LibraryItemCardState extends State<LibraryItemCard>
   void didUpdateWidget(covariant LibraryItemCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.item.filePath != widget.item.filePath) {
-      _checkCache();
-    }
-  }
-
-  Future<void> _checkCache() async {
-    if (widget.item.type == 'note' || widget.item.type == 'task') return;
-    if (widget.item.filePath == null) return;
-
-    final url = widget.item.filePath!.toFullUrl;
-    final path = await MediaCacheManager().getLocalPath(
-      url,
-      filename: widget.item.title,
-    );
-    if (mounted) {
-      setState(() => _localPath = path);
-    }
-  }
-
-  Future<void> _download() async {
-    if (widget.item.filePath == null || _isDownloading) return;
-
-    final url = widget.item.filePath!.toFullUrl;
-    setState(() => _isDownloading = true);
-
-    try {
-      final path = await MediaCacheManager().downloadFile(
-        url,
-        filename: widget.item.title,
-        onProgressBytes: (received, total) {
-          if (mounted) {
-            setState(() {
-              _downloadedBytes = received;
-              _totalBytes = total;
-            });
-          }
-        },
-      );
-      if (mounted) {
-        setState(() {
-          _localPath = path;
-          _isDownloading = false;
-          _downloadedBytes = 0;
-          _totalBytes = 0;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isDownloading = false;
-          _downloadedBytes = 0;
-          _totalBytes = 0;
-        });
-        AnimatedToast.error(context, 'فشل التحميل: $e');
-      }
+      checkCache();
     }
   }
 
@@ -141,18 +90,7 @@ class _LibraryItemCardState extends State<LibraryItemCard>
           onTapDown: (_) => _controller.forward(),
           onTapUp: (_) async {
             _controller.reverse();
-            Haptics.lightTap();
-            if (widget.provider.isSelectionMode) {
-              widget.provider.toggleSelection(widget.item.id);
-            } else {
-              final isMedia = widget.item.type != 'note' && widget.item.type != 'task';
-              if (isMedia && _localPath == null) {
-                await _download();
-                if (_localPath != null) widget.onView();
-              } else {
-                widget.onView();
-              }
-            }
+            await handleTap();
           },
           onTapCancel: () => _controller.reverse(),
           onLongPress: () {
@@ -183,7 +121,7 @@ class _LibraryItemCardState extends State<LibraryItemCard>
                       ],
                     ),
                     child: Stack(
-                      clipBehavior: Clip.hardEdge,
+                      clipBehavior: Clip.none,
                       children: [
                       Column(
                         crossAxisAlignment: widget.item.type == 'note'
@@ -222,18 +160,31 @@ class _LibraryItemCardState extends State<LibraryItemCard>
                         Positioned(
                           bottom: -4,
                           left: -4,
-                          child: Container(
-                            padding: EdgeInsets.all(isSelected ? 0 : 3),
-                            decoration: BoxDecoration(
-                              color: theme.scaffoldBackgroundColor,
-                              shape: BoxShape.circle,
-                              border: isSelected
-                                  ? null
-                                  : Border.all(color: theme.scaffoldBackgroundColor, width: 2),
+                          child: Semantics(
+                            label: isSelected
+                                ? LibraryLocalizations.of(context).selected
+                                : LibraryLocalizations.of(context).notSelected,
+                            child: InkWell(
+                              onTap: () {
+                                Haptics.lightTap();
+                                widget.provider.toggleSelection(widget.item.id);
+                              },
+                              borderRadius: BorderRadius.circular(20),
+                              child: Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: theme.scaffoldBackgroundColor,
+                                  shape: BoxShape.circle,
+                                  border: isSelected
+                                      ? null
+                                      : Border.all(color: theme.scaffoldBackgroundColor, width: 2),
+                                ),
+                                child: isSelected
+                                    ? const Icon(SolarBoldIcons.checkCircle, color: AppColors.success, size: 32)
+                                    : Icon(SolarLinearIcons.stop, size: 20, color: isDark ? AppColors.textSecondaryDark : Colors.grey[400]),
+                              ),
                             ),
-                            child: isSelected
-                                ? const Icon(SolarBoldIcons.checkCircle, color: AppColors.success, size: 24)
-                                : Icon(SolarLinearIcons.stop, size: 14, color: isDark ? AppColors.textSecondaryDark : Colors.grey[400]),
                           ),
                         ),
                       // Show shared badge for items shared with the user
@@ -247,20 +198,20 @@ class _LibraryItemCardState extends State<LibraryItemCard>
                               vertical: AppDimensions.spacing4,
                             ),
                             decoration: BoxDecoration(
-                              color: _getPermissionColor(widget.item.sharePermission ?? 'read').withValues(alpha: 0.9),
+                              color: getPermissionColor(widget.item.sharePermission ?? 'read').withValues(alpha: 0.9),
                               borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
-                                  _getPermissionIcon(widget.item.sharePermission ?? 'read'),
+                                  getPermissionIcon(widget.item.sharePermission ?? 'read'),
                                   size: AppDimensions.iconSmall,
                                   color: Colors.white,
                                 ),
                                 const SizedBox(width: AppDimensions.spacing4),
                                 Text(
-                                  _getPermissionLabel(widget.item.sharePermission ?? 'read'),
+                                  getPermissionLabel(widget.item.sharePermission ?? 'read'),
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 10,
@@ -284,195 +235,7 @@ class _LibraryItemCardState extends State<LibraryItemCard>
   }
 
   Widget _buildItemPreview(LibraryItem item) {
-    final fileName = (item.filePath != null ? p.basename(item.filePath!) : item.title).toLowerCase();
-    final extension = p.extension(fileName).toLowerCase().replaceAll('.', '');
-    final isImage = item.type == 'image' ||
-        ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(extension) ||
-        (item.mimeType?.contains('image') ?? false);
-    final isVideo = item.type == 'video' ||
-        ['mp4', 'mov', 'avi', 'mkv', 'webm'].contains(extension) ||
-        (item.mimeType?.contains('video') ?? false);
-
-    if (_localPath == null && (isImage || isVideo || item.type == 'audio' || item.type == 'file')) {
-      final isDark = Theme.of(context).brightness == Brightness.dark;
-      return Center(
-        child: _isDownloading
-            ? _buildDetailedProgressIndicator(isDark)
-            : Stack(
-                alignment: Alignment.center,
-                children: [
-                  _getTypeIcon(item, size: 32, color: isDark ? AppColors.textSecondaryDark : Colors.grey[300]!),
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.3),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(SolarLinearIcons.download, color: Colors.white, size: 14),
-                  ),
-                ],
-              ),
-      );
-    }
-
-    if (isImage && _localPath != null) {
-      return CachedNetworkImage(imageUrl: item.filePath!.toFullUrl, fit: BoxFit.cover);
-    }
-
-    if (isVideo && _localPath != null) {
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          VideoThumbnailWidget(videoUrl: _localPath!),
-          Center(
-            child: Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.4),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(SolarBoldIcons.play, color: Colors.white, size: 20),
-            ),
-          ),
-        ],
-      );
-    }
-
-    if (item.type == 'note') {
-      final isDark = Theme.of(context).brightness == Brightness.dark;
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12.0),
-        child: Text(
-          item.content ?? '',
-          maxLines: 5,
-          overflow: TextOverflow.ellipsis,
-          textDirection: (item.content ?? '').direction,
-          textAlign: (item.content ?? '').isArabic ? TextAlign.right : TextAlign.left,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            fontSize: 12,
-            fontWeight: FontWeight.normal,
-            color: isDark ? AppColors.textPrimaryDark : AppColors.textSecondaryLight,
-            fontFamily: 'IBM Plex Sans Arabic',
-          ),
-        ),
-      );
-    }
-
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Center(child: _getTypeIcon(item, size: 40, color: isDark ? AppColors.textSecondaryDark : Colors.grey[400]!));
-  }
-
-  Widget _buildDetailedProgressIndicator(bool isDark) {
-    final percentage = _totalBytes > 0 ? ((_downloadedBytes.toDouble() / _totalBytes) * 100) : 0;
-    final progress = _totalBytes > 0 ? (_downloadedBytes.toDouble() / _totalBytes) : 0.0;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 48,
-          height: 48,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              SizedBox(
-                width: 48,
-                height: 48,
-                child: CircularProgressIndicator(
-                  value: progress,
-                  strokeWidth: 3,
-                  color: AppColors.primary,
-                  backgroundColor: isDark ? Colors.white24 : Colors.black12,
-                ),
-              ),
-              Text(
-                '${percentage.toStringAsFixed(0)}%',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white : Colors.black87,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '${_formatBytes(_downloadedBytes)} / ${_formatBytes(_totalBytes)}',
-          style: TextStyle(
-            fontSize: 9,
-            color: isDark ? Colors.white70 : Colors.black54,
-          ),
-        ),
-      ],
-    );
-  }
-
-  String _formatBytes(int bytes) {
-    if (bytes <= 0) return '0 B';
-    const suffixes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    double dBytes = bytes.toDouble();
-    int iSafety = 0;
-    while (dBytes >= 1024 && iSafety < suffixes.length - 1) {
-      dBytes /= 1024;
-      iSafety++;
-    }
-    return '${dBytes.toStringAsFixed(iSafety == 0 ? 0 : 1)} ${suffixes[iSafety]}';
-  }
-
-  Widget _getTypeIcon(LibraryItem item, {double size = 24, Color color = Colors.grey}) {
-    switch (item.type) {
-      case 'note': return Icon(SolarBoldIcons.notes, size: size, color: color);
-      case 'image': return Icon(SolarBoldIcons.gallery, size: size, color: color);
-      case 'audio': return Icon(SolarBoldIcons.musicNotes, size: size, color: color);
-      case 'video': return Icon(SolarBoldIcons.videocamera, size: size, color: color);
-      default:
-        final fileName = (item.filePath != null ? p.basename(item.filePath!) : item.title).toLowerCase();
-        final extension = p.extension(fileName).toLowerCase().replaceAll('.', '');
-        if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(extension)) {
-          return Icon(SolarBoldIcons.gallery, size: size, color: color);
-        }
-        if (['mp4', 'mov', 'avi', 'mkv', 'webm'].contains(extension)) {
-          return Icon(SolarBoldIcons.videocamera, size: size, color: color);
-        }
-        if (['mp3', 'wav', 'aac', 'm4a', 'flac'].contains(extension)) {
-          return Icon(SolarBoldIcons.musicNotes, size: size, color: color);
-        }
-        return Icon(SolarBoldIcons.file, size: size, color: color);
-    }
-  }
-
-  IconData _getPermissionIcon(String permission) {
-    switch (permission) {
-      case 'edit':
-        return SolarLinearIcons.pen;
-      case 'admin':
-        return SolarLinearIcons.userHeart;
-      default:
-        return SolarLinearIcons.eye;
-    }
-  }
-
-  String _getPermissionLabel(String permission) {
-    switch (permission) {
-      case 'edit':
-        return 'تعديل';
-      case 'admin':
-        return 'مدير';
-      default:
-        return 'قراءة';
-    }
-  }
-
-  Color _getPermissionColor(String permission) {
-    switch (permission) {
-      case 'edit':
-        return Colors.blue;
-      case 'admin':
-        return Colors.purple;
-      default:
-        return AppColors.primary;
-    }
+    return buildItemPreview(item);
   }
 }
 
@@ -497,14 +260,19 @@ class LibraryItemListCard extends StatefulWidget {
   State<LibraryItemListCard> createState() => _LibraryItemListCardState();
 }
 
-class _LibraryItemListCardState extends State<LibraryItemListCard>
+class _LibraryItemListCardState extends LibraryItemCardStateBase<LibraryItemListCard>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
-  String? _localPath;
-  bool _isDownloading = false;
-  int _downloadedBytes = 0;
-  int _totalBytes = 0;
+
+  @override
+  LibraryItem get item => widget.item;
+  
+  @override
+  LibraryProvider get provider => widget.provider;
+  
+  @override
+  VoidCallback get onView => widget.onView;
 
   @override
   void initState() {
@@ -516,64 +284,14 @@ class _LibraryItemListCardState extends State<LibraryItemListCard>
     _scaleAnimation = Tween<double>(begin: 1.0, end: 0.98).animate(
       CurvedAnimation(parent: _controller, curve: AppAnimations.interactive),
     );
-    _checkCache();
+    checkCache();
   }
 
   @override
   void didUpdateWidget(covariant LibraryItemListCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.item.filePath != widget.item.filePath) {
-      _checkCache();
-    }
-  }
-
-  Future<void> _checkCache() async {
-    if (widget.item.type == 'note' || widget.item.type == 'task') return;
-    if (widget.item.filePath == null) return;
-
-    final url = widget.item.filePath!.toFullUrl;
-    final path = await MediaCacheManager().getLocalPath(url, filename: widget.item.title);
-    if (mounted) {
-      setState(() => _localPath = path);
-    }
-  }
-
-  Future<void> _download() async {
-    if (widget.item.filePath == null || _isDownloading) return;
-
-    final url = widget.item.filePath!.toFullUrl;
-    setState(() => _isDownloading = true);
-
-    try {
-      final path = await MediaCacheManager().downloadFile(
-        url,
-        filename: widget.item.title,
-        onProgressBytes: (received, total) {
-          if (mounted) {
-            setState(() {
-              _downloadedBytes = received;
-              _totalBytes = total;
-            });
-          }
-        },
-      );
-      if (mounted) {
-        setState(() {
-          _localPath = path;
-          _isDownloading = false;
-          _downloadedBytes = 0;
-          _totalBytes = 0;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isDownloading = false;
-          _downloadedBytes = 0;
-          _totalBytes = 0;
-        });
-        AnimatedToast.error(context, 'فشل التحميل: $e');
-      }
+      checkCache();
     }
   }
 
@@ -598,18 +316,7 @@ class _LibraryItemListCardState extends State<LibraryItemListCard>
           onTapDown: (_) => _controller.forward(),
           onTapUp: (_) async {
             _controller.reverse();
-            Haptics.lightTap();
-            if (widget.provider.isSelectionMode) {
-              widget.provider.toggleSelection(widget.item.id);
-            } else {
-              final isMedia = widget.item.type != 'note' && widget.item.type != 'task';
-              if (isMedia && _localPath == null) {
-                await _download();
-                if (_localPath != null) widget.onView();
-              } else {
-                widget.onView();
-              }
-            }
+            await handleTap();
           },
           onTapCancel: () => _controller.reverse(),
           onLongPress: () {
@@ -641,7 +348,7 @@ class _LibraryItemListCardState extends State<LibraryItemListCard>
                       ],
                     ),
                     child: Stack(
-                      clipBehavior: Clip.hardEdge,
+                      clipBehavior: Clip.none,
                       children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(AppDimensions.radiusCard),
@@ -678,7 +385,7 @@ class _LibraryItemListCardState extends State<LibraryItemListCard>
                                   const SizedBox(height: 2),
                                   Text(
                                     widget.item.isUploading
-                                        ? 'جاري الرفع...'
+                                        ? LibraryLocalizations.of(context).uploading
                                         : '${widget.item.formattedSize}${widget.item.formattedSize.isNotEmpty ? ' • ' : ''}${widget.item.formattedDate}',
                                     style: theme.textTheme.bodySmall?.copyWith(
                                       color: theme.brightness == Brightness.dark
@@ -699,18 +406,31 @@ class _LibraryItemListCardState extends State<LibraryItemListCard>
                         Positioned(
                           bottom: -4,
                           left: -4,
-                          child: Container(
-                            padding: EdgeInsets.all(isSelected ? 0 : 3),
-                            decoration: BoxDecoration(
-                              color: theme.scaffoldBackgroundColor,
-                              shape: BoxShape.circle,
-                              border: isSelected
-                                  ? null
-                                  : Border.all(color: theme.scaffoldBackgroundColor, width: 2),
+                          child: Semantics(
+                            label: isSelected
+                                ? LibraryLocalizations.of(context).selected
+                                : LibraryLocalizations.of(context).notSelected,
+                            child: InkWell(
+                              onTap: () {
+                                Haptics.lightTap();
+                                widget.provider.toggleSelection(widget.item.id);
+                              },
+                              borderRadius: BorderRadius.circular(20),
+                              child: Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: theme.scaffoldBackgroundColor,
+                                  shape: BoxShape.circle,
+                                  border: isSelected
+                                      ? null
+                                      : Border.all(color: theme.scaffoldBackgroundColor, width: 2),
+                                ),
+                                child: isSelected
+                                    ? const Icon(SolarBoldIcons.checkCircle, color: AppColors.success, size: 32)
+                                    : Icon(SolarLinearIcons.stop, size: 20, color: isDark ? AppColors.textSecondaryDark : Colors.grey[400]),
+                              ),
                             ),
-                            child: isSelected
-                                ? const Icon(SolarBoldIcons.checkCircle, color: AppColors.success, size: 24)
-                                : Icon(SolarLinearIcons.stop, size: 14, color: isDark ? AppColors.textSecondaryDark : Colors.grey[400]),
                           ),
                         ),
                       // Show shared badge for items shared with the user
@@ -724,20 +444,20 @@ class _LibraryItemListCardState extends State<LibraryItemListCard>
                               vertical: AppDimensions.spacing4,
                             ),
                             decoration: BoxDecoration(
-                              color: _getPermissionColor(widget.item.sharePermission ?? 'read').withValues(alpha: 0.9),
+                              color: getPermissionColor(widget.item.sharePermission ?? 'read').withValues(alpha: 0.9),
                               borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
-                                  _getPermissionIcon(widget.item.sharePermission ?? 'read'),
+                                  getPermissionIcon(widget.item.sharePermission ?? 'read'),
                                   size: AppDimensions.iconSmall,
                                   color: Colors.white,
                                 ),
                                 const SizedBox(width: AppDimensions.spacing4),
                                 Text(
-                                  _getPermissionLabel(widget.item.sharePermission ?? 'read'),
+                                  getPermissionLabel(widget.item.sharePermission ?? 'read'),
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 10,
@@ -824,9 +544,9 @@ class _LibraryItemListCardState extends State<LibraryItemListCard>
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                'جاري الرفع...',
-                style: TextStyle(
+              Text(
+                LibraryLocalizations.of(context).uploading,
+                style: const TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
                 ),
@@ -847,132 +567,10 @@ class _LibraryItemListCardState extends State<LibraryItemListCard>
   }
 
   Widget _buildItemPreview(LibraryItem item) {
-    final fileName = (item.filePath != null ? p.basename(item.filePath!) : item.title).toLowerCase();
-    final extension = p.extension(fileName).toLowerCase().replaceAll('.', '');
-    final isImage = item.type == 'image' ||
-        ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(extension) ||
-        (item.mimeType?.contains('image') ?? false);
-    final isVideo = item.type == 'video' ||
-        ['mp4', 'mov', 'avi', 'mkv', 'webm'].contains(extension) ||
-        (item.mimeType?.contains('video') ?? false);
-
-    if (_localPath == null && (isImage || isVideo || item.type == 'audio' || item.type == 'file')) {
-      final isDark = Theme.of(context).brightness == Brightness.dark;
-      return Center(
-        child: _isDownloading
-            ? _buildDetailedProgressIndicator(isDark)
-            : Stack(
-                alignment: Alignment.center,
-                children: [
-                  _getTypeIcon(item, size: 32, color: isDark ? AppColors.textSecondaryDark : Colors.grey[300]!),
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.3),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(SolarLinearIcons.download, color: Colors.white, size: 14),
-                  ),
-                ],
-              ),
-      );
-    }
-
-    if (isImage && _localPath != null) {
-      return CachedNetworkImage(imageUrl: item.filePath!.toFullUrl, fit: BoxFit.cover);
-    }
-
-    if (isVideo && _localPath != null) {
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          VideoThumbnailWidget(videoUrl: _localPath!),
-          Center(
-            child: Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.4),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(SolarBoldIcons.play, color: Colors.white, size: 20),
-            ),
-          ),
-        ],
-      );
-    }
-
-    if (item.type == 'note') {
-      final isDark = Theme.of(context).brightness == Brightness.dark;
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12.0),
-        child: Text(
-          item.content ?? '',
-          maxLines: 5,
-          overflow: TextOverflow.ellipsis,
-          textDirection: (item.content ?? '').direction,
-          textAlign: (item.content ?? '').isArabic ? TextAlign.right : TextAlign.left,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            fontSize: 12,
-            fontWeight: FontWeight.normal,
-            color: isDark ? AppColors.textPrimaryDark : AppColors.textSecondaryLight,
-            fontFamily: 'IBM Plex Sans Arabic',
-          ),
-        ),
-      );
-    }
-
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Center(child: _getTypeIcon(item, size: 40, color: isDark ? AppColors.textSecondaryDark : Colors.grey[400]!));
-  }
-
-  Widget _buildDetailedProgressIndicator(bool isDark) {
-    final percentage = _totalBytes > 0 ? ((_downloadedBytes.toDouble() / _totalBytes) * 100) : 0;
-    final progress = _totalBytes > 0 ? (_downloadedBytes.toDouble() / _totalBytes) : 0.0;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 48,
-          height: 48,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              SizedBox(
-                width: 48,
-                height: 48,
-                child: CircularProgressIndicator(
-                  value: progress,
-                  strokeWidth: 3,
-                  color: AppColors.primary,
-                  backgroundColor: isDark ? Colors.white24 : Colors.black12,
-                ),
-              ),
-              Text(
-                '${percentage.toStringAsFixed(0)}%',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white : Colors.black87,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '${_formatBytes(_downloadedBytes)} / ${_formatBytes(_totalBytes)}',
-          style: TextStyle(
-            fontSize: 9,
-            color: isDark ? Colors.white70 : Colors.black54,
-          ),
-        ),
-      ],
-    );
+    return buildItemPreview(item);
   }
 
   String _formatBytes(int bytes) {
-    if (bytes <= 0) return '0 B';
     const suffixes = ['B', 'KB', 'MB', 'GB', 'TB'];
     double dBytes = bytes.toDouble();
     int iSafety = 0;
@@ -981,60 +579,5 @@ class _LibraryItemListCardState extends State<LibraryItemListCard>
       iSafety++;
     }
     return '${dBytes.toStringAsFixed(iSafety == 0 ? 0 : 1)} ${suffixes[iSafety]}';
-  }
-
-  Widget _getTypeIcon(LibraryItem item, {double size = 24, Color color = Colors.grey}) {
-    switch (item.type) {
-      case 'note': return Icon(SolarBoldIcons.notes, size: size, color: color);
-      case 'image': return Icon(SolarBoldIcons.gallery, size: size, color: color);
-      case 'audio': return Icon(SolarBoldIcons.musicNotes, size: size, color: color);
-      case 'video': return Icon(SolarBoldIcons.videocamera, size: size, color: color);
-      default:
-        final fileName = (item.filePath != null ? p.basename(item.filePath!) : item.title).toLowerCase();
-        final extension = p.extension(fileName).toLowerCase().replaceAll('.', '');
-        if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(extension)) {
-          return Icon(SolarBoldIcons.gallery, size: size, color: color);
-        }
-        if (['mp4', 'mov', 'avi', 'mkv', 'webm'].contains(extension)) {
-          return Icon(SolarBoldIcons.videocamera, size: size, color: color);
-        }
-        if (['mp3', 'wav', 'aac', 'm4a', 'flac'].contains(extension)) {
-          return Icon(SolarBoldIcons.musicNotes, size: size, color: color);
-        }
-        return Icon(SolarBoldIcons.file, size: size, color: color);
-    }
-  }
-
-  IconData _getPermissionIcon(String permission) {
-    switch (permission) {
-      case 'edit':
-        return SolarLinearIcons.pen;
-      case 'admin':
-        return SolarLinearIcons.userHeart;
-      default:
-        return SolarLinearIcons.eye;
-    }
-  }
-
-  String _getPermissionLabel(String permission) {
-    switch (permission) {
-      case 'edit':
-        return 'تعديل';
-      case 'admin':
-        return 'مدير';
-      default:
-        return 'قراءة';
-    }
-  }
-
-  Color _getPermissionColor(String permission) {
-    switch (permission) {
-      case 'edit':
-        return Colors.blue;
-      case 'admin':
-        return Colors.purple;
-      default:
-        return AppColors.primary;
-    }
   }
 }

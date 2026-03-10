@@ -99,9 +99,9 @@ class _CustomersViewState extends State<_CustomersView>
           if (isSelectionMode) return const SizedBox.shrink();
 
           return Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.paddingOf(context).bottom + 70,
-              right: 16,
+            padding: const EdgeInsets.only(
+              bottom: AppDimensions.bottomNavHeight + AppDimensions.spacing24,
+              right: AppDimensions.spacing16,
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,

@@ -68,7 +68,9 @@ class _ShareFormState extends State<_ShareForm> {
   final _usernameController = TextEditingController();
   String _selectedPermission = 'read';
   bool _isLoading = false;
+  bool _isLoadingShares = false;
   final List<Map<String, dynamic>> _selectedUsernames = [];
+  List<Map<String, dynamic>> _existingShares = [];  // FIX: Track existing shares
 
   final List<Map<String, dynamic>> _permissionOptions = [
     {'value': 'read', 'label': 'قراءة فقط', 'icon': SolarLinearIcons.eye},
@@ -82,6 +84,35 @@ class _ShareFormState extends State<_ShareForm> {
     _usernameController.addListener(() {
       context.read<LibraryProvider>().lookupUsername(_usernameController.text);
     });
+    // FIX: Load existing shares when dialog opens
+    _loadExistingShares();
+  }
+
+  Future<void> _loadExistingShares() async {
+    if (widget.taskIds != null) {
+      // For tasks - task sharing is not yet implemented
+      debugPrint('Task sharing is not yet implemented');
+    } else if (widget.libraryItemIds == null) {
+      // For single library item
+      setState(() => _isLoadingShares = true);
+      try {
+        final libraryProvider = context.read<LibraryProvider>();
+        await libraryProvider.loadItemShares(widget.itemId);
+        final shares = libraryProvider.itemShares[widget.itemId] ?? [];
+        setState(() {
+          _existingShares = shares.map((share) => {
+            'username': share['shared_with_email'] ?? share['shared_with_user_id'] ?? '',
+            'displayName': share['shared_with_name'] ?? 'Unknown',
+            'permission': share['permission'] ?? 'read',
+            'isExisting': true,
+          }).toList();
+        });
+      } catch (e) {
+        debugPrint('Failed to load existing library shares: $e');
+      } finally {
+        if (mounted) setState(() => _isLoadingShares = false);
+      }
+    }
   }
 
   @override
@@ -209,6 +240,9 @@ class _ShareFormState extends State<_ShareForm> {
             );
           }
         }
+        
+        // FIX BUG #11: Refresh tasks list to show updated shared state
+        await taskProvider.loadTasks();
       } else if (widget.libraryItemIds != null) {
         // Handle bulk library item sharing
         final itemIdList = widget.libraryItemIds!.split(',').map((id) => int.parse(id)).toList();
@@ -260,6 +294,9 @@ class _ShareFormState extends State<_ShareForm> {
 
         // Clear selection after sharing
         libraryProvider.clearSelection();
+
+        // FIX BUG #11: Refresh the shares list for this item
+        await libraryProvider.loadItemShares(widget.itemId);
 
         // Show accurate message with item and user counts
         if (mounted) {
@@ -443,6 +480,84 @@ class _ShareFormState extends State<_ShareForm> {
                             ),
                           );
                         }),
+                      ),
+                    ],
+                    // FIX: Display existing shares
+                    if (_existingShares.isNotEmpty) ...[
+                      const SizedBox(height: AppDimensions.spacing16),
+                      Row(
+                        children: [
+                          Icon(
+                            SolarLinearIcons.userHeart,
+                            size: 16,
+                            color: AppColors.success,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'يشارك معك حالياً',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: AppColors.success,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppDimensions.spacing8),
+                      Wrap(
+                        spacing: AppDimensions.spacing8,
+                        runSpacing: AppDimensions.spacing8,
+                        children: List.generate(_existingShares.length, (index) {
+                          final share = _existingShares[index];
+                          final permissionColor = share['permission'] == 'admin'
+                              ? AppColors.warning
+                              : share['permission'] == 'edit'
+                                  ? AppColors.primary
+                                  : AppColors.success;
+                          return Chip(
+                            label: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  share['username'].toString(),
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                const SizedBox(width: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: permissionColor.withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    share['permission'].toString(),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: permissionColor,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            backgroundColor: AppColors.success.withValues(alpha: 0.1),
+                            labelStyle: TextStyle(
+                              color: AppColors.success,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          );
+                        }),
+                      ),
+                    ],
+                    // Loading indicator for existing shares
+                    if (_isLoadingShares) ...[
+                      const SizedBox(height: AppDimensions.spacing12),
+                      const Center(
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
                       ),
                     ],
                   ],
