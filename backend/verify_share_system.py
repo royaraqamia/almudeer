@@ -139,26 +139,34 @@ async def verify_cache_integrity():
     
     result1 = await cache.get("1|user1|all")
     result2 = await cache.get("1|user2|all")
-    
+
     assert result1 is None, "Should invalidate specific key"
     assert result2 is not None, "Should keep other keys"
     print("✓ Cache invalidation works correctly")
-    
+
     # Test prefix invalidation
+    # Note: cache still has "test_key" from earlier test, so we check for that
     await cache.invalidate_prefix("1|")
-    assert len(cache._cache) == 0, "Should clear all with prefix"
+    # After invalidating "1|" prefix, only "test_key" should remain
+    assert len(cache._cache) == 1, f"Should have 1 entry remaining (test_key), but has {len(cache._cache)}"
+    assert "test_key" in cache._cache, "Should keep test_key"
     print("✓ Prefix invalidation works correctly")
     
     # Test LRU eviction
     small_cache = LRUCache(name="small_test", ttl_seconds=300, max_size=3)
     await small_cache.set("key1", "value1")
+    import asyncio
+    await asyncio.sleep(0.01)  # Small delay to ensure different timestamps
     await small_cache.set("key2", "value2")
+    await asyncio.sleep(0.01)
     await small_cache.set("key3", "value3")
+    await asyncio.sleep(0.01)
     # Access key1 to make it recently used
     await small_cache.get("key1")
+    await asyncio.sleep(0.01)
     # Add key4, should evict key2 (least recently used)
     await small_cache.set("key4", "value4")
-    
+
     assert await small_cache.get("key1") is not None, "Should keep recently accessed key1"
     assert await small_cache.get("key2") is None, "Should evict LRU key2"
     assert await small_cache.get("key3") is not None, "Should keep key3"
@@ -171,6 +179,22 @@ async def verify_cache_integrity():
     assert "misses" in stats, "Stats should include misses"
     assert "hit_rate_percent" in stats, "Stats should include hit rate"
     print("✓ Cache statistics work correctly")
+
+    # Test batch invalidation (NEW FEATURE)
+    batch_cache = LRUCache(name="batch_test", ttl_seconds=300, max_size=100)
+    await batch_cache.set("license1|user1|read", {"data": "1"})
+    await batch_cache.set("license1|user1|edit", {"data": "2"})
+    await batch_cache.set("license1|user2|read", {"data": "3"})
+    await batch_cache.set("license2|user1|read", {"data": "4"})
+    
+    # Batch invalidate specific keys
+    await batch_cache.invalidate_batch(["license1|user1|read", "license1|user1|edit"])
+    
+    assert await batch_cache.get("license1|user1|read") is None, "Should invalidate batch key 1"
+    assert await batch_cache.get("license1|user1|edit") is None, "Should invalidate batch key 2"
+    assert await batch_cache.get("license1|user2|read") is not None, "Should keep other key"
+    assert await batch_cache.get("license2|user1|read") is not None, "Should keep other license"
+    print("✓ Batch cache invalidation works correctly")
 
     return True
 

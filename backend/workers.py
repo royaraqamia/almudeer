@@ -194,6 +194,130 @@ class TaskWorker:
 
 
 # ============================================================================
+# NOTIFICATION RETRY QUEUE
+# ============================================================================
+
+# In-memory retry queue for failed notifications (will be processed by background worker)
+_notification_retry_queue: List[dict] = []
+_NOTIFICATION_MAX_RETRIES = 3
+_NOTIFICATION_RETRY_DELAY_SECONDS = 30
+
+
+async def queue_notification_for_retry(notification_data: dict):
+    """
+    Queue a failed notification for retry.
+    
+    Args:
+        notification_data: Dict containing notification parameters including:
+            - license_id, type, resource_type, resource_id, resource_title,
+              shared_by_user_id, shared_with_user_id, permission, priority
+            - retry_count: Number of retries attempted (default: 0)
+    """
+    retry_count = notification_data.get('retry_count', 0)
+    
+    if retry_count >= _NOTIFICATION_MAX_RETRIES:
+        logger.warning(
+            f"Notification retry limit reached for {notification_data.get('resource_type')} "
+            f"{notification_data.get('resource_id')}"
+        )
+        # Track metric for permanent failures
+        try:
+            from services.metrics_service import MetricsService
+            metrics = MetricsService()
+            await metrics.increment_counter("notification_permanent_failures", {
+                "license_id": str(notification_data.get('license_id')),
+                "resource_type": notification_data.get('resource_type', 'unknown'),
+                "error_type": "max_retries_exceeded"
+            })
+        except Exception:
+            pass
+        return
+    
+    # Schedule retry after delay
+    retry_at = datetime.now(timezone.utc) + timedelta(seconds=_NOTIFICATION_RETRY_DELAY_SECONDS)
+    
+    _notification_retry_queue.append({
+        **notification_data,
+        'retry_count': retry_count + 1,
+        'retry_at': retry_at
+    })
+    
+    logger.info(
+        f"Queued notification for retry ({retry_count + 1}/{_NOTIFICATION_MAX_RETRIES}): "
+        f"{notification_data.get('resource_type')} {notification_data.get('resource_id')}"
+    )
+
+
+async def process_notification_retry_queue():
+    """
+    Process the notification retry queue.
+    Should be called periodically by a background worker.
+    """
+    now = datetime.now(timezone.utc)
+    to_process = []
+    remaining = []
+    
+    # Separate notifications that are ready for retry
+    for item in _notification_retry_queue:
+        if item.get('retry_at', now) <= now:
+            to_process.append(item)
+        else:
+            remaining.append(item)
+    
+    # Update queue with remaining items
+    _notification_retry_queue.clear()
+    _notification_retry_queue.extend(remaining)
+    
+    # Process ready notifications
+    for notification_data in to_process:
+        try:
+            resource_type = notification_data.get('resource_type', 'library')
+            
+            if resource_type == 'task':
+                from models.task_shares import share_task
+                # Re-create the share notification
+                await create_resource_shared_notification(
+                    license_id=notification_data['license_id'],
+                    resource_type='task',
+                    resource_id=notification_data['resource_id'],
+                    resource_title=notification_data['resource_title'],
+                    shared_by_user_id=notification_data['shared_by_user_id'],
+                    shared_with_user_id=notification_data['shared_with_user_id'],
+                    permission=notification_data.get('permission', 'read'),
+                    priority=notification_data.get('priority', 'high')
+                )
+            else:
+                from models.library_advanced import share_item
+                # Re-create the share notification
+                await create_share_notification(
+                    license_id=notification_data['license_id'],
+                    item_id=int(notification_data['resource_id']),
+                    item_title=notification_data['resource_title'],
+                    shared_by_user_id=notification_data['shared_by_user_id'],
+                    shared_with_user_id=notification_data['shared_with_user_id'],
+                    permission=notification_data.get('permission', 'read')
+                )
+            
+            logger.info(f"Successfully retried notification for {resource_type} {notification_data['resource_id']}")
+            
+        except Exception as e:
+            logger.error(f"Notification retry failed: {e}", exc_info=True)
+            # Re-queue for another retry
+            await queue_notification_for_retry(notification_data)
+
+
+async def start_notification_retry_worker():
+    """Start the notification retry background worker."""
+    logger.info("Notification retry worker started")
+    while True:
+        try:
+            await process_notification_retry_queue()
+        except Exception as e:
+            logger.error(f"Notification retry worker error: {e}", exc_info=True)
+        await asyncio.sleep(10)  # Check queue every 10 seconds
+
+
+# ============================================================================
 # P3-14 / P4: SHARE NOTIFICATIONS (Consolidated)
 # ============================================================================
 
@@ -474,101 +598,6 @@ async def aggregate_daily_analytics():
         except Exception as e:
             logger.error(f"Analytics aggregation failed: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
-
-
-# ============================================================================
-# P4: TASK SHARING NOTIFICATIONS
-# ============================================================================
-
-async def create_task_shared_notification(
-    license_id: int,
-    task_id: str,
-    task_title: str,
-    shared_by_user_id: str,
-    assigned_to_user_id: str
-):
-    """
-    Create a notification when a task is shared with/assigned to a user.
-    
-    P4-2: Notify users when tasks are assigned or shared with them.
-    """
-    now = datetime.now(timezone.utc)
-    
-    async with get_db() as db:
-        try:
-            await execute_sql(
-                db,
-                """
-                INSERT INTO notifications
-                (license_key_id, type, priority, title, message, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    license_id,
-                    'task_shared',
-                    'high',
-                    'تمت مشاركة مهمة معك',
-                    f'{shared_by_user_id} شارك معك المهمة: {task_title}',
-                    now
-                ]
-            )
-            await commit_db(db)
-            
-            logger.info(f"Created task shared notification: {task_title}")
-            
-            return True
-        except Exception as e:
-            logger.error(f"Failed to create task shared notification: {e}", exc_info=True)
-            return False
-
-
-async def create_task_visibility_changed_notification(
-    license_id: int,
-    task_id: str,
-    task_title: str,
-    changed_by_user_id: str,
-    affected_user_id: str,
-    new_visibility: str
-):
-    """
-    Create a notification when task visibility changes.
-    
-    P4-2: Notify users when task becomes shared or private.
-    """
-    now = datetime.now(timezone.utc)
-    
-    async with get_db() as db:
-        try:
-            message = (
-                f'{changed_by_user_id} جعل المهمة "{task_title}" مشتركة'
-                if new_visibility == 'shared'
-                else f'{changed_by_user_id} جعل المهمة "{task_title}" خاصة'
-            )
-            
-            await execute_sql(
-                db,
-                """
-                INSERT INTO notifications
-                (license_key_id, type, priority, title, message, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    license_id,
-                    'task_visibility_changed',
-                    'normal',
-                    'تغيرت صلاحية الوصول للمهمة',
-                    message,
-                    now
-                ]
-            )
-            await commit_db(db)
-            
-            logger.info(f"Created task visibility change notification for: {task_title}")
-            
-            return True
-        except Exception as e:
-            logger.error(f"Failed to create task visibility notification: {e}", exc_info=True)
-            return False
 
 
 # ============================================================================

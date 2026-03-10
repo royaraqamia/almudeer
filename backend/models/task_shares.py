@@ -35,7 +35,7 @@ async def _invalidate_shared_tasks_cache(license_id: int, user_id: Optional[str]
     FIX: Ensure complete cleanup of both cache and access times to prevent memory leaks.
     """
     cache = get_shared_tasks_cache()
-    
+
     # Invalidate all permission levels for this user
     if user_id:
         for perm in ['read', 'edit', 'admin', 'all']:
@@ -44,6 +44,30 @@ async def _invalidate_shared_tasks_cache(license_id: int, user_id: Optional[str]
     else:
         # Invalidate all caches for this license (expensive, use sparingly)
         await cache.invalidate_prefix(f"{license_id}|")
+
+
+async def _invalidate_shared_tasks_cache_batch(license_id: int, user_ids: List[str]):
+    """Invalidate shared tasks cache for multiple users in a single batch.
+    
+    More efficient than calling _invalidate_shared_tasks_cache multiple times.
+    
+    Args:
+        license_id: License key ID
+        user_ids: List of user IDs to invalidate cache for
+    """
+    if not user_ids:
+        return
+        
+    cache = get_shared_tasks_cache()
+    
+    # Build all keys to invalidate
+    keys_to_invalidate = []
+    for user_id in user_ids:
+        for perm in ['read', 'edit', 'admin', 'all']:
+            keys_to_invalidate.append(f"{license_id}|{user_id}|{perm}")
+    
+    # Batch invalidate
+    await cache.invalidate_batch(keys_to_invalidate)
 
 
 async def share_task(
@@ -221,6 +245,22 @@ async def share_task(
                 })
             except Exception as metrics_error:
                 logger.warning(f"Failed to log metrics for notification failure: {metrics_error}")
+            
+            # FIX: Queue notification for retry
+            try:
+                from workers import queue_notification_for_retry
+                await queue_notification_for_retry({
+                    'license_id': license_id,
+                    'resource_type': 'task',
+                    'resource_id': task_id,
+                    'resource_title': task.get("title", "Unknown"),
+                    'shared_by_user_id': created_by or "Unknown",
+                    'shared_with_user_id': recipient_user_id,
+                    'permission': permission,
+                    'priority': 'high'
+                })
+            except Exception as retry_error:
+                logger.warning(f"Failed to queue notification for retry: {retry_error}")
 
         # Broadcast WebSocket event to recipient for instant UI update
         try:
@@ -421,9 +461,55 @@ async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str]
         return True
 
 
-async def list_task_shares(task_id: int, license_id: int) -> List[dict]:
-    """List all active shares for a task (for the owner)"""
+async def list_task_shares(task_id: str, license_id: int, requested_by_user_id: str) -> List[dict]:
+    """List all active shares for a task (for the owner or admin)
+    
+    PERMISSION: Only task owner or users with admin permission can list shares.
+    
+    Args:
+        task_id: The task ID
+        license_id: License key ID
+        requested_by_user_id: User ID requesting the share list
+    
+    Returns:
+        List of share records
+    
+    Raises:
+        ValueError: If user doesn't have permission to view shares
+    """
     async with get_db() as db:
+        # First, verify the task exists and get owner info
+        task = await fetch_one(
+            db,
+            "SELECT created_by FROM tasks WHERE id = ? AND license_key_id = ? AND is_deleted = 0",
+            [task_id, license_id]
+        )
+        
+        if not task:
+            raise ValueError("Task not found")
+        
+        # Check if requester is the owner
+        is_owner = task.get('created_by') == requested_by_user_id
+        
+        if not is_owner:
+            # Check if requester has admin permission on this task
+            share = await fetch_one(
+                db,
+                """
+                SELECT permission FROM task_shares
+                WHERE task_id = ? AND shared_with_user_id = ? AND license_key_id = ?
+                AND deleted_at IS NULL
+                """,
+                [task_id, requested_by_user_id, license_id]
+            )
+            
+            if not share or share.get('permission') != 'admin':
+                logger.warning(
+                    f"User {requested_by_user_id} denied permission to list shares for task {task_id}"
+                )
+                raise ValueError("Permission denied: Only owner or admin can view task shares")
+        
+        # User has permission - return the shares
         rows = await fetch_all(
             db,
             """

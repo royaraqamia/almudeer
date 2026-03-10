@@ -1299,39 +1299,37 @@ async def get_task_shares(
     license: dict = Depends(get_license_from_header),
     user: dict = Depends(get_current_user)
 ):
-    """Get all shares for a task (owner only)"""
+    """Get all shares for a task (owner or admin only)"""
     from models.task_shares import list_task_shares, get_task
 
     user_id = user.get("user_id")
     license_id = license["license_id"]
 
-    # Verify task exists and user owns it
-    task = await get_task(license_id, task_id, user_id)
-    if not task:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "code": "TASK_NOT_FOUND",
-                "message_ar": "المهمة غير موجودة",
-                "message_en": "Task not found"
-            }
-        )
-
-    if task.get("created_by") != user_id:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "code": "FORBIDDEN",
-                "message_ar": "لا يمكنك عرض مشاركات هذه المهمة",
-                "message_en": "You don't have permission to view shares for this task"
-            }
-        )
-
-    shares = await list_task_shares(task_id, license_id)
-    return {
-        "success": True,
-        "shares": shares
-    }
+    try:
+        shares = await list_task_shares(task_id, license_id, user_id)
+        return {
+            "success": True,
+            "shares": shares
+        }
+    except ValueError as e:
+        if "Task not found" in str(e):
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "TASK_NOT_FOUND",
+                    "message_ar": "المهمة غير موجودة",
+                    "message_en": "Task not found"
+                }
+            )
+        else:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "FORBIDDEN",
+                    "message_ar": "لا يمكنك عرض مشاركات هذه المهمة",
+                    "message_en": "You don't have permission to view shares for this task"
+                }
+            )
 
 
 @router.delete("/shares/{share_id}")

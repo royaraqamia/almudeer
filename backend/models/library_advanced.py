@@ -41,7 +41,7 @@ async def _invalidate_shared_items_cache(license_id: int, user_id: Optional[str]
     FIX: Ensure complete cleanup of both cache and access times to prevent memory leaks.
     """
     cache = get_shared_items_cache()
-    
+
     # FIX: Invalidate all permission levels for this user
     if user_id:
         for perm in ['read', 'edit', 'admin', 'all']:
@@ -50,6 +50,30 @@ async def _invalidate_shared_items_cache(license_id: int, user_id: Optional[str]
     else:
         # Invalidate all caches for this license
         await cache.invalidate_prefix(f"{license_id}|")
+
+
+async def _invalidate_shared_items_cache_batch(license_id: int, user_ids: List[str]):
+    """Invalidate shared items cache for multiple users in a single batch.
+    
+    More efficient than calling _invalidate_shared_items_cache multiple times.
+    
+    Args:
+        license_id: License key ID
+        user_ids: List of user IDs to invalidate cache for
+    """
+    if not user_ids:
+        return
+        
+    cache = get_shared_items_cache()
+    
+    # Build all keys to invalidate
+    keys_to_invalidate = []
+    for user_id in user_ids:
+        for perm in ['read', 'edit', 'admin', 'all']:
+            keys_to_invalidate.append(f"{license_id}|{user_id}|{perm}")
+    
+    # Batch invalidate
+    await cache.invalidate_batch(keys_to_invalidate)
 
 
 # ============================================================================
@@ -283,6 +307,22 @@ async def share_item(
                 })
             except Exception as metrics_error:
                 logger.warning(f"Failed to log metrics for notification failure: {metrics_error}")
+            
+            # FIX: Queue notification for retry
+            try:
+                from workers import queue_notification_for_retry
+                await queue_notification_for_retry({
+                    'license_id': license_id,
+                    'resource_type': 'library',
+                    'resource_id': str(item_id),
+                    'resource_title': item.get("title", "Unknown"),
+                    'shared_by_user_id': created_by or "Unknown",
+                    'shared_with_user_id': recipient_user_id,
+                    'permission': permission,
+                    'priority': 'normal'
+                })
+            except Exception as retry_error:
+                logger.warning(f"Failed to queue notification for retry: {retry_error}")
 
         # Broadcast WebSocket event to recipient for instant UI update
         try:

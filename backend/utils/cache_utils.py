@@ -143,7 +143,29 @@ class LRUCache:
             self._access_times.pop(key, None)
             self._invalidations += 1
             logger.debug(f"[{self.name}] Cache invalidated: {key}")
-    
+
+    async def invalidate_batch(self, keys: List[str]):
+        """
+        Invalidate multiple cache entries in a single batch.
+        More efficient than calling invalidate() multiple times.
+        
+        Args:
+            keys: List of cache keys to invalidate
+        """
+        if not keys:
+            return
+            
+        async with self._lock:
+            count = 0
+            for key in keys:
+                if self._cache.pop(key, None) is not None:
+                    self._access_times.pop(key, None)
+                    count += 1
+            self._invalidations += count
+            
+            if count > 0:
+                logger.debug(f"[{self.name}] Cache invalidated {count} entries in batch")
+
     async def invalidate_prefix(self, prefix: str):
         """
         Invalidate all cache entries starting with a prefix.
@@ -152,12 +174,12 @@ class LRUCache:
         async with self._lock:
             # Build list first to avoid modifying dict during iteration
             keys_to_delete = [k for k in self._cache.keys() if k.startswith(prefix)]
-            
+
             for key in keys_to_delete:
                 self._cache.pop(key, None)
                 self._access_times.pop(key, None)
                 self._invalidations += 1
-            
+
             # Clean up any orphaned access times (keys in access_times but not in cache)
             orphaned_access_keys = [
                 k for k in self._access_times.keys()
@@ -165,7 +187,7 @@ class LRUCache:
             ]
             for key in orphaned_access_keys:
                 self._access_times.pop(key, None)
-            
+
             if keys_to_delete:
                 logger.debug(f"[{self.name}] Cache invalidated {len(keys_to_delete)} entries with prefix: {prefix}")
     
