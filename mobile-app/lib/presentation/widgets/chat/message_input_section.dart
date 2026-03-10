@@ -13,6 +13,7 @@ import '../../providers/inbox_provider.dart';
 import '../../../core/utils/haptics.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/extensions/string_extension.dart';
+import '../animated_toast.dart';
 import 'reply_preview.dart';
 import 'multi_image_preview_dialog.dart';
 
@@ -601,14 +602,20 @@ class _MessageInputSectionState extends State<MessageInputSection> {
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: () {
+              onTap: () async {
                 Haptics.lightTap();
                 final provider = context.read<ConversationDetailProvider>();
                 final inboxProvider = context.read<InboxProvider>();
-                provider.saveEditedMessage(
-                  _controller.text.trim(),
-                  inboxProvider,
-                );
+                final body = _controller.text.trim();
+                
+                // Validate before attempting save
+                if (body.isEmpty) {
+                  AnimatedToast.info(context, 'لا يمكن حفظ رسالة فارغة');
+                  provider.cancelEditing();
+                  return;
+                }
+                
+                await provider.saveEditedMessage(body, inboxProvider);
               },
               focusColor: AppColors.primary.withValues(alpha: 0.2),
               hoverColor: AppColors.primary.withValues(alpha: 0.1),

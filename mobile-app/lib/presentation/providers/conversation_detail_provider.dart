@@ -1210,12 +1210,18 @@ class ConversationDetailProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> saveEditedMessage(
+  Future<bool> saveEditedMessage(
     String newBody,
     InboxProvider inboxProvider,
   ) async {
     final id = _editingMessageId;
-    if (id == null) return;
+    if (id == null) return false;
+
+    // Validate: Prevent empty body
+    if (newBody.trim().isEmpty) {
+      cancelEditing();
+      return false;
+    }
 
     // Perform optimistic update on messages list
     final success = await editMessage(id, newBody);
@@ -1252,6 +1258,7 @@ class ConversationDetailProvider extends ChangeNotifier {
     }
 
     cancelEditing();
+    return success;
   }
 
   /// Fully reset state (for account switching)

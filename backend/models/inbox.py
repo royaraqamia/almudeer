@@ -2115,12 +2115,13 @@ async def edit_outbox_message(
                 [new_body, ts_value, platform_id]
             )
 
-        await commit_db(db)
-        
         # Update conversation if this was the last message
+        # Do this before commit to ensure atomicity within the same transaction
         recipient = message.get("recipient_email") or message.get("recipient_id")
         if recipient:
-             await upsert_conversation_state(license_id, recipient)
+            await upsert_conversation_state(license_id, recipient)
+
+        await commit_db(db)
         
         # Broadcast the edit via WebSocket
         try:
@@ -2139,6 +2140,7 @@ async def edit_outbox_message(
         return {
             "success": True,
             "message": "تم تعديل الرسالة بنجاح",
+            "body": new_body,
             "edited_at": now.isoformat(),
             "edit_count": current_edit_count + 1
         }

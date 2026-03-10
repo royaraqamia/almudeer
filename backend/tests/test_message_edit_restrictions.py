@@ -71,12 +71,12 @@ async def test_edit_message_external_channels_restricted():
                 await edit_outbox_message(message_id, license_id, "New body")
 
 @pytest.mark.asyncio
-async def test_edit_message_generic_channel_no_time_limit():
-    """Test that other channels also have no time limit now."""
+async def test_edit_message_external_channel_restricted():
+    """Test that external/unsupported channels cannot be edited."""
     license_id = 1
     message_id = 102
-    
-    # After 15 minutes (should now succeed)
+
+    # 'generic' channel is not in the allowed list ['almudeer', 'saved']
     message = {
         "id": message_id,
         "license_key_id": license_id,
@@ -88,18 +88,15 @@ async def test_edit_message_generic_channel_no_time_limit():
         "recipient_email": "test@example.com",
         "recipient_id": None
     }
-    
+
     mock_fetch_one = AsyncMock(return_value=message)
-    
+
     mock_db = MagicMock()
     mock_db.__aenter__ = AsyncMock(return_value=mock_db)
     mock_db.__aexit__ = AsyncMock(return_value=None)
-    
+
     with patch("models.inbox.get_db", return_value=mock_db), \
-         patch("models.inbox.fetch_one", mock_fetch_one), \
-         patch("models.inbox.execute_sql", AsyncMock()), \
-         patch("models.inbox.commit_db", AsyncMock()), \
-         patch("models.inbox.upsert_conversation_state", AsyncMock()):
-        
+         patch("models.inbox.fetch_one", mock_fetch_one):
+
         with pytest.raises(ValueError, match="لا يمكن تعديل الرسائل المرسلة عبر generic"):
             await edit_outbox_message(message_id, license_id, "New body")

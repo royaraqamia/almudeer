@@ -89,7 +89,7 @@ class MockProvider extends ChangeNotifier
   @override
   void cancelEditing() {}
   @override
-  Future<void> saveEditedMessage(String newBody, dynamic inboxProvider) async {}
+  Future<bool> saveEditedMessage(String newBody, dynamic inboxProvider) async => true;
   @override
   void reset() {}
   @override
