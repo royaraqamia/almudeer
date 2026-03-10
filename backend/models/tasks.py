@@ -1,9 +1,10 @@
 import json
 from typing import List, Optional
 from datetime import datetime, timezone
-from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db
+from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db, DB_TYPE
 from models.base import ID_PK, TIMESTAMP_NOW
 from utils.timestamps import normalize_timestamp, generate_stable_id
+from utils.json_utils import normalize_bool, normalize_priority
 
 async def verify_task_access(
     db,
@@ -33,10 +34,10 @@ async def verify_task_access(
         - Shared users: Permission-based access (read/view, edit/edit+view, admin/all)
         - Others: Can only view shared tasks (visibility = 'shared')
     """
-    # Get task (check both license-specific and global tasks)
+    # Get task (check both license-specific and global tasks, filter out soft-deleted)
     task = await fetch_one(
         db,
-        "SELECT * FROM tasks WHERE id = ? AND (license_key_id = ? OR license_key_id = 0)",
+        "SELECT * FROM tasks WHERE id = ? AND (license_key_id = ? OR license_key_id = 0) AND is_deleted = 0",
         [task_id, license_id]
     )
 
@@ -273,8 +274,9 @@ async def get_tasks(
         # P4-2: Include tasks shared with user via task_shares
         # Use UNION instead of DISTINCT to avoid ORDER BY issues
         # FIX: Only return share_permission for tasks shared WITH the user (not owned by user)
+        # FIX: Filter out soft-deleted tasks (is_deleted = 0)
         base_query = """
-            SELECT t.*, 
+            SELECT t.*,
                    CASE WHEN t.created_by = ? THEN NULL ELSE ts.permission END as share_permission
             FROM tasks t
             LEFT JOIN task_shares ts ON t.id = ts.task_id
@@ -282,6 +284,7 @@ async def get_tasks(
                 AND ts.license_key_id = ?
                 AND ts.deleted_at IS NULL
             WHERE t.license_key_id = ?
+            AND t.is_deleted = 0
             AND (
                 t.visibility = 'shared'
                 OR t.created_by = ?
@@ -314,6 +317,7 @@ async def _get_task_by_id_raw(db, license_id: int, task_id: str) -> Optional[dic
         SELECT * FROM tasks
         WHERE (license_key_id = ? OR license_key_id = 0)
         AND id = ?
+        AND is_deleted = 0
     """, (license_id, task_id))
     return _parse_task_row(dict(row)) if row else None
 
@@ -325,11 +329,12 @@ async def get_task(license_id: int, task_id: str, user_id: str) -> Optional[dict
     P4-2: Also fetches share permission for the user.
     """
     async with get_db() as db:
-        # First check if task exists
+        # First check if task exists (filter out soft-deleted tasks)
         row = await fetch_one(db, """
             SELECT * FROM tasks
             WHERE (license_key_id = ? OR license_key_id = 0)
             AND id = ?
+            AND is_deleted = 0
         """, (license_id, task_id))
 
         if not row:
@@ -361,20 +366,15 @@ async def get_task(license_id: int, task_id: str, user_id: str) -> Optional[dict
 def _parse_task_row(row: dict) -> dict:
     """Helper to parse JSON fields and normalize types"""
     import json
-    
-    # FIX BUG-002: Normalize boolean fields explicitly
-    row['is_completed'] = bool(row.get('is_completed', False))
-    row['alarm_enabled'] = bool(row.get('alarm_enabled', False))
-    
-    # FIX BUG-003: Normalize priority field (ensure string format)
-    priority_val = row.get('priority', 'medium')
-    if isinstance(priority_val, int):
-        # Convert integer index to string (mobile sends 0,1,2,3)
-        priority_map = ['low', 'medium', 'high', 'urgent']
-        row['priority'] = priority_map[priority_val] if 0 <= priority_val < len(priority_map) else 'medium'
-    else:
-        row['priority'] = priority_val or 'medium'
-    
+
+    # FIX BUG-002: Normalize boolean fields explicitly using unified utility
+    # Handle various boolean representations: int (0/1), bool, string, None
+    row['is_completed'] = normalize_bool(row.get('is_completed'), False)
+    row['alarm_enabled'] = normalize_bool(row.get('alarm_enabled'), False)
+
+    # FIX BUG-003: Normalize priority field (ensure string format) using unified utility
+    row['priority'] = normalize_priority(row.get('priority'), 'medium')
+
     # Parse JSON fields
     if row.get('sub_tasks') and isinstance(row['sub_tasks'], str):
         try:
@@ -468,88 +468,108 @@ async def create_task(license_id: int, task_data: dict) -> dict:
     """Create or update a task atomically (Upsert) with LWW
 
     FIX BUG-004: Enhanced LWW with client timestamp + server timestamp for better conflict resolution.
+    FIX: Use database-agnostic syntax for clock skew tolerance (works on both SQLite and PostgreSQL).
     """
     async with get_db() as db:
-        # Convert list to JSON string if needed
-        import json
+        try:
+            # Convert list to JSON string if needed
+            import json
 
-        sub_tasks_val = task_data.get('sub_tasks')
-        if isinstance(sub_tasks_val, list):
-            sub_tasks_val = json.dumps(sub_tasks_val)
+            sub_tasks_val = task_data.get('sub_tasks')
+            if isinstance(sub_tasks_val, list):
+                sub_tasks_val = json.dumps(sub_tasks_val)
 
-        # Normalize updated_at to UTC
-        updated_at = normalize_timestamp(task_data.get('updated_at'))
+            # Normalize updated_at to UTC
+            updated_at = normalize_timestamp(task_data.get('updated_at'))
 
-        # FIX BUG-004: Store client timestamp separately for better conflict resolution
-        client_updated_at = updated_at
+            # FIX BUG-004: Store client timestamp separately for better conflict resolution
+            client_updated_at = updated_at
 
-        # SECURITY FIX: Ensure created_by is never NULL - default to license_id if not provided
-        # This prevents ownership issues when tasks are synced from clients
-        created_by = task_data.get('created_by')
-        if not created_by:
-            created_by = str(license_id)
+            # SECURITY FIX: Ensure created_by is never NULL - default to license_id if not provided
+            # This prevents ownership issues when tasks are synced from clients
+            created_by = task_data.get('created_by')
+            if not created_by:
+                created_by = str(license_id)
 
-        await execute_sql(db, """
-            INSERT INTO tasks (
-                id, license_key_id, title, description, is_completed, due_date,
-                priority, color, sub_tasks, alarm_enabled, alarm_time, recurrence,
-                category, order_index, created_by, assigned_to, attachments, visibility, created_at, updated_at, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(id) DO UPDATE SET
-                title = excluded.title,
-                description = excluded.description,
-                is_completed = excluded.is_completed,
-                due_date = excluded.due_date,
-                priority = excluded.priority,
-                color = excluded.color,
-                sub_tasks = excluded.sub_tasks,
-                alarm_enabled = excluded.alarm_enabled,
-                alarm_time = excluded.alarm_time,
-                recurrence = excluded.recurrence,
-                category = excluded.category,
-                order_index = excluded.order_index,
-                assigned_to = excluded.assigned_to,
-                attachments = excluded.attachments,
-                visibility = excluded.visibility,
-                updated_at = excluded.updated_at,
-                synced_at = CURRENT_TIMESTAMP
-            WHERE tasks.license_key_id = ? AND (
-                -- FIX BUG-004: Enhanced LWW with tolerance for clock skew (5 second window)
-                tasks.updated_at IS NULL
-                OR excluded.updated_at > tasks.updated_at
-                OR (
-                    -- If timestamps are very close (< 5s), prefer the one with more recent client timestamp
-                    ABS(EXTRACT(EPOCH FROM (excluded.updated_at - tasks.updated_at))) < 5
-                    AND excluded.updated_at >= tasks.updated_at
+            # FIX: Use database-agnostic clock skew tolerance
+            # PostgreSQL: EXTRACT(EPOCH FROM ...) returns seconds
+            # SQLite: strftime('%s', ...) returns seconds as string
+            clock_skew_condition = """
+                        -- If timestamps are very close (< 5s), prefer the one with more recent client timestamp
+                        ABS(EXTRACT(EPOCH FROM (excluded.updated_at - tasks.updated_at))) < 5
+                        AND excluded.updated_at >= tasks.updated_at
+                    """
+            if DB_TYPE == "sqlite":
+                clock_skew_condition = """
+                        -- SQLite: Use strftime for timestamp difference in seconds
+                        ABS(strftime('%s', excluded.updated_at) - strftime('%s', tasks.updated_at)) < 5
+                        AND excluded.updated_at >= tasks.updated_at
+                    """
+
+            await execute_sql(db, f"""
+                INSERT INTO tasks (
+                    id, license_key_id, title, description, is_completed, due_date,
+                    priority, color, sub_tasks, alarm_enabled, alarm_time, recurrence,
+                    category, order_index, created_by, assigned_to, attachments, visibility, created_at, updated_at, synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET
+                    title = excluded.title,
+                    description = excluded.description,
+                    is_completed = excluded.is_completed,
+                    due_date = excluded.due_date,
+                    priority = excluded.priority,
+                    color = excluded.color,
+                    sub_tasks = excluded.sub_tasks,
+                    alarm_enabled = excluded.alarm_enabled,
+                    alarm_time = excluded.alarm_time,
+                    recurrence = excluded.recurrence,
+                    category = excluded.category,
+                    order_index = excluded.order_index,
+                    assigned_to = excluded.assigned_to,
+                    attachments = excluded.attachments,
+                    visibility = excluded.visibility,
+                    is_deleted = 0,
+                    updated_at = excluded.updated_at,
+                    synced_at = CURRENT_TIMESTAMP
+                WHERE tasks.license_key_id = ? AND (
+                    -- FIX BUG-004: Enhanced LWW with tolerance for clock skew (5 second window)
+                    tasks.updated_at IS NULL
+                    OR excluded.updated_at > tasks.updated_at
+                    OR (
+                        {clock_skew_condition}
                 )
-            )
-        """, (
-            task_data['id'],
-            license_id,
-            task_data['title'],
-            task_data.get('description'),
-            task_data.get('is_completed', False),
-            task_data.get('due_date'),
-            task_data.get('priority', 'medium'),
-            task_data.get('color'),
-            sub_tasks_val,
-            task_data.get('alarm_enabled', False),
-            task_data.get('alarm_time'),
-            task_data.get('recurrence'),
-            task_data.get('category'),
-            task_data.get('order_index', 0.0),
-            created_by,
-            task_data.get('assigned_to'),
-            # FIX: Convert Pydantic models to dicts before JSON serialization
-            json.dumps([att.model_dump() if hasattr(att, 'model_dump') else att for att in (task_data.get('attachments', []) or [])]),
-            task_data.get('visibility', 'shared'),
-            updated_at,
-            license_id  # For the WHERE clause in ON CONFLICT
-        ))
-        await commit_db(db)
-        # Use internal helper to get task without permission check (we just created it)
-        async with get_db() as db:
-            return await _get_task_by_id_raw(db, license_id, task_data['id'])
+            """, (
+                task_data['id'],
+                license_id,
+                task_data['title'],
+                task_data.get('description'),
+                task_data.get('is_completed', False),
+                task_data.get('due_date'),
+                task_data.get('priority', 'medium'),
+                task_data.get('color'),
+                sub_tasks_val,
+                task_data.get('alarm_enabled', False),
+                task_data.get('alarm_time'),
+                task_data.get('recurrence'),
+                task_data.get('category'),
+                task_data.get('order_index', 0.0),
+                created_by,
+                task_data.get('assigned_to'),
+                # FIX: Convert Pydantic models to dicts before JSON serialization
+                json.dumps([att.model_dump() if hasattr(att, 'model_dump') else att for att in (task_data.get('attachments', []) or [])]),
+                task_data.get('visibility', 'shared'),
+                updated_at,
+                license_id  # For the WHERE clause in ON CONFLICT
+            ))
+            await commit_db(db)
+            # Use internal helper to get task without permission check (we just created it)
+            async with get_db() as db:
+                return await _get_task_by_id_raw(db, license_id, task_data['id'])
+        except Exception as e:
+            # Transaction will be automatically rolled back by the context manager
+            import logging
+            logging.error(f"Failed to create/update task {task_data.get('id')}: {e}")
+            raise
 
 async def update_task(license_id: int, task_id: str, task_data: dict) -> Optional[dict]:
     """Update a task with LWW conflict resolution"""
@@ -596,10 +616,14 @@ async def update_task(license_id: int, task_id: str, task_data: dict) -> Optiona
             return await _get_task_by_id_raw(db, license_id, task_id)
 
 async def delete_task(license_id: int, task_id: str) -> bool:
-    """Delete a task"""
+    """Delete a task (soft delete - sets is_deleted flag)
+    
+    FIX: Use soft delete to maintain data integrity and allow for undo operations.
+    """
     async with get_db() as db:
         await execute_sql(db, """
-            DELETE FROM tasks 
+            UPDATE tasks 
+            SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP
             WHERE license_key_id = ? AND id = ?
         """, (license_id, task_id))
         await commit_db(db)

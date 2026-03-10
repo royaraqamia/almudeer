@@ -105,9 +105,8 @@ class LibraryItem {
       userId: json['user_id'],
       isShared: json['is_shared'] == 1 || (json['is_shared'] == true),
       sharedWith: json['shared_with'],
-      // Backend returns 'share_permission' for items in main list
-      // and 'permission' for items in shared-with-me endpoint
-      sharePermission: json['share_permission'] ?? json['permission'],
+      // Backend consistently returns 'share_permission' for all endpoints
+      sharePermission: json['share_permission'],
       // P1-5: Download resume fields (local only)
       downloadStatus: null,
       downloadedBytes: null,

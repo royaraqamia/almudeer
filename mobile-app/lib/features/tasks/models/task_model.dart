@@ -365,6 +365,11 @@ class TaskModel {
       if (priority >= 0 && priority < TaskPriority.values.length) {
         return TaskPriority.values[priority];
       }
+      // FIX: Log warning for invalid priority value
+      debugPrint('TaskModel: Invalid priority int value: $priority, expected 0-3, defaulting to medium');
+    } else if (priority != null) {
+      // Log for unexpected types
+      debugPrint('TaskModel: Unexpected priority type: ${priority.runtimeType}, value: $priority, defaulting to medium');
     }
     return TaskPriority.medium;  // Default
   }

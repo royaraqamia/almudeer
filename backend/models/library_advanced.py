@@ -39,14 +39,14 @@ async def _invalidate_shared_items_cache(license_id: int, user_id: Optional[str]
 
     FIX BUG #5: Invalidate all permission variants to prevent cache inconsistency.
     FIX: Ensure complete cleanup of both cache and access times to prevent memory leaks.
+    FIX: Use batch invalidation for atomic operation.
     """
     cache = get_shared_items_cache()
 
-    # FIX: Invalidate all permission levels for this user
+    # FIX: Invalidate all permission levels for this user using batch operation
     if user_id:
-        for perm in ['read', 'edit', 'admin', 'all']:
-            cache_key = f"{license_id}|{user_id}|{perm}"
-            await cache.invalidate(cache_key)
+        cache_keys = [f"{license_id}|{user_id}|{perm}" for perm in ['read', 'edit', 'admin', 'all']]
+        await cache.invalidate_batch(cache_keys)
     else:
         # Invalidate all caches for this license
         await cache.invalidate_prefix(f"{license_id}|")
@@ -398,9 +398,10 @@ async def get_shared_items(
     async with get_db() as db:
         try:
             # FIX: Added share expiration check (expires_at IS NULL OR expires_at > now)
+            # FIX: Return 'share_permission' instead of 'permission' for API consistency
             now = datetime.now(timezone.utc)
             query = """
-                SELECT li.*, ls.permission, ls.expires_at
+                SELECT li.*, ls.permission as share_permission, ls.expires_at
                 FROM library_items li
                 INNER JOIN library_shares ls ON li.id = ls.item_id
                 WHERE ls.shared_with_user_id = ?
@@ -527,6 +528,22 @@ async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str]
                     })
                 except Exception as metrics_error:
                     logger.warning(f"Failed to log metrics for notification failure: {metrics_error}")
+
+                # FIX: Queue notification for retry (same as share creation)
+                try:
+                    from workers import queue_notification_for_retry
+                    await queue_notification_for_retry({
+                        'license_id': license_id,
+                        'resource_type': 'library',
+                        'resource_id': str(share["item_id"]),
+                        'resource_title': share.get("item_title", "Unknown"),
+                        'revoked_by_user_id': revoked_by or "Unknown",
+                        'revoked_from_user_id': share["shared_with_user_id"],
+                        'notification_type': 'share_revoked',
+                        'priority': 'normal'
+                    })
+                except Exception as retry_error:
+                    logger.warning(f"Failed to queue revoked share notification for retry: {retry_error}")
 
         return True
 

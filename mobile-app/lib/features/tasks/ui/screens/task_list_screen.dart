@@ -130,6 +130,8 @@ class _TaskListScreenState extends State<TaskListScreen> {
                   ),
                 ],
               ),
+              // FIX: Sync failure indicator
+              if (provider.hasSyncFailure) _buildSyncFailureIndicator(context),
             ],
           ),
         ),
@@ -180,6 +182,71 @@ class _TaskListScreenState extends State<TaskListScreen> {
         SolarBoldIcons.clipboardAdd,
         color: Colors.white,
         size: 32,
+      ),
+    );
+  }
+
+  // FIX: Sync failure indicator widget
+  Widget _buildSyncFailureIndicator(BuildContext context) {
+    return Positioned(
+      top: 8,
+      left: 16,
+      right: 16,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.orange.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+            border: Border.all(
+              color: Colors.orange.withValues(alpha: 0.5),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                SolarLinearIcons.dangerCircle,
+                size: 20,
+                color: Colors.orange,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'فشل المزامنة',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.orange.shade800,
+                      ),
+                    ),
+                    Text(
+                      'تعذر مزامنة المهام. تحقق من اتصالك.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.orange.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: Icon(
+                  SolarLinearIcons.refresh,
+                  size: 20,
+                  color: Colors.orange.shade800,
+                ),
+                onPressed: () {
+                  context.read<TaskProvider>().loadTasks(triggerSync: true);
+                },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -194,9 +194,10 @@ async def create_new_task(
         import traceback
         error_trace = traceback.format_exc()
         logging.error(f"Task creation failed: {e}")
-        # FIX: Convert Attachment objects to dict for JSON serialization
+        # FIX: Don't log sensitive data (title may contain PII)
+        # Log only non-sensitive metadata for debugging
         att_count = len(task_dict.get('attachments', [])) if task_dict.get('attachments') else 0
-        logging.error(f"Task data: id={task_dict.get('id')}, title={task_dict.get('title')}, attachments={att_count}")
+        logging.error(f"Task creation error: id={task_dict.get('id')}, attachments={att_count}, has_description={bool(task_dict.get('description'))}")
         logging.error(f"Traceback: {error_trace}")
 
         # Sanitize error messages - don't expose internal details
@@ -391,8 +392,10 @@ async def update_existing_task(
                     """Ensure subtask is a dict with is_completed=False"""
                     if isinstance(subtask, dict):
                         # Explicitly reset completion status - CRITICAL FIX
+                        # FIX: Use 'or' to handle None values, not just missing keys
+                        subtask_id = subtask.get("id") or generate_stable_id(subtask.get("title", ""))
                         return {
-                            "id": subtask.get("id", generate_stable_id(subtask.get("title", ""))),
+                            "id": subtask_id,
                             "title": subtask.get("title", ""),
                             "is_completed": False  # ALWAYS reset to False
                         }
@@ -401,8 +404,9 @@ async def update_existing_task(
                         try:
                             import json
                             st_dict = json.loads(subtask)
+                            st_id = st_dict.get("id") or generate_stable_id(st_dict.get("title", ""))
                             return {
-                                "id": st_dict.get("id", generate_stable_id(st_dict.get("title", ""))),
+                                "id": st_id,
                                 "title": st_dict.get("title", ""),
                                 "is_completed": False  # ALWAYS reset to False
                             }
@@ -848,6 +852,8 @@ async def batch_delete_tasks(
 # FIX BACKEND-003: Simple in-memory cache for analytics
 _analytics_cache: dict[str, tuple[dict, float]] = {}
 _ANALYTICS_CACHE_TTL = 300  # 5 minutes cache
+_ANALYTICS_CACHE_MAX_ENTRIES = 100  # Maximum cache entries before cleanup
+_ANALYTICS_CACHE_CLEANUP_COUNT = 20  # Number of entries to remove during cleanup
 
 @router.get("/analytics")
 async def get_task_analytics(
@@ -864,7 +870,8 @@ async def get_task_analytics(
 
     license_id = user["license_id"]
     user_id = user["user_id"]
-    cache_key = f"{license_id}:{user_id}"
+    # FIX: Use '|' delimiter to prevent cache key collisions if user_id contains ':'
+    cache_key = f"{license_id}|{user_id}"
     
     # FIX BACKEND-003: Check cache first
     current_time = time.time()
@@ -952,9 +959,9 @@ async def get_task_analytics(
         # FIX BACKEND-003: Cache the result
         _analytics_cache[cache_key] = (analytics, current_time)
 
-        # Cleanup old cache entries (keep last 100)
-        if len(_analytics_cache) > 100:
-            oldest_keys = sorted(_analytics_cache.keys(), key=lambda k: _analytics_cache[k][1])[:20]
+        # Cleanup old cache entries (keep last _ANALYTICS_CACHE_MAX_ENTRIES)
+        if len(_analytics_cache) > _ANALYTICS_CACHE_MAX_ENTRIES:
+            oldest_keys = sorted(_analytics_cache.keys(), key=lambda k: _analytics_cache[k][1])[:_ANALYTICS_CACHE_CLEANUP_COUNT]
             for key in oldest_keys:
                 del _analytics_cache[key]
 

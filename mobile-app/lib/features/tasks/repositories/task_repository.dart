@@ -71,6 +71,12 @@ class TaskRepository {
     _commentCacheAccessOrder.add(taskId);
   }
 
+  // WebSocket reconnection state
+  int _wsReconnectAttempts = 0;
+  static const int _maxWsReconnectAttempts = 10;
+  static const Duration _wsReconnectBaseDelay = Duration(seconds: 2);
+  Timer? _wsReconnectTimer;
+
   void _initWebSocket() {
     final ws = _webSocketService;
     if (ws == null) return;
@@ -114,12 +120,50 @@ class TaskRepository {
           _typingController.add(data);
         }
       }
+    }, onError: (error) {
+      // FIX: Handle WebSocket errors with exponential backoff reconnection
+      debugPrint('TaskRepository: WebSocket error: $error');
+      _wsReconnectAttempts++;
+      if (_wsReconnectAttempts <= _maxWsReconnectAttempts) {
+        final delay = _wsReconnectBaseDelay * (1 << (_wsReconnectAttempts - 1)); // Exponential backoff
+        debugPrint('TaskRepository: Scheduling WebSocket reconnection in ${delay.inSeconds}s (attempt $_wsReconnectAttempts/$_maxWsReconnectAttempts)');
+        _wsReconnectTimer?.cancel();
+        _wsReconnectTimer = Timer(delay, () {
+          debugPrint('TaskRepository: Reconnecting WebSocket...');
+          _initWebSocket();
+        });
+      } else {
+        debugPrint('TaskRepository: Max WebSocket reconnection attempts reached. Stopping reconnections.');
+      }
+    }, onDone: () {
+      // FIX: Handle WebSocket disconnection with reconnection
+      debugPrint('TaskRepository: WebSocket connection closed. Attempting reconnection...');
+      _wsReconnectAttempts++;
+      if (_wsReconnectAttempts <= _maxWsReconnectAttempts) {
+        final delay = _wsReconnectBaseDelay * (1 << (_wsReconnectAttempts - 1)); // Exponential backoff
+        debugPrint('TaskRepository: Scheduling WebSocket reconnection in ${delay.inSeconds}s (attempt $_wsReconnectAttempts/$_maxWsReconnectAttempts)');
+        _wsReconnectTimer?.cancel();
+        _wsReconnectTimer = Timer(delay, () {
+          debugPrint('TaskRepository: Reconnecting WebSocket...');
+          _initWebSocket();
+        });
+      } else {
+        debugPrint('TaskRepository: Max WebSocket reconnection attempts reached. Stopping reconnections.');
+      }
     });
+    // Reset reconnect attempts on successful connection
+    _wsReconnectAttempts = 0;
   }
 
   // FIX PERF-002: Cache last alarm reschedule to avoid unnecessary work
   DateTime? _lastAlarmReschedule;
   static const Duration _alarmRescheduleInterval = Duration(hours: 24);
+  
+  // FIX: Invalidate alarm cache when tasks are modified
+  void _invalidateAlarmCache() {
+    _lastAlarmReschedule = null;
+    debugPrint('TaskRepository: Alarm cache invalidated');
+  }
 
   Future<void> _rescheduleLocalAlarms() async {
     try {
@@ -132,20 +176,20 @@ class TaskRepository {
       }
 
       final db = await _databaseService.database;
-      
+
       // FIX PERF-002: Only load alarm-enabled, active tasks with future alarm times
       final maps = await db.query(
         'tasks',
         where: 'alarm_enabled = ? AND is_completed = ? AND is_deleted = ? AND alarm_time > ?',
         whereArgs: [0, 0, 0, now.millisecondsSinceEpoch],
       );
-      
+
       if (maps.isEmpty) {
         debugPrint('TaskRepository: No active alarms to reschedule');
         _lastAlarmReschedule = now;
         return;
       }
-      
+
       final tasks = maps.map((m) => TaskModel.fromMap(m)).toList();
       debugPrint('TaskRepository: Rescheduling ${tasks.length} active alarms');
       await TaskAlarmService().rescheduleAllAlarms(tasks);
@@ -158,6 +202,7 @@ class TaskRepository {
   void dispose() {
     _connectivitySubscription?.cancel();
     _wsSubscription?.cancel();
+    _wsReconnectTimer?.cancel();
     _syncController.close();
     _typingController.close();
   }
@@ -253,7 +298,7 @@ class TaskRepository {
       // TIMEOUT: Add timeout to prevent indefinite hangs
       if (task.isDeleted) {
         await _syncService.deleteTask(task.id).timeout(
-          const Duration(seconds: 30),
+          const Duration(seconds: 60),
           onTimeout: () => throw TimeoutException('Delete task timeout'),
         );
         await db.delete('tasks', where: 'id = ?', whereArgs: [task.id]);
@@ -261,7 +306,7 @@ class TaskRepository {
       } else {
         // TaskSyncService will send the local updated_at which the backend now respects for LWW
         await _syncService.createTask(task).timeout(
-          const Duration(seconds: 30),
+          const Duration(seconds: 60),
           onTimeout: () => throw TimeoutException('Create task timeout'),
         );
         await db.update(
@@ -414,6 +459,9 @@ class TaskRepository {
           }
         }
 
+        // FIX: Invalidate alarm cache after sync to ensure fresh reschedule
+        _invalidateAlarmCache();
+
         // Notify UI of updates
         _syncController.add(null);
       }
@@ -436,17 +484,20 @@ class TaskRepository {
       await TaskAlarmService().scheduleAlarm(task);
     }
 
+    // FIX: Invalidate alarm cache when tasks are modified
+    _invalidateAlarmCache();
+
     // Trigger Sync
     _runSyncQueue();
   }
 
   Future<void> updateTask(TaskModel task) async {
     final db = await _databaseService.database;
-    
+
     debugPrint(
       '[TaskRepository] updateTask: id=${task.id}, subTasks=${task.subTasks.map((s) => s.title).toList()}',
     );
-    
+
     // Update as pending sync
     await db.update(
       'tasks',
@@ -461,6 +512,9 @@ class TaskRepository {
     } else {
       await TaskAlarmService().cancelAlarm(task.id);
     }
+
+    // FIX: Invalidate alarm cache when tasks are modified
+    _invalidateAlarmCache();
 
     // Trigger Sync
     _runSyncQueue();

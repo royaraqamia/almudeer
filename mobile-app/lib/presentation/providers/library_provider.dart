@@ -17,7 +17,8 @@ const int _maxInt32 = 2147483647;
 const int _progressThrottleIntervalMs = 100;
 
 /// Tolerance window for comparing timestamps to account for clock skew (seconds)
-const int _timestampToleranceSeconds = 5;
+/// Minor Issue #10: Reduced from 5 to 2 seconds to prevent accepting stale data
+const int _timestampToleranceSeconds = 2;
 
 /// FIX BUG #7: Exception for partial share failures
 class PartialShareException implements Exception {

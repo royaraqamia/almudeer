@@ -650,10 +650,10 @@ async def bulk_delete_items(license_id: int, item_ids: List[int], user_id: Optio
 
             await commit_db(db)
 
-            # P0-3 FIX: Calculate failed IDs (only if not already calculated above)
-            if user_id and 'failed_ids' not in locals():
-                failed_ids = [id for id in validated_item_ids if id not in accessible_ids]
-            elif not user_id:
+            # P0-3 FIX: Calculate failed IDs
+            # For user_id case, failed_ids was already calculated above
+            # For non-user_id case, we need to calculate it now
+            if not user_id:
                 failed_ids = [id for id in validated_item_ids if id not in accessible_ids]
 
             # Invalidate storage cache only on success

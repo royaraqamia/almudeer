@@ -13,12 +13,25 @@ class FakeTaskRepository implements TaskRepository {
   Stream<void> get syncStream => const Stream.empty();
 
   @override
+  Stream<Map<String, dynamic>> get typingStream => const Stream.empty();
+
+  @override
   Future<List<TaskModel>> getTasks({
     bool triggerSync = true,
     int? limit,
     int? offset,
   }) async {
     return List.from(_db);
+  }
+
+  @override
+  Future<List<TaskModel>> getSharedTasks({String? permission}) async {
+    return [];  // Return empty for tests
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getCollaborators() async {
+    return [];  // Return empty for tests
   }
 
   @override
@@ -51,6 +64,8 @@ void main() {
   late FakeTaskRepository repository;
 
   setUp(() {
+    // Initialize Flutter binding for tests
+    TestWidgetsFlutterBinding.ensureInitialized();
     repository = FakeTaskRepository();
     provider = TaskProvider(repository: repository);
   });

@@ -112,7 +112,7 @@ async def add_attachment(
 async def delete_attachment(attachment_id: int, license_id: int, user_id: Optional[str] = None) -> bool:
     """Soft delete an attachment"""
     now = datetime.now(timezone.utc)
-    
+
     async with get_db() as db:
         # Verify attachment exists
         attachment = await fetch_one(
@@ -120,10 +120,10 @@ async def delete_attachment(attachment_id: int, license_id: int, user_id: Option
             "SELECT file_path FROM library_attachments WHERE id = ? AND license_key_id = ? AND deleted_at IS NULL",
             [attachment_id, license_id]
         )
-        
+
         if not attachment:
             return False
-        
+
         # Delete physical file
         if attachment.get("file_path"):
             from services.file_storage_service import get_file_storage
@@ -131,15 +131,20 @@ async def delete_attachment(attachment_id: int, license_id: int, user_id: Option
                 get_file_storage().delete_file(attachment["file_path"])
             except Exception as e:
                 logger.error(f"Failed to delete attachment file: {e}")
-        
+
         # Soft delete
         await execute_sql(
             db,
             "UPDATE library_attachments SET deleted_at = ? WHERE id = ? AND license_key_id = ?",
             [now, attachment_id, license_id]
         )
-        
+
         await commit_db(db)
+
+        # FIX: Invalidate storage cache after deleting attachment
+        from models.library import _invalidate_storage_cache
+        await _invalidate_storage_cache(license_id)
+
         return True
 
 

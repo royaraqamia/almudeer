@@ -32,8 +32,8 @@ class TaskAlarmService {
       final timeZone = await FlutterTimezone.getLocalTimezone();
       // Fix: Extract timezone ID from the returned string
       // FlutterTimezone may return "TimezoneInfo(GMT, ...)" instead of just "GMT"
-      String timeZoneId = timeZone.toString();
-      
+      String timeZoneId = timeZone.toString().trim();
+
       // Try to extract timezone ID from TimezoneInfo format
       if (timeZoneId.startsWith('TimezoneInfo(')) {
         // Extract the first parameter (timezone abbreviation like GMT, EST, etc.)
@@ -42,10 +42,18 @@ class TaskAlarmService {
           timeZoneId = match.group(1)!.trim();
         }
       }
-      
+
+      // FIX: Handle IANA timezone format (e.g., "America/New_York")
+      // and Windows timezone format (e.g., "Eastern Standard Time")
+      if (timeZoneId.contains(' ') && !timeZoneId.contains('/')) {
+        // Likely Windows timezone name, convert to IANA
+        timeZoneId = _convertWindowsToIana(timeZoneId);
+      }
+
       // Try to get location with the extracted timezone ID
       try {
         tz.setLocalLocation(tz.getLocation(timeZoneId));
+        debugPrint('TaskAlarmService: Timezone set to "$timeZoneId"');
       } catch (e) {
         debugPrint('TaskAlarmService: Failed to get location for "$timeZoneId": $e');
         // Try common timezone ID formats
@@ -53,11 +61,14 @@ class TaskAlarmService {
           timeZoneId,
           timeZoneId.replaceAll(' ', '_'),
           'Etc/$timeZoneId',
+          // Common IANA timezone mappings for abbreviations
+          ..._getIanaTimezoneFallbacks(timeZoneId),
           'UTC',
         ];
-        
+
         bool located = false;
         for (final id in fallbackIds) {
+          if (id.isEmpty) continue;
           try {
             tz.setLocalLocation(tz.getLocation(id));
             debugPrint('TaskAlarmService: Successfully set timezone to "$id"');
@@ -65,7 +76,7 @@ class TaskAlarmService {
             break;
           } catch (_) {}
         }
-        
+
         if (!located) {
           debugPrint('TaskAlarmService: All timezone lookups failed, using UTC');
           tz.setLocalLocation(tz.getLocation('UTC'));
@@ -367,5 +378,101 @@ class TaskAlarmService {
     );
 
     await FlutterCallkitIncoming.showCallkitIncoming(params);
+  }
+
+  /// FIX: Convert Windows timezone names to IANA format
+  static String _convertWindowsToIana(String windowsTimezone) {
+    final normalized = windowsTimezone.trim().toLowerCase();
+    // Common Windows to IANA timezone mappings
+    final windowsToIana = {
+      'western european time': 'Europe/London',
+      'gmt standard time': 'Europe/London',
+      'west europe standard time': 'Europe/Berlin',
+      'romance standard time': 'Europe/Paris',
+      'central europe standard time': 'Europe/Berlin',
+      'eastern europe standard time': 'Europe/Bucharest',
+      'fLE standard time': 'Europe/Helsinki',
+      'gtb standard time': 'Europe/Bucharest',
+      'egypt standard time': 'Africa/Cairo',
+      'south africa standard time': 'Africa/Johannesburg',
+      'russian standard time': 'Europe/Moscow',
+      'arabic standard time': 'Asia/Riyadh',
+      'iran standard time': 'Asia/Tehran',
+      'india standard time': 'Asia/Kolkata',
+      'singapore standard time': 'Asia/Singapore',
+      'west pacific standard time': 'Pacific/Port_Moresby',
+      'central pacific standard time': 'Pacific/Guadalcanal',
+      'eastern australia standard time': 'Australia/Sydney',
+      'aus eastern standard time': 'Australia/Sydney',
+      'tasmania standard time': 'Australia/Hobart',
+      'new zealand standard time': 'Pacific/Auckland',
+      'utc+12': 'Pacific/Auckland',
+      'hawaiian standard time': 'Pacific/Honolulu',
+      'alaskan standard time': 'America/Anchorage',
+      'pacific standard time': 'America/Los_Angeles',
+      'us mountain standard time': 'America/Denver',
+      'mountain standard time': 'America/Denver',
+      'central standard time': 'America/Chicago',
+      'eastern standard time': 'America/New_York',
+      'atlantic standard time': 'America/Halifax',
+      'greenland standard time': 'America/Godthab',
+      'mid-atlantic standard time': 'Atlantic/South_Georgia',
+      'azores standard time': 'Atlantic/Azores',
+      'cape verde standard time': 'Atlantic/Cape_Verde',
+      'morocco standard time': 'Africa/Casablanca',
+      'central brazilian standard time': 'America/Cuiaba',
+      'sa western standard time': 'America/Bahia',
+      'pacific sa standard time': 'America/Santiago',
+      'venezuela standard time': 'America/Caracas',
+    };
+    return windowsToIana[normalized] ?? windowsTimezone;
+  }
+
+  /// FIX: Get IANA timezone fallbacks for common abbreviations
+  static List<String> _getIanaTimezoneFallbacks(String abbreviation) {
+    final normalized = abbreviation.trim().toUpperCase();
+    // Common timezone abbreviation to IANA mappings
+    final abbrevToIana = {
+      'UTC': ['UTC'],
+      'GMT': ['Europe/London', 'UTC'],
+      'EST': ['America/New_York'],
+      'EDT': ['America/New_York'],
+      'CST': ['America/Chicago', 'Asia/Shanghai'],
+      'CDT': ['America/Chicago'],
+      'MST': ['America/Denver'],
+      'MDT': ['America/Denver'],
+      'PST': ['America/Los_Angeles'],
+      'PDT': ['America/Los_Angeles'],
+      'AST': ['America/Halifax'],
+      'ADT': ['America/Halifax'],
+      'HST': ['Pacific/Honolulu'],
+      'AKST': ['America/Anchorage'],
+      'AKDT': ['America/Anchorage'],
+      'CET': ['Europe/Berlin'],
+      'CEST': ['Europe/Berlin'],
+      'EET': ['Europe/Helsinki'],
+      'EEST': ['Europe/Helsinki'],
+      'WET': ['Europe/Lisbon'],
+      'WEST': ['Europe/Lisbon'],
+      'BST': ['Europe/London'],
+      'IST': ['Europe/Dublin', 'Asia/Kolkata', 'Asia/Jerusalem'],
+      'JST': ['Asia/Tokyo'],
+      'KST': ['Asia/Seoul'],
+      'CST_CHINA': ['Asia/Shanghai'],
+      'HKT': ['Asia/Hong_Kong'],
+      'SGT': ['Asia/Singapore'],
+      'AEST': ['Australia/Sydney'],
+      'AEDT': ['Australia/Sydney'],
+      'NZST': ['Pacific/Auckland'],
+      'NZDT': ['Pacific/Auckland'],
+      'CAT': ['Africa/Johannesburg'],
+      'EAT': ['Africa/Nairobi'],
+      'WAT': ['Africa/Lagos'],
+      'ECT': ['Europe/Paris'],
+      'SAST': ['Africa/Johannesburg'],
+      'AST_ARABIC': ['Asia/Riyadh'],
+      'IST_IRAN': ['Asia/Tehran'],
+    };
+    return abbrevToIana[normalized] ?? [];
   }
 }

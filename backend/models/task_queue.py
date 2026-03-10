@@ -7,9 +7,12 @@ P1-1 FIX: Added dead letter queue for failed tasks after max retries.
 """
 
 import json
+import logging
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 from db_helper import get_db, execute_sql, fetch_one, fetch_all, commit_db, DB_TYPE
+
+logger = logging.getLogger(__name__)
 
 # Dead letter queue configuration
 MAX_RETRY_COUNT = 3
@@ -157,9 +160,9 @@ async def fail_task(task_id: int, error_msg: str, retry_count: Optional[int] = N
             await execute_sql(
                 db,
                 """
-                UPDATE task_queue 
-                SET status = 'dead_letter', 
-                    error_message = ?, 
+                UPDATE task_queue
+                SET status = 'dead_letter',
+                    error_message = ?,
                     updated_at = ?,
                     retry_count = ?,
                     dead_lettered_at = ?
@@ -167,14 +170,7 @@ async def fail_task(task_id: int, error_msg: str, retry_count: Optional[int] = N
                 """,
                 [str(error_msg), ts_value, retry_count, ts_value, task_id]
             )
-            logger = None
-            try:
-                from logging_config import get_logger
-                logger = get_logger(__name__)
-            except:
-                pass
-            if logger:
-                logger.warning(f"Task {task_id} moved to dead letter queue after {retry_count} retries: {error_msg}")
+            logger.warning(f"Task {task_id} moved to dead letter queue after {retry_count} retries: {error_msg}")
         else:
             # Reset to pending for retry
             await execute_sql(

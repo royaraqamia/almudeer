@@ -9,6 +9,7 @@ Permission Levels:
 - edit: Can VIEW, EDIT, and SHARE. Cannot DELETE.
 - admin: Full access - VIEW, EDIT, SHARE, DELETE (same as owner).
 """
+import asyncio
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db, DB_TYPE
@@ -134,6 +135,17 @@ async def share_task(
         else:
             # Create new share - use INSERT ... ON CONFLICT for PostgreSQL
             if DB_TYPE == "postgresql":
+                # First check for revoked share (can't re-use)
+                revoked = await fetch_one(
+                    db,
+                    "SELECT id FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NOT NULL",
+                    [task_id, recipient_user_id]
+                )
+                if revoked:
+                    raise ValueError("Share was previously revoked. Please create a new share.")
+                
+                # Use INSERT ... ON CONFLICT with proper handling
+                # The ON CONFLICT clause handles race conditions atomically
                 result = await fetch_one(
                     db,
                     """
@@ -142,8 +154,8 @@ async def share_task(
                     VALUES ($1, $2, $3, $4, $5, $6, $7)
                     ON CONFLICT (task_id, shared_with_user_id) DO UPDATE SET
                         permission = EXCLUDED.permission,
-                        updated_at = EXCLUDED.updated_at
-                    WHERE task_shares.deleted_at IS NULL  -- Don't update revoked shares
+                        updated_at = EXCLUDED.updated_at,
+                        deleted_at = NULL  -- Reactivate if it was soft-deleted (shouldn't happen due to check above, but defensive)
                     RETURNING id
                     """,
                     [task_id, license_id, recipient_user_id, permission, now, created_by, now]
@@ -154,7 +166,17 @@ async def share_task(
                 # Use SAVEPOINT for nested operations to prevent deadlocks
                 await execute_sql(db, "SAVEPOINT share_task_sp")
                 try:
-                    # Re-check for existing share under lock
+                    # Check for revoked share first (can't re-use)
+                    revoked = await fetch_one(
+                        db,
+                        "SELECT id FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NOT NULL",
+                        [task_id, recipient_user_id]
+                    )
+                    if revoked:
+                        await execute_sql(db, "ROLLBACK TO share_task_sp")
+                        raise ValueError("Share was previously revoked. Please create a new share.")
+                    
+                    # Re-check for existing active share under lock (race condition prevention)
                     existing_under_lock = await fetch_one(
                         db,
                         "SELECT id FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NULL",
@@ -174,16 +196,7 @@ async def share_task(
                         )
                         share_id = existing_under_lock['id']
                     else:
-                        # Check if revoked share exists
-                        revoked = await fetch_one(
-                            db,
-                            "SELECT id FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NOT NULL",
-                            [task_id, recipient_user_id]
-                        )
-                        if revoked:
-                            await execute_sql(db, "ROLLBACK TO share_task_sp")
-                            raise ValueError("Share was previously revoked. Please create a new share.")
-
+                        # No existing share - insert new one
                         await execute_sql(
                             db,
                             """
@@ -329,6 +342,7 @@ async def get_shared_tasks(
     # Try cache first
     cached = await cache.get(cache_key)
     if cached is not None:
+        # FIX: Only log cache hits in debug mode to reduce production log verbosity
         logger.debug(f"Cache hit for shared tasks: {cache_key}")
         return cached
 

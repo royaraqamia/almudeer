@@ -65,8 +65,20 @@ def upgrade() -> None:
             op.execute(f"ALTER TABLE inbox_messages ADD COLUMN {col_name} {col_type}")
     
     # 2. Add columns to outbox_messages
-    if not column_exists('outbox_messages', 'deleted_at'):
-        op.execute("ALTER TABLE outbox_messages ADD COLUMN deleted_at TIMESTAMP")
+    outbox_cols_to_add = [
+        ('reply_to_platform_id', 'TEXT'),
+        ('reply_to_body_preview', 'TEXT'),
+        ('reply_to_sender_name', 'TEXT'),
+        ('reply_to_id', 'INTEGER'),
+        ('platform_status', 'TEXT'),
+        ('platform_message_id', 'TEXT'),
+        ('deleted_at', 'TIMESTAMP'),
+        ('original_sender', 'TEXT')
+    ]
+
+    for col_name, col_type in outbox_cols_to_add:
+        if not column_exists('outbox_messages', col_name):
+            op.execute(f"ALTER TABLE outbox_messages ADD COLUMN {col_name} {col_type}")
     
     # 3. Create inbox_conversations optimization table
     op.execute(f"""

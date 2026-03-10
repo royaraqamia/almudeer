@@ -106,10 +106,11 @@ class TestTaskRBAC:
         assert role == "owner"
     
     def test_compute_role_assignee(self):
-        """Assignee role when user is assigned"""
+        """Assignee role when user is assigned (backward compatibility returns 'editor')"""
         task = {"created_by": "user123", "assigned_to": "user456"}
         role = compute_task_role(task, "user456")
-        assert role == "assignee"
+        # P4-2: assigned_to users get 'editor' role for backward compatibility
+        assert role == "editor"
     
     def test_compute_role_viewer(self):
         """Viewer role for other users"""
@@ -363,3 +364,245 @@ class TestTaskIntegration:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ============ Concurrent Share Operations Tests ============
+
+@pytest.mark.asyncio
+class TestConcurrentShareOperations:
+    """Test race condition handling in task sharing operations
+    
+    P4-2: These tests verify that concurrent share operations are handled correctly
+    to prevent duplicate shares, data corruption, and inconsistent state.
+    """
+
+    async def test_concurrent_share_creation(self):
+        """Test that concurrent share requests don't create duplicates
+        
+        Scenario: Two simultaneous requests to share the same task with the same user
+        Expected: Only one share record created, no constraint violations
+        """
+        from models.task_shares import share_task, get_shared_tasks
+        from db_helper import get_db, fetch_one, execute_sql
+        import asyncio
+        
+        # This test requires a real database to test race conditions
+        # Mock test structure for reference
+        task_id = "test-task-concurrent-123"
+        license_id = 1
+        shared_with_user_id = "user456"
+        created_by = "user123"
+        
+        # Create task first (mock)
+        async with get_db() as db:
+            await execute_sql(db, """
+                INSERT OR IGNORE INTO tasks (id, license_key_id, title, created_by, visibility)
+                VALUES (?, ?, ?, ?, 'shared')
+            """, (task_id, license_id, "Test Task", created_by))
+        
+        # Simulate concurrent share requests
+        async def share_request(permission):
+            try:
+                result = await share_task(
+                    task_id=task_id,
+                    license_id=license_id,
+                    shared_with_user_id=shared_with_user_id,
+                    permission=permission,
+                    created_by=created_by
+                )
+                return ("success", result)
+            except ValueError as e:
+                return ("error", str(e))
+            except Exception as e:
+                return ("exception", str(e))
+        
+        # Run two share requests concurrently
+        results = await asyncio.gather(
+            share_request("read"),
+            share_request("edit"),
+            return_exceptions=True
+        )
+        
+        # Verify only one succeeded or both got the same record
+        success_count = sum(1 for r in results if r[0] == "success")
+        # At least one should succeed, but not create duplicates
+        assert success_count >= 1
+        
+        # Verify only one share record exists
+        async with get_db() as db:
+            row = await fetch_one(
+                db,
+                """
+                SELECT COUNT(*) as cnt FROM task_shares 
+                WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NULL
+                """,
+                (task_id, shared_with_user_id)
+            )
+            assert row["cnt"] == 1, "Should have exactly one active share record"
+        
+        # Cleanup
+        async with get_db() as db:
+            await execute_sql(db, "DELETE FROM task_shares WHERE task_id = ?", (task_id,))
+            await execute_sql(db, "DELETE FROM tasks WHERE id = ?", (task_id,))
+
+    async def test_share_revoked_cannot_reuse(self):
+        """Test that revoked shares cannot be reactivated
+        
+        Scenario: Share is revoked, then someone tries to re-share with same user
+        Expected: Should raise error requiring new share creation
+        """
+        from models.task_shares import share_task, remove_share
+        from db_helper import get_db, execute_sql
+        from datetime import datetime, timezone
+        
+        task_id = "test-task-revoked-456"
+        license_id = 1
+        shared_with_user_id = "user789"
+        created_by = "user123"
+        
+        # Setup: Create task and share
+        async with get_db() as db:
+            await execute_sql(db, """
+                INSERT OR IGNORE INTO tasks (id, license_key_id, title, created_by, visibility)
+                VALUES (?, ?, ?, ?, 'shared')
+            """, (task_id, license_id, "Test Task", created_by))
+        
+        # Create share
+        await share_task(
+            task_id=task_id,
+            license_id=license_id,
+            shared_with_user_id=shared_with_user_id,
+            permission="read",
+            created_by=created_by
+        )
+        
+        # Revoke share
+        await remove_share(
+            share_id=1,  # Will be the first share
+            license_id=license_id,
+            revoked_by=created_by
+        )
+        
+        # Try to re-share - should fail with revoked error
+        try:
+            await share_task(
+                task_id=task_id,
+                license_id=license_id,
+                shared_with_user_id=shared_with_user_id,
+                permission="edit",
+                created_by=created_by
+            )
+            # If we get here, the test failed - should have raised ValueError
+            assert False, "Should have raised ValueError for revoked share"
+        except ValueError as e:
+            assert "revoked" in str(e).lower(), f"Error should mention revoked: {e}"
+        
+        # Cleanup
+        async with get_db() as db:
+            await execute_sql(db, "DELETE FROM task_shares WHERE task_id = ?", (task_id,))
+            await execute_sql(db, "DELETE FROM tasks WHERE id = ?", (task_id,))
+
+    async def test_self_share_prevention(self):
+        """Test that users cannot share tasks with themselves
+        
+        Security test for SEC-001
+        """
+        from models.task_shares import share_task
+        from db_helper import get_db, execute_sql
+        
+        task_id = "test-task-self-share-789"
+        license_id = 1
+        user_id = "user123"
+        
+        # Setup: Create task
+        async with get_db() as db:
+            await execute_sql(db, """
+                INSERT OR IGNORE INTO tasks (id, license_key_id, title, created_by, visibility)
+                VALUES (?, ?, ?, ?, 'shared')
+            """, (task_id, license_id, "Test Task", user_id))
+        
+        # Try to share with self - should fail
+        try:
+            await share_task(
+                task_id=task_id,
+                license_id=license_id,
+                shared_with_user_id=user_id,
+                permission="edit",
+                created_by=user_id
+            )
+            assert False, "Should have raised ValueError for self-share"
+        except ValueError as e:
+            assert "yourself" in str(e).lower(), f"Error should mention self-share: {e}"
+        
+        # Cleanup
+        async with get_db() as db:
+            await execute_sql(db, "DELETE FROM tasks WHERE id = ?", (task_id,))
+
+    async def test_concurrent_share_update_permission(self):
+        """Test concurrent permission updates on same share
+        
+        Scenario: Two requests to update permission on same share
+        Expected: Last write wins, no data corruption
+        """
+        from models.task_shares import share_task
+        from db_helper import get_db, fetch_one, execute_sql
+        import asyncio
+        
+        task_id = "test-task-perm-update-123"
+        license_id = 1
+        shared_with_user_id = "user456"
+        created_by = "user123"
+        
+        # Setup: Create task and initial share
+        async with get_db() as db:
+            await execute_sql(db, """
+                INSERT OR IGNORE INTO tasks (id, license_key_id, title, created_by, visibility)
+                VALUES (?, ?, ?, ?, 'shared')
+            """, (task_id, license_id, "Test Task", created_by))
+        
+        await share_task(
+            task_id=task_id,
+            license_id=license_id,
+            shared_with_user_id=shared_with_user_id,
+            permission="read",
+            created_by=created_by
+        )
+        
+        # Simulate concurrent permission updates
+        async def update_permission(perm):
+            try:
+                result = await share_task(
+                    task_id=task_id,
+                    license_id=license_id,
+                    shared_with_user_id=shared_with_user_id,
+                    permission=perm,
+                    created_by=created_by
+                )
+                return ("success", perm)
+            except Exception as e:
+                return ("error", str(e))
+        
+        results = await asyncio.gather(
+            update_permission("admin"),
+            update_permission("edit"),
+            return_exceptions=True
+        )
+        
+        # Both should succeed (they update the same record)
+        success_count = sum(1 for r in results if r[0] == "success")
+        assert success_count == 2
+        
+        # Verify share exists with one of the permissions (last write wins)
+        async with get_db() as db:
+            row = await fetch_one(
+                db,
+                "SELECT permission FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NULL",
+                (task_id, shared_with_user_id)
+            )
+            assert row is not None, "Share record should exist"
+            assert row["permission"] in ("admin", "edit"), "Permission should be one of the updated values"
+        
+        # Cleanup
+        async with get_db() as db:
+            await execute_sql(db, "DELETE FROM task_shares WHERE task_id = ?", (task_id,))
+            await execute_sql(db, "DELETE FROM tasks WHERE id = ?", (task_id,))

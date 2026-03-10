@@ -22,6 +22,11 @@ class TaskProvider extends ChangeNotifier {
   String? _lastError;
   DateTime? _lastErrorTime; // ignore: unused_field
 
+  // FIX: Sync failure state for UI indicator
+  bool _hasSyncFailure = false;
+  DateTime? _lastSyncFailureTime;
+  String? _lastSyncFailureReason;
+
   // Retry state
   int _retryCount = 0;
   static const int _maxRetries = 3;
@@ -32,11 +37,25 @@ class TaskProvider extends ChangeNotifier {
 
   // FIX: Debounce for rapid toggle to prevent race conditions
   static const Duration _toggleDebounceMs = Duration(milliseconds: 500);
+  static const Duration _togglePendingTTL = Duration(seconds: 5);
   final Map<String, DateTime?> _pendingToggles = {};
+
+  // FIX: Cleanup for pending toggles to prevent memory leak
+  void _cleanupPendingToggles() {
+    final now = DateTime.now();
+    _pendingToggles.removeWhere((key, timestamp) {
+      return timestamp != null && now.difference(timestamp) > _togglePendingTTL;
+    });
+  }
 
   // Error getter
   String? get lastError => _lastError;
   bool get hasError => _lastError != null;
+
+  // FIX: Sync failure getters for UI indicator
+  bool get hasSyncFailure => _hasSyncFailure;
+  DateTime? get lastSyncFailureTime => _lastSyncFailureTime;
+  String? get lastSyncFailureReason => _lastSyncFailureReason;
 
   void _setError(String error) {
     _lastError = error;
@@ -49,6 +68,24 @@ class TaskProvider extends ChangeNotifier {
     _lastError = null;
     _lastErrorTime = null;
     _retryCount = 0;
+  }
+
+  // FIX: Track sync failures for UI indicator
+  void _trackSyncFailure(String reason) {
+    _hasSyncFailure = true;
+    _lastSyncFailureTime = DateTime.now();
+    _lastSyncFailureReason = reason;
+    debugPrint('TaskProvider: Sync failure tracked - $reason');
+    notifyListeners();
+  }
+
+  void _clearSyncFailure() {
+    if (_hasSyncFailure) {
+      _hasSyncFailure = false;
+      _lastSyncFailureTime = null;
+      _lastSyncFailureReason = null;
+      notifyListeners();
+    }
   }
 
   bool get canRetry => _retryCount < _maxRetries;
@@ -406,9 +443,16 @@ class TaskProvider extends ChangeNotifier {
         TaskAlarmService().rescheduleAllAlarms(allTasks);
         loadCollaborators();
       }
+
+      // FIX: Clear sync failure on successful load
+      _clearSyncFailure();
     } catch (e) {
       debugPrint("Error loading tasks: $e");
       _isLoading = false;
+      
+      // FIX: Track sync failure for UI indicator
+      _trackSyncFailure(e.toString());
+      
       // Don't show error for offline - just keep showing cached data
       if (_tasks.isEmpty) {
         // Show empty state instead of error for offline scenarios
@@ -563,6 +607,9 @@ class TaskProvider extends ChangeNotifier {
       debugPrint("Error toggling task status: $e");
       _setError('فشل تحديث حالة المهمة. يرجى المحاولة مرة أخرى');
       await loadTasks(triggerSync: false);
+    } finally {
+      // FIX: Cleanup old pending toggles to prevent memory leak
+      _cleanupPendingToggles();
     }
   }
 
@@ -859,6 +906,7 @@ class TaskProvider extends ChangeNotifier {
     _taskTypingUsers.clear();
     _typingTimers.forEach((_, timer) => timer?.cancel());
     _typingTimers.clear();
+    _pendingToggles.clear();
     notifyListeners();
   }
 
@@ -895,7 +943,10 @@ class TaskProvider extends ChangeNotifier {
       timer?.cancel();
     }
     _typingTimers.clear();
-    
+
+    // Clear pending toggles
+    _pendingToggles.clear();
+
     // Clear current user data
     _currentUserEmail = null;
     _currentUserId = null;

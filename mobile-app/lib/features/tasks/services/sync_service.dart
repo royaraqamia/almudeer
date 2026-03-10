@@ -111,14 +111,38 @@ class TaskSyncService {
       debugPrint('TaskSyncService: Failed to create task - API Error: ${e.message}, StatusCode: ${e.statusCode}');
       debugPrint('Task ID: ${task.id}, Title: ${task.title}');
       debugPrint('Attachments count: ${attachments.length}, Files to upload: ${filesToUpload.length}');
-      // Re-throw to let the caller handle rollback
-      rethrow;
+      // Re-throw with localized message
+      throw _createLocalizedApiException(e, 'إضافة المهمة');
     } catch (e, st) {
       debugPrint('TaskSyncService: Failed to create task with attachments: $e');
       debugPrint('Stack trace: $st');
-      // Re-throw to let the caller handle rollback
-      rethrow;
+      // Re-throw with localized message
+      throw Exception('فشل إضافة المهمة. يرجى المحاولة مرة أخرى');
     }
+  }
+
+  /// Create localized exception from API error
+  Exception _createLocalizedApiException(ApiException e, String operation) {
+    // Default localized messages based on status code
+    if (e.statusCode == 400) {
+      // Try to extract message from ApiException
+      if (e.message.isNotEmpty) {
+        return Exception(e.message);
+      }
+      return Exception('بيانات $operation غير صحيحة');
+    } else if (e.statusCode == 401) {
+      return Exception('غير مصرح لك بـ $operation');
+    } else if (e.statusCode == 403) {
+      return Exception('ليس لديك صلاحية $operation');
+    } else if (e.statusCode == 404) {
+      return Exception('$operation غير موجودة');
+    } else if (e.statusCode == 409) {
+      return Exception('حدث تعارض أثناء $operation. يرجى المحاولة مرة أخرى');
+    } else if (e.statusCode == 413) {
+      return Exception('حجم الملف يتجاوز الحد المسموح');
+    }
+    // Default message with error code for debugging
+    return Exception('فشل $operation (${e.statusCode ?? 0}). يرجى المحاولة مرة أخرى');
   }
 
   /// Update task on backend with proper error handling for attachments
@@ -158,10 +182,12 @@ class TaskSyncService {
         'responseSubTasks=${response['sub_tasks']}',
       );
       return TaskModel.fromJson(response);
+    } on ApiException catch (e) {
+      debugPrint('TaskSyncService: Failed to update task - API Error: ${e.message}, StatusCode: ${e.statusCode}');
+      throw _createLocalizedApiException(e, 'تحديث المهمة');
     } catch (e) {
       debugPrint('TaskSyncService: Failed to update task with attachments: $e');
-      // Re-throw to let the caller handle error
-      rethrow;
+      throw Exception('فشل تحديث المهمة. يرجى المحاولة مرة أخرى');
     }
   }
 

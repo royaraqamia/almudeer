@@ -1,7 +1,7 @@
 """Add task_shares for sharing tasks with other users
 
 Revision ID: 029_add_task_sharing
-Revises: 028_add_quran_progress_calculator_history
+Revises: 028a_add_tasks_table
 Create Date: 2026-03-07
 
 P4-2: Share tasks with other users with read/edit/admin permissions
@@ -13,7 +13,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision: str = '029_add_task_sharing'
-down_revision: Union[str, None] = '028_add_quran_progress_calculator_history'
+down_revision: Union[str, None] = '028a_add_tasks_table'
 branch_labels: Union[str, None] = None
 depends_on: Union[str, None] = None
 
@@ -61,21 +61,11 @@ def upgrade() -> None:
         WHERE deleted_at IS NULL
     """)
 
-    # Add is_shared column to tasks for optimization
-    op.execute("""
-        ALTER TABLE tasks ADD COLUMN is_shared INTEGER DEFAULT 0
-    """)
-
-    op.execute("""
-        CREATE INDEX idx_tasks_is_shared
-        ON tasks(is_shared)
-    """)
+    # Note: is_shared column is added in 028a_add_tasks_table
 
 
 def downgrade() -> None:
-    """Drop task_shares table and remove is_shared column"""
-    op.execute("DROP INDEX IF EXISTS idx_tasks_is_shared")
-    op.execute("ALTER TABLE tasks DROP COLUMN is_shared")
+    """Drop task_shares table"""
     op.execute("DROP INDEX IF EXISTS idx_task_shares_active")
     op.execute("DROP INDEX IF EXISTS idx_task_shares_license")
     op.execute("DROP INDEX IF EXISTS idx_task_shares_user_id")

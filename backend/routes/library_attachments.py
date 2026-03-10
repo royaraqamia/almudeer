@@ -5,6 +5,7 @@ P3-12: Multiple attachments per library item
 
 import os
 import logging
+from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from fastapi.responses import FileResponse
@@ -132,14 +133,7 @@ async def upload_attachment(
 
     # Save file with sanitized filename
     try:
-        relative_path, public_url = await file_storage.save_upload_file_async(
-            upload_file=file,
-            filename=safe_filename,  # P1-4 FIX: Use sanitized filename
-            mime_type=file.content_type or "application/octet-stream",
-            subfolder="library/attachments"
-        )
-        
-        # Compute file hash
+        # Compute file hash BEFORE saving to check for duplicates
         import hashlib
         await file.seek(0)
         hasher = hashlib.sha256()
@@ -150,8 +144,40 @@ async def upload_attachment(
                 break
             hasher.update(chunk)
         file_hash = hasher.hexdigest()
-        
-        # Add to database
+
+        # Check for duplicate attachments BEFORE saving
+        async with get_db() as db:
+            existing = await fetch_one(
+                db,
+                """
+                SELECT id, filename, file_path FROM library_attachments
+                WHERE license_key_id = ? AND file_hash = ? AND deleted_at IS NULL
+                """,
+                [license["license_id"], file_hash]
+            )
+            if existing:
+                logger.info(
+                    f"Duplicate attachment detected: {file.filename} matches {existing['filename']} (ID: {existing['id']})"
+                )
+                # Return existing attachment instead of uploading duplicate
+                return {
+                    "success": True,
+                    "attachment": dict(existing),
+                    "is_duplicate": True,
+                    "message": "Attachment already exists"
+                }
+
+        # Reset file pointer for saving
+        await file.seek(0)
+
+        relative_path, public_url = await file_storage.save_upload_file_async(
+            upload_file=file,
+            filename=safe_filename,  # P1-4 FIX: Use sanitized filename
+            mime_type=file.content_type or "application/octet-stream",
+            subfolder="library/attachments"
+        )
+
+        # Add to database with file_hash
         attachment = await add_attachment(
             license_id=license["license_id"],
             item_id=item_id,
@@ -180,6 +206,7 @@ async def upload_attachment(
 
 
 @router.get("/{attachment_id}")
+@limiter.limit("60/minute")  # Rate limiting to prevent abuse
 async def get_attachment_file(
     item_id: int,
     attachment_id: int,
@@ -189,10 +216,10 @@ async def get_attachment_file(
 ):
     """Get/download a specific attachment"""
     attachment = await get_attachment(attachment_id, license["license_id"])
-    
+
     if not attachment:
         raise HTTPException(404, detail="Attachment not found")
-    
+
     # Verify parent item
     async with get_db() as db:
         item = await fetch_one(
@@ -200,16 +227,16 @@ async def get_attachment_file(
             "SELECT id FROM library_items WHERE id = ? AND license_key_id = ? AND deleted_at IS NULL",
             [item_id, license["license_id"]]
         )
-        
+
         if not item:
             raise HTTPException(404, detail="Library item not found")
-    
+
     # Get physical path
     physical_path = file_storage.get_physical_path(attachment["file_path"])
-    
+
     if not os.path.exists(physical_path):
         raise HTTPException(404, detail="File not found")
-    
+
     return FileResponse(
         path=physical_path,
         filename=attachment.get("filename", "attachment"),
@@ -218,6 +245,7 @@ async def get_attachment_file(
 
 
 @router.delete("/{attachment_id}")
+@limiter.limit("30/minute")  # Rate limiting to prevent abuse
 async def delete_attachment_endpoint(
     item_id: int,
     attachment_id: int,
@@ -227,10 +255,10 @@ async def delete_attachment_endpoint(
 ):
     """Delete an attachment"""
     user_id = user.get("user_id") if user else None
-    
+
     success = await delete_attachment(attachment_id, license["license_id"], user_id=user_id)
-    
+
     if not success:
         raise HTTPException(404, detail="Attachment not found")
-    
+
     return {"success": True, "message": "Attachment deleted"}

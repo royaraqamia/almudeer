@@ -41,7 +41,7 @@ from models.library import (
     MAX_FILE_SIZE,
     _invalidate_storage_cache
 )
-from db_helper import get_db, fetch_all, fetch_one
+from db_helper import get_db, fetch_all, fetch_one, commit_db
 from services.file_storage_service import get_file_storage
 from security import sanitize_string
 from rate_limiting import limiter
@@ -375,26 +375,30 @@ async def upload_file(
 
     # P0-1 & P0-2: Compute hash FIRST and check for duplicate BEFORE saving
     # This prevents wasted I/O and storage on duplicate files
+    # Minor Issue #8: Optimize memory usage by only reading sample for magic validation
     file_hash = None
     actual_mime = content_type
     try:
-        # Read file ONCE for both hash computation and magic validation
         import hashlib
         import magic
 
         hasher = hashlib.sha256()
         file_sample = None
+        CHUNK_SIZE = 64 * 1024  # 64KB chunks for better memory efficiency
+        SAMPLE_SIZE = 2048  # Only need 2KB for magic validation
 
-        # Read file in chunks, compute hash, and capture sample for magic
+        # Read file in chunks for hash computation
+        # Only capture first SAMPLE_SIZE bytes for magic validation
         # Note: file.file is a SpooledTemporaryFile, not an async stream
         while True:
-            chunk = file.file.read(8192)
+            chunk = file.file.read(CHUNK_SIZE)
             if not chunk:
                 break
+            # Capture sample for magic validation (only first chunk)
             if file_sample is None:
-                file_sample = chunk[:2048]
+                file_sample = chunk[:SAMPLE_SIZE]
             hasher.update(chunk)
-        
+
         file_hash = hasher.hexdigest()
         
         # Check for duplicate BEFORE any file I/O
