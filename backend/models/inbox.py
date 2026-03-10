@@ -2046,11 +2046,14 @@ async def edit_outbox_message(
 ) -> dict:
     """
     Edit an outbox message (agent's sent message).
-    Rules: Only 'almudeer' and 'saved' channels, and within 24 hours.
-    
+    Rules: Only 'almudeer' and 'saved' channels, within 24 hours, max 10 edits.
+
     Args:
         edited_by: Username of the person making the edit (for audit trail)
     """
+    # Maximum number of edits allowed per message (prevents abuse)
+    MAX_EDIT_COUNT = 10
+
     async with get_db() as db:
         # Get the message
         message = await fetch_one(
@@ -2058,7 +2061,7 @@ async def edit_outbox_message(
             "SELECT * FROM outbox_messages WHERE id = ? AND license_key_id = ?",
             [message_id, license_id]
         )
-        
+
         if not message:
             raise ValueError("الرسالة غير موجودة")
 
@@ -2071,7 +2074,12 @@ async def edit_outbox_message(
         # Channel-specific restrictions: Only almudeer and saved (Drafts) are editable
         if channel not in ['almudeer', 'saved']:
             raise ValueError(f"لا يمكن تعديل الرسائل المرسلة عبر {channel}")
-            
+
+        # Check maximum edit count limit
+        edit_count = message.get("edit_count", 0) or 0
+        if edit_count >= MAX_EDIT_COUNT:
+            raise ValueError(f"تم الوصول للحد الأقصى للتعديلات ({MAX_EDIT_COUNT})")
+
         # 24-hour edit window
         created_at = message.get("created_at")
         if created_at:
@@ -2081,12 +2089,12 @@ async def edit_outbox_message(
                     created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
                 except ValueError:
                     pass
-            
+
             if isinstance(created_at, datetime):
                 # Ensure offset-aware comparison
                 if created_at.tzinfo is None:
                     created_at = created_at.replace(tzinfo=timezone.utc)
-                
+
                 if datetime.now(timezone.utc) - created_at > timedelta(hours=24):
                     raise ValueError("انتهت الفترة المتاحة لتعديل الرسالة (24 ساعة)")
         
@@ -2137,10 +2145,10 @@ async def edit_outbox_message(
             final_edit_count = updated_message.get("edit_count", 1) if updated_message else 1
 
         # ---------------------------------------------------------
-        # Sync to Internal Recipient (Almudeer Channel)
+        # Sync to Internal Recipient (Almudeer & Saved Channels)
         # ---------------------------------------------------------
         # If this is an internal message, we must also update the recipient's inbox message
-        if message.get("channel") == "almudeer":
+        if message.get("channel") in ["almudeer", "saved"]:
             platform_id = f"alm_{message_id}"
             await execute_sql(
                 db,

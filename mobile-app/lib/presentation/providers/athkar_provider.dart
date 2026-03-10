@@ -11,10 +11,12 @@ class AthkarProvider extends ChangeNotifier {
   static const String _storageKey = '${_prefix}counts';
   static const String _lastResetDateKey = '${_prefix}last_reset_date';
   static const String _misbahaKey = '${_prefix}misbaha_count';
+  static const String _misbahaTargetKey = '${_prefix}misbaha_target';
 
   final OfflineSyncService? _syncService;
   Map<String, int> _counts = {};
   int _misbahaCount = 0;
+  int _misbahaTarget = 33;
   bool _isLoading = true;
   bool _disposed = false;
   Timer? _debounceTimer;
@@ -24,6 +26,7 @@ class AthkarProvider extends ChangeNotifier {
 
   Map<String, int> get counts => _counts;
   int get misbahaCount => _misbahaCount;
+  int get misbahaTarget => _misbahaTarget;
   bool get isLoading => _isLoading;
   int get consecutiveSyncFailures => _consecutiveSyncFailures;
   // For testing purposes only
@@ -86,6 +89,7 @@ class AthkarProvider extends ChangeNotifier {
       }
 
       _misbahaCount = prefs.getInt(_misbahaKey) ?? 0;
+      _misbahaTarget = prefs.getInt(_misbahaTargetKey) ?? 33;
     } catch (e, stackTrace) {
       debugPrint('AthkarProvider: Failed to load counts from storage: $e');
       debugPrint('AthkarProvider: Stack trace: $stackTrace');
@@ -181,6 +185,12 @@ class AthkarProvider extends ChangeNotifier {
     _saveToStorageDebounced();
   }
 
+  void setMisbahaTarget(int target) {
+    _misbahaTarget = target;
+    notifyListeners();
+    _saveToStorageDebounced();
+  }
+
   Future<void> resetAll() async {
     _counts = {};
     _misbahaCount = 0;
@@ -190,8 +200,13 @@ class AthkarProvider extends ChangeNotifier {
 
   void _saveToStorageDebounced() {
     _debounceTimer?.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
-      _saveToStorage();
+    _debounceTimer = Timer(const Duration(milliseconds: 500), () async {
+      try {
+        await _saveToStorage();
+      } catch (e, stackTrace) {
+        debugPrint('AthkarProvider: Debounced save failed: $e');
+        debugPrint('AthkarProvider: Stack trace: $stackTrace');
+      }
     });
   }
 
@@ -202,6 +217,7 @@ class AthkarProvider extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_storageKey, json.encode(_counts));
       await prefs.setInt(_misbahaKey, _misbahaCount);
+      await prefs.setInt(_misbahaTargetKey, _misbahaTarget);
 
       if (_syncService != null) {
         await _syncService.queueAthkarProgress(_counts, _misbahaCount);

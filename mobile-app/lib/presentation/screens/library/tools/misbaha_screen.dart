@@ -13,14 +13,14 @@ class MisbahaScreen extends StatefulWidget {
 }
 
 class _MisbahaScreenState extends State<MisbahaScreen> {
-  int _target = 33;
   final List<int> _commonTargets = [33, 99, 100];
 
   void _handleTap() {
     final provider = context.read<AthkarProvider>();
     provider.incrementMisbaha();
 
-    if (provider.misbahaCount % _target == 0) {
+    // Fix: Only trigger heavy haptic on target completion (not at count=0)
+    if (provider.misbahaCount > 0 && provider.misbahaCount % provider.misbahaTarget == 0) {
       Haptics.heavyTap();
     } else {
       Haptics.lightTap();
@@ -31,9 +31,10 @@ class _MisbahaScreenState extends State<MisbahaScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final provider = context.watch<AthkarProvider>();
+    final target = provider.misbahaTarget;
     final count = provider.misbahaCount;
-    final progress = (count % _target) / _target;
-    final cycle = (count / _target).floor();
+    final progress = count > 0 ? (count % target) / target : 0.0;
+    final cycle = (count / target).floor();
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -72,9 +73,9 @@ class _MisbahaScreenState extends State<MisbahaScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: _commonTargets.map((t) {
-                final isSelected = _target == t;
+                final isSelected = target == t;
                 return GestureDetector(
-                  onTap: () => setState(() => _target = t),
+                  onTap: () => context.read<AthkarProvider>().setMisbahaTarget(t),
                   child: Container(
                     margin: const EdgeInsets.symmetric(horizontal: 8),
                     padding: const EdgeInsets.symmetric(

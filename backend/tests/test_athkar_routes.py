@@ -61,14 +61,15 @@ class TestAthkarProgressUpdateSchema:
     def test_rejects_negative_misbaha(self):
         """Test that negative misbaha is rejected"""
         from routes.features import AthkarProgressUpdate
-        
+
         with pytest.raises(ValidationError) as exc_info:
             AthkarProgressUpdate(
                 counts={},
                 misbaha=-10
             )
-        
-        assert "cannot be negative" in str(exc_info.value)
+
+        # Pydantic v2 uses Field constraint (ge=0) which produces different error message
+        assert "greater_than_equal" in str(exc_info.value) or "cannot be negative" in str(exc_info.value)
 
     def test_rejects_too_many_items(self):
         """Test that too many athkar items are rejected"""

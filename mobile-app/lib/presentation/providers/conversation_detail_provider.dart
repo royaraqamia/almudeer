@@ -734,8 +734,10 @@ class ConversationDetailProvider extends ChangeNotifier {
       return false;
     }
 
-    // Save old message for rollback
-    final oldMessage = currentList[index];
+    // Save original values for rollback (not the entire message reference)
+    final originalBody = message.body;
+    final originalIsEdited = message.isEdited;
+    final originalEditedAt = message.editedAt;
 
     try {
       // Optimistic Update
@@ -757,14 +759,19 @@ class ConversationDetailProvider extends ChangeNotifier {
         // Notify UI of the error so user knows the edit didn't sync
         onError?.call("فشل مزامنة التعديل: ${e.toString()}");
 
-        // Rollback on background failure
-        final listAfterError = _memoryMessages[contact] ?? [];
-        final rollbackIndex = listAfterError.indexWhere(
+        // Rollback on background failure - use current list state to avoid race condition
+        final currentListOnError = _memoryMessages[contact] ?? [];
+        final rollbackIndex = currentListOnError.indexWhere(
           (m) => m.id == messageId,
         );
         if (rollbackIndex != -1) {
-          final rolledBackList = List<InboxMessage>.from(listAfterError);
-          rolledBackList[rollbackIndex] = oldMessage;
+          final rolledBackList = List<InboxMessage>.from(currentListOnError);
+          // Only revert the specific fields that were changed, preserving other modifications
+          rolledBackList[rollbackIndex] = rolledBackList[rollbackIndex].copyWith(
+            body: originalBody,
+            isEdited: originalIsEdited,
+            editedAt: originalEditedAt,
+          );
           _memoryMessages[contact] = rolledBackList;
           notifyListeners();
           // Rollback cache on failure
@@ -777,12 +784,17 @@ class ConversationDetailProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint("Failed to edit message: $e");
 
-      // Rollback
-      final listAfterError = _memoryMessages[contact] ?? [];
-      final rollbackIndex = listAfterError.indexWhere((m) => m.id == messageId);
+      // Rollback - use current list state to avoid race condition
+      final currentListOnError = _memoryMessages[contact] ?? [];
+      final rollbackIndex = currentListOnError.indexWhere((m) => m.id == messageId);
       if (rollbackIndex != -1) {
-        final rolledBackList = List<InboxMessage>.from(listAfterError);
-        rolledBackList[rollbackIndex] = oldMessage;
+        final rolledBackList = List<InboxMessage>.from(currentListOnError);
+        // Only revert the specific fields that were changed
+        rolledBackList[rollbackIndex] = rolledBackList[rollbackIndex].copyWith(
+          body: originalBody,
+          isEdited: originalIsEdited,
+          editedAt: originalEditedAt,
+        );
         _memoryMessages[contact] = rolledBackList;
         notifyListeners();
         // Rollback cache on failure
@@ -1511,7 +1523,6 @@ class ConversationDetailProvider extends ChangeNotifier {
         final forceRefresh = data['force_refresh'] as bool? ?? false;
 
         debugPrint('[ConversationDetailProvider] Received message_edited event: msgId=$msgId, senderContact=$senderContact, recipientContact=$recipientContact, newBody=$newBody, forceRefresh=$forceRefresh');
-        debugPrint('[ConversationDetailProvider] Using contact=$contact for message update (from outer scope)');
 
         // Validation: Ensure required fields are present
         if (msgId == null || newBody == null || newBody.isEmpty) {
@@ -1536,8 +1547,25 @@ class ConversationDetailProvider extends ChangeNotifier {
           }
         }
 
-        if (_memoryMessages.containsKey(contact)) {
-          final current = _memoryMessages[contact] ?? [];
+        // Determine which contact to update:
+        // - If we're viewing the sender's conversation, use sender_contact
+        // - If we're viewing the recipient's conversation, use recipient_contact
+        // - The event is broadcast to both parties, so we update whichever matches _activeContact
+        String? targetContact;
+        if (_activeContact != null) {
+          if (_activeContact == senderContact) {
+            targetContact = senderContact;
+          } else if (_activeContact == recipientContact) {
+            targetContact = recipientContact;
+          }
+        }
+        // Fallback to the original contact from outer scope if no match
+        targetContact ??= contact;
+
+        debugPrint('[ConversationDetailProvider] Using targetContact=$targetContact for message update (activeContact=$_activeContact)');
+
+        if (targetContact != null && _memoryMessages.containsKey(targetContact)) {
+          final current = _memoryMessages[targetContact] ?? [];
           // Peer-to-peer sync: Recipients use 'alm_{outboxId}' as platformMessageId
           // Also check outboxId for direct matching on recipient side
           final idx = current.indexWhere(
@@ -1545,7 +1573,7 @@ class ConversationDetailProvider extends ChangeNotifier {
                    m.platformMessageId == 'alm_$msgId' ||
                    m.outboxId == msgId,
           );
-          debugPrint('[ConversationDetailProvider] Found message at index=$idx in contact=$contact');
+          debugPrint('[ConversationDetailProvider] Found message at index=$idx in contact=$targetContact');
           if (idx != -1) {
             final updatedList = List<InboxMessage>.from(current);
             updatedList[idx] = updatedList[idx].copyWith(
@@ -1553,9 +1581,9 @@ class ConversationDetailProvider extends ChangeNotifier {
               isEdited: true,
               editedAt: editedAt,
             );
-            _memoryMessages[contact] = updatedList;
+            _memoryMessages[targetContact] = updatedList;
             debugPrint('[ConversationDetailProvider] Updated message body to: $newBody');
-            if (_activeContact == contact) _throttledNotify();
+            if (_activeContact == targetContact) _throttledNotify();
 
             // Persist to local SQLite DB
             _inboxRepository
@@ -1571,15 +1599,15 @@ class ConversationDetailProvider extends ChangeNotifier {
             debugPrint('[ConversationDetailProvider] Message not found in local cache. Available message IDs: ${current.map((m) => '${m.id}(platform:${m.platformMessageId})').join(', ')}');
             // If message not found and force_refresh is true, reload the conversation
             if (forceRefresh) {
-              debugPrint('[ConversationDetailProvider] force_refresh=true, reloading conversation for contact=$contact');
+              debugPrint('[ConversationDetailProvider] force_refresh=true, reloading conversation for contact=$targetContact');
               // Clear cached messages for this contact to force fresh fetch
-              _memoryMessages.remove(contact);
+              _memoryMessages.remove(targetContact);
               // Reload from server
-              loadConversation(contact, fresh: true);
+              loadConversation(targetContact, fresh: true);
             }
           }
         } else {
-          debugPrint('[ConversationDetailProvider] Contact $contact not in memory. Available contacts: ${_memoryMessages.keys.join(', ')}');
+          debugPrint('[ConversationDetailProvider] Contact $targetContact not in memory. Available contacts: ${_memoryMessages.keys.join(', ')}');
           // If force_refresh is true, load the conversation fresh
           if (forceRefresh) {
             debugPrint('[ConversationDetailProvider] force_refresh=true, loading conversation for contact=$contact');

@@ -525,6 +525,20 @@ class _MessageBubbleState extends State<MessageBubble> {
                                       fontSize: 11,
                                     ),
                                   ),
+                                  // Edited indicator
+                                  if (widget.message.isEdited) ...[
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'مُعدّلة',
+                                      style: theme.textTheme.labelSmall?.copyWith(
+                                        color: isOutgoing
+                                            ? Colors.white.withValues(alpha: 0.5)
+                                            : theme.hintColor,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
                                   if (isOutgoing &&
                                       widget.message.channel != 'gmail') ...[
                                     const SizedBox(width: 6),

@@ -4,7 +4,7 @@ Customers, Analytics, Preferences, Voice Transcription
 """
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Request
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Union
 from datetime import datetime, timedelta
 
@@ -212,7 +212,8 @@ class PreferencesUpdate(BaseModel):
     # Accepts List[str] from clients; backend serializes to JSON string for storage
     calculator_history: Optional[Union[str, List[str]]] = None
 
-    @validator('calculator_history')
+    @field_validator('calculator_history')
+    @classmethod
     def validate_calculator_history_length(cls, v):
         """Validate calculator history doesn't exceed maximum length"""
         if v is None:
@@ -239,18 +240,19 @@ class PreferencesUpdate(BaseModel):
 class AthkarProgressUpdate(BaseModel):
     """Schema for updating athkar progress with validation"""
     counts: dict = Field(default_factory=dict)
-    misbaha: int = Field(default=0, ge=0)
+    misbaha: int = Field(default=0, ge=0, le=1000000)
 
-    @validator('counts')
+    @field_validator('counts')
+    @classmethod
     def validate_counts(cls, v):
         """Validate athkar counts: limit items and ensure valid values"""
         if not isinstance(v, dict):
             raise ValueError('counts must be a dictionary')
-        
+
         # Limit to reasonable number of items (prevent abuse)
         if len(v) > 100:
             raise ValueError('Too many athkar items (max 100)')
-        
+
         # Ensure all keys are strings and values are non-negative integers
         for key, value in v.items():
             if not isinstance(key, str):
@@ -261,10 +263,11 @@ class AthkarProgressUpdate(BaseModel):
                 v[key] = int(value)  # Convert floats to ints
             if v[key] < 0:
                 raise ValueError(f'Count for {key} cannot be negative')
-        
+
         return v
 
-    @validator('misbaha')
+    @field_validator('misbaha')
+    @classmethod
     def validate_misbaha(cls, v):
         """Validate misbaha count is non-negative"""
         if v < 0:
