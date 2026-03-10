@@ -77,27 +77,45 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
 
   /// Perform search using independent repository calls (does NOT mutate providers)
   void _performIndependentSearch(String query) {
+    // FIX: Clear stale results immediately when query is empty
+    if (query.isEmpty) {
+      setState(() {
+        _currentQuery = query;
+        _searchUsers = [];
+        _searchConversations = [];
+        _searchLibraryItems = [];
+        _searchCustomers = [];
+        _searchTasks = [];
+        _isLoadingUsers = false;
+        _isLoadingConversations = false;
+        _isLoadingLibrary = false;
+        _isLoadingCustomers = false;
+        _isLoadingTasks = false;
+      });
+      return;
+    }
+
     setState(() {
       _currentQuery = query;
-      _isLoadingUsers = query.isNotEmpty;
-      _isLoadingConversations = query.isNotEmpty;
-      _isLoadingLibrary = query.isNotEmpty;
-      _isLoadingCustomers = query.isNotEmpty;
-      _isLoadingTasks = query.isNotEmpty;
+      _isLoadingUsers = true;
+      _isLoadingConversations = true;
+      _isLoadingLibrary = true;
+      _isLoadingCustomers = true;
+      _isLoadingTasks = true;
     });
 
     // Search users independently
     _searchUsersIndependent(query);
-    
+
     // Search conversations independently
     _searchConversationsIndependent(query);
-    
+
     // Search library independently
     _searchLibraryIndependent(query);
-    
+
     // Search customers independently
     _searchCustomersIndependent(query);
-    
+
     // Search tasks independently
     _searchTasksIndependent(query);
   }
@@ -302,6 +320,7 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
             letterSpacing: -0.5,
           ),
           textAlign: TextAlign.right,
+          textDirection: TextDirection.rtl,  // FIX: Proper RTL text direction
           onChanged: (query) {
             _performIndependentSearch(query);
           },

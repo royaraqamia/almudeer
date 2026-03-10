@@ -379,7 +379,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
           textColor: AppColors.primary,
         ),
         CalculatorButton(
-          text: '√',
+          text: 'sqrt',
           onTap: () => provider.append('sqrt('),
           color: isDark
               ? AppColors.primary.withValues(alpha: 0.06)

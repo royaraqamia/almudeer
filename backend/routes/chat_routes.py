@@ -124,6 +124,14 @@ async def search_user_messages(
     offset: int = 0,
     license: dict = Depends(get_license_from_header)
 ):
+    """
+    Search messages across all conversations.
+    Max limit enforced to prevent abuse.
+    """
+    # FIX: Enforce max limit to prevent abuse
+    limit = min(max(1, limit), 100)  # Max 100 results
+    offset = max(0, offset)
+    
     return await search_messages(license["license_id"], query, sender_contact, limit, offset)
 
 @router.get("/conversations/{sender_contact:path}/search")
@@ -137,7 +145,12 @@ async def search_within_conversation(
     """
     Search for messages within a specific conversation.
     Returns matching messages with context (previous/next messages).
+    Max limit enforced to prevent abuse.
     """
+    # FIX: Enforce max limit to prevent abuse
+    limit = min(max(1, limit), 100)  # Max 100 results
+    offset = max(0, offset)
+    
     from models.inbox import search_messages_in_conversation
     results = await search_messages_in_conversation(
         license["license_id"],

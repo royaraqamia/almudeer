@@ -14,7 +14,8 @@ import '../../data/repositories/customers_repository.dart';
 const int _maxInt32 = 2147483647;
 
 /// Throttle interval for progress updates to prevent UI lag (milliseconds)
-const int _progressThrottleIntervalMs = 100;
+/// Increased from 100ms to 200ms to prevent UI jank during heavy uploads
+const int _progressThrottleIntervalMs = 200;
 
 /// Tolerance window for comparing timestamps to account for clock skew (seconds)
 /// Minor Issue #10: Reduced from 5 to 2 seconds to prevent accepting stale data
@@ -191,7 +192,15 @@ class LibraryProvider extends ChangeNotifier {
         } catch (e, stackTrace) {
           debugPrint('[LibraryProvider] WebSocket event error: $e');
           debugPrint('Stack: $stackTrace');
+          // FIX: Cancel subscription on error to prevent memory leaks
+          _websocketSubscription?.cancel();
+          _websocketSubscription = null;
         }
+      }, onError: (error) {
+        // FIX: Handle stream errors and cleanup subscription
+        debugPrint('[LibraryProvider] WebSocket stream error: $error');
+        _websocketSubscription?.cancel();
+        _websocketSubscription = null;
       });
     }
   }
@@ -302,16 +311,23 @@ class LibraryProvider extends ChangeNotifier {
 
             // Fetch shared items and merge them with owned items
             // Use caching to prevent excessive API calls on every refresh
+            // FIX: Use token-based invalidation to prevent race conditions
+            final fetchToken = currentToken;
             final now = DateTime.now();
             final sharedItemsCacheExpired = _sharedItemsLastFetched == null ||
                 now.difference(_sharedItemsLastFetched!) > _sharedItemsCacheTTL;
-            
+
             if ((refresh && sharedItemsCacheExpired) || _sharedItems.isEmpty) {
               try {
                 final sharedItems = await _repository.getSharedWithMe();
-                _sharedItems = sharedItems;
-                _sharedItemsLastFetched = now;
-                debugPrint('[LibraryProvider] Fetched ${_sharedItems.length} shared items');
+                // FIX: Check if token still matches after async operation
+                if (fetchToken == _categoryChangeToken && !_disposed) {
+                  _sharedItems = sharedItems;
+                  _sharedItemsLastFetched = now;
+                  debugPrint('[LibraryProvider] Fetched ${_sharedItems.length} shared items');
+                } else {
+                  debugPrint('[LibraryProvider] Discarding stale shared items: token mismatch');
+                }
               } catch (e, stackTrace) {
                 debugPrint('[LibraryProvider] Failed to fetch shared items: $e');
                 debugPrint('[LibraryProvider] Stack trace: $stackTrace');

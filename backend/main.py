@@ -100,7 +100,6 @@ except ImportError as e:
     logger.error(f"Failed to import routes: {e}")
     raise e
 from routes.subscription import router as subscription_router
-from errors import AuthorizationError, register_error_handlers
 from security_config import SECURITY_HEADERS, ADMIN_KEY
 from security import sanitize_message, sanitize_string
 from workers import start_message_polling, stop_message_polling, start_subscription_reminders, stop_subscription_reminders, start_token_cleanup_worker, stop_token_cleanup_worker, start_library_trash_cleanup_worker, stop_library_trash_cleanup_worker
@@ -282,6 +281,14 @@ async def lifespan(app: FastAPI):
             logger.info("Library Trash cleanup worker started")
         except Exception as e:
             logger.warning(f"Failed to start Library Trash cleanup worker: {e}")
+
+        # Start notification retry worker (processes failed share/task notifications)
+        try:
+            from workers import start_notification_retry_worker
+            asyncio.create_task(start_notification_retry_worker())
+            logger.info("Notification retry worker started (processes failed share notifications)")
+        except Exception as e:
+            logger.warning(f"Failed to start notification retry worker: {e}")
 
         # Initialize task queue worker
         try:

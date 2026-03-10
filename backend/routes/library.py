@@ -39,6 +39,7 @@ from models.library import (
     get_storage_usage_detailed,
     MAX_STORAGE_PER_LICENSE,
     MAX_FILE_SIZE,
+    MAX_INT32,
     _invalidate_storage_cache
 )
 from db_helper import get_db, fetch_all, fetch_one, commit_db
@@ -737,7 +738,7 @@ async def bulk_delete(
     user_id = user.get("user_id") if user else None
 
     # Filter valid IDs (prevent integer overflow)
-    valid_ids = [id for id in data.item_ids if id <= 2147483647]
+    valid_ids = [id for id in data.item_ids if id <= MAX_INT32]
     if not valid_ids:
         return {"success": True, "deleted_count": 0, "deleted_ids": [], "failed_ids": []}
 
@@ -764,9 +765,10 @@ async def bulk_delete(
 
 
 @router.get("/{item_id}/download")
+@limiter.limit("30/minute")  # Rate limiting to prevent bandwidth abuse
 async def download_item(
-    item_id: int,
     request: Request,
+    item_id: int,
     license: dict = Depends(get_license_from_header),
     user: Optional[dict] = Depends(get_current_user_optional)
 ):

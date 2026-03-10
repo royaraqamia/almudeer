@@ -539,10 +539,38 @@ class _BrowserScreenState extends State<BrowserScreen> {
     }
   }
 
+  String _sanitizeHtml(String html) {
+    // Remove script tags and their content
+    html = html.replaceAll(RegExp(r'<script[^>]*>.*?</script>', multiLine: true, dotAll: true), '');
+
+    // Remove event handlers (onclick, onerror, onload, etc.)
+    html = html.replaceAll(RegExp(r'\s+on\w+\s*=\s*"[^"]*"'), '');
+    html = html.replaceAll(RegExp(r"\s+on\w+\s*=\s*'[^']*'"), '');
+
+    // Remove javascript: URLs
+    html = html.replaceAll(RegExp(r'javascript:', caseSensitive: false), '');
+
+    // Remove iframe, object, embed, form tags (self-closing and with content)
+    html = html.replaceAll(RegExp(r'<iframe[^>]*>.*?</iframe>', multiLine: true, dotAll: true), '');
+    html = html.replaceAll(RegExp(r'<object[^>]*>.*?</object>', multiLine: true, dotAll: true), '');
+    html = html.replaceAll(RegExp(r'<embed[^>]*>.*?</embed>', multiLine: true, dotAll: true), '');
+    html = html.replaceAll(RegExp(r'<form[^>]*>.*?</form>', multiLine: true, dotAll: true), '');
+    html = html.replaceAll(RegExp(r'<iframe[^>]*/?>'), '');
+    html = html.replaceAll(RegExp(r'<object[^>]*/?>'), '');
+    html = html.replaceAll(RegExp(r'<embed[^>]*/?>'), '');
+    html = html.replaceAll(RegExp(r'<form[^>]*/?>'), '');
+
+    return html;
+  }
+
   String _generateReaderHtml(String title, String content) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? '#0F2E42' : '#FFFFFF';
     final textColor = isDark ? '#E8EEFF' : '#333333';
+    
+    // Sanitize content to prevent XSS attacks
+    final sanitizedContent = _sanitizeHtml(content);
+    final sanitizedTitle = _sanitizeHtml(title);
 
     return """
       <!DOCTYPE html>
@@ -550,11 +578,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-          body { 
-            font-family: 'IBM Plex Sans Arabic', sans-serif; 
-            padding: 20px; 
-            line-height: 1.8; 
-            background-color: $bgColor; 
+          body {
+            font-family: 'IBM Plex Sans Arabic', sans-serif;
+            padding: 20px;
+            line-height: 1.8;
+            background-color: $bgColor;
             color: $textColor;
           }
           h1 { font-size: 24px; margin-bottom: 20px; }
@@ -563,8 +591,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
         </style>
       </head>
       <body>
-        <h1>$title</h1>
-        $content
+        <h1>$sanitizedTitle</h1>
+        $sanitizedContent
       </body>
       </html>
     """;
@@ -1036,6 +1064,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
         onTabClosed: (index) {
           if (_tabs.length > 1) {
             setState(() {
+              // Clear snapshot to prevent memory leak
+              _tabs[index].snapshot = null;
               _tabs.removeAt(index);
               if (_activeTabIndex >= _tabs.length) {
                 _activeTabIndex = _tabs.length - 1;
@@ -1199,13 +1229,91 @@ class _TabsSwitcher extends StatelessWidget {
   }
 }
 
-class _WebViewWithErrorHandling extends StatelessWidget {
+class _WebViewWithErrorHandling extends StatefulWidget {
   final WebViewController controller;
 
   const _WebViewWithErrorHandling({required this.controller});
 
   @override
+  State<_WebViewWithErrorHandling> createState() =>
+      _WebViewWithErrorHandlingState();
+}
+
+class _WebViewWithErrorHandlingState extends State<_WebViewWithErrorHandling> {
+  bool _hasError = false;
+  String _errorMessage = 'حدث خطأ في تحميل الصفحة';
+
+  @override
+  void initState() {
+    super.initState();
+    _setupErrorHandling();
+  }
+
+  Future<void> _setupErrorHandling() async {
+    widget.controller.setNavigationDelegate(
+      NavigationDelegate(
+        onWebResourceError: (WebResourceError error) {
+          debugPrint('[WebView] Error: ${error.description}');
+          if (mounted) {
+            setState(() {
+              _hasError = true;
+              _errorMessage = error.description.toString();
+            });
+          }
+        },
+        onPageFinished: (String url) {
+          // Clear error state on successful page load
+          if (mounted && _hasError) {
+            setState(() {
+              _hasError = false;
+            });
+          }
+        },
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return WebViewWidget(controller: controller);
+    if (_hasError) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              SolarLinearIcons.closeCircle,
+              size: 64,
+              color: Colors.grey[600],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'فشل تحميل الصفحة',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.grey,
+                  ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () {
+                setState(() => _hasError = false);
+                widget.controller.reload();
+              },
+              icon: const Icon(SolarLinearIcons.refresh),
+              label: const Text('إعادة المحاولة'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return WebViewWidget(controller: widget.controller);
   }
 }

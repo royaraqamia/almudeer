@@ -27,6 +27,15 @@ from rate_limiting import limiter
 
 logger = logging.getLogger(__name__)
 
+# Error codes for standardized error responses
+class ErrorCode:
+    ITEM_NOT_FOUND = "ITEM_NOT_FOUND"
+    FILE_TOO_LARGE = "FILE_TOO_LARGE"
+    STORAGE_LIMIT_EXCEEDED = "STORAGE_LIMIT_EXCEEDED"
+    FILE_UPLOAD_FAILED = "FILE_UPLOAD_FAILED"
+    ATTACHMENT_NOT_FOUND = "ATTACHMENT_NOT_FOUND"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
+
 router = APIRouter(prefix="/api/library/items/{item_id}/attachments", tags=["Library Attachments"])
 file_storage = get_file_storage()
 
@@ -108,7 +117,14 @@ async def upload_attachment(
         file.file.seek(0)  # Reset to beginning
     except Exception as e:
         logger.error(f"Failed to get file size: {e}")
-        raise HTTPException(400, detail="Failed to read file size")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": ErrorCode.FILE_UPLOAD_FAILED,
+                "message_ar": "فشل قراءة حجم الملف",
+                "message_en": "Failed to read file size"
+            }
+        )
 
     # Validate file size
     if file_size > MAX_ATTACHMENT_SIZE:
@@ -129,7 +145,14 @@ async def upload_attachment(
 
     from models.library import MAX_STORAGE_PER_LICENSE
     if current_usage + file_size > MAX_STORAGE_PER_LICENSE:
-        raise HTTPException(400, detail="Storage limit exceeded")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": ErrorCode.STORAGE_LIMIT_EXCEEDED,
+                "message_ar": "تجاوزت حد التخزين المسموح به",
+                "message_en": "Storage limit exceeded"
+            }
+        )
 
     # Save file with sanitized filename
     try:
@@ -199,10 +222,24 @@ async def upload_attachment(
         }
         
     except ValueError as e:
-        raise HTTPException(400, detail=str(e))
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": ErrorCode.FILE_UPLOAD_FAILED,
+                "message_ar": str(e),
+                "message_en": str(e)
+            }
+        )
     except Exception as e:
         logger.error(f"Attachment upload failed: {e}", exc_info=True)
-        raise HTTPException(500, detail="Failed to upload attachment")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": ErrorCode.INTERNAL_ERROR,
+                "message_ar": "فشل رفع المرفق",
+                "message_en": "Failed to upload attachment"
+            }
+        )
 
 
 @router.get("/{attachment_id}")
@@ -218,7 +255,14 @@ async def get_attachment_file(
     attachment = await get_attachment(attachment_id, license["license_id"])
 
     if not attachment:
-        raise HTTPException(404, detail="Attachment not found")
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": ErrorCode.ATTACHMENT_NOT_FOUND,
+                "message_ar": "المرفق غير موجود",
+                "message_en": "Attachment not found"
+            }
+        )
 
     # Verify parent item
     async with get_db() as db:
@@ -229,13 +273,27 @@ async def get_attachment_file(
         )
 
         if not item:
-            raise HTTPException(404, detail="Library item not found")
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": ErrorCode.ITEM_NOT_FOUND,
+                    "message_ar": "العنصر غير موجود",
+                    "message_en": "Library item not found"
+                }
+            )
 
     # Get physical path
     physical_path = file_storage.get_physical_path(attachment["file_path"])
 
     if not os.path.exists(physical_path):
-        raise HTTPException(404, detail="File not found")
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": ErrorCode.ITEM_NOT_FOUND,
+                "message_ar": "الملف غير موجود",
+                "message_en": "File not found"
+            }
+        )
 
     return FileResponse(
         path=physical_path,
@@ -259,6 +317,13 @@ async def delete_attachment_endpoint(
     success = await delete_attachment(attachment_id, license["license_id"], user_id=user_id)
 
     if not success:
-        raise HTTPException(404, detail="Attachment not found")
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": ErrorCode.ATTACHMENT_NOT_FOUND,
+                "message_ar": "المرفق غير موجود",
+                "message_en": "Attachment not found"
+            }
+        )
 
     return {"success": True, "message": "Attachment deleted"}

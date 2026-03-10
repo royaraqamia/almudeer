@@ -208,6 +208,7 @@ class PreferencesUpdate(BaseModel):
     # Cross-device sync fields
     quran_progress: Optional[str] = None
     athkar_stats: Optional[str] = None
+    # Accepts List[str] from clients; backend serializes to JSON string for storage
     calculator_history: Optional[Union[str, List[str]]] = None
 
 

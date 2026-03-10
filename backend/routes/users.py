@@ -26,12 +26,15 @@ async def search_users(
 
     Args:
         q: Search query string
-        limit: Maximum number of results to return
+        limit: Maximum number of results to return (max 100)
         current_user: Current authenticated user
 
     Returns:
         List of matching users with basic profile information
     """
+    # FIX: Enforce max limit to prevent abuse
+    limit = min(max(1, limit or 20), 100)  # Max 100 results
+    
     # Validate search query
     if not q or len(q.strip()) < 2:
         return {

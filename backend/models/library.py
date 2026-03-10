@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Default limits (can be configured via env)
 MAX_STORAGE_PER_LICENSE = int(os.getenv("MAX_STORAGE_PER_LICENSE", 100 * 1024 * 1024))  # 100MB
+MAX_INT32 = 2147483647  # Max 32-bit signed integer
 
 
 async def verify_share_permission(
@@ -181,23 +182,23 @@ async def get_library_items(
     # Issue #30: Use selective columns for list views
     columns = ", ".join(FULL_COLUMNS) if include_content else ", ".join(LIST_VIEW_COLUMNS)
     
-    # P2-10: Use FTS5 for search if available (much faster than LIKE)
+    # P2-10: Use FTS for search (FTS5 for SQLite, tsvector for PostgreSQL)
     if search_term:
-        # Format search term for FTS5 (prefix match) - must be quoted in SQL
-        fts_search = f"'{search_term}*'"
+        # Sanitize search term for FTS
+        sanitized_term = search_term.replace('"', '""').replace('*', '\\*').replace('~', '\\~')
         
         if DB_TYPE == "postgresql":
-            # PostgreSQL uses LIKE or tsvector, not FTS5 MATCH
-            like_search = f"%{search_term}%"
+            # FIX: Use search_vector column with tsvector (much faster than ILIKE)
             query = f"""
                 SELECT {columns} FROM library_items
-                WHERE (library_items.title ILIKE ? OR library_items.content ILIKE ?)
-                AND (library_items.license_key_id = ? OR library_items.license_key_id = 0)
+                WHERE search_vector @@ websearch_to_tsquery('english', $1)
+                AND (library_items.license_key_id = $2 OR library_items.license_key_id = 0)
                 AND library_items.deleted_at IS NULL
             """
-            params = [like_search, like_search, license_id]
+            params = [sanitized_term, license_id]
         else:
-            # SQLite uses FTS5
+            # SQLite uses FTS5 with prefix match
+            fts_search = f"'{sanitized_term}*'"
             query = f"""
                 SELECT {columns} FROM library_items
                 INNER JOIN library_items_fts ON library_items.id = library_items_fts.rowid
@@ -206,31 +207,93 @@ async def get_library_items(
                 AND library_items.deleted_at IS NULL
             """
             params = [license_id]
-        
+
         if customer_id is not None:
-            query += " AND library_items.customer_id = ?"
+            query += " AND customer_id = ?"
             params.append(customer_id)
 
         if user_id:
-            query += " AND library_items.user_id = ?"
+            query += " AND user_id = ?"
             params.append(user_id)
-            
+
         # Add type/category filters
         if category:
             if category == 'notes':
-                query += " AND library_items.type = 'note'"
+                query += " AND type = 'note'"
             elif category == 'files':
-                query += " AND library_items.type IN ('image', 'audio', 'video', 'file')"
+                query += " AND type IN ('image', 'audio', 'video', 'file')"
         elif item_type:
-            query += " AND library_items.type = ?"
+            query += " AND type = ?"
             params.append(item_type)
-            
-        query += " ORDER BY library_items.created_at DESC LIMIT ? OFFSET ?"
+
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
-        
+
         async with get_db() as db:
             rows = await fetch_all(db, query, params)
-            return [dict(row) for row in rows]
+            owned_items = [dict(row) for row in rows]
+
+            # FIX: Also search in items shared with the user
+            if user_id and include_shared:
+                try:
+                    columns_prefixed = ", ".join(f"li.{col}" for col in (FULL_COLUMNS if include_content else LIST_VIEW_COLUMNS))
+                    
+                    if DB_TYPE == "postgresql":
+                        shared_search_query = f"""
+                            SELECT {columns_prefixed}, ls.permission as share_permission, ls.expires_at as share_expires_at
+                            FROM library_items li
+                            INNER JOIN library_shares ls ON li.id = ls.item_id
+                            WHERE ls.shared_with_user_id = $1
+                            AND ls.license_key_id = $2
+                            AND ls.deleted_at IS NULL
+                            AND li.deleted_at IS NULL
+                            AND li.search_vector @@ websearch_to_tsquery('english', $3)
+                        """
+                        shared_params = [user_id, license_id, sanitized_term]
+                    else:
+                        shared_search_query = f"""
+                            SELECT {columns_prefixed}, ls.permission as share_permission, ls.expires_at as share_expires_at
+                            FROM library_items li
+                            INNER JOIN library_shares ls ON li.id = ls.item_id
+                            INNER JOIN library_items_fts ON li.id = library_items_fts.rowid
+                            WHERE ls.shared_with_user_id = ?
+                            AND ls.license_key_id = ?
+                            AND ls.deleted_at IS NULL
+                            AND li.deleted_at IS NULL
+                            AND library_items_fts MATCH ?
+                        """
+                        shared_params = [user_id, license_id, f"'{sanitized_term}*'" ]
+
+                    # Add type/category filters to shared query
+                    if category:
+                        if category == 'notes':
+                            shared_search_query += " AND li.type = 'note'"
+                        elif category == 'files':
+                            shared_search_query += " AND li.type IN ('image', 'audio', 'video', 'file')"
+                    elif item_type:
+                        shared_search_query += " AND li.type = ?"
+                        shared_params.append(item_type)
+
+                    shared_search_query += " ORDER BY li.created_at DESC LIMIT ? OFFSET ?"
+                    shared_params.extend([limit, offset])
+
+                    shared_rows = await fetch_all(db, shared_search_query, shared_params)
+                    shared_items = [dict(row) for row in shared_rows]
+
+                    # Combine and deduplicate by ID
+                    all_items = {item['id']: item for item in owned_items}
+                    for item in shared_items:
+                        if item['id'] not in all_items:
+                            all_items[item['id']] = item
+
+                    # Sort by created_at desc
+                    sorted_items = sorted(all_items.values(), key=lambda x: x.get('created_at', ''), reverse=True)
+                    return sorted_items[:limit]  # Apply limit after merging
+                except Exception as e:
+                    logger.warning(f"Failed to fetch shared items in search: {e}")
+                    return owned_items
+
+            return owned_items
     else:
         # No search - use regular query
         query = f"SELECT {columns} FROM library_items WHERE (license_key_id = ? OR license_key_id = 0) AND deleted_at IS NULL"
@@ -562,7 +625,7 @@ async def bulk_delete_items(license_id: int, item_ids: List[int], user_id: Optio
         try:
             # Ensure it's a valid positive integer
             validated_id = int(item_id)
-            if validated_id > 0 and validated_id <= 2147483647:  # Max 32-bit signed int
+            if validated_id > 0 and validated_id <= MAX_INT32:
                 validated_item_ids.append(validated_id)
         except (ValueError, TypeError):
             logger.warning(f"Invalid item_id in bulk delete: {item_id}")

@@ -1,5 +1,5 @@
 import logging
-from db_helper import get_db, execute_sql, commit_db, DB_TYPE
+from db_helper import get_db, execute_sql, commit_db, DB_TYPE, fetch_all
 
 logger = logging.getLogger(__name__)
 
@@ -22,27 +22,26 @@ async def _setup_sqlite_fts(db):
     Setup FTS5 for SQLite.
     Creates a unified virtual table 'messages_fts' that indexes both inbox and outbox messages.
     """
-    # 1. Create FTS5 virtual table
-    # We use 'content' option to make it a contentless table or external content table? 
-    # For simplicity and perf, let's make it a standard FTS table that we sync via triggers.
-    # This doubles storage for text but is safest and easiest to implement reliably.
-    
-    # Check if table exists
-    try:
-        await execute_sql(db, "SELECT rowid FROM messages_fts LIMIT 1")
-        # If successful, table exists. We might need to check if we need to rebuild it, 
-        # but for now assume if it exists, it's fine.
-        return 
-    except:
-        pass # Table likely doesn't exist
+    logger.info("Setting up SQLite FTS5 table and triggers...")
 
-    logger.info("Creating SQLite FTS5 table and triggers...")
+    # FIX: Proper table existence check using sqlite_master
+    try:
+        result = await fetch_all(db, """
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='messages_fts'
+        """)
+        if result:
+            logger.info("messages_fts table already exists, skipping creation.")
+            return
+    except Exception as e:
+        logger.warning(f"Error checking messages_fts existence: {e}")
+        # Continue anyway - CREATE VIRTUAL TABLE IF NOT EXISTS will handle it
 
     # Create the table
     await execute_sql(db, """
         CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-            body, 
-            sender_name, 
+            body,
+            sender_name,
             source_table UNINDEXED, -- 'inbox' or 'outbox'
             source_id UNINDEXED,    -- original id
             license_id UNINDEXED
@@ -57,7 +56,7 @@ async def _setup_sqlite_fts(db):
             VALUES (new.body, new.sender_name, 'inbox', new.id, new.license_key_id);
         END;
     """)
-    
+
     await execute_sql(db, """
         CREATE TRIGGER IF NOT EXISTS inbox_fts_delete AFTER DELETE ON inbox_messages
         BEGIN
@@ -68,8 +67,8 @@ async def _setup_sqlite_fts(db):
     await execute_sql(db, """
         CREATE TRIGGER IF NOT EXISTS inbox_fts_update AFTER UPDATE ON inbox_messages
         BEGIN
-            UPDATE messages_fts 
-            SET body = new.body, sender_name = new.sender_name 
+            UPDATE messages_fts
+            SET body = new.body, sender_name = new.sender_name
             WHERE source_table = 'inbox' AND source_id = new.id;
         END;
     """)
@@ -82,7 +81,7 @@ async def _setup_sqlite_fts(db):
             VALUES (new.body, COALESCE(new.recipient_email, new.recipient_id), 'outbox', new.id, new.license_key_id);
         END;
     """)
-    
+
     await execute_sql(db, """
         CREATE TRIGGER IF NOT EXISTS outbox_fts_delete AFTER DELETE ON outbox_messages
         BEGIN
@@ -93,37 +92,30 @@ async def _setup_sqlite_fts(db):
     await execute_sql(db, """
         CREATE TRIGGER IF NOT EXISTS outbox_fts_update AFTER UPDATE ON outbox_messages
         BEGIN
-            UPDATE messages_fts 
-            SET body = new.body, sender_name = COALESCE(new.recipient_email, new.recipient_id) 
+            UPDATE messages_fts
+            SET body = new.body, sender_name = COALESCE(new.recipient_email, new.recipient_id)
             WHERE source_table = 'outbox' AND source_id = new.id;
         END;
     """)
 
-    # 4. Populate existing data
-    # We do this only if the FTS table is empty
-    count = await execute_sql(db, "SELECT count(*) FROM messages_fts")
-    # Simplify: execute_sql usually returns cursor or rowcount. 
-    # We'll assume if we just created it, it's empty.
-    # But to be safe, let's just RUN INSERT OR IGNORE selection.
+    # 4. Populate existing data (rebuild FTS index)
+    logger.info("Populating FTS5 index from existing messages...")
     
-    # Actually, FTS5 doesn't support INSERT OR IGNORE nicely on standard columns same way.
-    # Let's simple check if empty.
-    # Note: DB helper abstraction varies. Assuming standard behavior.
-    
-    # Re-population strategy:
-    # Delete all and re-insert is safest for initial migration
+    # Clear and rebuild - ensures index is consistent
     await execute_sql(db, "DELETE FROM messages_fts")
-    
+
     await execute_sql(db, """
         INSERT INTO messages_fts(body, sender_name, source_table, source_id, license_id)
         SELECT body, sender_name, 'inbox', id, license_key_id FROM inbox_messages
+        WHERE body IS NOT NULL
     """)
-    
+
     await execute_sql(db, """
         INSERT INTO messages_fts(body, sender_name, source_table, source_id, license_id)
         SELECT body, COALESCE(recipient_email, recipient_id), 'outbox', id, license_key_id FROM outbox_messages
+        WHERE body IS NOT NULL
     """)
-    
+
     logger.info("SQLite FTS5 setup completed and populated.")
 
 

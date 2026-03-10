@@ -61,6 +61,12 @@ class RateLimits:
     # Webhook endpoints (higher limits for external services)
     WEBHOOK = os.getenv("RATE_LIMIT_WEBHOOK", "100/minute")
 
+    # Browser tool endpoints
+    # Scrape is expensive (full page fetch + processing) - lower limit
+    BROWSER_SCRAPE = os.getenv("RATE_LIMIT_BROWSER_SCRAPE", "10/minute")
+    # Preview is cheaper (metadata only) - higher limit
+    BROWSER_PREVIEW = os.getenv("RATE_LIMIT_BROWSER_PREVIEW", "30/minute")
+
 
 # ============ Rate Limit Error Handler ============
 
@@ -133,3 +139,13 @@ def limit_export(func):
 def limit_admin(func):
     """Decorator for admin endpoints"""
     return limiter.limit(RateLimits.ADMIN)(func)
+
+
+def limit_browser_scrape(func):
+    """Decorator for browser scrape endpoints (expensive operation)"""
+    return limiter.limit(RateLimits.BROWSER_SCRAPE)(func)
+
+
+def limit_browser_preview(func):
+    """Decorator for browser preview endpoints (cheaper operation)"""
+    return limiter.limit(RateLimits.BROWSER_PREVIEW)(func)

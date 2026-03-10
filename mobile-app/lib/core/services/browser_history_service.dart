@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/browser_history.dart';
 
@@ -30,20 +31,30 @@ class BrowserHistoryService {
   Future<void> addEntry(String url, String title) async {
     if (!_box.isOpen) await init();
 
-    if (_urlIndex.containsKey(url)) {
-      await _box.deleteAt(_urlIndex[url]!);
+    try {
+      // Remove existing entry for this URL if present
+      if (_urlIndex.containsKey(url)) {
+        await _box.deleteAt(_urlIndex[url]!);
+      }
+
+      // Add new entry
+      await _box.add(
+        BrowserHistoryEntry(url: url, title: title, timestamp: DateTime.now()),
+      );
+
+      // Always rebuild index after mutations to ensure consistency
       _rebuildIndex();
-    }
 
-    await _box.add(
-      BrowserHistoryEntry(url: url, title: title, timestamp: DateTime.now()),
-    );
-
-    _urlIndex[url] = _box.length - 1;
-
-    if (_box.length > 500) {
-      await _box.deleteAt(0);
+      // Enforce max history limit
+      if (_box.length > 500) {
+        await _box.deleteAt(0);
+        _rebuildIndex();
+      }
+    } catch (e) {
+      debugPrint('[BrowserHistory] Error adding entry: $e');
+      // Rebuild index on error to ensure consistency
       _rebuildIndex();
+      rethrow;
     }
   }
 

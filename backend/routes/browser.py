@@ -16,7 +16,7 @@ from urllib.parse import urlparse, urljoin
 from dependencies import get_current_user, get_license_from_header
 from models.library import add_library_item
 from services.file_storage_service import get_file_storage
-from rate_limiting import limiter, RateLimits
+from rate_limiting import limiter, RateLimits, limit_browser_scrape, limit_browser_preview
 
 logger = logging.getLogger(__name__)
 
@@ -39,13 +39,13 @@ def _clean_preview_cache():
         if (now - v['timestamp']) > _cache_ttl
     ]
     for key in expired_keys:
-        del _preview_cache[key]
-    
+        _preview_cache.pop(key, None)  # Safe deletion - avoids KeyError on concurrent access
+
     if len(_preview_cache) > 100:
-        oldest_keys = sorted(_preview_cache.keys(), 
+        oldest_keys = sorted(_preview_cache.keys(),
                            key=lambda k: _preview_cache[k]['timestamp'])[:50]
         for key in oldest_keys:
-            del _preview_cache[key]
+            _preview_cache.pop(key, None)  # Safe deletion - avoids KeyError on concurrent access
 
 # Blocked URL patterns (internal networks, etc.)
 BLOCKED_URL_PATTERNS = [
@@ -211,36 +211,58 @@ class LinkPreviewResponse(BaseModel):
 async def scrape_url(url: str, include_images: bool = True) -> tuple[str, str, list]:
     """
     Scrape a URL and return (title, content, images)
-    
+
     SSRF Protection: Validates URL before making request.
     """
     # SSRF Protection: Validate URL before making request
     if not _is_safe_url(url):
         raise HTTPException(status_code=400, detail="URL is blocked for security reasons")
-    
+
     try:
+        # Use follow_redirects=False to validate each redirect manually (SSRF protection)
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(SCRAPE_TIMEOUT, connect=DEFAULT_TIMEOUT),
-            follow_redirects=True,
+            follow_redirects=False,
             headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             },
         ) as client:
             response = await client.get(url)
+            
+            # Handle redirects manually with SSRF validation
+            redirect_count = 0
+            max_redirects = 5
+            current_url = url
+            
+            while response.status_code in (301, 302, 307, 308):
+                redirect_count += 1
+                if redirect_count > max_redirects:
+                    raise HTTPException(status_code=400, detail="Too many redirects")
+                
+                redirect_url = response.headers.get("location")
+                if not redirect_url:
+                    raise HTTPException(status_code=400, detail="Redirect missing location header")
+                
+                # Resolve relative redirect URLs
+                redirect_url = urljoin(current_url, redirect_url)
+                
+                # SSRF Protection: Validate redirect URL before following
+                if not _is_safe_url(redirect_url):
+                    raise HTTPException(status_code=400, detail=f"Redirect to {redirect_url} is blocked for security reasons")
+                
+                current_url = redirect_url
+                response = await client.get(current_url)
+            
             response.raise_for_status()
-            
-            # SSRF Protection: Validate final URL after redirects
-            if not _is_safe_url(str(response.url)):
-                raise HTTPException(status_code=400, detail="Redirected URL is blocked for security reasons")
-            
+
             # Check content length header
             content_length = response.headers.get("content-length")
             if content_length and int(content_length) > MAX_CONTENT_SIZE:
                 raise HTTPException(
-                    status_code=413, 
+                    status_code=413,
                     detail=f"Content too large: {content_length} bytes (max: {MAX_CONTENT_SIZE})"
                 )
-            
+
             # Limit response reading
             content = response.content[:MAX_CONTENT_SIZE]
     except httpx.TimeoutException:
@@ -310,7 +332,7 @@ async def scrape_url(url: str, include_images: bool = True) -> tuple[str, str, l
     lines = [line.strip() for line in content.split("\n")]
     cleaned_lines = []
     last_was_empty = False
-    
+
     for line in lines:
         if line:
             cleaned_lines.append(line)
@@ -318,11 +340,17 @@ async def scrape_url(url: str, include_images: bool = True) -> tuple[str, str, l
         elif not last_was_empty:
             cleaned_lines.append("")
             last_was_empty = True
-    
-    # Direct truncation to MAX_CONTENT_SIZE without double processing
+
     content = "\n".join(cleaned_lines)
-    if len(content) > MAX_CONTENT_SIZE:
-        content = content[:MAX_CONTENT_SIZE] + "\n\n[Content truncated due to size]"
+    
+    # Truncate at word boundary if content exceeds max size
+    truncation_marker = "\n\n[Content truncated due to size]"
+    if len(content) > MAX_CONTENT_SIZE - len(truncation_marker):
+        # Find last space before limit to avoid cutting mid-word
+        truncate_at = content.rfind(' ', 0, MAX_CONTENT_SIZE - len(truncation_marker))
+        if truncate_at == -1:
+            truncate_at = MAX_CONTENT_SIZE - len(truncation_marker)
+        content = content[:truncate_at] + truncation_marker
 
     return title, content, images[:MAX_IMAGES]
 
@@ -420,7 +448,7 @@ async def save_to_library(
 
 
 @router.post("/scrape", response_model=ScrapeResponse)
-@limiter.limit(RateLimits.API)
+@limit_browser_scrape
 async def scrape_and_save(
     request: Request,
     scrape_request: ScrapeRequest,
@@ -431,6 +459,8 @@ async def scrape_and_save(
     """
     Scrape a URL and save the content to the user's library.
     Supports markdown and HTML formats.
+    
+    Rate limit: 10 requests/minute (expensive operation)
     """
     try:
         user_id = current_user.get("id") or current_user.get("user_id")
@@ -473,47 +503,29 @@ def _validate_url_for_preview(url: str) -> str:
     """Validate URL for preview endpoint with SSRF protection"""
     if not url or not url.strip():
         raise ValueError('URL cannot be empty')
-    
+
     if not url.startswith(('http://', 'https://')):
         url = 'https://' + url
-    
+
     try:
-        from urllib.parse import urlparse
         parsed = urlparse(url)
         if not parsed.scheme or not parsed.netloc:
             raise ValueError('Invalid URL format')
         
-        host = parsed.netloc.lower()
-        if ":" in host:
-            host = host.split(":")[0]
+        # Use shared _is_safe_url for SSRF protection
+        if not _is_safe_url(url):
+            raise ValueError('URL is blocked for security reasons')
 
-        for pattern in BLOCKED_URL_PATTERNS:
-            if host == pattern or host.endswith(f".{pattern}"):
-                raise ValueError(f'URL pattern blocked: {pattern}')
-        
-        try:
-            ip_address = socket.gethostbyname(host)
-            ip = ipaddress.ip_address(ip_address)
-            
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-                raise ValueError(f'Access to private/reserved IP {ip_address} is blocked')
-        except socket.gaierror:
-            pass
-        except Exception as e:
-            if isinstance(e, ValueError):
-                raise
-            pass
-                
+    except ValueError:
+        raise
     except Exception as e:
-        if isinstance(e, ValueError):
-            raise
         raise ValueError(f'Invalid URL: {str(e)}')
-    
+
     return url
 
 
 @router.post("/preview", response_model=LinkPreviewResponse)
-@limiter.limit(RateLimits.API)
+@limit_browser_preview
 async def get_link_preview(
     request: Request,
     preview_request: LinkPreviewRequest,
@@ -524,6 +536,8 @@ async def get_link_preview(
     Used for rich link previews in chat.
     Cached for 15 minutes.
     Requires authentication.
+    
+    Rate limit: 30 requests/minute (cheaper operation)
     """
     url = preview_request.url
     
@@ -540,20 +554,42 @@ async def get_link_preview(
         # SSRF Protection: Validate URL before making request (defense in depth)
         if not _is_safe_url(url):
             raise HTTPException(status_code=400, detail="URL is blocked for security reasons")
-        
+
+        # Use follow_redirects=False to validate each redirect manually (SSRF protection)
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(10.0, connect=5.0),
-            follow_redirects=True,
+            follow_redirects=False,
             headers={
                 "User-Agent": "Mozilla/5.0 (compatible; AlmudeerBot/1.0; +https://almudeer.app)"
             },
         ) as client:
             response = await client.get(url)
-            response.raise_for_status()
             
-            # SSRF Protection: Validate final URL after redirects
-            if not _is_safe_url(str(response.url)):
-                raise HTTPException(status_code=400, detail="Redirected URL is blocked for security reasons")
+            # Handle redirects manually with SSRF validation
+            redirect_count = 0
+            max_redirects = 5
+            current_url = url
+            
+            while response.status_code in (301, 302, 307, 308):
+                redirect_count += 1
+                if redirect_count > max_redirects:
+                    raise HTTPException(status_code=400, detail="Too many redirects")
+                
+                redirect_url = response.headers.get("location")
+                if not redirect_url:
+                    raise HTTPException(status_code=400, detail="Redirect missing location header")
+                
+                # Resolve relative redirect URLs
+                redirect_url = urljoin(current_url, redirect_url)
+                
+                # SSRF Protection: Validate redirect URL before following
+                if not _is_safe_url(redirect_url):
+                    raise HTTPException(status_code=400, detail=f"Redirect to {redirect_url} is blocked for security reasons")
+                
+                current_url = redirect_url
+                response = await client.get(current_url)
+            
+            response.raise_for_status()
 
         soup = BeautifulSoup(response.text, "html.parser")
 

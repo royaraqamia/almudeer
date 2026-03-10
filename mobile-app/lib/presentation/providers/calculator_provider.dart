@@ -165,7 +165,7 @@ class CalculatorProvider extends ChangeNotifier {
       // Case 3: else num% => (num * 0.01)
 
       finalExpression = finalExpression.replaceAllMapped(
-        RegExp(r'(\d+\.?\d*)\s*([+\-])\s*(\d+\.?\d*)%'),
+        RegExp(r'(\d+\.?\d*)\s*([+\-])\s*(-?\d+\.?\d*)%'),
         (match) {
           final base = match.group(1);
           final op = match.group(2);
@@ -311,10 +311,15 @@ class CalculatorProvider extends ChangeNotifier {
       // If backend is empty, keep local history (it might be new unsynced data)
       if (prefs.calculatorHistory.isNotEmpty) {
         // Merge: prefer backend as source of truth, but add any local-only entries
-        final Set<String> combined = {...prefs.calculatorHistory, ..._history};
-        _history = combined.toList();
-        // Sort by most recent (entries at the front are newer)
-        if (_history.length > 50) _history = _history.sublist(0, 50);
+        // Preserve ordering (most recent first) while avoiding duplicates
+        final combined = <String>[];
+        final seen = <String>{};
+        for (final entry in [...prefs.calculatorHistory, ..._history]) {
+          if (seen.add(entry)) {
+            combined.add(entry);
+          }
+        }
+        _history = combined.take(50).toList();
         debugPrint('Calculator: Merged history, now ${_history.length} entries');
 
         // Save merged back to local

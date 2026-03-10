@@ -2631,6 +2631,24 @@ async def restore_deleted_message(message_id: int, license_id: int) -> dict:
         }
 
 
+def _sanitize_fts_query(query: str) -> str:
+    """
+    Sanitize FTS query by escaping special characters.
+    FTS5 special characters: * " ~ ( ) AND OR NOT
+    """
+    # Escape double quotes by doubling them
+    sanitized = query.replace('"', '""')
+    # Escape other special characters with backslash
+    for char in ['*', '~', '(', ')']:
+        sanitized = sanitized.replace(char, f'\\{char}')
+    # Escape boolean operators (case-insensitive)
+    import re
+    sanitized = re.sub(r'\bAND\b', '\\\\AND', sanitized, flags=re.IGNORECASE)
+    sanitized = re.sub(r'\bOR\b', '\\\\OR', sanitized, flags=re.IGNORECASE)
+    sanitized = re.sub(r'\bNOT\b', '\\\\NOT', sanitized, flags=re.IGNORECASE)
+    return sanitized
+
+
 async def search_messages(
     license_id: int,
     query: str,
@@ -2646,183 +2664,178 @@ async def search_messages(
     if not query:
         return {"messages": [], "total": 0}
 
-    results = []
-    
-    async with get_db() as db:
-        if DB_TYPE == "postgresql":
-            # PostgreSQL Search
-            params = [query, license_id, limit, offset]
-            filter_clause = ""
-            if sender_contact:
-                params = [query, license_id, sender_contact, limit, offset]
-                # We need to filter both parts of UNION
-                # Use parameter $3 for contact
-                filter_clause = "AND (sender_contact = $3 OR target = $3)" 
-                # Wait, separate queries need correct param index?
-                # Actually, simpler to inject param placeholder or adjust list.
-                # Let's simple use formatted string for parameter index or careful construction.
-                # $3 is contact.
-                
-                search_query = """
-                WITH search_results AS (
-                    SELECT 
-                        'inbox' as source_table, 
-                        id, 
-                        body, 
-                        sender_name, 
-                        sender_contact,
-                        received_at as timestamp, 
-                        subject,
-                        is_read::int as is_read,
-                        ts_rank(search_vector, websearch_to_tsquery('english', $1)) as rank
-                    FROM inbox_messages
-                    WHERE search_vector @@ websearch_to_tsquery('english', $1) 
-                      AND license_key_id = $2
-                      AND ($3::text IS NULL OR sender_contact = $3)
-                    
-                    UNION ALL
-                    
-                    SELECT 
-                        'outbox' as source_table, 
-                        id, 
-                        body, 
-                        COALESCE(recipient_email, recipient_id) as sender_name, 
-                        COALESCE(recipient_email, recipient_id) as sender_contact,
-                        created_at as timestamp, 
-                        NULL as subject,
-                        1 as is_read,
-                        ts_rank(search_vector, websearch_to_tsquery('english', $1)) as rank
-                    FROM outbox_messages
-                    WHERE search_vector @@ websearch_to_tsquery('english', $1) 
-                      AND license_key_id = $2
-                      AND ($3::text IS NULL OR COALESCE(recipient_email, recipient_id) = $3)
-                )
-                SELECT *, count(*) OVER() as full_count 
-                FROM search_results
-                ORDER BY rank DESC, timestamp DESC
-                LIMIT $4 OFFSET $5
-                """
-                # Params: query, license_id, sender_contact, limit, offset
-            else:
-                 # No contact filter
-                 search_query = """
-                WITH search_results AS (
-                    SELECT 
-                        'inbox' as source_table, 
-                        id, 
-                        body, 
-                        sender_name, 
-                        sender_contact,
-                        received_at as timestamp, 
-                        subject,
-                        is_read::int as is_read,
-                        ts_rank(search_vector, websearch_to_tsquery('english', $1)) as rank
-                    FROM inbox_messages
-                    WHERE search_vector @@ websearch_to_tsquery('english', $1) 
-                      AND license_key_id = $2
-                    
-                    UNION ALL
-                    
-                    SELECT 
-                        'outbox' as source_table, 
-                        id, 
-                        body, 
-                        COALESCE(recipient_email, recipient_id) as sender_name, 
-                        COALESCE(recipient_email, recipient_id) as sender_contact,
-                        created_at as timestamp, 
-                        NULL as subject,
-                        1 as is_read,
-                        ts_rank(search_vector, websearch_to_tsquery('english', $1)) as rank
-                    FROM outbox_messages
-                    WHERE search_vector @@ websearch_to_tsquery('english', $1) 
-                      AND license_key_id = $2
-                )
-                SELECT *, count(*) OVER() as full_count 
-                FROM search_results
-                ORDER BY rank DESC, timestamp DESC
-                LIMIT $3 OFFSET $4
-                """
-            
-            rows = await fetch_all(db, search_query, params)
-            
-        else:
-            # SQLite Search
-            params = [query, license_id, limit, offset]
-            contact_filter = ""
-            if sender_contact:
-                params = [query, license_id, sender_contact, limit, offset]
-                contact_filter = """
-                    AND (
-                        (m.source_table = 'inbox' AND i.sender_contact = ?)
-                        OR
-                        (m.source_table = 'outbox' AND COALESCE(o.recipient_email, o.recipient_id) = ?)
-                    )
-                """ 
-                # But wait, parameter binding order!
-                # query, license, contact, contact, limit, offset?
-                # Or use named parameters? fetch_all usually positional.
-                # Let's adjust params list manually.
-                params = [query, license_id, sender_contact, sender_contact, limit, offset]
+    # Sanitize query to prevent FTS syntax errors
+    sanitized_query = _sanitize_fts_query(query)
 
-            search_query = f"""
-                SELECT 
-                    m.source_table,
-                    m.source_id as id,
-                    m.body,
-                    m.sender_name,
-                    CASE 
-                        WHEN m.source_table = 'inbox' THEN i.sender_contact 
-                        ELSE COALESCE(o.recipient_email, o.recipient_id) 
-                    END as sender_contact,
-                    CASE 
-                        WHEN m.source_table = 'inbox' THEN i.received_at 
-                        ELSE o.created_at 
-                    END as timestamp,
-                    CASE 
-                        WHEN m.source_table = 'inbox' THEN i.subject 
-                        ELSE NULL 
-                    END as subject,
-                    CASE
-                        WHEN m.source_table = 'inbox' THEN COALESCE(i.is_read, 0)
-                        ELSE 1
-                    END as is_read
-                FROM messages_fts m
-                LEFT JOIN inbox_messages i ON m.source_table = 'inbox' AND m.source_id = i.id
-                LEFT JOIN outbox_messages o ON m.source_table = 'outbox' AND m.source_id = o.id
-                WHERE m.messages_fts MATCH ? 
-                  AND m.license_id = ?
-                  {contact_filter if sender_contact else ""}
-                ORDER BY m.rank, timestamp DESC
-                LIMIT ? OFFSET ?
-            """
-            
-            rows = await fetch_all(db, search_query, params)
+    async with get_db() as db:
+        try:
+            if DB_TYPE == "postgresql":
+                # PostgreSQL Search with TSVector
+                if sender_contact:
+                    # FIX: Correct parameter indexing for contact filter
+                    params = [sanitized_query, license_id, sender_contact, limit, offset]
+                    search_query = """
+                    WITH search_results AS (
+                        SELECT
+                            'inbox' as source_table,
+                            id,
+                            body,
+                            sender_name,
+                            sender_contact,
+                            received_at as timestamp,
+                            subject,
+                            is_read::int as is_read,
+                            ts_rank(search_vector, websearch_to_tsquery('english', $1)) as rank
+                        FROM inbox_messages
+                        WHERE search_vector @@ websearch_to_tsquery('english', $1)
+                          AND license_key_id = $2
+                          AND sender_contact = $3
+
+                        UNION ALL
+
+                        SELECT
+                            'outbox' as source_table,
+                            id,
+                            body,
+                            COALESCE(recipient_email, recipient_id) as sender_name,
+                            COALESCE(recipient_email, recipient_id) as sender_contact,
+                            created_at as timestamp,
+                            NULL as subject,
+                            1 as is_read,
+                            ts_rank(search_vector, websearch_to_tsquery('english', $1)) as rank
+                        FROM outbox_messages
+                        WHERE search_vector @@ websearch_to_tsquery('english', $1)
+                          AND license_key_id = $2
+                          AND COALESCE(recipient_email, recipient_id) = $3
+                    )
+                    SELECT *, count(*) OVER() as full_count
+                    FROM search_results
+                    ORDER BY rank DESC, timestamp DESC
+                    LIMIT $4 OFFSET $5
+                    """
+                else:
+                    # No contact filter
+                    params = [sanitized_query, license_id, limit, offset]
+                    search_query = """
+                    WITH search_results AS (
+                        SELECT
+                            'inbox' as source_table,
+                            id,
+                            body,
+                            sender_name,
+                            sender_contact,
+                            received_at as timestamp,
+                            subject,
+                            is_read::int as is_read,
+                            ts_rank(search_vector, websearch_to_tsquery('english', $1)) as rank
+                        FROM inbox_messages
+                        WHERE search_vector @@ websearch_to_tsquery('english', $1)
+                          AND license_key_id = $2
+
+                        UNION ALL
+
+                        SELECT
+                            'outbox' as source_table,
+                            id,
+                            body,
+                            COALESCE(recipient_email, recipient_id) as sender_name,
+                            COALESCE(recipient_email, recipient_id) as sender_contact,
+                            created_at as timestamp,
+                            NULL as subject,
+                            1 as is_read,
+                            ts_rank(search_vector, websearch_to_tsquery('english', $1)) as rank
+                        FROM outbox_messages
+                        WHERE search_vector @@ websearch_to_tsquery('english', $1)
+                          AND license_key_id = $2
+                    )
+                    SELECT *, count(*) OVER() as full_count
+                    FROM search_results
+                    ORDER BY rank DESC, timestamp DESC
+                    LIMIT $3 OFFSET $4
+                    """
+
+                rows = await fetch_all(db, search_query, params)
+
+            else:
+                # SQLite Search with FTS5
+                if sender_contact:
+                    # FIX: Correct parameter binding - 2 contact placeholders
+                    params = [sanitized_query, license_id, sender_contact, sender_contact, limit, offset]
+                    contact_filter = """
+                        AND (
+                            (m.source_table = 'inbox' AND i.sender_contact = ?)
+                            OR
+                            (m.source_table = 'outbox' AND COALESCE(o.recipient_email, o.recipient_id) = ?)
+                        )
+                    """
+                else:
+                    params = [sanitized_query, license_id, limit, offset]
+                    contact_filter = ""
+
+                search_query = f"""
+                    SELECT
+                        m.source_table,
+                        m.source_id as id,
+                        m.body,
+                        m.sender_name,
+                        CASE
+                            WHEN m.source_table = 'inbox' THEN i.sender_contact
+                            ELSE COALESCE(o.recipient_email, o.recipient_id)
+                        END as sender_contact,
+                        CASE
+                            WHEN m.source_table = 'inbox' THEN i.received_at
+                            ELSE o.created_at
+                        END as timestamp,
+                        CASE
+                            WHEN m.source_table = 'inbox' THEN i.subject
+                            ELSE NULL
+                        END as subject,
+                        CASE
+                            WHEN m.source_table = 'inbox' THEN COALESCE(i.is_read, 0)
+                            ELSE 1
+                        END as is_read
+                    FROM messages_fts m
+                    LEFT JOIN inbox_messages i ON m.source_table = 'inbox' AND m.source_id = i.id
+                    LEFT JOIN outbox_messages o ON m.source_table = 'outbox' AND m.source_id = o.id
+                    WHERE m.messages_fts MATCH ?
+                      AND m.license_id = ?
+                      {contact_filter}
+                    ORDER BY m.rank DESC, timestamp DESC
+                    LIMIT ? OFFSET ?
+                """
+
+                rows = await fetch_all(db, search_query, params)
+
+        except Exception as e:
+            logger.error(f"Search failed for query '{query}': {e}")
+            # Return empty results on error instead of crashing
+            return {"messages": [], "total": 0}
 
     # Formatting results
     formatted_messages = []
     full_count = 0
-    
+
     if rows:
-        # Try to get full_count from first row if available (Postgres)
+        # Get full_count from first row (PostgreSQL) or use result length (SQLite)
         first_row = dict(rows[0])
-        full_count = first_row.get("full_count", len(rows)) # Approx for SQLite if not implemented
+        full_count = first_row.get("full_count", len(rows))
 
         for row in rows:
             r = dict(row)
             formatted_messages.append({
                 "id": r["id"],
-                "type": r["source_table"], # 'inbox' or 'outbox'
+                "type": r["source_table"],
                 "body": r["body"],
                 "sender_name": r["sender_name"],
                 "sender_contact": r["sender_contact"],
                 "subject": r.get("subject"),
-                "timestamp": r["timestamp"], # datetime object or string
+                "timestamp": r["timestamp"],
                 "is_read": bool(r.get("is_read", True))
             })
 
     return {
-        "results": formatted_messages,
-        "count": full_count if full_count != 0 else len(formatted_messages)
+        "messages": formatted_messages,  # FIX: Consistent key name
+        "total": full_count if full_count != 0 else len(formatted_messages)
     }
 
 

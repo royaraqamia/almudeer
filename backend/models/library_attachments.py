@@ -99,7 +99,11 @@ async def add_attachment(
         )
         
         await commit_db(db)
-        
+
+        # Invalidate storage cache after adding attachment
+        from models.library import _invalidate_storage_cache
+        await _invalidate_storage_cache(license_id)
+
         # Fetch created attachment
         row = await fetch_one(
             db,

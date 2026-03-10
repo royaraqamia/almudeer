@@ -131,6 +131,7 @@ async def update_preferences(license_id: int, **kwargs) -> bool:
                 logger.info(f"Serialized {k} list to JSON: {updates[k]}")
             elif isinstance(v, str) and v.strip().startswith('['):
                 # Already JSON string, keep as-is
+                updates[k] = v
                 logger.info(f"Keeping {k} as JSON string: {v[:50]}...")
     
     set_clause = ", ".join(f"{k} = ?" for k in updates.keys())

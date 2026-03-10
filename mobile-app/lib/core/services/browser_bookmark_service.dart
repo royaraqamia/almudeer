@@ -39,13 +39,18 @@ class BrowserBookmarkService {
   }
 
   Future<void> deleteBookmark(int index) async {
+    if (!_box.isOpen) await init();
+    
     final list = _box.values.toList();
-    if (index < 0 || index >= list.length) return;
-
     final reversedList = list.reversed.toList();
-    if (index < reversedList.length) {
-      final entry = reversedList[index];
-      final actualIndex = list.indexOf(entry);
+    
+    if (index < 0 || index >= reversedList.length) return;
+
+    final entry = reversedList[index];
+    // Find the actual index in the original (non-reversed) list
+    final actualIndex = list.indexWhere((e) => e.url == entry.url);
+    
+    if (actualIndex != -1) {
       await _box.deleteAt(actualIndex);
     }
   }
