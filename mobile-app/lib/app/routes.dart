@@ -161,9 +161,7 @@ class _DashboardShellState extends State<DashboardShell> {
     // No need to activate search mode in app bar
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => const GlobalSearchResultsScreen(
-          initialQuery: '',
-        ),
+        builder: (context) => const GlobalSearchResultsScreen(initialQuery: ''),
       ),
     );
   }
@@ -214,41 +212,37 @@ class _DashboardShellState extends State<DashboardShell> {
       extendBody: true,
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(kToolbarHeight),
-        child:
-            Consumer4<
-              InboxProvider,
-              LibraryProvider,
-              CustomersProvider,
-              TaskProvider
-            >(
-              builder: (context, inbox, library, customers, tasks, _) {
-                final isInboxSelectionMode =
-                    _currentIndex == 0 && inbox.isSelectionMode;
-                final isTasksSelectionMode =
-                    _currentIndex == 1 && tasks.isSelectionMode;
-                final isLibrarySelectionMode =
-                    _currentIndex == 2 && library.isSelectionMode;
-                final isCustomersSelectionMode =
-                    _currentIndex == 3 && customers.isSelectionMode;
-                final isSelectionMode =
-                    isInboxSelectionMode ||
-                    isTasksSelectionMode ||
-                    isLibrarySelectionMode ||
-                    isCustomersSelectionMode;
+        child: Consumer4<InboxProvider, LibraryProvider, CustomersProvider, TaskProvider>(
+          builder: (context, inbox, library, customers, tasks, _) {
+            final isInboxSelectionMode =
+                _currentIndex == 0 && inbox.isSelectionMode;
+            final isTasksSelectionMode =
+                _currentIndex == 1 && tasks.isSelectionMode;
+            final isLibrarySelectionMode =
+                _currentIndex == 2 && library.isSelectionMode;
+            final isCustomersSelectionMode =
+                _currentIndex == 3 && customers.isSelectionMode;
+            final isSelectionMode =
+                isInboxSelectionMode ||
+                isTasksSelectionMode ||
+                isLibrarySelectionMode ||
+                isCustomersSelectionMode;
 
-                return Stack(
-                  alignment: Alignment.bottomCenter,
-                  children: [
-                    AppBar(
-                      elevation: 0,
-                      scrolledUnderElevation: 0,
-                      backgroundColor: Colors.transparent,
-                      leading: isSelectionMode
+            return Stack(
+              alignment: Alignment.bottomCenter,
+              children: [
+                AppBar(
+                  elevation: 0,
+                  scrolledUnderElevation: 0,
+                  backgroundColor: Colors.transparent,
+                  leading: isSelectionMode
                       ? Semantics(
                           label: 'إلغاء',
                           button: true,
                           child: InkWell(
-                            borderRadius: BorderRadius.circular(_touchTargetRadius),
+                            borderRadius: BorderRadius.circular(
+                              _touchTargetRadius,
+                            ),
                             onTap: () {
                               if (isSelectionMode) {
                                 if (isInboxSelectionMode) {
@@ -262,7 +256,7 @@ class _DashboardShellState extends State<DashboardShell> {
                                 }
                               }
                             },
-                            child: Padding(
+                            child: const Padding(
                               padding: EdgeInsets.all(_iconPadding),
                               child: Icon(
                                 SolarLinearIcons.arrowRight,
@@ -276,12 +270,14 @@ class _DashboardShellState extends State<DashboardShell> {
                             label: 'القائمة',
                             button: true,
                             child: InkWell(
-                              borderRadius: BorderRadius.circular(_touchTargetRadius),
+                              borderRadius: BorderRadius.circular(
+                                _touchTargetRadius,
+                              ),
                               onTap: () {
                                 Haptics.lightTap();
                                 Scaffold.of(context).openDrawer();
                               },
-                              child: Padding(
+                              child: const Padding(
                                 padding: EdgeInsets.all(_iconPadding),
                                 child: Icon(
                                   SolarLinearIcons.hamburgerMenu,
@@ -291,17 +287,17 @@ class _DashboardShellState extends State<DashboardShell> {
                             ),
                           ),
                         ),
-                      title: Text(
-                          isSelectionMode
-                              ? '${isInboxSelectionMode ? inbox.selectedCount : (isTasksSelectionMode ? tasks.selectedCount : (isLibrarySelectionMode ? library.selectedCount : customers.selectedCount))}'
-                              : _getPageTitle(_currentIndex),
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: -0.5,
-                          ),
-                        ),
-                      centerTitle: true,
+                  title: Text(
+                    isSelectionMode
+                        ? '${isInboxSelectionMode ? inbox.selectedCount : (isTasksSelectionMode ? tasks.selectedCount : (isLibrarySelectionMode ? library.selectedCount : customers.selectedCount))}'
+                        : _getPageTitle(_currentIndex),
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  centerTitle: true,
                   actions: [
                     if (isSelectionMode) ...[
                       if ((isInboxSelectionMode && inbox.selectedCount > 0) ||
@@ -315,9 +311,12 @@ class _DashboardShellState extends State<DashboardShell> {
                             label: 'مشاركة مع مستخدمين',
                             button: true,
                             child: InkWell(
-                              borderRadius: BorderRadius.circular(_touchTargetRadius),
-                              onTap: () => _bulkShareLibraryItemsWithUsers(context),
-                              child: Padding(
+                              borderRadius: BorderRadius.circular(
+                                _touchTargetRadius,
+                              ),
+                              onTap: () =>
+                                  _bulkShareLibraryItemsWithUsers(context),
+                              child: const Padding(
                                 padding: EdgeInsets.all(_iconPadding),
                                 child: Icon(
                                   SolarLinearIcons.usersGroupRounded,
@@ -331,9 +330,11 @@ class _DashboardShellState extends State<DashboardShell> {
                             label: 'إسناد',
                             button: true,
                             child: InkWell(
-                              borderRadius: BorderRadius.circular(_touchTargetRadius),
+                              borderRadius: BorderRadius.circular(
+                                _touchTargetRadius,
+                              ),
                               onTap: () => _bulkAssignTasks(context),
-                              child: Padding(
+                              child: const Padding(
                                 padding: EdgeInsets.all(_iconPadding),
                                 child: Icon(
                                   SolarLinearIcons.usersGroupRounded,
@@ -390,9 +391,11 @@ class _DashboardShellState extends State<DashboardShell> {
                         label: 'بحث',
                         button: true,
                         child: InkWell(
-                          borderRadius: BorderRadius.circular(_touchTargetRadius),
+                          borderRadius: BorderRadius.circular(
+                            _touchTargetRadius,
+                          ),
                           onTap: _openGlobalSearch,
-                          child: Padding(
+                          child: const Padding(
                             padding: EdgeInsets.all(_iconPadding),
                             child: Icon(
                               SolarLinearIcons.magnifer,
@@ -405,25 +408,27 @@ class _DashboardShellState extends State<DashboardShell> {
                     const SizedBox(width: 8),
                   ],
                 ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        height: 1,
-                        color: theme.dividerColor.withValues(alpha: _bottomBorderAlpha),
-                      ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    height: 1,
+                    color: theme.dividerColor.withValues(
+                      alpha: _bottomBorderAlpha,
                     ),
-                  ],
-                );
-              },
-            ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
           // Tablet split-view for width >= 900px
           final isTablet = constraints.maxWidth >= 900;
-          
+
           if (isTablet && _currentIndex == 0) {
             // Split view for inbox: list on left, detail on right
             return Row(
@@ -450,10 +455,11 @@ class _DashboardShellState extends State<DashboardShell> {
                 Expanded(
                   child: Consumer<InboxProvider>(
                     builder: (context, inbox, _) {
-                      final selectedConversation = inbox.conversations.isNotEmpty
+                      final selectedConversation =
+                          inbox.conversations.isNotEmpty
                           ? inbox.conversations.first
                           : null;
-                      
+
                       if (selectedConversation == null) {
                         return Center(
                           child: Column(
@@ -475,7 +481,7 @@ class _DashboardShellState extends State<DashboardShell> {
                           ),
                         );
                       }
-                      
+
                       return ConversationDetailScreen(
                         key: ValueKey('detail_${selectedConversation.id}'),
                         conversation: selectedConversation,
@@ -486,7 +492,7 @@ class _DashboardShellState extends State<DashboardShell> {
               ],
             );
           }
-          
+
           // Mobile layout or other tabs
           return IndexedStack(
             index: _currentIndex,
@@ -517,7 +523,9 @@ class _DashboardShellState extends State<DashboardShell> {
           ),
           boxShadow: [
             BoxShadow(
-              color: isDark ? AppColors.shadowPrimaryDark : Colors.black.withValues(alpha: 0.04),
+              color: isDark
+                  ? AppColors.shadowPrimaryDark
+                  : Colors.black.withValues(alpha: 0.04),
               blurRadius: 8,
               offset: const Offset(0, -2),
             ),
@@ -589,8 +597,8 @@ class _DashboardShellState extends State<DashboardShell> {
     ShareItemDialog.show(
       context,
       itemId: 0, // Not used for tasks
-      itemTitle: selectedTasks.length == 1 
-          ? selectedTasks.first.title 
+      itemTitle: selectedTasks.length == 1
+          ? selectedTasks.first.title
           : '${selectedTasks.length} مهام',
       taskIds: taskIds,
     );
@@ -617,7 +625,9 @@ class _DashboardShellState extends State<DashboardShell> {
     if (selectedItems.isEmpty) return;
 
     // Check if user owns all selected items
-    final isOwner = selectedItems.every((item) => item.userId == authProvider.userInfo?.licenseId?.toString());
+    final isOwner = selectedItems.every(
+      (item) => item.userId == authProvider.userInfo?.licenseId?.toString(),
+    );
 
     if (!isOwner) {
       library.clearSelection();
@@ -632,7 +642,9 @@ class _DashboardShellState extends State<DashboardShell> {
     final itemIds = selectedItems.map((item) => item.id.toString()).join(',');
     ShareItemDialog.show(
       context,
-      itemId: selectedItems.first.id, // First item ID (required but not used for bulk)
+      itemId: selectedItems
+          .first
+          .id, // First item ID (required but not used for bulk)
       itemTitle: selectedItems.length == 1
           ? selectedItems.first.title
           : '${selectedItems.length} عناصر',
@@ -670,7 +682,9 @@ class _DashboardShellState extends State<DashboardShell> {
     final isSelected = _currentIndex == index;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final activeColor = isDark ? AppColors.activeStateDark : AppColors.activeStateLight;
+    final activeColor = isDark
+        ? AppColors.activeStateDark
+        : AppColors.activeStateLight;
     final pillColor = activeColor.withValues(alpha: 0.12);
 
     return Semantics(
@@ -703,14 +717,8 @@ class _DashboardShellState extends State<DashboardShell> {
           child: AnimatedContainer(
             duration: _animationDuration,
             curve: Curves.easeOutCubic,
-            padding: const EdgeInsets.symmetric(
-              horizontal: 8,
-              vertical: 6,
-            ),
-            constraints: const BoxConstraints(
-              minWidth: 64,
-              minHeight: 48,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            constraints: const BoxConstraints(minWidth: 64, minHeight: 48),
             decoration: BoxDecoration(
               color: isSelected ? pillColor : Colors.transparent,
               borderRadius: BorderRadius.circular(12),
@@ -762,8 +770,9 @@ class _DashboardShellState extends State<DashboardShell> {
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFFEF4444)
-                                      .withValues(alpha: 0.4),
+                                  color: const Color(
+                                    0xFFEF4444,
+                                  ).withValues(alpha: 0.4),
                                   blurRadius: 4,
                                   offset: const Offset(0, 1),
                                 ),
@@ -795,7 +804,9 @@ class _DashboardShellState extends State<DashboardShell> {
                     label,
                     style: TextStyle(
                       fontSize: 10,
-                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                      fontWeight: isSelected
+                          ? FontWeight.w600
+                          : FontWeight.w500,
                       color: isSelected ? activeColor : theme.hintColor,
                       height: 1.3,
                       letterSpacing: -0.2,
@@ -813,8 +824,3 @@ class _DashboardShellState extends State<DashboardShell> {
     );
   }
 }
-
-
-
-
-

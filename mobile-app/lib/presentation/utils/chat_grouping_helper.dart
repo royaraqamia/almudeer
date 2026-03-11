@@ -97,8 +97,8 @@ class ChatGroupingHelper {
       // Check comparison with Newer (prev) and Older (next) neighbors to determine shape.
       // SENDER ID defines grouping.
 
-      bool sameAsNewer = prev != null && _isSameSender(current, prev);
-      bool sameAsOlder = next != null && _isSameSender(current, next);
+      final bool sameAsNewer = prev != null && _isSameSender(current, prev);
+      final bool sameAsOlder = next != null && _isSameSender(current, next);
 
       MessageGroupPosition position;
       if (sameAsNewer && sameAsOlder) {
@@ -117,7 +117,7 @@ class ChatGroupingHelper {
 
       // Avatar Logic: Show avatar only on last message of group (Bottom or Single)
       // AND only if incoming?
-      bool showAvatar =
+      final bool showAvatar =
           (position == MessageGroupPosition.bottom ||
               position == MessageGroupPosition.single) &&
           current.isIncoming;

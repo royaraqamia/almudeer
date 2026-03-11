@@ -552,6 +552,79 @@ async def create_task_visibility_changed_notification(
 
 
 # ============================================================================
+# STORAGE QUOTA NOTIFICATIONS
+# ============================================================================
+
+async def create_storage_warning_notification(
+    license_id: int,
+    user_id: Optional[str],
+    usage_bytes: int,
+    limit_bytes: int,
+    warning_level: str  # 'warning', 'high', 'critical'
+):
+    """
+    Create a notification when storage quota approaches limit.
+    
+    P6-3: Proactive storage quota warnings at 80%, 90%, 95%.
+    
+    Args:
+        license_id: License key ID
+        user_id: User ID to notify
+        usage_bytes: Current storage usage in bytes
+        limit_bytes: Storage limit in bytes
+        warning_level: Warning level ('warning', 'high', 'critical')
+    """
+    now = datetime.now(timezone.utc)
+    
+    # Calculate percentage
+    percentage = (usage_bytes / limit_bytes * 100) if limit_bytes > 0 else 0
+    
+    # Localized messages based on warning level
+    titles = {
+        'warning': 'تنبيه مساحة التخزين',
+        'high': 'تحذير: مساحة التخزين شبه منتهية',
+        'critical': 'حرج: مساحة التخزين شبه ممتلئة تماماً'
+    }
+    
+    messages = {
+        'warning': f'لقد استخدمت {percentage:.1f}% من مساحة التخزين المتاحة ({usage_bytes / 1024 / 1024:.1f}MB من {limit_bytes / 1024 / 1024:.1f}MB)',
+        'high': f'لقد استخدمت {percentage:.1f}% من مساحة التخزين. يرجى تنظيف الملفات غير الضرورية.',
+        'critical': f'لقد استخدمت {percentage:.1f}% من مساحة التخزين. لن تتمكن من رفع ملفات جديدة قريباً.'
+    }
+    
+    async with get_db() as db:
+        try:
+            await execute_sql(
+                db,
+                """
+                INSERT INTO notifications
+                (license_key_id, user_id, type, priority, title, message, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    license_id,
+                    user_id,
+                    'storage_warning',
+                    'high' if warning_level == 'critical' else 'normal',
+                    titles.get(warning_level, 'تنبيه التخزين'),
+                    messages.get(warning_level, f'مستوى التخزين: {percentage:.1f}%'),
+                    now
+                ]
+            )
+            await commit_db(db)
+            
+            logger.info(
+                f"Created storage warning notification for license {license_id}: "
+                f"{warning_level} ({percentage:.1f}%)"
+            )
+            
+            return True
+        except Exception as e:
+            logger.error(f"Failed to create storage warning notification: {e}", exc_info=True)
+            return False
+
+
+# ============================================================================
 # SCHEDULED JOBS RUNNER
 # ============================================================================
 

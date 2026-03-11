@@ -13,73 +13,74 @@ class AppShadows {
 
   /// Premium drop shadow: Single layer for dark mode
   /// X:0, Y:4, Blur:48, Color:000000 5%
-  static final BoxShadow premiumShadow = BoxShadow(
+  static final BoxShadow premiumShadow = const BoxShadow(
     color: AppColors.shadowPrimaryDark,
-    offset: const Offset(0, 4),
+    offset: Offset(0, 4),
     blurRadius: 48,
   );
 
   /// Layered shadow system for light mode (Apple/Stripe style)
   /// Creates depth perception through multiple shadow layers
   static List<BoxShadow> get layeredShadow => [
-        // Layer 1: Close, subtle shadow for edge definition
-        BoxShadow(
-          color: AppColors.shadowPrimaryLight,
-          offset: const Offset(0, 1),
-          blurRadius: 2,
-        ),
-        // Layer 2: Mid-range shadow for depth
-        BoxShadow(
-          color: Colors.black.withValues(alpha: 0.08),
-          offset: const Offset(0, 4),
-          blurRadius: 8,
-        ),
-        // Layer 3: Far shadow for elevation
-        BoxShadow(
-          color: Colors.black.withValues(alpha: 0.12),
-          offset: const Offset(0, 16),
-          blurRadius: 24,
-        ),
-      ];
+    // Layer 1: Close, subtle shadow for edge definition
+    const BoxShadow(
+      color: AppColors.shadowPrimaryLight,
+      offset: Offset(0, 1),
+      blurRadius: 2,
+    ),
+    // Layer 2: Mid-range shadow for depth
+    BoxShadow(
+      color: Colors.black.withValues(alpha: 0.08),
+      offset: const Offset(0, 4),
+      blurRadius: 8,
+    ),
+    // Layer 3: Far shadow for elevation
+    BoxShadow(
+      color: Colors.black.withValues(alpha: 0.12),
+      offset: const Offset(0, 16),
+      blurRadius: 24,
+    ),
+  ];
 
   /// Small shadow for subtle elevation (chips, small cards)
   static List<BoxShadow> get shadowSmall => [
-        BoxShadow(
-          color: AppColors.shadowPrimaryLight,
-          offset: const Offset(0, 1),
-          blurRadius: 2,
-        ),
-        BoxShadow(
-          color: Colors.black.withValues(alpha: 0.1),
-          offset: const Offset(0, 4),
-          blurRadius: 8,
-        ),
-      ];
+    const BoxShadow(
+      color: AppColors.shadowPrimaryLight,
+      offset: Offset(0, 1),
+      blurRadius: 2,
+    ),
+    BoxShadow(
+      color: Colors.black.withValues(alpha: 0.1),
+      offset: const Offset(0, 4),
+      blurRadius: 8,
+    ),
+  ];
 
   /// Medium shadow for standard cards and buttons
   static List<BoxShadow> get shadowMedium => layeredShadow;
 
   /// Large shadow for modals, bottom sheets, and floating elements
   static List<BoxShadow> get shadowLarge => [
-        BoxShadow(
-          color: AppColors.shadowPrimaryLight,
-          offset: const Offset(0, 2),
-          blurRadius: 4,
-        ),
-        BoxShadow(
-          color: Colors.black.withValues(alpha: 0.08),
-          offset: const Offset(0, 8),
-          blurRadius: 16,
-        ),
-        BoxShadow(
-          color: Colors.black.withValues(alpha: 0.16),
-          offset: const Offset(0, 24),
-          blurRadius: 48,
-        ),
-      ];
+    const BoxShadow(
+      color: AppColors.shadowPrimaryLight,
+      offset: Offset(0, 2),
+      blurRadius: 4,
+    ),
+    BoxShadow(
+      color: Colors.black.withValues(alpha: 0.08),
+      offset: const Offset(0, 8),
+      blurRadius: 16,
+    ),
+    BoxShadow(
+      color: Colors.black.withValues(alpha: 0.16),
+      offset: const Offset(0, 24),
+      blurRadius: 48,
+    ),
+  ];
 
   /// Colored shadow for brand elements (buttons, CTAs)
-  static BoxShadow coloredShadow(Color color, {double alpha = 0.3}) => BoxShadow(
+  static BoxShadow coloredShadow(Color color, {double alpha = 0.3}) =>
+      BoxShadow(
         color: color.withValues(alpha: alpha),
         blurRadius: 12,
         offset: const Offset(0, 4),
@@ -87,9 +88,9 @@ class AppShadows {
 
   /// Inner shadow effect for inset elements
   static BoxShadow get innerShadow => BoxShadow(
-        color: Colors.black.withValues(alpha: 0.1),
-        offset: const Offset(0, 2),
-        blurRadius: 4,
-        spreadRadius: -2,
-      );
+    color: Colors.black.withValues(alpha: 0.1),
+    offset: const Offset(0, 2),
+    blurRadius: 4,
+    spreadRadius: -2,
+  );
 }

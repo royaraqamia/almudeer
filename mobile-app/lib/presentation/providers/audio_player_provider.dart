@@ -278,39 +278,48 @@ class AudioPlayerProvider extends ChangeNotifier {
       final player = _handler!.player;
 
       // Listen to player state with error handling
-      _playerSubscription = player.playerStateStream.listen((state) {
-        _isPlaying = state.playing;
-        if (state.processingState == ProcessingState.completed) {
-          _isPlaying = false;
-          _progress = 0.0;
-          _currentPosition = Duration.zero;
-        }
-        notifyListeners();
-      }, onError: (error) {
-        debugPrint("Player state stream error: $error");
-      });
+      _playerSubscription = player.playerStateStream.listen(
+        (state) {
+          _isPlaying = state.playing;
+          if (state.processingState == ProcessingState.completed) {
+            _isPlaying = false;
+            _progress = 0.0;
+            _currentPosition = Duration.zero;
+          }
+          notifyListeners();
+        },
+        onError: (error) {
+          debugPrint('Player state stream error: $error');
+        },
+      );
 
       // Listen to position with error handling
-      _positionSubscription = player.positionStream.listen((position) {
-        _currentPosition = position;
-        if (_totalDuration.inMilliseconds > 0) {
-          _progress =
-              _currentPosition.inMilliseconds / _totalDuration.inMilliseconds;
-        }
-        notifyListeners();
-      }, onError: (error) {
-        debugPrint("Player position stream error: $error");
-      });
+      _positionSubscription = player.positionStream.listen(
+        (position) {
+          _currentPosition = position;
+          if (_totalDuration.inMilliseconds > 0) {
+            _progress =
+                _currentPosition.inMilliseconds / _totalDuration.inMilliseconds;
+          }
+          notifyListeners();
+        },
+        onError: (error) {
+          debugPrint('Player position stream error: $error');
+        },
+      );
 
       // Listen to duration with error handling
-      _durationSubscription = player.durationStream.listen((duration) {
-        _totalDuration = duration ?? Duration.zero;
-        notifyListeners();
-      }, onError: (error) {
-        debugPrint("Player duration stream error: $error");
-      });
+      _durationSubscription = player.durationStream.listen(
+        (duration) {
+          _totalDuration = duration ?? Duration.zero;
+          notifyListeners();
+        },
+        onError: (error) {
+          debugPrint('Player duration stream error: $error');
+        },
+      );
     } catch (e) {
-      debugPrint("Global Player Init Error: $e");
+      debugPrint('Global Player Init Error: $e');
       rethrow;
     } finally {
       _isInitializing = false;
@@ -320,7 +329,7 @@ class AudioPlayerProvider extends ChangeNotifier {
   /// Play or Resume a message
   Future<void> playMessage(InboxMessage message) async {
     if (_isDisposed) return;
-    
+
     if (!_isPlayerInitialized && !_isInitializing) {
       await _initPlayer();
     } else if (_isInitializing) {
@@ -329,7 +338,7 @@ class AudioPlayerProvider extends ChangeNotifier {
         await Future.delayed(const Duration(milliseconds: 50));
       }
     }
-    
+
     if (_isDisposed) return;
 
     // If same message, toggle play/pause
@@ -366,13 +375,13 @@ class AudioPlayerProvider extends ChangeNotifier {
       try {
         data = base64Decode(attachment['data'] as String);
       } catch (e) {
-        debugPrint("Decode error: $e");
+        debugPrint('Decode error: $e');
       }
     } else if (attachment['base64'] != null) {
       try {
         data = base64Decode(attachment['base64'] as String);
       } catch (e) {
-        debugPrint("Decode error: $e");
+        debugPrint('Decode error: $e');
       }
     }
 
@@ -426,7 +435,7 @@ class AudioPlayerProvider extends ChangeNotifier {
       _isPlaying = true;
       notifyListeners();
     } catch (e) {
-      debugPrint("Global Play Error: $e");
+      debugPrint('Global Play Error: $e');
       _isPlaying = false;
       notifyListeners();
     }
@@ -487,7 +496,7 @@ class AudioPlayerProvider extends ChangeNotifier {
       _isPlaying = true;
       notifyListeners();
     } catch (e) {
-      debugPrint("Global Play Error: $e");
+      debugPrint('Global Play Error: $e');
       _isPlaying = false;
       notifyListeners();
     }
@@ -536,7 +545,7 @@ class AudioPlayerProvider extends ChangeNotifier {
       _isPlaying = true;
       notifyListeners();
     } catch (e) {
-      debugPrint("Quran Play Error: $e");
+      debugPrint('Quran Play Error: $e');
       _isPlaying = false;
       notifyListeners();
       rethrow;
@@ -551,7 +560,7 @@ class AudioPlayerProvider extends ChangeNotifier {
   /// Play audio from a local file path (used for recording preview)
   Future<void> playFromPath(String filePath) async {
     if (_isDisposed) return;
-    
+
     if (!_isPlayerInitialized && !_isInitializing) {
       await _initPlayer();
     } else if (_isInitializing) {
@@ -559,7 +568,7 @@ class AudioPlayerProvider extends ChangeNotifier {
         await Future.delayed(const Duration(milliseconds: 50));
       }
     }
-    
+
     if (_isDisposed) return;
 
     await stop(clear: false);
@@ -593,14 +602,16 @@ class AudioPlayerProvider extends ChangeNotifier {
       _isPlaying = true;
       notifyListeners();
     } catch (e) {
-      debugPrint("Preview Play Error: $e");
+      debugPrint('Preview Play Error: $e');
       _isPlaying = false;
       notifyListeners();
     }
   }
 
   Future<void> togglePlay() async {
-    if (_handler == null || (_currentMessage == null && _currentAudioTitle == null)) return;
+    if (_handler == null ||
+        (_currentMessage == null && _currentAudioTitle == null))
+      return;
 
     final player = _handler!.player;
     final actuallyPlaying = player.playing;
@@ -639,7 +650,7 @@ class AudioPlayerProvider extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble('$_speedKeyPrefix$hash', speed);
     } catch (e) {
-      debugPrint("Speed persistence error: $e");
+      debugPrint('Speed persistence error: $e');
     }
 
     notifyListeners();
@@ -691,13 +702,13 @@ class AudioPlayerProvider extends ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
-    
+
     // Cancel all subscriptions
     _proximitySubscription?.cancel();
     _playerSubscription?.cancel();
     _positionSubscription?.cancel();
     _durationSubscription?.cancel();
-    
+
     // Release player resources properly
     if (_handler != null) {
       try {
@@ -709,7 +720,7 @@ class AudioPlayerProvider extends ChangeNotifier {
         debugPrint('Handler dispose error: $e');
       }
     }
-    
+
     // Do NOT dispose _globalHandler — it outlives the provider and is app-scoped
     super.dispose();
   }
@@ -725,7 +736,7 @@ class AudioPlayerProvider extends ChangeNotifier {
         }
       });
     } catch (e) {
-      debugPrint("Proximity init error: $e");
+      debugPrint('Proximity init error: $e');
     }
   }
 
@@ -753,7 +764,7 @@ class AudioPlayerProvider extends ChangeNotifier {
         await session.configure(const AudioSessionConfiguration.music());
       }
     } catch (e) {
-      debugPrint("Audio Route Error: $e");
+      debugPrint('Audio Route Error: $e');
     }
   }
 
@@ -766,24 +777,24 @@ class AudioPlayerProvider extends ChangeNotifier {
   /// Use this when the app needs to free up audio resources (e.g., incoming call)
   Future<void> releaseAllResources() async {
     await stop(clear: true);
-    
+
     // Cancel all subscriptions
     _playerSubscription?.cancel();
     _positionSubscription?.cancel();
     _durationSubscription?.cancel();
     _proximitySubscription?.cancel();
-    
+
     _playerSubscription = null;
     _positionSubscription = null;
     _durationSubscription = null;
     _proximitySubscription = null;
-    
+
     // Release the handler's player
     if (_handler != null) {
       await _handler!.release();
       _handler = null;
     }
-    
+
     _isPlayerInitialized = false;
     notifyListeners();
   }

@@ -310,7 +310,7 @@ void main() {
           expect(
             cachedWrapper.memCacheHeight,
             400,
-            reason: "Critical optimization: memCacheHeight missing",
+            reason: 'Critical optimization: memCacheHeight missing',
           );
 
           // 3. Verify internal structure (Negative Check on Raw NetworkImage)
@@ -331,7 +331,7 @@ void main() {
             foundRawNetworkImage,
             isFalse,
             reason:
-                "Found usage of raw Image.network! Should be CachedNetworkImage.",
+                'Found usage of raw Image.network! Should be CachedNetworkImage.',
           );
         },
       );

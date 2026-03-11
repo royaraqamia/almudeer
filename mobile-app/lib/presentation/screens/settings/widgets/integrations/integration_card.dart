@@ -73,8 +73,8 @@ class IntegrationCard extends StatelessWidget {
           InkWell(
             onTap: () => onExpandChanged(!isExpanded),
             borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(AppDimensions.radiusLarge),
-              topRight: Radius.circular(AppDimensions.radiusLarge),
+              topLeft: const Radius.circular(AppDimensions.radiusLarge),
+              topRight: const Radius.circular(AppDimensions.radiusLarge),
               bottomLeft: Radius.circular(
                 isExpanded ? 0 : AppDimensions.radiusLarge,
               ),

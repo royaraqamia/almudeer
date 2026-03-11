@@ -72,7 +72,7 @@ class ConversationDetailProvider extends ChangeNotifier {
   String? _editingMessageBody;
 
   Failure? _failure;
-  
+
   // Error callback for UI to display error messages (e.g., edit failures)
   ValueChanged<String>? onError;
 
@@ -423,7 +423,7 @@ class ConversationDetailProvider extends ChangeNotifier {
           }
         }
       } catch (e) {
-        debugPrint("Cache read error for $senderContact: $e");
+        debugPrint('Cache read error for $senderContact: $e');
       }
 
       try {
@@ -495,13 +495,13 @@ class ConversationDetailProvider extends ChangeNotifier {
             errorStr.contains('network') ||
             errorStr.contains('connection') ||
             errorStr.contains('timeout')) {
-          _failure = NetworkFailure('لا يوجد اتصال بالإنترنت');
+          _failure = const NetworkFailure('لا يوجد اتصال بالإنترنت');
         } else if (errorStr.contains('unauthorized') ||
             errorStr.contains('401') ||
             errorStr.contains('forbidden')) {
-          _failure = AuthFailure('انتهت جلسة المستخدم');
+          _failure = const AuthFailure('انتهت جلسة المستخدم');
         } else {
-          _failure = ServerFailure('فشل تحميل المحادثة');
+          _failure = const ServerFailure('فشل تحميل المحادثة');
         }
 
         // Only show error state if we don't have cached messages
@@ -551,9 +551,9 @@ class ConversationDetailProvider extends ChangeNotifier {
       if (errorStr.contains('socket') ||
           errorStr.contains('network') ||
           errorStr.contains('connection')) {
-        _failure = NetworkFailure('لا يوجد اتصال بالإنترنت');
+        _failure = const NetworkFailure('لا يوجد اتصال بالإنترنت');
       } else {
-        _failure = ServerFailure('فشل تحميل المزيد من الرسائل');
+        _failure = const ServerFailure('فشل تحميل المزيد من الرسائل');
       }
     }
 
@@ -629,7 +629,10 @@ class ConversationDetailProvider extends ChangeNotifier {
   }
 
   /// Update message with compressed attachments (after background compression)
-  void updateMessageAttachments(int messageId, List<Map<String, dynamic>> attachments) {
+  void updateMessageAttachments(
+    int messageId,
+    List<Map<String, dynamic>> attachments,
+  ) {
     if (_activeContact == null) return;
     final contact = _activeContact!;
     final current = _memoryMessages[contact] ?? [];
@@ -715,7 +718,7 @@ class ConversationDetailProvider extends ChangeNotifier {
         },
       );
     } catch (e) {
-      debugPrint("Error updating persistent cache for $contact: $e");
+      debugPrint('Error updating persistent cache for $contact: $e');
     }
   }
 
@@ -730,7 +733,9 @@ class ConversationDetailProvider extends ChangeNotifier {
     // Check if message can be edited (channel rules, time window, etc.)
     final message = currentList[index];
     if (!message.canEdit) {
-      debugPrint("Message cannot be edited (channel restrictions or time window exceeded)");
+      debugPrint(
+        'Message cannot be edited (channel restrictions or time window exceeded)',
+      );
       return false;
     }
 
@@ -754,10 +759,10 @@ class ConversationDetailProvider extends ChangeNotifier {
 
       // API Call (Backgrounded for instant responsiveness)
       _inboxRepository.editMessage(messageId, newBody).catchError((e) {
-        debugPrint("Failed to edit message (background): $e");
+        debugPrint('Failed to edit message (background): $e');
 
         // Notify UI of the error so user knows the edit didn't sync
-        onError?.call("فشل مزامنة التعديل: ${e.toString()}");
+        onError?.call('فشل مزامنة التعديل: ${e.toString()}');
 
         // Rollback on background failure - use current list state to avoid race condition
         final currentListOnError = _memoryMessages[contact] ?? [];
@@ -767,11 +772,12 @@ class ConversationDetailProvider extends ChangeNotifier {
         if (rollbackIndex != -1) {
           final rolledBackList = List<InboxMessage>.from(currentListOnError);
           // Only revert the specific fields that were changed, preserving other modifications
-          rolledBackList[rollbackIndex] = rolledBackList[rollbackIndex].copyWith(
-            body: originalBody,
-            isEdited: originalIsEdited,
-            editedAt: originalEditedAt,
-          );
+          rolledBackList[rollbackIndex] = rolledBackList[rollbackIndex]
+              .copyWith(
+                body: originalBody,
+                isEdited: originalIsEdited,
+                editedAt: originalEditedAt,
+              );
           _memoryMessages[contact] = rolledBackList;
           notifyListeners();
           // Rollback cache on failure
@@ -782,11 +788,13 @@ class ConversationDetailProvider extends ChangeNotifier {
 
       return true;
     } catch (e) {
-      debugPrint("Failed to edit message: $e");
+      debugPrint('Failed to edit message: $e');
 
       // Rollback - use current list state to avoid race condition
       final currentListOnError = _memoryMessages[contact] ?? [];
-      final rollbackIndex = currentListOnError.indexWhere((m) => m.id == messageId);
+      final rollbackIndex = currentListOnError.indexWhere(
+        (m) => m.id == messageId,
+      );
       if (rollbackIndex != -1) {
         final rolledBackList = List<InboxMessage>.from(currentListOnError);
         // Only revert the specific fields that were changed
@@ -836,7 +844,7 @@ class ConversationDetailProvider extends ChangeNotifier {
         })
         .catchError((e) {
           // Failure: Rollback
-          debugPrint("Delete failed, rolling back: $e");
+          debugPrint('Delete failed, rolling back: $e');
           final rolledBackList = _memoryMessages[contact];
           if (rolledBackList != null) {
             final newList = List<InboxMessage>.from(rolledBackList);
@@ -892,7 +900,7 @@ class ConversationDetailProvider extends ChangeNotifier {
 
       return true;
     } catch (e) {
-      debugPrint("Clear chat failed: $e");
+      debugPrint('Clear chat failed: $e');
 
       // Rollback UI
       _memoryMessages[contact] = oldMessages ?? [];
@@ -933,7 +941,7 @@ class ConversationDetailProvider extends ChangeNotifier {
         );
       }
     } catch (e) {
-      debugPrint("Error saving draft to local cache: $e");
+      debugPrint('Error saving draft to local cache: $e');
       // Continue anyway - local cache failure shouldn't block server sync
     }
 
@@ -950,7 +958,7 @@ class ConversationDetailProvider extends ChangeNotifier {
         retries++;
         if (retries >= maxRetries) {
           debugPrint(
-            "Error saving draft to server after $maxRetries attempts: $e",
+            'Error saving draft to server after $maxRetries attempts: $e',
           );
           // Draft is saved locally, server sync will happen on next attempt
           // Store a flag to indicate pending sync
@@ -1109,7 +1117,7 @@ class ConversationDetailProvider extends ChangeNotifier {
       // Clear undo stack after successful deletion
       _lastDeletedMessages = null;
     } catch (e) {
-      debugPrint("Bulk delete failed: $e");
+      debugPrint('Bulk delete failed: $e');
       // For simplicity, we might not roll back everything but a refresh is better
       loadConversation(contact, fresh: true);
     }
@@ -1199,7 +1207,7 @@ class ConversationDetailProvider extends ChangeNotifier {
           attachments: msg.attachments,
         );
       } catch (e) {
-        debugPrint("Error forwarding message ${msg.id}: $e");
+        debugPrint('Error forwarding message ${msg.id}: $e');
       }
     });
 
@@ -1278,7 +1286,7 @@ class ConversationDetailProvider extends ChangeNotifier {
           '${accountHash}_draft_$_activeContact!',
         );
       } catch (e) {
-        debugPrint("Error clearing draft after edit: $e");
+        debugPrint('Error clearing draft after edit: $e');
       }
     }
 
@@ -1522,11 +1530,15 @@ class ConversationDetailProvider extends ChangeNotifier {
         final editedAt = data['edited_at'] as String?;
         final forceRefresh = data['force_refresh'] as bool? ?? false;
 
-        debugPrint('[ConversationDetailProvider] Received message_edited event: msgId=$msgId, senderContact=$senderContact, recipientContact=$recipientContact, newBody=$newBody, forceRefresh=$forceRefresh');
+        debugPrint(
+          '[ConversationDetailProvider] Received message_edited event: msgId=$msgId, senderContact=$senderContact, recipientContact=$recipientContact, newBody=$newBody, forceRefresh=$forceRefresh',
+        );
 
         // Validation: Ensure required fields are present
         if (msgId == null || newBody == null || newBody.isEmpty) {
-          debugPrint('[ConversationDetailProvider] Invalid message_edited event: missing required fields');
+          debugPrint(
+            '[ConversationDetailProvider] Invalid message_edited event: missing required fields',
+          );
           return;
         }
 
@@ -1538,11 +1550,15 @@ class ConversationDetailProvider extends ChangeNotifier {
             // Reject if timestamp is in the future (with 5 second grace) or older than 30 days
             if (editedTime.isAfter(now.add(const Duration(seconds: 5))) ||
                 editedTime.isBefore(now.subtract(const Duration(days: 30)))) {
-              debugPrint('[ConversationDetailProvider] Invalid edited_at timestamp: $editedAt');
+              debugPrint(
+                '[ConversationDetailProvider] Invalid edited_at timestamp: $editedAt',
+              );
               return;
             }
           } catch (e) {
-            debugPrint('[ConversationDetailProvider] Failed to parse edited_at: $e');
+            debugPrint(
+              '[ConversationDetailProvider] Failed to parse edited_at: $e',
+            );
             return;
           }
         }
@@ -1562,18 +1578,23 @@ class ConversationDetailProvider extends ChangeNotifier {
         // Fallback to the original contact from outer scope if no match
         targetContact ??= contact;
 
-        debugPrint('[ConversationDetailProvider] Using targetContact=$targetContact for message update (activeContact=$_activeContact)');
+        debugPrint(
+          '[ConversationDetailProvider] Using targetContact=$targetContact for message update (activeContact=$_activeContact)',
+        );
 
         if (_memoryMessages.containsKey(targetContact)) {
           final current = _memoryMessages[targetContact] ?? [];
           // Peer-to-peer sync: Recipients use 'alm_{outboxId}' as platformMessageId
           // Also check outboxId for direct matching on recipient side
           final idx = current.indexWhere(
-            (m) => m.id == msgId ||
-                   m.platformMessageId == 'alm_$msgId' ||
-                   m.outboxId == msgId,
+            (m) =>
+                m.id == msgId ||
+                m.platformMessageId == 'alm_$msgId' ||
+                m.outboxId == msgId,
           );
-          debugPrint('[ConversationDetailProvider] Found message at index=$idx in contact=$targetContact');
+          debugPrint(
+            '[ConversationDetailProvider] Found message at index=$idx in contact=$targetContact',
+          );
           if (idx != -1) {
             final updatedList = List<InboxMessage>.from(current);
             updatedList[idx] = updatedList[idx].copyWith(
@@ -1582,7 +1603,9 @@ class ConversationDetailProvider extends ChangeNotifier {
               editedAt: editedAt,
             );
             _memoryMessages[targetContact] = updatedList;
-            debugPrint('[ConversationDetailProvider] Updated message body to: $newBody');
+            debugPrint(
+              '[ConversationDetailProvider] Updated message body to: $newBody',
+            );
             if (_activeContact == targetContact) _throttledNotify();
 
             // Persist to local SQLite DB
@@ -1596,10 +1619,14 @@ class ConversationDetailProvider extends ChangeNotifier {
                   (e) => debugPrint('Error persisting remote edit: $e'),
                 );
           } else {
-            debugPrint('[ConversationDetailProvider] Message not found in local cache. Available message IDs: ${current.map((m) => '${m.id}(platform:${m.platformMessageId})').join(', ')}');
+            debugPrint(
+              '[ConversationDetailProvider] Message not found in local cache. Available message IDs: ${current.map((m) => '${m.id}(platform:${m.platformMessageId})').join(', ')}',
+            );
             // If message not found and force_refresh is true, reload the conversation
             if (forceRefresh) {
-              debugPrint('[ConversationDetailProvider] force_refresh=true, reloading conversation for contact=$targetContact');
+              debugPrint(
+                '[ConversationDetailProvider] force_refresh=true, reloading conversation for contact=$targetContact',
+              );
               // Clear cached messages for this contact to force fresh fetch
               _memoryMessages.remove(targetContact);
               // Reload from server
@@ -1607,10 +1634,14 @@ class ConversationDetailProvider extends ChangeNotifier {
             }
           }
         } else {
-          debugPrint('[ConversationDetailProvider] Contact $targetContact not in memory. Available contacts: ${_memoryMessages.keys.join(', ')}');
+          debugPrint(
+            '[ConversationDetailProvider] Contact $targetContact not in memory. Available contacts: ${_memoryMessages.keys.join(', ')}',
+          );
           // If force_refresh is true, load the conversation fresh
           if (forceRefresh) {
-            debugPrint('[ConversationDetailProvider] force_refresh=true, loading conversation for contact=$contact');
+            debugPrint(
+              '[ConversationDetailProvider] force_refresh=true, loading conversation for contact=$contact',
+            );
             loadConversation(contact, fresh: true);
           }
         }
@@ -1639,18 +1670,22 @@ class ConversationDetailProvider extends ChangeNotifier {
         // Handle real-time status updates (Sending -> Sent -> Delivered -> Read)
         final msgId = data['outbox_id'];
         // Support both 'status' and 'delivery_status' fields from backend
-        final newStatus = (data['delivery_status'] ?? data['status'])?.toString().toLowerCase();
+        final newStatus = (data['delivery_status'] ?? data['status'])
+            ?.toString()
+            .toLowerCase();
         final senderContact = data['sender_contact'] as String?;
 
         if (msgId == null || newStatus == null) {
-          debugPrint('[ConversationDetailProvider] Invalid delivery_status event: msgId=$msgId, status=$newStatus');
+          debugPrint(
+            '[ConversationDetailProvider] Invalid delivery_status event: msgId=$msgId, status=$newStatus',
+          );
           return;
         }
 
         // CRITICAL FIX for multi-account: Update messages even if conversation is not active
         // First try the active conversation, then search all conversations
         String? targetContact = _activeContact;
-        
+
         // If sender_contact is provided and doesn't match active conversation, use it
         if (senderContact != null && senderContact != targetContact) {
           // Check if we have messages for this contact in memory
@@ -1659,7 +1694,8 @@ class ConversationDetailProvider extends ChangeNotifier {
           }
         }
 
-        if (targetContact != null && _memoryMessages.containsKey(targetContact)) {
+        if (targetContact != null &&
+            _memoryMessages.containsKey(targetContact)) {
           final current = _memoryMessages[targetContact] ?? [];
           // Match by outboxId (for optimistic messages) or id (for synced messages)
           final idx = current.indexWhere(
@@ -1676,11 +1712,15 @@ class ConversationDetailProvider extends ChangeNotifier {
 
             if (isCurrentlySent && newStatus == 'pending') {
               // Ignore this update to prevent flickering
-              debugPrint('[ConversationDetailProvider] Ignoring status downgrade: sent -> pending for message $msgId');
+              debugPrint(
+                '[ConversationDetailProvider] Ignoring status downgrade: sent -> pending for message $msgId',
+              );
               return;
             }
 
-            debugPrint('[ConversationDetailProvider] Updating message $msgId status: ${msg.status} -> $newStatus (contact=$targetContact)');
+            debugPrint(
+              '[ConversationDetailProvider] Updating message $msgId status: ${msg.status} -> $newStatus (contact=$targetContact)',
+            );
 
             final updatedList = List<InboxMessage>.from(current);
             updatedList[idx] = updatedList[idx].copyWith(
@@ -1693,7 +1733,7 @@ class ConversationDetailProvider extends ChangeNotifier {
                         : MessageSendStatus.sending),
             );
             _memoryMessages[targetContact] = updatedList;
-            
+
             // Only notify UI if this is the active conversation
             if (_activeContact == targetContact) {
               _throttledNotify();
@@ -1706,10 +1746,14 @@ class ConversationDetailProvider extends ChangeNotifier {
                   (e) => debugPrint('Error persisting delivery status: $e'),
                 );
           } else {
-            debugPrint('[ConversationDetailProvider] Message $msgId not found in memory for contact $targetContact');
+            debugPrint(
+              '[ConversationDetailProvider] Message $msgId not found in memory for contact $targetContact',
+            );
           }
         } else {
-          debugPrint('[ConversationDetailProvider] Contact $targetContact not in memory');
+          debugPrint(
+            '[ConversationDetailProvider] Contact $targetContact not in memory',
+          );
         }
       } else if (type == 'conversation_deleted') {
         // Handle conversation deletion
@@ -1744,14 +1788,16 @@ class ConversationDetailProvider extends ChangeNotifier {
         String? targetContact = _activeContact;
 
         // If username changed, check for old contact
-        if (oldCustomerContact != null && oldCustomerContact == _activeContact) {
+        if (oldCustomerContact != null &&
+            oldCustomerContact == _activeContact) {
           // Migrate active contact to new username
           _activeContact = customerContact;
           targetContact = customerContact;
 
           // Migrate in-memory data
           if (_memoryMessages.containsKey(oldCustomerContact)) {
-            _memoryMessages[customerContact] = _memoryMessages[oldCustomerContact]!;
+            _memoryMessages[customerContact] =
+                _memoryMessages[oldCustomerContact]!;
             _memoryMessages.remove(oldCustomerContact);
           }
           if (_memoryStates.containsKey(oldCustomerContact)) {
@@ -1759,11 +1805,13 @@ class ConversationDetailProvider extends ChangeNotifier {
             _memoryStates.remove(oldCustomerContact);
           }
           if (_memoryCursors.containsKey(oldCustomerContact)) {
-            _memoryCursors[customerContact] = _memoryCursors[oldCustomerContact];
+            _memoryCursors[customerContact] =
+                _memoryCursors[oldCustomerContact];
             _memoryCursors.remove(oldCustomerContact);
           }
           if (_memoryHasMore.containsKey(oldCustomerContact)) {
-            _memoryHasMore[customerContact] = _memoryHasMore[oldCustomerContact]!;
+            _memoryHasMore[customerContact] =
+                _memoryHasMore[oldCustomerContact]!;
             _memoryHasMore.remove(oldCustomerContact);
           }
 
@@ -1883,7 +1931,7 @@ class ConversationDetailProvider extends ChangeNotifier {
       _currentSearchIndex = _searchResultIds.isNotEmpty ? 0 : -1;
       notifyListeners();
     } catch (e) {
-      debugPrint("Search error: $e");
+      debugPrint('Search error: $e');
     }
   }
 
@@ -1900,7 +1948,6 @@ class ConversationDetailProvider extends ChangeNotifier {
         _searchResultIds.length;
     notifyListeners();
   }
-
 
   @override
   void dispose() {

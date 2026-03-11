@@ -5,47 +5,42 @@ import 'package:almudeer_mobile_app/presentation/widgets/library/share_item_dial
 
 void main() {
   group('ShareItemDialog Tests', () {
-
     testWidgets('Share dialog displays correctly', (WidgetTester tester) async {
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: Material(
-            child: ShareItemDialog(
-              itemId: 123,
-              itemTitle: 'Test Item',
-            ),
+            child: ShareItemDialog(itemId: 123, itemTitle: 'Test Item'),
           ),
         ),
       );
 
       // Verify dialog title
       expect(find.text('مشاركة العنصر'), findsOneWidget);
-      
+
       // Verify item title is shown
       expect(find.text('Test Item'), findsOneWidget);
-      
+
       // Verify user ID input field
       expect(find.byType(TextFormField), findsOneWidget);
-      
+
       // Verify permission options
       expect(find.text('قراءة فقط'), findsOneWidget);
       expect(find.text('تعديل'), findsOneWidget);
       expect(find.text('مدير'), findsOneWidget);
-      
+
       // Verify expiry options
       expect(find.text('بدون انتهاء'), findsOneWidget);
       expect(find.text('7 أيام'), findsOneWidget);
       expect(find.text('30 يوم'), findsOneWidget);
     });
 
-    testWidgets('Share button is disabled when form is invalid', (WidgetTester tester) async {
+    testWidgets('Share button is disabled when form is invalid', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: Material(
-            child: ShareItemDialog(
-              itemId: 123,
-              itemTitle: 'Test Item',
-            ),
+            child: ShareItemDialog(itemId: 123, itemTitle: 'Test Item'),
           ),
         ),
       );
@@ -61,12 +56,9 @@ void main() {
 
     testWidgets('Permission selection works', (WidgetTester tester) async {
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: Material(
-            child: ShareItemDialog(
-              itemId: 123,
-              itemTitle: 'Test Item',
-            ),
+            child: ShareItemDialog(itemId: 123, itemTitle: 'Test Item'),
           ),
         ),
       );
@@ -81,12 +73,9 @@ void main() {
 
     testWidgets('Expiry selection works', (WidgetTester tester) async {
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: Material(
-            child: ShareItemDialog(
-              itemId: 123,
-              itemTitle: 'Test Item',
-            ),
+            child: ShareItemDialog(itemId: 123, itemTitle: 'Test Item'),
           ),
         ),
       );
@@ -101,21 +90,15 @@ void main() {
 
     testWidgets('Form validation for email', (WidgetTester tester) async {
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: Material(
-            child: ShareItemDialog(
-              itemId: 123,
-              itemTitle: 'Test Item',
-            ),
+            child: ShareItemDialog(itemId: 123, itemTitle: 'Test Item'),
           ),
         ),
       );
 
       // Enter invalid email
-      await tester.enterText(
-        find.byType(TextFormField),
-        'invalid-email'
-      );
+      await tester.enterText(find.byType(TextFormField), 'invalid-email');
       await tester.pump();
 
       // Try to submit
@@ -139,7 +122,7 @@ void main() {
                     dialogClosed = true;
                     setState(() {});
                   },
-                  child: ShareItemDialog(
+                  child: const ShareItemDialog(
                     itemId: 123,
                     itemTitle: 'Test Item',
                   ),
@@ -160,11 +143,15 @@ void main() {
   });
 
   group('ManageSharesScreen Tests', () {
-    testWidgets('Empty state displays when no shares', (WidgetTester tester) async {
+    testWidgets('Empty state displays when no shares', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: Material(
-            child: Text('Test'), // Placeholder - actual screen needs proper setup
+            child: Text(
+              'Test',
+            ), // Placeholder - actual screen needs proper setup
           ),
         ),
       );
@@ -179,7 +166,9 @@ void main() {
   });
 
   group('SharedWithMeScreen Tests', () {
-    testWidgets('Empty state displays when no shared items', (WidgetTester tester) async {
+    testWidgets('Empty state displays when no shared items', (
+      WidgetTester tester,
+    ) async {
       // Would test empty state with mock provider
       expect(true, isTrue); // Placeholder
     });

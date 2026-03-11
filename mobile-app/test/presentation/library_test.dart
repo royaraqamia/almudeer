@@ -35,7 +35,9 @@ void main() {
 
     // Stub cache.get and put (return null to force fetch)
     when(mockCacheService.get(any, any)).thenAnswer((_) async => null);
-    when(mockCacheService.put(any, any, any, expiry: anyNamed('expiry'))).thenAnswer((_) async {});
+    when(
+      mockCacheService.put(any, any, any, expiry: anyNamed('expiry')),
+    ).thenAnswer((_) async {});
 
     // Stub syncStream
     when(mockRepository.syncStream).thenAnswer((_) => const Stream.empty());
@@ -49,7 +51,7 @@ void main() {
       ),
     ).thenAnswer((invocation) {
       final searchQuery =
-          invocation.namedArguments[Symbol('searchQuery')] as String?;
+          invocation.namedArguments[const Symbol('searchQuery')] as String?;
 
       if (searchQuery != null && searchQuery == 'Test') {
         return Stream.value([

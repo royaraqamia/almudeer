@@ -18,7 +18,7 @@ class MediaService {
       final tempDir = await getTemporaryDirectory();
       final targetPath = p.join(
         tempDir.path,
-        "compressed_${p.basename(file.path)}",
+        'compressed_${p.basename(file.path)}',
       );
 
       final compressedBytes = img.encodeJpg(image, quality: quality);
@@ -27,7 +27,7 @@ class MediaService {
 
       return compressedFile;
     } catch (e) {
-      debugPrint("Image compression error: $e");
+      debugPrint('Image compression error: $e');
       return file; // Return original on error
     }
   }
@@ -46,7 +46,7 @@ class MediaService {
       }
       return file;
     } catch (e) {
-      debugPrint("Video compression error: $e");
+      debugPrint('Video compression error: $e');
       return file;
     }
   }
@@ -85,7 +85,7 @@ class MediaService {
       }
       return true;
     } catch (e) {
-      debugPrint("Save to gallery error: $e");
+      debugPrint('Save to gallery error: $e');
       return false;
     }
   }
@@ -122,7 +122,7 @@ class MediaService {
 
       return true;
     } catch (e) {
-      debugPrint("Save to file error: $e");
+      debugPrint('Save to file error: $e');
       return false;
     }
   }

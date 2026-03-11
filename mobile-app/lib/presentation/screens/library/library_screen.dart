@@ -53,11 +53,13 @@ class _LibraryScreenState extends State<LibraryScreen>
     Future.microtask(() {
       if (mounted) {
         // Catch errors to prevent unhandled future rejections
-        context.read<LibraryProvider>().fetchItems(category: currentType)
+        context
+            .read<LibraryProvider>()
+            .fetchItems(category: currentType)
             .catchError((error) {
-          debugPrint('[LibraryScreen] Initial fetch failed: $error');
-          // Don't rethrow - error is logged and provider handles its own error state
-        });
+              debugPrint('[LibraryScreen] Initial fetch failed: $error');
+              // Don't rethrow - error is logged and provider handles its own error state
+            });
       }
     });
   }
@@ -79,13 +81,14 @@ class _LibraryScreenState extends State<LibraryScreen>
       final provider = context.read<LibraryProvider>();
       if (provider.hasMore && !provider.isFetchingMore && !provider.isLoading) {
         // Fire-and-forget with error handling to prevent uncaught exceptions
-        provider.fetchItems(loadMore: true, category: _selectedType)
-            .catchError((error) {
-          if (!mounted) return;
-          debugPrint('[LibraryScreen] Scroll-triggered fetch failed: $error');
-          // Don't show snackbar for scroll loads - too intrusive
-          // The provider will retry on next scroll event
-        });
+        provider.fetchItems(loadMore: true, category: _selectedType).catchError(
+          (error) {
+            if (!mounted) return;
+            debugPrint('[LibraryScreen] Scroll-triggered fetch failed: $error');
+            // Don't show snackbar for scroll loads - too intrusive
+            // The provider will retry on next scroll event
+          },
+        );
       }
     }
   }
@@ -111,7 +114,11 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  Widget _buildLibraryList(List<LibraryItem> items, LibraryProvider provider, String type) {
+  Widget _buildLibraryList(
+    List<LibraryItem> items,
+    LibraryProvider provider,
+    String type,
+  ) {
     // Animate only the first time a category is loaded
     final shouldAnimate = !_animatedCategories.contains(type);
     if (shouldAnimate) {
@@ -186,7 +193,9 @@ class _LibraryScreenState extends State<LibraryScreen>
     final items = context.select((LibraryProvider p) => p.items);
     final theme = Theme.of(context);
     // Compute Hijri date dynamically to ensure it's always current
-    final hijriDate = HijriCalendar.now().toFormat('DD, dd MMMM yyyy').toEnglishNumbers;
+    final hijriDate = HijriCalendar.now()
+        .toFormat('DD, dd MMMM yyyy')
+        .toEnglishNumbers;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -208,12 +217,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                   controller: _scrollController,
                   slivers: [
                     // P0: Accessible header with proper Semantics
-                    SliverToBoxAdapter(
-                      child: LibraryHeader(
-                        date: hijriDate,
-                      ),
-                    ),
-                    
+                    SliverToBoxAdapter(child: LibraryHeader(date: hijriDate)),
+
                     // P0: Accessible filter bar with 44px touch targets
                     SliverPersistentHeader(
                       pinned: true,
@@ -230,17 +235,19 @@ class _LibraryScreenState extends State<LibraryScreen>
                       // P2: Empty state
                       SliverFillRemaining(
                         hasScrollBody: false,
-                        child: LibraryEmptyState(
-                          type: _selectedType,
-                        ),
+                        child: LibraryEmptyState(type: _selectedType),
                       )
                     else
                       // P2: Design token compliance for spacing
                       // Direct switching with unique key to ensure proper widget disposal
                       SliverToBoxAdapter(
-                        child: _buildLibraryList(items, provider, _selectedType),
+                        child: _buildLibraryList(
+                          items,
+                          provider,
+                          _selectedType,
+                        ),
                       ),
-                    
+
                     // P2: Design token compliance for bottom padding
                     const SliverPadding(
                       padding: EdgeInsets.only(
@@ -278,10 +285,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                     _showAddOptions();
                   }
                 },
-                gradientColors: [
-                  AppColors.primary,
-                  AppColors.accent,
-                ],
+                gradientColors: const [AppColors.primary, AppColors.accent],
                 icon: Icon(
                   _selectedType == 'notes'
                       ? SolarBoldIcons.documentAdd
@@ -303,19 +307,19 @@ class _LibraryScreenState extends State<LibraryScreen>
       if (item.type == 'note') {
         await Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (context) => NoteEditScreen(item: item),
-          ),
+          MaterialPageRoute(builder: (context) => NoteEditScreen(item: item)),
         );
         if (!mounted) return;
         // Refresh to ensure we have the latest data from WebSocket sync
         // This handles cases where WebSocket may be disconnected or delayed
-        await context.read<LibraryProvider>().fetchItems(
-          category: _selectedType,
-          refresh: true,
-        ).catchError((error) {
-          debugPrint('[LibraryScreen] Refresh after note edit failed: $error');
-        });
+        await context
+            .read<LibraryProvider>()
+            .fetchItems(category: _selectedType, refresh: true)
+            .catchError((error) {
+              debugPrint(
+                '[LibraryScreen] Refresh after note edit failed: $error',
+              );
+            });
         return;
       }
 
@@ -331,12 +335,14 @@ class _LibraryScreenState extends State<LibraryScreen>
       );
       if (!mounted) return;
       // Refresh after viewing files to catch any updates
-      await context.read<LibraryProvider>().fetchItems(
-        category: _selectedType,
-        refresh: true,
-      ).catchError((error) {
-        debugPrint('[LibraryScreen] Refresh after file view failed: $error');
-      });
+      await context
+          .read<LibraryProvider>()
+          .fetchItems(category: _selectedType, refresh: true)
+          .catchError((error) {
+            debugPrint(
+              '[LibraryScreen] Refresh after file view failed: $error',
+            );
+          });
     } catch (e) {
       if (!mounted) return;
       // Log full error for debugging but show sanitized message to user
@@ -430,50 +436,60 @@ class _LibraryScreenState extends State<LibraryScreen>
       // Provider handles upload with progress on the item card
       // Store context for retry in case of failure
       _lastUploadFromBottomSheet = fromBottomSheet;
-      
-      provider.uploadFile(filePath).then((_) {
-        if (!mounted) return;
 
-        // P3: Success celebration with haptic
-        Haptics.mediumTap();
+      provider
+          .uploadFile(filePath)
+          .then((_) {
+            if (!mounted) return;
 
-        // Show success toast
-        messenger.showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(SolarBoldIcons.checkCircle, color: Colors.white),
-                const SizedBox(width: AppDimensions.spacing8),
-                Text(LibraryLocalizations.of(context).uploadSuccess(fileName)),
-              ],
-            ),
-            backgroundColor: AppColors.success,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }).catchError((error) {
-        if (!mounted) return;
+            // P3: Success celebration with haptic
+            Haptics.mediumTap();
 
-        // P1: Error with retry option - use stored context for proper retry
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(LibraryLocalizations.of(context).uploadFailedWithName(fileName, error.toString())),
-            backgroundColor: AppColors.error,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: LibraryLocalizations.of(context).retry,
-              textColor: Colors.white,
-              onPressed: () {
-                // Use stored values to ensure retry uses correct context
-                final retryFromBottomSheet = _lastUploadFromBottomSheet ?? fromBottomSheet;
-                _pickFile(fromBottomSheet: retryFromBottomSheet);
-              },
-            ),
-          ),
-        );
-      });
+            // Show success toast
+            messenger.showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(SolarBoldIcons.checkCircle, color: Colors.white),
+                    const SizedBox(width: AppDimensions.spacing8),
+                    Text(
+                      LibraryLocalizations.of(context).uploadSuccess(fileName),
+                    ),
+                  ],
+                ),
+                backgroundColor: AppColors.success,
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          })
+          .catchError((error) {
+            if (!mounted) return;
+
+            // P1: Error with retry option - use stored context for proper retry
+            messenger.showSnackBar(
+              SnackBar(
+                content: Text(
+                  LibraryLocalizations.of(
+                    context,
+                  ).uploadFailedWithName(fileName, error.toString()),
+                ),
+                backgroundColor: AppColors.error,
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 5),
+                action: SnackBarAction(
+                  label: LibraryLocalizations.of(context).retry,
+                  textColor: Colors.white,
+                  onPressed: () {
+                    // Use stored values to ensure retry uses correct context
+                    final retryFromBottomSheet =
+                        _lastUploadFromBottomSheet ?? fromBottomSheet;
+                    _pickFile(fromBottomSheet: retryFromBottomSheet);
+                  },
+                ),
+              ),
+            );
+          });
 
       if (fromBottomSheet && mounted) {
         navigator.pop();
@@ -515,7 +531,9 @@ class _LibraryScreenState extends State<LibraryScreen>
                 height: 4,
                 margin: const EdgeInsets.only(bottom: AppDimensions.spacing16),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.outline.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
                 ),
               ),
@@ -549,7 +567,9 @@ class _LibraryScreenState extends State<LibraryScreen>
                       ),
                     );
                   },
-                  borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
+                  borderRadius: BorderRadius.circular(
+                    AppDimensions.radiusLarge,
+                  ),
                   focusColor: AppColors.primary.withValues(alpha: 0.12),
                   hoverColor: AppColors.primary.withValues(alpha: 0.04),
                   child: Padding(
@@ -559,10 +579,14 @@ class _LibraryScreenState extends State<LibraryScreen>
                     child: Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(AppDimensions.spacing10),
+                          padding: const EdgeInsets.all(
+                            AppDimensions.spacing10,
+                          ),
                           decoration: BoxDecoration(
                             color: AppColors.info.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+                            borderRadius: BorderRadius.circular(
+                              AppDimensions.radiusMedium,
+                            ),
                           ),
                           child: const Icon(
                             SolarLinearIcons.documentText,
@@ -577,7 +601,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                             children: [
                               Text(
                                 LibraryLocalizations.of(context).noteOption,
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontFamily: 'IBM Plex Sans Arabic',
                                   fontWeight: FontWeight.bold,
                                   fontSize: 15,
@@ -585,7 +609,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                               ),
                               Text(
                                 LibraryLocalizations.of(context).writeNewNote,
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontFamily: 'IBM Plex Sans Arabic',
                                   fontSize: 12,
                                   color: Colors.grey,
@@ -617,7 +641,9 @@ class _LibraryScreenState extends State<LibraryScreen>
                     Navigator.pop(context);
                     _pickFile(fromBottomSheet: false);
                   },
-                  borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
+                  borderRadius: BorderRadius.circular(
+                    AppDimensions.radiusLarge,
+                  ),
                   focusColor: AppColors.primary.withValues(alpha: 0.12),
                   hoverColor: AppColors.primary.withValues(alpha: 0.04),
                   child: Padding(
@@ -627,10 +653,14 @@ class _LibraryScreenState extends State<LibraryScreen>
                     child: Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(AppDimensions.spacing10),
+                          padding: const EdgeInsets.all(
+                            AppDimensions.spacing10,
+                          ),
                           decoration: BoxDecoration(
                             color: AppColors.primary.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+                            borderRadius: BorderRadius.circular(
+                              AppDimensions.radiusMedium,
+                            ),
                           ),
                           child: const Icon(
                             SolarLinearIcons.upload,
@@ -645,7 +675,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                             children: [
                               Text(
                                 LibraryLocalizations.of(context).uploadFile,
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontFamily: 'IBM Plex Sans Arabic',
                                   fontWeight: FontWeight.bold,
                                   fontSize: 15,
@@ -653,7 +683,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                               ),
                               Text(
                                 LibraryLocalizations.of(context).selectFromFile,
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontFamily: 'IBM Plex Sans Arabic',
                                   fontSize: 12,
                                   color: Colors.grey,

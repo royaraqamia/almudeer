@@ -14,7 +14,7 @@ class TaskSyncService {
     DateTime? since,
     int? limit,
     int? offset,
-    String? cursor,  // NEW: Cursor for pagination
+    String? cursor, // NEW: Cursor for pagination
   }) async {
     try {
       final Map<String, String> queryParams = {};
@@ -28,7 +28,7 @@ class TaskSyncService {
         queryParams['offset'] = offset.toString();
       }
       if (cursor != null) {
-        queryParams['cursor'] = cursor;  // NEW: Use cursor for pagination
+        queryParams['cursor'] = cursor; // NEW: Use cursor for pagination
       }
       final response = await _apiClient.get(
         '$_endpoint/',
@@ -54,7 +54,7 @@ class TaskSyncService {
       );
 
       // Handle response format: {'data': [...]} - wrapped format
-      List<TaskModel> result = [];
+      final List<TaskModel> result = [];
 
       if (dataObj != null) {
         for (var e in dataObj) {
@@ -108,9 +108,13 @@ class TaskSyncService {
         return TaskModel.fromJson(response);
       }
     } on ApiException catch (e) {
-      debugPrint('TaskSyncService: Failed to create task - API Error: ${e.message}, StatusCode: ${e.statusCode}');
+      debugPrint(
+        'TaskSyncService: Failed to create task - API Error: ${e.message}, StatusCode: ${e.statusCode}',
+      );
       debugPrint('Task ID: ${task.id}, Title: ${task.title}');
-      debugPrint('Attachments count: ${attachments.length}, Files to upload: ${filesToUpload.length}');
+      debugPrint(
+        'Attachments count: ${attachments.length}, Files to upload: ${filesToUpload.length}',
+      );
       // Re-throw with localized message
       throw _createLocalizedApiException(e, 'إضافة المهمة');
     } catch (e, st) {
@@ -142,7 +146,9 @@ class TaskSyncService {
       return Exception('حجم الملف يتجاوز الحد المسموح');
     }
     // Default message with error code for debugging
-    return Exception('فشل $operation (${e.statusCode ?? 0}). يرجى المحاولة مرة أخرى');
+    return Exception(
+      'فشل $operation (${e.statusCode ?? 0}). يرجى المحاولة مرة أخرى',
+    );
   }
 
   /// Update task on backend with proper error handling for attachments
@@ -183,7 +189,9 @@ class TaskSyncService {
       );
       return TaskModel.fromJson(response);
     } on ApiException catch (e) {
-      debugPrint('TaskSyncService: Failed to update task - API Error: ${e.message}, StatusCode: ${e.statusCode}');
+      debugPrint(
+        'TaskSyncService: Failed to update task - API Error: ${e.message}, StatusCode: ${e.statusCode}',
+      );
       throw _createLocalizedApiException(e, 'تحديث المهمة');
     } catch (e) {
       debugPrint('TaskSyncService: Failed to update task with attachments: $e');
@@ -213,14 +221,17 @@ class TaskSyncService {
           'expires_in_days': expiresInDays,
         },
       );
-      
+
       // Check for backend error response
       if (response['success'] != true) {
         final detail = response['detail'];
-        final errorMessage = detail?['message_ar'] ?? detail?['message_en'] ?? 'فشل مشاركة المهمة';
+        final errorMessage =
+            detail?['message_ar'] ??
+            detail?['message_en'] ??
+            'فشل مشاركة المهمة';
         throw Exception(errorMessage);
       }
-      
+
       return response;
     } on ApiException catch (e) {
       debugPrint('[SyncService] Share task API error: $e');
@@ -275,8 +286,12 @@ class TaskSyncService {
       debugPrint('[SyncService] Processing ${tasksData.length} tasks');
       if (tasksData.isNotEmpty) {
         debugPrint('[SyncService] First task: ${tasksData.first}');
-        debugPrint('[SyncService] First task sub_tasks type: ${(tasksData.first as Map)['sub_tasks']?.runtimeType}');
-        debugPrint('[SyncService] First task attachments type: ${(tasksData.first as Map)['attachments']?.runtimeType}');
+        debugPrint(
+          '[SyncService] First task sub_tasks type: ${(tasksData.first as Map)['sub_tasks']?.runtimeType}',
+        );
+        debugPrint(
+          '[SyncService] First task attachments type: ${(tasksData.first as Map)['attachments']?.runtimeType}',
+        );
       }
 
       return tasksData

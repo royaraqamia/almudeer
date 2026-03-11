@@ -67,14 +67,14 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
           _connectedEndpointId = null;
           _connectedEndpointName = null;
         });
-        AnimatedToast.error(context, "تم قطع الاتصال");
+        AnimatedToast.error(context, 'تم قطع الاتصال');
       }
     };
     _service.onPayloadReceived = (id, payload) async {
       if (payload.type == PayloadType.FILE) {
         _incomingPayloads[payload.id] = payload;
         if (mounted) {
-          AnimatedToast.success(context, "بدأ استقبال ملف...");
+          AnimatedToast.success(context, 'بدأ استقبال ملف...');
         }
       }
     };
@@ -89,7 +89,7 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
           setState(() {
             _transferProgress.remove(update.id.toString());
           });
-          AnimatedToast.success(context, "اكتمل نقل الملف");
+          AnimatedToast.success(context, 'اكتمل نقل الملف');
 
           // Open the file if we have the payload info
           if (_incomingPayloads.containsKey(update.id)) {
@@ -106,7 +106,7 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
             _transferProgress.remove(update.id.toString());
             _incomingPayloads.remove(update.id);
           });
-          AnimatedToast.error(context, "فشل نقل الملف");
+          AnimatedToast.error(context, 'فشل نقل الملف');
         }
       }
     };
@@ -121,21 +121,21 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
   Future<void> _startAdvertising() async {
     if (!mounted) return;
     final userName =
-        context.read<AuthProvider>().userInfo?.username ?? "مستخدم المدي";
+        context.read<AuthProvider>().userInfo?.username ?? 'مستخدم المدي';
     if (await _service.checkPermissions()) {
       if (!mounted) return;
-      bool success = await _service.startAdvertising(userName);
+      final bool success = await _service.startAdvertising(userName);
       if (success && mounted) {
         setState(() {
           _isAdvertising = true;
           _isDiscovering = false;
         });
-        AnimatedToast.success(context, "وضع الاستقبال نشط");
+        AnimatedToast.success(context, 'وضع الاستقبال نشط');
       }
     } else {
       final error = await _service.getHardwareErrorMessage();
       if (mounted) {
-        AnimatedToast.error(context, error ?? "يرجى منح الأذونات المطلوبة");
+        AnimatedToast.error(context, error ?? 'يرجى منح الأذونات المطلوبة');
       }
     }
   }
@@ -143,21 +143,21 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
   Future<void> _startDiscovery() async {
     if (!mounted) return;
     final userName =
-        context.read<AuthProvider>().userInfo?.username ?? "مستخدم المدي";
+        context.read<AuthProvider>().userInfo?.username ?? 'مستخدم المدي';
     if (await _service.checkPermissions()) {
       if (!mounted) return;
-      bool success = await _service.startDiscovery(userName);
+      final bool success = await _service.startDiscovery(userName);
       if (success && mounted) {
         setState(() {
           _isDiscovering = true;
           _isAdvertising = false;
         });
-        AnimatedToast.success(context, "بدأ البحث عن أجهزة قريبة");
+        AnimatedToast.success(context, 'بدأ البحث عن أجهزة قريبة');
       }
     } else {
       final error = await _service.getHardwareErrorMessage();
       if (mounted) {
-        AnimatedToast.error(context, error ?? "يرجى منح الأذونات المطلوبة");
+        AnimatedToast.error(context, error ?? 'يرجى منح الأذونات المطلوبة');
       }
     }
   }
@@ -165,13 +165,13 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
   void _showConnectionDialog(String endpointId, ConnectionInfo info) {
     CustomDialog.show(
       context,
-      title: "طلب اتصال",
-      message: "هل تريد الاتصال بـ ${info.endpointName}؟",
+      title: 'طلب اتصال',
+      message: 'هل تريد الاتصال بـ ${info.endpointName}؟',
       type: DialogType.confirm,
-      confirmText: "قبول",
-      cancelText: "رفض",
+      confirmText: 'قبول',
+      cancelText: 'رفض',
       onConfirm: () async {
-        bool success = await _service.acceptConnection(endpointId);
+        final bool success = await _service.acceptConnection(endpointId);
         if (success && mounted) {
           setState(() {
             _connectedEndpointId = endpointId;
@@ -188,7 +188,7 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
   Future<void> _pickAndSendFiles() async {
     if (_connectedEndpointId == null) return;
 
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
+    final FilePickerResult? result = await FilePicker.platform.pickFiles(
       allowMultiple: true,
     );
     if (result != null) {
@@ -205,7 +205,7 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          "المشاركة القريبة",
+          'المشاركة القريبة',
           style: TextStyle(
             fontFamily: 'IBM Plex Sans Arabic',
             color: Theme.of(context).textTheme.titleLarge?.color,
@@ -234,20 +234,20 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
   }
 
   Widget _buildStatusCard() {
-    String status = "جاهز";
+    String status = 'جاهز';
     IconData icon = SolarLinearIcons.transferHorizontal;
     Color color = AppColors.primary;
 
     if (_connectedEndpointId != null) {
-      status = "متصل بـ $_connectedEndpointName";
+      status = 'متصل بـ $_connectedEndpointName';
       icon = SolarBoldIcons.checkCircle;
       color = AppColors.success;
     } else if (_isAdvertising) {
-      status = "في انتظار الاتصال...";
+      status = 'في انتظار الاتصال...';
       icon = SolarLinearIcons.record;
       color = Colors.orange;
     } else if (_isDiscovering) {
-      status = "يتم البحث...";
+      status = 'يتم البحث...';
       icon = SolarLinearIcons.magnifer;
       color = Colors.blue;
     }
@@ -294,7 +294,7 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
         ),
         const SizedBox(height: 24),
         Text(
-          "شارك الملفات مع الأجهزة القريبة بسرعة وسهولة وبدون إنترنت",
+          'شارك الملفات مع الأجهزة القريبة بسرعة وسهولة وبدون إنترنت',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: Theme.of(context).hintColor,
@@ -308,7 +308,7 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
             Expanded(
               child: AppGradientButton(
                 onPressed: _startDiscovery,
-                text: "إرسال",
+                text: 'إرسال',
                 icon: SolarLinearIcons.upload,
               ),
             ),
@@ -316,9 +316,9 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
             Expanded(
               child: AppGradientButton(
                 onPressed: _startAdvertising,
-                text: "استقبال",
+                text: 'استقبال',
                 icon: SolarLinearIcons.download,
-                gradientColors: [Colors.orange, Colors.deepOrange],
+                gradientColors: const [Colors.orange, Colors.deepOrange],
               ),
             ),
           ],
@@ -333,7 +333,7 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            "الأجهزة المكتشفة:",
+            'الأجهزة المكتشفة:',
             style: TextStyle(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
@@ -361,7 +361,7 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
                       Haptics.mediumTap();
                       final userName =
                           context.read<AuthProvider>().userInfo?.username ??
-                          "مستخدم المدي";
+                          'مستخدم المدي';
                       await _service.requestConnection(userName, id);
                     },
                   );
@@ -373,8 +373,8 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
               _service.stopAll();
               setState(() => _isDiscovering = false);
             },
-            text: "إلغاء",
-            gradientColors: [Colors.grey, Colors.blueGrey],
+            text: 'إلغاء',
+            gradientColors: const [Colors.grey, Colors.blueGrey],
           ),
         ],
       ),
@@ -387,15 +387,15 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
         const SizedBox(height: 40),
         const CircularProgressIndicator(),
         const SizedBox(height: 24),
-        const Text("جهازك الآن مرئي للأجهزة القريبة"),
+        const Text('جهازك الآن مرئي للأجهزة القريبة'),
         const SizedBox(height: 48),
         AppGradientButton(
           onPressed: () {
             _service.stopAll();
             setState(() => _isAdvertising = false);
           },
-          text: "إيقاف الاستقبال",
-          gradientColors: [Colors.grey, Colors.blueGrey],
+          text: 'إيقاف الاستقبال',
+          gradientColors: const [Colors.grey, Colors.blueGrey],
         ),
       ],
     );
@@ -407,7 +407,7 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
         const SizedBox(height: 40),
         const Icon(SolarBoldIcons.link, size: 80, color: AppColors.success),
         const SizedBox(height: 24),
-        Text("أنت متصل الآن مع $_connectedEndpointName"),
+        Text('أنت متصل الآن مع $_connectedEndpointName'),
         const SizedBox(height: 32),
         if (_transferProgress.isNotEmpty)
           ..._transferProgress.entries.map(
@@ -415,14 +415,14 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
               children: [
                 LinearProgressIndicator(value: e.value),
                 const SizedBox(height: 8),
-                Text("جاري النقل... ${(e.value * 100).toInt()}%"),
+                Text('جاري النقل... ${(e.value * 100).toInt()}%'),
                 const SizedBox(height: 16),
               ],
             ),
           ),
         AppGradientButton(
           onPressed: _pickAndSendFiles,
-          text: "إرسال ملفات",
+          text: 'إرسال ملفات',
           icon: SolarBoldIcons.file,
         ),
         const SizedBox(height: 16),
@@ -437,7 +437,7 @@ class _NearbySharingScreenState extends State<NearbySharingScreen> {
             });
           },
           child: Text(
-            "قطع الاتصال",
+            'قطع الاتصال',
             style: TextStyle(
               color: Theme.of(context).brightness == Brightness.dark
                   ? AppColors.error

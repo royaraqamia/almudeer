@@ -47,7 +47,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
   bool _isNewTask = false;
   String? _taskId;
   bool _isSaving = false;
-  bool _pendingSave = false;  // FIX MOBILE-003: Track pending save requests
+  bool _pendingSave = false; // FIX MOBILE-003: Track pending save requests
 
   // Permission state
   late String _permissionLevel;
@@ -61,7 +61,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
 
     // Initialize permission state
     _initPermissions();
-    
+
     if (!_isNewTask) {
       final t = widget.task!;
       _taskId = t.id;
@@ -80,7 +80,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
         HijriCalendar.setLocal('ar');
         _dateController.text = HijriCalendar.fromDate(
           _selectedDate!,
-        ).toFormat("dd MMMM").toEnglishNumbers;
+        ).toFormat('dd MMMM').toEnglishNumbers;
       }
     } else {
       _taskId = const Uuid().v4();
@@ -106,15 +106,20 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
     if (provider.currentUserId == null) {
       await provider.loadCurrentUser();
     }
-    
+
     final currentUserId = provider.currentUserId;
     // FIX: Check if current user is the owner by comparing createdBy with currentUserId
     // Legacy tasks (createdBy == null) are treated as owned by the current user
-    final isOwner = widget.task!.createdBy == null || widget.task!.createdBy == currentUserId;
-    _permissionLevel = getEffectivePermission(widget.task!.sharePermission, isOwner);
+    final isOwner =
+        widget.task!.createdBy == null ||
+        widget.task!.createdBy == currentUserId;
+    _permissionLevel = getEffectivePermission(
+      widget.task!.sharePermission,
+      isOwner,
+    );
     _canEdit = canEdit(_permissionLevel);
     _canShare = canShare(_permissionLevel);
-    
+
     if (mounted) {
       setState(() {});
     }
@@ -229,7 +234,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
         // FIX MOBILE-003: Process pending save if one was requested during save
         if (_pendingSave) {
           _pendingSave = false;
-          _saveTask();  // Trigger another save
+          _saveTask(); // Trigger another save
         }
       }
     }
@@ -255,7 +260,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
           pickedDate.hMonth,
           pickedDate.hDay,
         );
-        _dateController.text = pickedDate.toFormat("dd MMMM").toEnglishNumbers;
+        _dateController.text = pickedDate.toFormat('dd MMMM').toEnglishNumbers;
       });
       _onChanged();
     }
@@ -278,8 +283,12 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
               onSecondary: Colors.white,
               error: Colors.red,
               onError: Colors.white,
-              onSurface: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
-              surface: isDark ? AppColors.surfaceCardDark : AppColors.surfaceCardLight,
+              onSurface: isDark
+                  ? AppColors.textPrimaryDark
+                  : AppColors.textPrimaryLight,
+              surface: isDark
+                  ? AppColors.surfaceCardDark
+                  : AppColors.surfaceCardLight,
             ),
           ),
           child: child!,
@@ -379,7 +388,9 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
                         taskIds: widget.task!.id,
                       );
                     },
-                    borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
+                    borderRadius: BorderRadius.circular(
+                      AppDimensions.radiusFull,
+                    ),
                     focusColor: AppColors.primary.withValues(alpha: 0.12),
                     hoverColor: AppColors.primary.withValues(alpha: 0.04),
                     child: Container(
@@ -410,9 +421,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
               ),
           ],
         ),
-        body: SafeArea(
-          child: _buildDetailsTab(),
-        ),
+        body: SafeArea(child: _buildDetailsTab()),
       ),
     );
   }
@@ -452,10 +461,12 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
             controller: _dateController,
             hintText: 'التَّاريخ (اختياري)',
             readOnly: true,
-            onTap: _canEdit ? () {
-              Haptics.lightTap();
-              _presentDatePicker();
-            } : null,
+            onTap: _canEdit
+                ? () {
+                    Haptics.lightTap();
+                    _presentDatePicker();
+                  }
+                : null,
             prefixIcon: Icon(
               SolarLinearIcons.calendar,
               size: 20,
@@ -587,10 +598,12 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
                   style: const TextStyle(fontSize: 10),
                 ),
                 // PERMISSION: Only show delete button for users with edit permission
-                onDeleted: _canEdit ? () {
-                  setState(() => _attachments.removeAt(index));
-                  _onChanged();
-                } : null,
+                onDeleted: _canEdit
+                    ? () {
+                        setState(() => _attachments.removeAt(index));
+                        _onChanged();
+                      }
+                    : null,
               );
             }),
           ),
@@ -627,15 +640,17 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
               SwitchListTile(
                 value: _alarmEnabled,
                 // PERMISSION: Only allow alarm changes for users with edit permission
-                onChanged: _canEdit ? (val) {
-                  setState(() {
-                    _alarmEnabled = val;
-                    if (val && _alarmTime == null) {
-                      _alarmTime = TimeOfDay.now();
-                    }
-                  });
-                  _onChanged();
-                } : null,
+                onChanged: _canEdit
+                    ? (val) {
+                        setState(() {
+                          _alarmEnabled = val;
+                          if (val && _alarmTime == null) {
+                            _alarmTime = TimeOfDay.now();
+                          }
+                        });
+                        _onChanged();
+                      }
+                    : null,
                 title: Text(
                   'تفعيل التَّنبيه',
                   style: TextStyle(
@@ -702,72 +717,72 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
                     ),
                   ),
                 ),
-                if (_selectedDate == null)
-                  const SizedBox(height: 24),
-                if (_selectedDate == null)
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: theme.brightness == Brightness.dark
-                          ? AppColors.primary.withValues(alpha: 0.15)
-                          : AppColors.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
+              if (_selectedDate == null) const SizedBox(height: 24),
+              if (_selectedDate == null)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: theme.brightness == Brightness.dark
+                        ? AppColors.primary.withValues(alpha: 0.15)
+                        : AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(
+                      AppDimensions.radiusLarge,
                     ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          SolarLinearIcons.infoCircle,
-                          color: AppColors.primary,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'موعد المهمة',
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        SolarLinearIcons.infoCircle,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'موعد المهمة',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: theme.brightness == Brightness.dark
+                                    ? AppColors.textPrimaryDark
+                                    : AppColors.textPrimaryLight,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'أضف تاريخ المهمة أولاً لتفعيل التنبيهات',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: theme.brightness == Brightness.dark
+                                    ? AppColors.textSecondaryDark
+                                    : AppColors.textSecondaryLight,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextButton(
+                              onPressed: () {
+                                _presentDatePicker();
+                              },
+                              child: Text(
+                                'إضافة التاريخ',
                                 style: TextStyle(
-                                  fontWeight: FontWeight.bold,
                                   color: theme.brightness == Brightness.dark
                                       ? AppColors.textPrimaryDark
                                       : AppColors.textPrimaryLight,
                                 ),
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'أضف تاريخ المهمة أولاً لتفعيل التنبيهات',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: theme.brightness == Brightness.dark
-                                      ? AppColors.textSecondaryDark
-                                      : AppColors.textSecondaryLight,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              TextButton(
-                                onPressed: () {
-                                  _presentDatePicker();
-                                },
-                                child: Text(
-                                  'إضافة التاريخ',
-                                  style: TextStyle(
-                                    color: theme.brightness == Brightness.dark
-                                        ? AppColors.textPrimaryDark
-                                        : AppColors.textPrimaryLight,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
+                ),
             ],
           ),
         ),
       ],
     );
   }
-
 }

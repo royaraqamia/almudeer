@@ -35,9 +35,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: _buildAppBar(theme, isDark),
       body: Container(
-        decoration: BoxDecoration(
-          gradient: _buildBackgroundGradient(isDark),
-        ),
+        decoration: BoxDecoration(gradient: _buildBackgroundGradient(isDark)),
         child: Column(
           children: [
             Expanded(
@@ -60,6 +58,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
   }
 
   PreferredSizeWidget _buildAppBar(ThemeData theme, bool isDark) {
+    final provider = context.watch<CalculatorProvider>();
     return AppBar(
       elevation: 0,
       scrolledUnderElevation: 0,
@@ -74,7 +73,9 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
           fontSize: 20,
           fontWeight: FontWeight.w600,
           letterSpacing: -0.5,
-          color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+          color: isDark
+              ? AppColors.textPrimaryDark
+              : AppColors.textPrimaryLight,
         ),
       ),
       centerTitle: true,
@@ -87,14 +88,13 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
                 : AppColors.surfaceLight.withValues(alpha: 0.5),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: const Icon(
-            SolarLinearIcons.arrowRight,
-            size: 20,
-          ),
+          child: const Icon(SolarLinearIcons.arrowRight, size: 20),
         ),
         onPressed: () => Navigator.of(context).pop(),
       ),
       actions: [
+        _buildSyncStatusIndicator(isDark, provider.syncStatus),
+        const SizedBox(width: 4),
         _buildToggleButton(isDark),
         const SizedBox(width: 4),
         _buildHistoryButton(isDark),
@@ -112,8 +112,8 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
           color: _isScientific
               ? AppColors.primary.withValues(alpha: 0.12)
               : (isDark
-                  ? AppColors.surfaceDark.withValues(alpha: 0.5)
-                  : AppColors.surfaceLight.withValues(alpha: 0.5)),
+                    ? AppColors.surfaceDark.withValues(alpha: 0.5)
+                    : AppColors.surfaceLight.withValues(alpha: 0.5)),
           borderRadius: BorderRadius.circular(12),
           border: _isScientific
               ? Border.all(
@@ -144,9 +144,78 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
               : AppColors.surfaceLight.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(12),
         ),
-        child: const Icon(
-          SolarLinearIcons.history,
-          size: 20,
+        child: const Icon(SolarLinearIcons.history, size: 20),
+      ),
+    );
+  }
+
+  Widget _buildSyncStatusIndicator(bool isDark, SyncStatus syncStatus) {
+    // Only show indicator when actively syncing or failed
+    if (syncStatus == SyncStatus.idle || syncStatus == SyncStatus.synced) {
+      return const SizedBox.shrink();
+    }
+
+    IconData icon;
+    Color? iconColor;
+    String? tooltip;
+
+    switch (syncStatus) {
+      case SyncStatus.loading:
+        icon = SolarLinearIcons.refresh;
+        iconColor = AppColors.primary;
+        tooltip = 'جاري المزامنة...';
+        break;
+      case SyncStatus.syncing:
+        icon = SolarLinearIcons.refresh;
+        iconColor = AppColors.primary;
+        tooltip = 'جاري الحفظ...';
+        break;
+      case SyncStatus.failed:
+        icon = SolarLinearIcons.infoCircle;
+        iconColor = Colors.orange;
+        tooltip = 'فشلت المزامنة - تم الحفظ محلياً فقط';
+        break;
+      default:
+        return const SizedBox.shrink();
+    }
+
+    return GestureDetector(
+      onTap: syncStatus == SyncStatus.failed
+          ? () => _showSyncFailedSnackbar(context)
+          : null,
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: isDark
+              ? AppColors.surfaceDark.withValues(alpha: 0.5)
+              : AppColors.surfaceLight.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Tooltip(
+          message: tooltip,
+          child: Icon(icon, size: 20, color: iconColor),
+        ),
+      ),
+    );
+  }
+
+  void _showSyncFailedSnackbar(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text(
+          'فشلت مزامنة السجل مع الخادم. تم الحفظ محلياً فقط.',
+          style: TextStyle(fontFamily: 'IBM Plex Sans Arabic'),
+        ),
+        backgroundColor: Colors.orange,
+        duration: const Duration(seconds: 4),
+        action: SnackBarAction(
+          label: 'إعادة المحاولة',
+          textColor: Colors.white,
+          onPressed: () {
+            context.read<CalculatorProvider>().setUserId(
+              context.read<CalculatorProvider>().userId,
+            );
+          },
         ),
       ),
     );
@@ -490,11 +559,9 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
                         : AppColors.borderLight.withValues(alpha: 0.3),
                   ),
                   itemBuilder: (context, index) {
-                    final entry = provider.history[index];
-                    // Display format: strip timestamp (after |) for display
-                    final displayEntry = entry.contains('|') 
-                        ? entry.split('|')[0] 
-                        : entry;
+                    final entryMap = provider.history[index];
+                    // Display format: extract entry from structured format
+                    final displayEntry = entryMap['entry'] as String? ?? '';
                     return Container(
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(12),
@@ -514,7 +581,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
                           textAlign: TextAlign.start,
                         ),
                         onTap: () {
-                          provider.restoreFromHistory(entry);
+                          provider.restoreFromHistory(displayEntry);
                           Navigator.pop(context);
                         },
                       ),

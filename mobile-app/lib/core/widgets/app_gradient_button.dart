@@ -73,7 +73,7 @@ class AppGradientButton extends StatefulWidget {
       icon: icon,
       textColor: textColor ?? AppColors.primary,
       height: height,
-      gradientColors: [Colors.transparent, Colors.transparent],
+      gradientColors: const [Colors.transparent, Colors.transparent],
       border: Border.all(color: Colors.transparent),
       showShadow: false,
     );
@@ -98,7 +98,9 @@ class _AppGradientButtonState extends State<AppGradientButton> {
         widget.onHover?.call();
       },
       onExit: (_) => setState(() => _isHovered = false),
-      cursor: widget.onPressed != null ? SystemMouseCursors.click : MouseCursor.defer,
+      cursor: widget.onPressed != null
+          ? SystemMouseCursors.click
+          : MouseCursor.defer,
       child: GestureDetector(
         onTapDown: (_) {
           if (widget.onPressed != null) {
@@ -134,7 +136,9 @@ class _AppGradientButtonState extends State<AppGradientButton> {
                   cornerRadius: AppDimensions.radiusButton,
                   cornerSmoothing: 1.0,
                 ),
-                side: widget.border is Border ? (widget.border as Border).top : BorderSide.none,
+                side: widget.border is Border
+                    ? (widget.border as Border).top
+                    : BorderSide.none,
               ),
             ),
             child: ElevatedButton(
@@ -143,7 +147,8 @@ class _AppGradientButtonState extends State<AppGradientButton> {
                 backgroundColor: Colors.transparent,
                 shadowColor: Colors.transparent,
                 foregroundColor: widget.textColor ?? Colors.white,
-                disabledForegroundColor: (widget.textColor ?? Colors.white).withValues(alpha: 0.5),
+                disabledForegroundColor: (widget.textColor ?? Colors.white)
+                    .withValues(alpha: 0.5),
                 padding: EdgeInsets.zero,
                 shape: SmoothRectangleBorder(
                   borderRadius: SmoothBorderRadius(
@@ -162,23 +167,26 @@ class _AppGradientButtonState extends State<AppGradientButton> {
   }
 
   List<Color> _getGradientColors() {
-    final baseColors = widget.gradientColors ?? [AppColors.primary, AppColors.accent];
-    
+    final baseColors =
+        widget.gradientColors ?? [AppColors.primary, AppColors.accent];
+
     // Disabled state
     if (widget.onPressed == null) {
       return baseColors.map((c) => c.withValues(alpha: 0.5)).toList();
     }
-    
+
     // Hover state - slightly brighter
     if (_isHovered) {
-      return baseColors.map((c) => Color.lerp(c, Colors.white, 0.1) ?? c).toList();
+      return baseColors
+          .map((c) => Color.lerp(c, Colors.white, 0.1) ?? c)
+          .toList();
     }
-    
+
     // Single color handling
     if (baseColors.length == 1) {
       return [baseColors.first, baseColors.first];
     }
-    
+
     return baseColors;
   }
 
@@ -186,9 +194,9 @@ class _AppGradientButtonState extends State<AppGradientButton> {
     if (widget.onPressed == null || !widget.showShadow) {
       return [];
     }
-    
+
     final shadowColor = widget.gradientColors?.first ?? AppColors.primary;
-    
+
     // Enhanced shadow on hover
     if (_isHovered) {
       return [
@@ -199,7 +207,7 @@ class _AppGradientButtonState extends State<AppGradientButton> {
         ),
       ];
     }
-    
+
     return [
       BoxShadow(
         color: shadowColor.withValues(alpha: 0.3),
@@ -230,18 +238,12 @@ class _AppGradientButtonState extends State<AppGradientButton> {
           widget.leading!,
           const SizedBox(width: AppDimensions.spacing8),
         ] else if (widget.icon != null) ...[
-          Semantics(
-            label: widget.text,
-            child: Icon(widget.icon, size: 20),
-          ),
+          Semantics(label: widget.text, child: Icon(widget.icon, size: 20)),
           const SizedBox(width: AppDimensions.spacing8),
         ],
         Text(
           widget.text,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
         if (widget.trailing != null) ...[
           const SizedBox(width: AppDimensions.spacing8),

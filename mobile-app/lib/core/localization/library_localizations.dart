@@ -95,4 +95,37 @@ class LibraryLocalizations {
   String downloadFailed(String fileName) => _isArabic
       ? 'فشل تحميل "$fileName"'
       : 'Failed to download "$fileName"';
+
+  // P1-7: Conflict resolution
+  String get conflictDetected => _isArabic
+      ? 'تم اكتشاف تعارض'
+      : 'Conflict Detected';
+
+  String get conflictDescription => _isArabic
+      ? 'يوجد إصدار أحدث على الخادم. ماذا تريد أن تفعل؟'
+      : 'A newer version exists on the server. What would you like to do?';
+
+  String get localVersion => _isArabic
+      ? 'الإصدار المحلي'
+      : 'Local Version';
+
+  String get serverVersion => _isArabic
+      ? 'إصدار الخادم'
+      : 'Server Version';
+
+  String get current => _isArabic
+      ? 'حالي'
+      : 'Current';
+
+  String get keepLocalVersion => _isArabic
+      ? 'الاحتفاظ بالإصدار المحلي'
+      : 'Keep Local Version';
+
+  String get useServerVersion => _isArabic
+      ? 'استخدام إصدار الخادم'
+      : 'Use Server Version';
+
+  String get mergeVersions => _isArabic
+      ? 'دمج الإصدارين'
+      : 'Merge Versions';
 }

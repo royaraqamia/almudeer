@@ -31,7 +31,7 @@ class ReplyPreview extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    Widget? thumbnailWidget = _buildThumbnail(theme, isDark);
+    final Widget? thumbnailWidget = _buildThumbnail(theme, isDark);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

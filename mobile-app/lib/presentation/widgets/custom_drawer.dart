@@ -40,7 +40,8 @@ class _CustomDrawerState extends State<CustomDrawer>
     super.initState();
     _animationController = AnimationController(
       vsync: this,
-      duration: AppAnimations.slow, // Apple standard: 400ms for drawer (was 800ms)
+      duration:
+          AppAnimations.slow, // Apple standard: 400ms for drawer (was 800ms)
     );
     _animationController.forward();
   }
@@ -119,10 +120,7 @@ class _CustomDrawerState extends State<CustomDrawer>
                       },
                 text: 'إضافة',
                 isLoading: _isAddingAccount,
-                gradientColors: [
-                  const Color(0xFF2563EB),
-                  const Color(0xFF0891B2),
-                ],
+                gradientColors: const [Color(0xFF2563EB), Color(0xFF0891B2)],
               ),
             ],
           );
@@ -255,7 +253,7 @@ class _CustomDrawerState extends State<CustomDrawer>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(children: [const Spacer()]),
+              const Row(children: [Spacer()]),
               const SizedBox(height: 24),
               if (currentUser?.username != null &&
                   currentUser!.username!.isNotEmpty)
@@ -274,7 +272,9 @@ class _CustomDrawerState extends State<CustomDrawer>
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 24,
-                  color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                  color: isDark
+                      ? AppColors.textPrimaryDark
+                      : AppColors.textPrimaryLight,
                 ),
               ),
             ],

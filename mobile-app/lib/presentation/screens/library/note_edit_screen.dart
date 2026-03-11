@@ -64,11 +64,13 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     // Cache provider reference to avoid context.read() in dispose()
     _provider = context.read<LibraryProvider>();
   }
-  
+
   void _onFocusChange() {
     if (_contentFocusNode.hasFocus && !_isEditingContent) {
       setState(() => _isEditingContent = true);
-    } else if (!_contentFocusNode.hasFocus && _isEditingContent && !_isNewNote) {
+    } else if (!_contentFocusNode.hasFocus &&
+        _isEditingContent &&
+        !_isNewNote) {
       setState(() => _isEditingContent = false);
     }
   }
@@ -79,7 +81,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     // Note: We don't call _saveNote() here because:
     // 1. PopScope.onPopInvokedWithResult handles save on back navigation
     // 2. The back button handles save before popping
-    // 3. Calling provider methods in dispose() can trigger notifyListeners() 
+    // 3. Calling provider methods in dispose() can trigger notifyListeners()
     //    while the widget tree is locked, causing crashes
     _titleController.dispose();
     _contentController.dispose();
@@ -103,7 +105,9 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     if (title.isEmpty && content.isEmpty) return;
 
     final noteId = widget.item?.id ?? _tempId;
-    debugPrint('[NoteEditScreen] Saving note: id=$noteId, isNew=$_isNewNote, title=$title');
+    debugPrint(
+      '[NoteEditScreen] Saving note: id=$noteId, isNew=$_isNewNote, title=$title',
+    );
 
     if (!skipStateUpdate && mounted) setState(() => _isSaving = true);
 
@@ -200,7 +204,9 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
                         itemTitle: widget.item!.title,
                       );
                     },
-                    borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
+                    borderRadius: BorderRadius.circular(
+                      AppDimensions.radiusFull,
+                    ),
                     focusColor: AppColors.primary.withValues(alpha: 0.12),
                     hoverColor: AppColors.primary.withValues(alpha: 0.04),
                     child: Container(
@@ -248,18 +254,18 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
                         fontSize: 20,
                         color: theme.colorScheme.onSurface,
                       ),
-                      decoration: InputDecoration(
+                      decoration: const InputDecoration(
                         hintText: 'العنوان',
                         border: InputBorder.none,
                         enabledBorder: InputBorder.none,
                         focusedBorder: InputBorder.none,
                         filled: false,
-                        hintStyle: const TextStyle(
+                        hintStyle: TextStyle(
                           color: Colors.grey,
                           fontFamily: 'IBM Plex Sans Arabic',
                           fontWeight: FontWeight.normal,
                         ),
-                        contentPadding: const EdgeInsets.symmetric(
+                        contentPadding: EdgeInsets.symmetric(
                           horizontal: AppDimensions.paddingLarge,
                           vertical: AppDimensions.spacing10,
                         ),
@@ -269,7 +275,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
                   );
                 },
               ),
-              
+
               // P1: Enhanced content area with clear edit/read distinction
               Expanded(
                 child: GestureDetector(
@@ -296,7 +302,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
       ),
     );
   }
-  
+
   // P1: Edit mode with clear visual distinction
   Widget _buildEditMode(ThemeData theme) {
     return Container(
@@ -316,9 +322,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
               controller: _contentController,
               focusNode: _contentFocusNode,
               autofocus: true,
-              textDirection: text.isEmpty
-                  ? TextDirection.rtl
-                  : text.direction,
+              textDirection: text.isEmpty ? TextDirection.rtl : text.direction,
               textAlign: (text.isEmpty || text.isArabic)
                   ? TextAlign.right
                   : TextAlign.left,
@@ -363,17 +367,16 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.1),
+          color: theme.colorScheme.surfaceContainerHighest.withValues(
+            alpha: 0.1,
+          ),
           borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
         ),
         padding: const EdgeInsets.all(AppDimensions.spacing12),
         child: SelectableLinkify(
           text: isEmpty ? 'اكتب ما تريد هُنا...' : content,
           onOpen: _onOpenLink,
-          options: const LinkifyOptions(
-            humanize: false,
-            looseUrl: true,
-          ),
+          options: const LinkifyOptions(humanize: false, looseUrl: true),
           onTap: () {
             Haptics.lightTap();
             setState(() => _isEditingContent = true);

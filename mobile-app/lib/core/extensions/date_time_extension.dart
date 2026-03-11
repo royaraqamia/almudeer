@@ -17,7 +17,7 @@ extension DateTimeExtension on DateTime {
     } else {
       HijriCalendar.setLocal('en');
       final hijriDate = HijriCalendar.fromDate(this);
-      return hijriDate.toFormat("dd/mm/yyyy").toEnglishNumbers;
+      return hijriDate.toFormat('dd/mm/yyyy').toEnglishNumbers;
     }
   }
 
@@ -40,7 +40,7 @@ extension DateTimeExtension on DateTime {
     } else {
       HijriCalendar.setLocal('en');
       final hijri = HijriCalendar.fromDate(localDate);
-      return hijri.toFormat("dd/mm/yyyy").toEnglishNumbers;
+      return hijri.toFormat('dd/mm/yyyy').toEnglishNumbers;
     }
   }
 }

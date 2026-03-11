@@ -39,7 +39,11 @@ class ColorUtils {
   /// Check if color pair meets WCAG 2.1 AA standard
   /// - Normal text: 4.5:1 minimum
   /// - Large text (18px+ or 14px+ bold): 3:1 minimum
-  static bool meetsWCAGAA(Color foreground, Color background, {bool isLargeText = false}) {
+  static bool meetsWCAGAA(
+    Color foreground,
+    Color background, {
+    bool isLargeText = false,
+  }) {
     final ratio = contrastRatio(foreground, background);
     final minimum = isLargeText ? 3.0 : 4.5;
     return ratio >= minimum;
@@ -48,7 +52,11 @@ class ColorUtils {
   /// Check if color pair meets WCAG 2.1 AAA standard
   /// - Normal text: 7:1 minimum
   /// - Large text (18px+ or 14px+ bold): 4.5:1 minimum
-  static bool meetsWCGAAA(Color foreground, Color background, {bool isLargeText = false}) {
+  static bool meetsWCGAAA(
+    Color foreground,
+    Color background, {
+    bool isLargeText = false,
+  }) {
     final ratio = contrastRatio(foreground, background);
     final minimum = isLargeText ? 4.5 : 7.0;
     return ratio >= minimum;
@@ -179,7 +187,7 @@ class ColorUtils {
 
   /// Create error gradient
   static LinearGradient getErrorGradient() {
-    return LinearGradient(
+    return const LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: AppColors.errorGradient,
@@ -219,7 +227,9 @@ class ColorUtils {
 
   /// Get disabled background color
   static Color getDisabledBackgroundColor({required bool isDark}) {
-    return isDark ? AppColors.disabledBackgroundDark : AppColors.disabledBackgroundLight;
+    return isDark
+        ? AppColors.disabledBackgroundDark
+        : AppColors.disabledBackgroundLight;
   }
 
   /// Get hover color overlay

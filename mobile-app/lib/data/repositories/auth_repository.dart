@@ -78,7 +78,7 @@ class AuthRepository {
     }
 
     final userData = response['user'] as Map<String, dynamic>;
-    
+
     // Update stored license info with fresh data from server
     await _apiClient.setLicenseInfo(
       key: licenseKey,
@@ -128,7 +128,9 @@ class AuthRepository {
   static const String _accountsStorageKey = 'almudeer_saved_accounts';
 
   Future<List<UserInfo>> getSavedAccounts() async {
-    String? accountsJson = await _secureStorage.read(key: _accountsStorageKey);
+    final String? accountsJson = await _secureStorage.read(
+      key: _accountsStorageKey,
+    );
     if (accountsJson == null) return [];
     try {
       final List<dynamic> decoded = jsonDecode(accountsJson);

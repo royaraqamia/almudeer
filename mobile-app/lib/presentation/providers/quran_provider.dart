@@ -1,11 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:quran/quran.dart' as quran;
 import 'package:almudeer_mobile_app/core/services/offline_sync_service.dart';
+
+/// Top-level function for compute isolate (JSON parsing)
+/// Must be top-level to be sent to isolate
+Map<String, dynamic> _parseTafsirJson(String jsonString) {
+  return json.decode(jsonString) as Map<String, dynamic>;
+}
 
 class QuranProvider extends ChangeNotifier {
   static const String _lastSurahKey = 'quran_last_surah';
@@ -113,10 +119,15 @@ class QuranProvider extends ChangeNotifier {
       // Note: This is a large file (~14MB) - may take time on low-end devices
       debugPrint('Loading full Ibn Kathir tafsir...');
       final stopwatch = Stopwatch()..start();
-      final String response = await rootBundle.loadString(
+      
+      // Load string from assets
+      final String jsonString = await rootBundle.loadString(
         'assets/json/tafsir_ibn_kathir_full.json',
       );
-      _tafsirData = json.decode(response);
+      
+      // Parse JSON in a separate isolate to prevent UI jank
+      _tafsirData = await compute(_parseTafsirJson, jsonString);
+      
       _tafsirLoaded = true;
       stopwatch.stop();
       debugPrint('Full Ibn Kathir tafsir loaded successfully in ${stopwatch.elapsedMilliseconds}ms');
@@ -252,7 +263,21 @@ class QuranProvider extends ChangeNotifier {
     }
   }
 
+  /// Maximum number of verses in any surah (Al-Baqarah)
+  static const int _maxVersesInSurah = 286;
+
+  /// Validate surah and verse numbers
+  bool _isValidProgress(int surah, int verse) {
+    return surah >= 1 && surah <= 114 && verse >= 1 && verse <= _maxVersesInSurah;
+  }
+
   Future<void> saveLastRead(int surah, int verse) async {
+    // Validate input before saving
+    if (!_isValidProgress(surah, verse)) {
+      debugPrint('Invalid Quran progress: surah=$surah, verse=$verse');
+      return;
+    }
+
     if (_lastSurah == surah && _lastVerse == verse) return;
 
     _lastSurah = surah;
@@ -279,6 +304,13 @@ class QuranProvider extends ChangeNotifier {
   /// Save immediately without debouncing (called when app is closing)
   Future<void> saveLastReadImmediate() async {
     if (_lastSurah == null || _lastVerse == null) return;
+
+    // Validate before saving
+    if (!_isValidProgress(_lastSurah!, _lastVerse!)) {
+      debugPrint('Invalid Quran progress on dispose: surah=$_lastSurah, verse=$_lastVerse');
+      return;
+    }
+
     await _saveToPrefs(_lastSurah!, _lastVerse!);
   }
 
@@ -304,7 +336,7 @@ class QuranProvider extends ChangeNotifier {
   }
 
   String get lastReadLabel {
-    if (_lastSurah == null) return 'لم يتم القراءة بعد';
+    if (_lastSurah == null || _lastVerse == null) return 'لم يتم القراءة بعد';
     final surahName = quran.getSurahNameArabic(_lastSurah!);
     return 'سورة $surahName، الآية $_lastVerse';
   }

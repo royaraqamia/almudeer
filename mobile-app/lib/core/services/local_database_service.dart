@@ -40,7 +40,7 @@ class LocalDatabaseService {
     debugPrint('[DB] Initializing database for hash: $hash');
 
     // Open/Create the database first so we can check its content
-    Database db = await openDatabase(
+    final Database db = await openDatabase(
       path,
       version: 22, // Added share_permission to CREATE TABLE and migration
       onCreate: _createDB,
@@ -189,7 +189,7 @@ class LocalDatabaseService {
         'CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)',
       );
     }
-    final columns = await db.rawQuery("PRAGMA table_info(customers)");
+    final columns = await db.rawQuery('PRAGMA table_info(customers)');
     final columnNames = columns.map((c) => c['name']).toSet();
 
     if (oldVersion < 2) {
@@ -222,7 +222,7 @@ class LocalDatabaseService {
 
     if (oldVersion < 6) {
       final inboxColumns = await db.rawQuery(
-        "PRAGMA table_info(inbox_messages)",
+        'PRAGMA table_info(inbox_messages)',
       );
       final inboxColumnNames = inboxColumns.map((c) => c['name']).toSet();
 
@@ -250,7 +250,7 @@ class LocalDatabaseService {
 
     if (oldVersion < 7) {
       final inboxColumns = await db.rawQuery(
-        "PRAGMA table_info(inbox_messages)",
+        'PRAGMA table_info(inbox_messages)',
       );
       final inboxColumnNames = inboxColumns.map((c) => c['name']).toSet();
 
@@ -263,7 +263,7 @@ class LocalDatabaseService {
 
     if (oldVersion < 8) {
       final inboxColumns = await db.rawQuery(
-        "PRAGMA table_info(inbox_messages)",
+        'PRAGMA table_info(inbox_messages)',
       );
       final inboxColumnNames = inboxColumns.map((c) => c['name']).toSet();
 
@@ -275,7 +275,7 @@ class LocalDatabaseService {
     }
     if (oldVersion < 9) {
       final inboxColumns = await db.rawQuery(
-        "PRAGMA table_info(inbox_messages)",
+        'PRAGMA table_info(inbox_messages)',
       );
       final inboxColumnNames = inboxColumns.map((c) => c['name']).toSet();
 
@@ -303,7 +303,7 @@ class LocalDatabaseService {
 
     if (oldVersion < 10) {
       final inboxColumns = await db.rawQuery(
-        "PRAGMA table_info(inbox_messages)",
+        'PRAGMA table_info(inbox_messages)',
       );
       final inboxColumnNames = inboxColumns.map((c) => c['name']).toSet();
 
@@ -313,7 +313,7 @@ class LocalDatabaseService {
     }
 
     if (oldVersion < 11) {
-      final taskColumns = await db.rawQuery("PRAGMA table_info(tasks)");
+      final taskColumns = await db.rawQuery('PRAGMA table_info(tasks)');
       final taskColumnNames = taskColumns.map((c) => c['name']).toSet();
 
       if (!taskColumnNames.contains('alarm_enabled')) {
@@ -328,7 +328,7 @@ class LocalDatabaseService {
 
     if (oldVersion < 12) {
       final inboxColumns = await db.rawQuery(
-        "PRAGMA table_info(inbox_messages)",
+        'PRAGMA table_info(inbox_messages)',
       );
       final inboxColumnNames = inboxColumns.map((c) => c['name']).toSet();
 
@@ -340,7 +340,7 @@ class LocalDatabaseService {
     }
 
     if (oldVersion < 14) {
-      final taskColumns = await db.rawQuery("PRAGMA table_info(tasks)");
+      final taskColumns = await db.rawQuery('PRAGMA table_info(tasks)');
       final taskColumnNames = taskColumns.map((c) => c['name']).toSet();
 
       if (!taskColumnNames.contains('category')) {
@@ -357,7 +357,7 @@ class LocalDatabaseService {
       }
     }
     if (oldVersion < 15) {
-      final taskColumns = await db.rawQuery("PRAGMA table_info(tasks)");
+      final taskColumns = await db.rawQuery('PRAGMA table_info(tasks)');
       final taskColumnNames = taskColumns.map((c) => c['name']).toSet();
 
       if (!taskColumnNames.contains('created_by')) {
@@ -383,14 +383,14 @@ class LocalDatabaseService {
     }
 
     if (oldVersion < 17) {
-      final taskColumns = await db.rawQuery("PRAGMA table_info(tasks)");
+      final taskColumns = await db.rawQuery('PRAGMA table_info(tasks)');
       final taskColumnNames = taskColumns.map((c) => c['name']).toSet();
       if (!taskColumnNames.contains('attachments')) {
         await db.execute('ALTER TABLE tasks ADD COLUMN attachments TEXT');
       }
 
       final commentColumns = await db.rawQuery(
-        "PRAGMA table_info(task_comments)",
+        'PRAGMA table_info(task_comments)',
       );
       final commentColumnNames = commentColumns.map((c) => c['name']).toSet();
       if (!commentColumnNames.contains('attachments')) {
@@ -400,7 +400,7 @@ class LocalDatabaseService {
       }
     }
     if (oldVersion < 19) {
-      final taskColumns = await db.rawQuery("PRAGMA table_info(tasks)");
+      final taskColumns = await db.rawQuery('PRAGMA table_info(tasks)');
       final taskColumnNames = taskColumns.map((c) => c['name']).toSet();
       if (!taskColumnNames.contains('visibility')) {
         await db.execute(
@@ -408,11 +408,11 @@ class LocalDatabaseService {
         );
       }
     }
-    
+
     // P1-1 FIX: Add retry tracking columns for offline message send
     if (oldVersion < 20) {
       final inboxColumns = await db.rawQuery(
-        "PRAGMA table_info(inbox_messages)",
+        'PRAGMA table_info(inbox_messages)',
       );
       final inboxColumnNames = inboxColumns.map((c) => c['name']).toSet();
 
@@ -435,23 +435,19 @@ class LocalDatabaseService {
 
     // Add share_permission column for shared tasks
     if (oldVersion < 21) {
-      final taskColumns = await db.rawQuery("PRAGMA table_info(tasks)");
+      final taskColumns = await db.rawQuery('PRAGMA table_info(tasks)');
       final taskColumnNames = taskColumns.map((c) => c['name']).toSet();
       if (!taskColumnNames.contains('share_permission')) {
-        await db.execute(
-          'ALTER TABLE tasks ADD COLUMN share_permission TEXT',
-        );
+        await db.execute('ALTER TABLE tasks ADD COLUMN share_permission TEXT');
       }
     }
 
     // Version 22: Ensure share_permission column exists (fix for fresh installs at v21)
     if (oldVersion < 22) {
-      final taskColumns = await db.rawQuery("PRAGMA table_info(tasks)");
+      final taskColumns = await db.rawQuery('PRAGMA table_info(tasks)');
       final taskColumnNames = taskColumns.map((c) => c['name']).toSet();
       if (!taskColumnNames.contains('share_permission')) {
-        await db.execute(
-          'ALTER TABLE tasks ADD COLUMN share_permission TEXT',
-        );
+        await db.execute('ALTER TABLE tasks ADD COLUMN share_permission TEXT');
       }
     }
   }

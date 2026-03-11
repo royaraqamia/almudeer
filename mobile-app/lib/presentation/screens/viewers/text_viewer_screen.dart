@@ -28,7 +28,7 @@ class _TextViewerScreenState extends State<TextViewerScreen> {
   List<String> _lines = [];
   bool _isLoading = true;
   String? _error;
-  
+
   // P0 FIX: Retry logic
   int _retryCount = 0;
   static const int _maxRetries = 3;
@@ -48,7 +48,7 @@ class _TextViewerScreenState extends State<TextViewerScreen> {
   Future<void> _loadFile() async {
     try {
       final file = File(widget.filePath);
-      
+
       // P0 FIX: Check if file exists
       if (!await file.exists()) {
         if (mounted) {
@@ -60,7 +60,7 @@ class _TextViewerScreenState extends State<TextViewerScreen> {
         }
         return;
       }
-      
+
       // P0 FIX: Check file size
       final fileSize = await file.length();
       if (fileSize > kMaxTextFileSize) {
@@ -68,12 +68,13 @@ class _TextViewerScreenState extends State<TextViewerScreen> {
           setState(() {
             _isLoading = false;
             _isSizeError = true;
-            _error = 'حجم الملف كبير جداً (${(fileSize / 1024 / 1024).toStringAsFixed(1)} ميجابايت). الحد الأقصى هو ${kMaxTextFileSize ~/ 1024 ~/ 1024} ميجابايت';
+            _error =
+                'حجم الملف كبير جداً (${(fileSize / 1024 / 1024).toStringAsFixed(1)} ميجابايت). الحد الأقصى هو ${kMaxTextFileSize ~/ 1024 ~/ 1024} ميجابايت';
           });
         }
         return;
       }
-      
+
       final lines = await file.readAsLines();
       if (mounted) {
         setState(() {
@@ -151,7 +152,7 @@ class _TextViewerScreenState extends State<TextViewerScreen> {
         actions: [
           if (!_isSearching)
             IconButton(
-              icon: Icon(SolarLinearIcons.magnifer),
+              icon: const Icon(SolarLinearIcons.magnifer),
               onPressed: () => setState(() => _isSearching = true),
             ),
           if (!_isSearching) ...[
@@ -188,7 +189,10 @@ class _TextViewerScreenState extends State<TextViewerScreen> {
                     const SizedBox(height: 16),
                     Text(
                       'محاولة $_retryCount من $_maxRetries...',
-                      style: const TextStyle(color: Colors.black54, fontSize: 14),
+                      style: const TextStyle(
+                        color: Colors.black54,
+                        fontSize: 14,
+                      ),
                     ),
                   ],
                 ],
@@ -210,7 +214,9 @@ class _TextViewerScreenState extends State<TextViewerScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            _isSizeError ? SolarLinearIcons.file : SolarLinearIcons.dangerCircle,
+            _isSizeError
+                ? SolarLinearIcons.file
+                : SolarLinearIcons.dangerCircle,
             size: 64,
             color: Colors.grey,
           ),
@@ -224,9 +230,7 @@ class _TextViewerScreenState extends State<TextViewerScreen> {
           const SizedBox(height: 8),
           Text(
             _error!,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.hintColor,
-            ),
+            style: theme.textTheme.bodyMedium?.copyWith(color: theme.hintColor),
             textAlign: TextAlign.center,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
@@ -240,7 +244,10 @@ class _TextViewerScreenState extends State<TextViewerScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
               ),
             ),
           ],

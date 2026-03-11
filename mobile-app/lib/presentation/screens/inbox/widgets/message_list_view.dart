@@ -62,21 +62,30 @@ class _MessageListViewState extends State<MessageListView> {
     } else if (widget.messages.isNotEmpty && oldWidget.messages.isNotEmpty) {
       // Check if message order or content changed (not just status)
       // Compare first and last message IDs - if same, structure likely unchanged
-      final firstIdMatch = widget.messages.first.id == oldWidget.messages.first.id;
+      final firstIdMatch =
+          widget.messages.first.id == oldWidget.messages.first.id;
       final lastIdMatch = widget.messages.last.id == oldWidget.messages.last.id;
 
       // If both ends match, check if any message was added/removed in middle
       // by comparing sum of IDs (quick heuristic)
       if (firstIdMatch && lastIdMatch) {
-        final oldIdSum = oldWidget.messages.map((m) => m.id).fold<int>(0, (a, b) => a + b);
-        final newIdSum = widget.messages.map((m) => m.id).fold<int>(0, (a, b) => a + b);
+        final oldIdSum = oldWidget.messages
+            .map((m) => m.id)
+            .fold<int>(0, (a, b) => a + b);
+        final newIdSum = widget.messages
+            .map((m) => m.id)
+            .fold<int>(0, (a, b) => a + b);
         if (oldIdSum != newIdSum) {
           messagesStructureChanged = true;
         } else {
           // P1-4: Additional check - only body/timestamp changes require re-grouping
           // Status changes (sending->sent) don't need re-grouping
           bool contentChanged = false;
-          for (int i = 0; i < widget.messages.length && i < oldWidget.messages.length; i++) {
+          for (
+            int i = 0;
+            i < widget.messages.length && i < oldWidget.messages.length;
+            i++
+          ) {
             final oldMsg = oldWidget.messages[i];
             final newMsg = widget.messages[i];
             // Check if body, timestamp, or attachments changed (not just status)
@@ -311,7 +320,8 @@ class _MessageListViewState extends State<MessageListView> {
     CustomDialog.show(
       context,
       title: 'الرسالة غير موجودة',
-      message: 'لم نتمكن من العثور على هذه الرسالة. هل تريد تحميل المزيد من الرسائل؟',
+      message:
+          'لم نتمكن من العثور على هذه الرسالة. هل تريد تحميل المزيد من الرسائل؟',
       type: DialogType.info,
       confirmText: 'تحميل المزيد',
       cancelText: 'إلغاء',
@@ -381,15 +391,15 @@ class _MessageListViewState extends State<MessageListView> {
               final message = item.message;
 
               // Check if this is the first unread message
-              final isFirstUnread = _unreadCount > 0 && 
+              final isFirstUnread =
+                  _unreadCount > 0 &&
                   index == _unreadCount - 1 &&
                   !message.isOutgoing;
 
               return Column(
                 children: [
                   // Unread message separator
-                  if (isFirstUnread)
-                    _buildUnreadSeparator(theme),
+                  if (isFirstUnread) _buildUnreadSeparator(theme),
                   SwipeableMessage(
                     key: ValueKey('swipe_${message.id}'),
                     messageId: message.id.toString(),
@@ -403,7 +413,9 @@ class _MessageListViewState extends State<MessageListView> {
                       position: item.position,
                       onReplyTap: (id, pId) => _scrollToMessage(id, pId),
                       displayName: widget.displayName,
-                      isHighlighted: widget.highlightMessageId != null && message.id == widget.highlightMessageId,
+                      isHighlighted:
+                          widget.highlightMessageId != null &&
+                          message.id == widget.highlightMessageId,
                     ),
                   ),
                 ],
@@ -551,20 +563,15 @@ class _MessageListViewState extends State<MessageListView> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 6,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 color: AppColors.primary,
-                borderRadius: BorderRadius.circular(
-                  AppDimensions.radiusFull,
-                ),
+                borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
+                  const Icon(
                     SolarLinearIcons.arrowDown,
                     size: 14,
                     color: Colors.white,

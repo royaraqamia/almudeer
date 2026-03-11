@@ -12,16 +12,9 @@ import '../../../../core/extensions/string_extension.dart';
 
 /// Comment input section with emoji and attachment support
 class CommentInputSection extends StatefulWidget {
-  final Future<void> Function(
-    String text, {
-    List<File>? mediaFiles,
-  })
-  onSend;
+  final Future<void> Function(String text, {List<File>? mediaFiles}) onSend;
 
-  const CommentInputSection({
-    super.key,
-    required this.onSend,
-  });
+  const CommentInputSection({super.key, required this.onSend});
 
   @override
   State<CommentInputSection> createState() => _CommentInputSectionState();
@@ -124,7 +117,7 @@ class _CommentInputSectionState extends State<CommentInputSection> {
   }
 
   Future<void> _handleAttachmentSelection(String type) async {
-    List<File> selectedFiles = [];
+    final List<File> selectedFiles = [];
     try {
       if (type == 'camera') {
         final XFile? image = await ImagePicker().pickImage(
@@ -140,7 +133,7 @@ class _CommentInputSectionState extends State<CommentInputSection> {
           selectedFiles.addAll(images.map((x) => File(x.path)));
         }
       } else if (type == 'file') {
-        FilePickerResult? result = await FilePicker.platform.pickFiles(
+        final FilePickerResult? result = await FilePicker.platform.pickFiles(
           allowMultiple: true,
           type: FileType.any,
         );
@@ -236,9 +229,7 @@ class _CommentInputSectionState extends State<CommentInputSection> {
                                   : AppColors.textPrimaryLight,
                             ),
                             decoration: InputDecoration(
-                              constraints: const BoxConstraints(
-                                minHeight: 48,
-                              ),
+                              constraints: const BoxConstraints(minHeight: 48),
                               filled: false,
                               hintText: 'أضف تعليقاً...',
                               hintStyle: TextStyle(
@@ -269,7 +260,9 @@ class _CommentInputSectionState extends State<CommentInputSection> {
                                       size: 24,
                                     ),
                                     padding: const EdgeInsets.all(12),
-                                    tooltip: _showEmoji ? 'إخفاء الرموز' : 'الرموز',
+                                    tooltip: _showEmoji
+                                        ? 'إخفاء الرموز'
+                                        : 'الرموز',
                                   ),
                                 ),
                               ),
@@ -380,11 +373,7 @@ class _CommentInputSectionState extends State<CommentInputSection> {
     );
   }
 
-  Widget _buildSendButton(
-    ThemeData theme,
-    bool isDark,
-    TextDirection isRtl,
-  ) {
+  Widget _buildSendButton(ThemeData theme, bool isDark, TextDirection isRtl) {
     return Semantics(
       label: 'إرسال التَّعليق',
       button: true,
@@ -421,19 +410,19 @@ class _CommentInputSectionState extends State<CommentInputSection> {
                       ),
                     )
                   : isRtl == TextDirection.rtl
-                      ? const Icon(
-                          SolarBoldIcons.plain2,
-                          color: Colors.white,
-                          size: 24,
-                        )
-                      : Transform.rotate(
-                          angle: 3.14,
-                          child: const Icon(
-                            SolarBoldIcons.plain2,
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                        ),
+                  ? const Icon(
+                      SolarBoldIcons.plain2,
+                      color: Colors.white,
+                      size: 24,
+                    )
+                  : Transform.rotate(
+                      angle: 3.14,
+                      child: const Icon(
+                        SolarBoldIcons.plain2,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
             ),
           ),
         ),

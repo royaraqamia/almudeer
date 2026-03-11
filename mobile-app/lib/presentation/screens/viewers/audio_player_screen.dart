@@ -29,7 +29,8 @@ class AudioPlayerScreen extends StatefulWidget {
   @override
   State<AudioPlayerScreen> createState() => _AudioPlayerScreenState();
 
-  static Future<void> open(BuildContext context, {
+  static Future<void> open(
+    BuildContext context, {
     String? audioUrl,
     String? filePath,
     String? fileName,
@@ -61,13 +62,14 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
         try {
           final provider = context.read<AudioPlayerProvider>();
           final path = widget.filePath ?? widget.audioUrl;
-          
+
           // Check if same audio is already playing
-          if (provider.currentAudioSource == path && provider.currentMessage == null) {
+          if (provider.currentAudioSource == path &&
+              provider.currentMessage == null) {
             // Same audio is already playing, just update UI (don't reset)
             return;
           }
-          
+
           if (path != null) {
             await provider.playAudioFile(path, widget.fileName ?? 'مقطع صوتي');
           }
@@ -95,13 +97,13 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
   }
 
   String _formatDuration(Duration duration) {
-    String twoDigits(int n) => n.toString().padLeft(2, "0");
-    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
-    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+    final String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
     if (duration.inHours > 0) {
-      return "${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds";
+      return '${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds';
     }
-    return "$twoDigitMinutes:$twoDigitSeconds";
+    return '$twoDigitMinutes:$twoDigitSeconds';
   }
 
   @override
@@ -131,7 +133,11 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
                   const SizedBox(height: 16),
                   const Text(
                     'فشل تشغيل الصوت',
-                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -222,7 +228,7 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
                     ),
                     child: Hero(
                       tag: widget.heroTag ?? 'audio_art',
-                      child: Icon(
+                      child: const Icon(
                         SolarLinearIcons.musicNote,
                         size: 80,
                         color: AppColors.primary,
@@ -297,7 +303,7 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
                           provider.setSpeed(newSpeed);
                         },
                         child: Text(
-                          "${speed}x",
+                          '${speed}x',
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
@@ -319,7 +325,7 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
 
                       // Play/Pause
                       Container(
-                        decoration: BoxDecoration(
+                        decoration: const BoxDecoration(
                           color: AppColors.primary,
                           shape: BoxShape.circle,
                         ),

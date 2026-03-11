@@ -27,10 +27,7 @@ import '../../widgets/common_widgets.dart';
 class GlobalSearchResultsScreen extends StatefulWidget {
   final String initialQuery;
 
-  const GlobalSearchResultsScreen({
-    super.key,
-    this.initialQuery = '',
-  });
+  const GlobalSearchResultsScreen({super.key, this.initialQuery = ''});
 
   @override
   State<GlobalSearchResultsScreen> createState() =>
@@ -40,7 +37,7 @@ class GlobalSearchResultsScreen extends StatefulWidget {
 class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _textController = TextEditingController();
-  
+
   // ISOLATED SEARCH STATE - does not affect providers
   String _currentQuery = '';
   List<User> _searchUsers = [];
@@ -48,7 +45,7 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
   List<LibraryItem> _searchLibraryItems = [];
   List<Customer> _searchCustomers = [];
   List<TaskModel> _searchTasks = [];
-  
+
   bool _isLoadingUsers = false;
   bool _isLoadingConversations = false;
   bool _isLoadingLibrary = false;
@@ -165,7 +162,7 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
     // Get conversations from provider's current data (read-only)
     final inboxProvider = context.read<InboxProvider>();
     final allConversations = inboxProvider.conversations;
-    
+
     if (mounted) {
       setState(() {
         _searchConversations = allConversations.where((c) {
@@ -192,7 +189,7 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
     // Get library items from provider's current data (read-only)
     final libraryProvider = context.read<LibraryProvider>();
     final allItems = libraryProvider.items;
-    
+
     if (mounted) {
       setState(() {
         _searchLibraryItems = allItems.where((item) {
@@ -218,7 +215,7 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
     // Get customers from provider's current data (read-only)
     final customersProvider = context.read<CustomersProvider>();
     final allCustomers = customersProvider.customers;
-    
+
     if (mounted) {
       setState(() {
         _searchCustomers = allCustomers.where((c) {
@@ -228,8 +225,11 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
           final company = c.company?.toLowerCase() ?? '';
           final username = c.username?.toLowerCase() ?? '';
           final q = query.toLowerCase();
-          return name.contains(q) || phone.contains(q) || 
-                 email.contains(q) || company.contains(q) || username.contains(q);
+          return name.contains(q) ||
+              phone.contains(q) ||
+              email.contains(q) ||
+              company.contains(q) ||
+              username.contains(q);
         }).toList();
         _isLoadingCustomers = false;
       });
@@ -248,7 +248,7 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
     // Get tasks from provider's current data (read-only)
     final taskProvider = context.read<TaskProvider>();
     final allTasks = taskProvider.tasks;
-    
+
     if (mounted) {
       setState(() {
         _searchTasks = allTasks.where((task) {
@@ -263,7 +263,10 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
   }
 
   /// Filter users to exclude those who are also customers (to avoid duplicates)
-  List<User> _filterNonCustomerUsers(List<User> users, List<Customer> customers) {
+  List<User> _filterNonCustomerUsers(
+    List<User> users,
+    List<Customer> customers,
+  ) {
     final customerContacts = <String>{};
     for (final customer in customers) {
       if (customer.phone != null && customer.phone!.isNotEmpty) {
@@ -320,7 +323,7 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
             letterSpacing: -0.5,
           ),
           textAlign: TextAlign.right,
-          textDirection: TextDirection.rtl,  // FIX: Proper RTL text direction
+          textDirection: TextDirection.rtl, // FIX: Proper RTL text direction
           onChanged: (query) {
             _performIndependentSearch(query);
           },
@@ -334,16 +337,23 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
   Widget _buildBody(ThemeData theme) {
     // Check if we have any results
     final hasUsers = _searchUsers.isNotEmpty;
-    final hasInbox = _searchConversations.isNotEmpty && _currentQuery.isNotEmpty;
-    final hasLibrary = _searchLibraryItems.isNotEmpty && _currentQuery.isNotEmpty;
+    final hasInbox =
+        _searchConversations.isNotEmpty && _currentQuery.isNotEmpty;
+    final hasLibrary =
+        _searchLibraryItems.isNotEmpty && _currentQuery.isNotEmpty;
     final hasTasks = _searchTasks.isNotEmpty && _currentQuery.isNotEmpty;
-    final hasCustomers = _searchCustomers.isNotEmpty && _currentQuery.isNotEmpty;
+    final hasCustomers =
+        _searchCustomers.isNotEmpty && _currentQuery.isNotEmpty;
 
     final hasAnyResults =
         hasUsers || hasInbox || hasLibrary || hasTasks || hasCustomers;
 
-    final stillLoading = _isLoadingUsers || _isLoadingConversations ||
-        _isLoadingLibrary || _isLoadingCustomers || _isLoadingTasks;
+    final stillLoading =
+        _isLoadingUsers ||
+        _isLoadingConversations ||
+        _isLoadingLibrary ||
+        _isLoadingCustomers ||
+        _isLoadingTasks;
 
     if (stillLoading && _currentQuery.isNotEmpty) {
       return const GlobalSearchSkeletonLoader();
@@ -358,7 +368,10 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
     }
 
     // Filter out users who are also customers to avoid duplicates
-    final nonCustomerUsers = _filterNonCustomerUsers(_searchUsers, _searchCustomers);
+    final nonCustomerUsers = _filterNonCustomerUsers(
+      _searchUsers,
+      _searchCustomers,
+    );
     final hasFilteredUsers = nonCustomerUsers.isNotEmpty;
 
     return ListView(
@@ -385,7 +398,9 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
             SolarLinearIcons.chatRoundDots,
             _searchConversations.length,
           ),
-          ..._searchConversations.take(10).map((conv) => _buildConversationTile(theme, conv)),
+          ..._searchConversations
+              .take(10)
+              .map((conv) => _buildConversationTile(theme, conv)),
           const SizedBox(height: 8),
         ],
 
@@ -409,7 +424,9 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
             SolarLinearIcons.book,
             _searchLibraryItems.length,
           ),
-          ..._searchLibraryItems.take(10).map((item) => _buildLibraryTile(theme, item)),
+          ..._searchLibraryItems
+              .take(10)
+              .map((item) => _buildLibraryTile(theme, item)),
           const SizedBox(height: 8),
         ],
 
@@ -421,7 +438,9 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
             SolarLinearIcons.user,
             _searchCustomers.length,
           ),
-          ..._searchCustomers.take(10).map((customer) => _buildCustomerTile(theme, customer)),
+          ..._searchCustomers
+              .take(10)
+              .map((customer) => _buildCustomerTile(theme, customer)),
           const SizedBox(height: 8),
         ],
       ],
@@ -438,11 +457,7 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       child: Row(
         children: [
-          Icon(
-            icon,
-            size: 18,
-            color: theme.hintColor.withValues(alpha: 0.7),
-          ),
+          Icon(icon, size: 18, color: theme.hintColor.withValues(alpha: 0.7)),
           const SizedBox(width: 8),
           Text(
             title,
@@ -478,8 +493,9 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
         backgroundColor: user.image != null
             ? Colors.transparent
             : AppColors.primary.withValues(alpha: 0.1),
-        backgroundImage:
-            user.image != null ? NetworkImage(user.image!.toFullUrl) : null,
+        backgroundImage: user.image != null
+            ? NetworkImage(user.image!.toFullUrl)
+            : null,
         child: user.image == null
             ? Text(
                 user.displayName[0].toUpperCase(),
@@ -505,7 +521,7 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
             )
           : null,
       trailing: user.isCustomer
-          ? Icon(
+          ? const Icon(
               SolarLinearIcons.userCheck,
               size: 20,
               color: AppColors.success,
@@ -526,7 +542,7 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
       leading: CircleAvatar(
         radius: 24,
         backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-        child: Icon(
+        child: const Icon(
           SolarLinearIcons.chatRoundDots,
           size: 20,
           color: AppColors.primary,
@@ -580,8 +596,7 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
         overflow: TextOverflow.ellipsis,
         style: theme.textTheme.titleMedium?.copyWith(
           fontWeight: FontWeight.w500,
-          decoration:
-              task.isCompleted ? TextDecoration.lineThrough : null,
+          decoration: task.isCompleted ? TextDecoration.lineThrough : null,
         ),
       ),
       subtitle: task.description?.isNotEmpty == true
@@ -605,9 +620,7 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
       onTap: () {
         Haptics.lightTap();
         Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => TaskEditScreen(task: task),
-          ),
+          MaterialPageRoute(builder: (context) => TaskEditScreen(task: task)),
         );
       },
     );
@@ -646,16 +659,11 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
           fontWeight: FontWeight.w500,
         ),
       ),
-      subtitle: Text(
-        item.type.toUpperCase(),
-        style: theme.textTheme.bodySmall,
-      ),
+      subtitle: Text(item.type.toUpperCase(), style: theme.textTheme.bodySmall),
       onTap: () {
         Haptics.lightTap();
         Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => NoteEditScreen(item: item),
-          ),
+          MaterialPageRoute(builder: (context) => NoteEditScreen(item: item)),
         );
       },
     );
@@ -684,9 +692,7 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
           const SizedBox(height: 16),
           Text(
             message,
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: theme.hintColor,
-            ),
+            style: theme.textTheme.bodyLarge?.copyWith(color: theme.hintColor),
           ),
         ],
       ),
@@ -730,9 +736,8 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
   void _openConversation(dynamic conversation) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => ConversationDetailScreen(
-          conversation: conversation,
-        ),
+        builder: (context) =>
+            ConversationDetailScreen(conversation: conversation),
       ),
     );
   }
@@ -740,9 +745,7 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
   void _openCustomerDetail(Customer customer) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => CustomerDetailScreen(
-          customer: customer.toJson(),
-        ),
+        builder: (context) => CustomerDetailScreen(customer: customer.toJson()),
       ),
     );
   }

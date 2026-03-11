@@ -104,7 +104,8 @@ class PendingOperation {
   int get priorityValue => priority.index;
 
   /// P1-6 FIX: Warning threshold at 25 days - notify user before cleanup
-  bool get shouldWarn => DateTime.now().difference(createdAt) > Duration(days: 25);
+  bool get shouldWarn =>
+      DateTime.now().difference(createdAt) > const Duration(days: 25);
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -263,9 +264,11 @@ class PendingOperationsService extends ChangeNotifier {
   /// P1-6 FIX: Added warning notification for operations approaching stale threshold
   Future<int> _cleanupStaleOperations() async {
     final staleOps = _operations.where((op) => op.isStale).toList();
-    
+
     // P1-6 FIX: Warn about operations approaching stale threshold (25-30 days)
-    final warningOps = _operations.where((op) => op.shouldWarn && !op.isStale).toList();
+    final warningOps = _operations
+        .where((op) => op.shouldWarn && !op.isStale)
+        .toList();
     if (warningOps.isNotEmpty) {
       debugPrint(
         '[PendingOperationsService] WARNING: ${warningOps.length} operations approaching stale threshold. '
@@ -297,7 +300,8 @@ class PendingOperationsService extends ChangeNotifier {
     required String type,
     required Map<String, dynamic> payload,
     String? customId,
-    required String accountHash, // P0-2 FIX: Required for multi-account isolation
+    required String
+    accountHash, // P0-2 FIX: Required for multi-account isolation
   }) async {
     await _ensureInitialized();
 
@@ -313,7 +317,9 @@ class PendingOperationsService extends ChangeNotifier {
     await _saveToDisk(operation);
     notifyListeners();
 
-    debugPrint('[PendingOperationsService] Added operation: ${operation.id} for account: $accountHash');
+    debugPrint(
+      '[PendingOperationsService] Added operation: ${operation.id} for account: $accountHash',
+    );
   }
 
   /// Remove an operation after successful sync

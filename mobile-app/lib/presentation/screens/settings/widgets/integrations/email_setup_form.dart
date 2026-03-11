@@ -83,10 +83,7 @@ class EmailSetupForm extends StatelessWidget {
                 onSave();
               },
               text: 'ربط حساب Gmail',
-              gradientColors: [
-                AppColors.primary,
-                AppColors.primaryDark,
-              ],
+              gradientColors: const [AppColors.primary, AppColors.primaryDark],
             ),
           ),
         ],

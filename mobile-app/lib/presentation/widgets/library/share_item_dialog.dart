@@ -18,7 +18,8 @@ class ShareItemDialog extends StatelessWidget {
   final int itemId;
   final String itemTitle;
   final String? taskIds; // Comma-separated task IDs for task assignment
-  final String? libraryItemIds; // Comma-separated library item IDs for bulk sharing
+  final String?
+  libraryItemIds; // Comma-separated library item IDs for bulk sharing
 
   const ShareItemDialog({
     super.key,
@@ -29,7 +30,13 @@ class ShareItemDialog extends StatelessWidget {
   });
 
   /// Show the share bottom sheet
-  static void show(BuildContext context, {required int itemId, required String itemTitle, String? taskIds, String? libraryItemIds}) {
+  static void show(
+    BuildContext context, {
+    required int itemId,
+    required String itemTitle,
+    String? taskIds,
+    String? libraryItemIds,
+  }) {
     final provider = context.read<LibraryProvider>();
     provider.clearUsernameLookup();
 
@@ -37,7 +44,12 @@ class ShareItemDialog extends StatelessWidget {
       context: context,
       title: 'مشاركة مباشرة مع...',
       onDismiss: () => provider.clearUsernameLookup(),
-      child: _ShareForm(itemId: itemId, itemTitle: itemTitle, taskIds: taskIds, libraryItemIds: libraryItemIds),
+      child: _ShareForm(
+        itemId: itemId,
+        itemTitle: itemTitle,
+        taskIds: taskIds,
+        libraryItemIds: libraryItemIds,
+      ),
     );
   }
 
@@ -71,7 +83,7 @@ class _ShareFormState extends State<_ShareForm> {
   bool _isLoading = false;
   bool _isLoadingShares = false;
   final List<Map<String, dynamic>> _selectedUsernames = [];
-  List<Map<String, dynamic>> _existingShares = [];  // FIX: Track existing shares
+  List<Map<String, dynamic>> _existingShares = []; // FIX: Track existing shares
 
   final List<Map<String, dynamic>> _permissionOptions = [
     {'value': 'read', 'label': 'قراءة فقط', 'icon': SolarLinearIcons.eye},
@@ -101,12 +113,19 @@ class _ShareFormState extends State<_ShareForm> {
         await libraryProvider.loadItemShares(widget.itemId);
         final shares = libraryProvider.itemShares[widget.itemId] ?? [];
         setState(() {
-          _existingShares = shares.map((share) => {
-            'username': share['shared_with_email'] ?? share['shared_with_user_id'] ?? '',
-            'displayName': share['shared_with_name'] ?? 'Unknown',
-            'permission': share['permission'] ?? 'read',
-            'isExisting': true,
-          }).toList();
+          _existingShares = shares
+              .map(
+                (share) => {
+                  'username':
+                      share['shared_with_email'] ??
+                      share['shared_with_user_id'] ??
+                      '',
+                  'displayName': share['shared_with_name'] ?? 'Unknown',
+                  'permission': share['permission'] ?? 'read',
+                  'isExisting': true,
+                },
+              )
+              .toList();
         });
       } catch (e) {
         debugPrint('Failed to load existing library shares: $e');
@@ -125,23 +144,20 @@ class _ShareFormState extends State<_ShareForm> {
   void _addUsername() {
     final provider = context.read<LibraryProvider>();
     final username = _usernameController.text.trim().replaceAll('@', '');
-    
+
     if (provider.foundUsernameDetails != null && username.isNotEmpty) {
       // FIX BUG #9: Check for duplicate username before adding
       final isDuplicate = _selectedUsernames.any(
-        (user) => user['username'] == username
+        (user) => user['username'] == username,
       );
-      
+
       if (isDuplicate) {
-        AnimatedToast.warning(
-          context,
-          'هذا المستخدم مُضاف بالفعل',
-        );
+        AnimatedToast.warning(context, 'هذا المستخدم مُضاف بالفعل');
         _usernameController.clear();
         provider.clearUsernameLookup();
         return;
       }
-      
+
       setState(() {
         _selectedUsernames.add({
           'username': username,
@@ -203,17 +219,21 @@ class _ShareFormState extends State<_ShareForm> {
             } catch (e) {
               // FIX: Use error codes instead of string matching
               final errorCode = ShareErrorHelper.extractErrorCode(e);
-              
+
               // Handle "already shared" gracefully - treat as success
               if (ShareErrorHelper.isSoftError(errorCode)) {
                 // Share already exists - backend updated it successfully
                 successfulTaskIds.add(taskId);
                 userHadSuccess = true;
-                debugPrint('[ShareItemDialog] Share already exists for task $taskId with ${user['username']}, updated successfully');
+                debugPrint(
+                  '[ShareItemDialog] Share already exists for task $taskId with ${user['username']}, updated successfully',
+                );
               } else {
                 failedTaskIds.add(taskId);
                 userHadFailure = true;
-                debugPrint('[ShareItemDialog] Failed to share task $taskId with ${user['username']}: $e');
+                debugPrint(
+                  '[ShareItemDialog] Failed to share task $taskId with ${user['username']}: $e',
+                );
               }
             }
           }
@@ -240,12 +260,15 @@ class _ShareFormState extends State<_ShareForm> {
             );
           }
         }
-        
+
         // FIX BUG #11: Refresh tasks list to show updated shared state
         await taskProvider.loadTasks();
       } else if (widget.libraryItemIds != null) {
         // Handle bulk library item sharing
-        final itemIdList = widget.libraryItemIds!.split(',').map((id) => int.parse(id)).toList();
+        final itemIdList = widget.libraryItemIds!
+            .split(',')
+            .map((id) => int.parse(id))
+            .toList();
 
         // Track unique items and users separately for accurate messaging
         final Set<int> successfulItemIds = {};
@@ -269,17 +292,21 @@ class _ShareFormState extends State<_ShareForm> {
             } catch (e) {
               // FIX: Use error codes instead of string matching
               final errorCode = ShareErrorHelper.extractErrorCode(e);
-              
+
               // Handle "already shared" gracefully - treat as success
               if (ShareErrorHelper.isSoftError(errorCode)) {
                 // Share already exists - backend updated it successfully
                 successfulItemIds.add(itemId);
                 userHadSuccess = true;
-                debugPrint('[ShareItemDialog] Share already exists for item $itemId with ${user['username']}, updated successfully');
+                debugPrint(
+                  '[ShareItemDialog] Share already exists for item $itemId with ${user['username']}, updated successfully',
+                );
               } else {
                 failedItemIds.add(itemId);
                 userHadFailure = true;
-                debugPrint('[ShareItemDialog] Failed to share library item $itemId with ${user['username']}: $e');
+                debugPrint(
+                  '[ShareItemDialog] Failed to share library item $itemId with ${user['username']}: $e',
+                );
               }
             }
           }
@@ -324,7 +351,9 @@ class _ShareFormState extends State<_ShareForm> {
             successCount++;
           } catch (e) {
             failCount++;
-            debugPrint('[ShareItemDialog] Failed to share with ${user['username']}: $e');
+            debugPrint(
+              '[ShareItemDialog] Failed to share with ${user['username']}: $e',
+            );
           }
         }
 
@@ -388,26 +417,30 @@ class _ShareFormState extends State<_ShareForm> {
                               ),
                             )
                           : provider.foundUsernameDetails != null
-                              ? GestureDetector(
-                                  onTap: _addUsername,
-                                  child: ShaderMask(
-                                    shaderCallback: (bounds) => const LinearGradient(
-                                      colors: [Color(0xFF2563EB), Color(0xFF0891B2)],
+                          ? GestureDetector(
+                              onTap: _addUsername,
+                              child: ShaderMask(
+                                shaderCallback: (bounds) =>
+                                    const LinearGradient(
+                                      colors: [
+                                        Color(0xFF2563EB),
+                                        Color(0xFF0891B2),
+                                      ],
                                     ).createShader(bounds),
-                                    child: const Icon(
-                                      SolarBoldIcons.add,
-                                      color: Colors.white,
-                                      size: 22,
-                                    ),
-                                  ),
-                                )
-                              : provider.usernameNotFound
-                                  ? const Icon(
-                                      SolarBoldIcons.closeCircle,
-                                      color: AppColors.error,
-                                      size: 20,
-                                    )
-                                  : const Icon(SolarLinearIcons.userCircle),
+                                child: const Icon(
+                                  SolarBoldIcons.add,
+                                  color: Colors.white,
+                                  size: 22,
+                                ),
+                              ),
+                            )
+                          : provider.usernameNotFound
+                          ? const Icon(
+                              SolarBoldIcons.closeCircle,
+                              color: AppColors.error,
+                              size: 20,
+                            )
+                          : const Icon(SolarLinearIcons.userCircle),
                       onChanged: (_) => setState(() {}),
                     ),
                     // Success message
@@ -463,17 +496,24 @@ class _ShareFormState extends State<_ShareForm> {
                       Wrap(
                         spacing: AppDimensions.spacing8,
                         runSpacing: AppDimensions.spacing8,
-                        children: List.generate(_selectedUsernames.length, (index) {
+                        children: List.generate(_selectedUsernames.length, (
+                          index,
+                        ) {
                           final user = _selectedUsernames[index];
                           return Chip(
                             label: Text(
                               user['username'].toString(),
                               style: const TextStyle(fontSize: 13),
                             ),
-                            deleteIcon: const Icon(SolarLinearIcons.closeCircle, size: 18),
+                            deleteIcon: const Icon(
+                              SolarLinearIcons.closeCircle,
+                              size: 18,
+                            ),
                             onDeleted: () => _removeUsername(index),
-                            backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-                            labelStyle: TextStyle(
+                            backgroundColor: AppColors.primary.withValues(
+                              alpha: 0.1,
+                            ),
+                            labelStyle: const TextStyle(
                               color: AppColors.primary,
                               fontWeight: FontWeight.w600,
                             ),
@@ -484,14 +524,14 @@ class _ShareFormState extends State<_ShareForm> {
                     // FIX: Display existing shares
                     if (_existingShares.isNotEmpty) ...[
                       const SizedBox(height: AppDimensions.spacing16),
-                      Row(
+                      const Row(
                         children: [
                           Icon(
                             SolarLinearIcons.userHeart,
                             size: 16,
                             color: AppColors.success,
                           ),
-                          const SizedBox(width: 8),
+                          SizedBox(width: 8),
                           Text(
                             'يشارك معك حالياً',
                             style: TextStyle(
@@ -506,13 +546,15 @@ class _ShareFormState extends State<_ShareForm> {
                       Wrap(
                         spacing: AppDimensions.spacing8,
                         runSpacing: AppDimensions.spacing8,
-                        children: List.generate(_existingShares.length, (index) {
+                        children: List.generate(_existingShares.length, (
+                          index,
+                        ) {
                           final share = _existingShares[index];
                           final permissionColor = share['permission'] == 'admin'
                               ? AppColors.warning
                               : share['permission'] == 'edit'
-                                  ? AppColors.primary
-                                  : AppColors.success;
+                              ? AppColors.primary
+                              : AppColors.success;
                           return Chip(
                             label: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -523,9 +565,14 @@ class _ShareFormState extends State<_ShareForm> {
                                 ),
                                 const SizedBox(width: 4),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: permissionColor.withValues(alpha: 0.2),
+                                    color: permissionColor.withValues(
+                                      alpha: 0.2,
+                                    ),
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: Text(
@@ -539,8 +586,10 @@ class _ShareFormState extends State<_ShareForm> {
                                 ),
                               ],
                             ),
-                            backgroundColor: AppColors.success.withValues(alpha: 0.1),
-                            labelStyle: TextStyle(
+                            backgroundColor: AppColors.success.withValues(
+                              alpha: 0.1,
+                            ),
+                            labelStyle: const TextStyle(
                               color: AppColors.success,
                               fontWeight: FontWeight.w500,
                             ),
@@ -586,9 +635,7 @@ class _ShareFormState extends State<_ShareForm> {
                       Icon(
                         option['icon'] as IconData,
                         size: 18,
-                        color: isSelected
-                            ? AppColors.primary
-                            : theme.hintColor,
+                        color: isSelected ? AppColors.primary : theme.hintColor,
                       ),
                       const SizedBox(width: 8),
                       Text(option['label'] as String),
@@ -604,7 +651,9 @@ class _ShareFormState extends State<_ShareForm> {
                     color: isSelected
                         ? AppColors.primary
                         : theme.textTheme.bodyMedium?.color,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    fontWeight: isSelected
+                        ? FontWeight.bold
+                        : FontWeight.normal,
                   ),
                 );
               }).toList(),

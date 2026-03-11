@@ -528,7 +528,7 @@ class _InboxConversationTileState extends State<InboxConversationTile>
   /// Build delivery status indicator for Almudeer channel
   Widget _buildDeliveryStatusIndicator(ThemeData theme) {
     final isDark = theme.brightness == Brightness.dark;
-    
+
     // Use deliveryStatus field if available, otherwise fall back to status
     final deliveryStatus = widget.conversation.deliveryStatus?.toLowerCase();
     final status = widget.conversation.status.toLowerCase();
@@ -562,7 +562,11 @@ class _InboxConversationTileState extends State<InboxConversationTile>
       // Failed: Error icon
       return Semantics(
         label: 'فشل الإرسال',
-        child: Icon(SolarLinearIcons.dangerCircle, size: 20, color: AppColors.error),
+        child: const Icon(
+          SolarLinearIcons.dangerCircle,
+          size: 20,
+          color: AppColors.error,
+        ),
       );
     } else {
       // Pending/Waiting: Clock
@@ -615,7 +619,7 @@ class _InboxConversationTileState extends State<InboxConversationTile>
           'en',
         ); // Use English to force Western numerals in dd/mm/yyyy
         final hijri = HijriCalendar.fromDate(localDate);
-        return hijri.toFormat("dd/mm/yyyy").toEnglishNumbers;
+        return hijri.toFormat('dd/mm/yyyy').toEnglishNumbers;
       }
     } catch (e) {
       return '';

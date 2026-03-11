@@ -77,7 +77,8 @@ class _CustomersViewState extends State<_CustomersView>
     try {
       Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (context) => CustomerDetailScreen(customer: customer.toJson()),
+          builder: (context) =>
+              CustomerDetailScreen(customer: customer.toJson()),
         ),
       );
     } catch (e) {
@@ -118,8 +119,8 @@ class _CustomersViewState extends State<_CustomersView>
                   margin: const EdgeInsets.only(bottom: 12),
                   width: 40,
                   height: 40,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
                       colors: [Color(0xFF1E3A5F), Color(0xFF2D5A87)],
                     ),
                     shape: BoxShape.circle,
@@ -273,7 +274,7 @@ class _CustomersViewState extends State<_CustomersView>
       title: 'إضافة شخص جديد',
       child: StatefulBuilder(
         builder: (context, setModalState) {
-          bool canAdd = nameController.text.trim().isNotEmpty;
+          final bool canAdd = nameController.text.trim().isNotEmpty;
 
           return Column(
             mainAxisSize: MainAxisSize.min,
@@ -440,10 +441,7 @@ class _CustomersViewState extends State<_CustomersView>
                         }
                       },
                 text: 'إضافة',
-                gradientColors: [
-                  const Color(0xFF2563EB),
-                  const Color(0xFF0891B2),
-                ],
+                gradientColors: const [Color(0xFF2563EB), Color(0xFF0891B2)],
               ),
             ],
           );
@@ -460,9 +458,7 @@ class _CustomersViewState extends State<_CustomersView>
   }
 
   Widget _buildPremiumEmptyState(ThemeData theme) {
-    return EmptyStateWidget(
-      icon: SolarLinearIcons.usersGroupTwoRounded,
-    );
+    return const EmptyStateWidget(icon: SolarLinearIcons.usersGroupTwoRounded);
   }
 
   Widget _buildAnimatedSection({required double delay, required Widget child}) {

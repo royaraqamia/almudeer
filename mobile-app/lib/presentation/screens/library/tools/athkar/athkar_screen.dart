@@ -37,7 +37,8 @@ class _AthkarScreenState extends State<AthkarScreen>
     CustomDialog.show(
       context,
       title: 'إعادة ضبط الأذكار',
-      message: 'هل أنت متأكد من رغبتك في إعادة ضبط جميع عدادات الأذكار لهذا اليوم؟',
+      message:
+          'هل أنت متأكد من رغبتك في إعادة ضبط جميع عدادات الأذكار لهذا اليوم؟',
       type: DialogType.warning,
       confirmText: 'إعادة ضبط',
       cancelText: 'إلغاء',
@@ -99,7 +100,7 @@ class _AthkarScreenState extends State<AthkarScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [
+        children: const [
           _AthkarList(athkar: AthkarData.morningAthkar),
           _AthkarList(athkar: AthkarData.eveningAthkar),
         ],
@@ -155,30 +156,34 @@ class _AthkarListState extends State<_AthkarList> {
 
     final filteredAthkar = widget.athkar.where((item) {
       if (_searchQuery.isEmpty) return true;
-      return _matchesSearch(item.text) || 
-             _matchesSearch(item.reward ?? '') || 
-             _matchesSearch(item.source ?? '');
+      return _matchesSearch(item.text) ||
+          _matchesSearch(item.reward ?? '') ||
+          _matchesSearch(item.source ?? '');
     }).toList();
 
     // Calculate total progress
     int totalTarget = 0;
     int totalCurrent = 0;
     int cappedItemsCount = 0;
-    
+
     for (var item in widget.athkar) {
       totalTarget += item.count;
       final currentCount = provider.getCount(item.id);
       if (currentCount > item.count) {
         cappedItemsCount++;
-        debugPrint('AthkarScreen: Item ${item.id} has count $currentCount exceeding target ${item.count} (possible server sync issue)');
+        debugPrint(
+          'AthkarScreen: Item ${item.id} has count $currentCount exceeding target ${item.count} (possible server sync issue)',
+        );
       }
       totalCurrent += (currentCount > item.count) ? item.count : currentCount;
     }
-    
+
     if (cappedItemsCount > 0) {
-      debugPrint('AthkarScreen: $cappedItemsCount item(s) had counts exceeding targets. Data may be from outdated server sync.');
+      debugPrint(
+        'AthkarScreen: $cappedItemsCount item(s) had counts exceeding targets. Data may be from outdated server sync.',
+      );
     }
-    
+
     final double totalProgress = totalTarget > 0
         ? totalCurrent / totalTarget
         : 0.0;
@@ -197,7 +202,7 @@ class _AthkarListState extends State<_AthkarList> {
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: AppDimensions.spacing12,
-                offset: Offset(0, AppDimensions.spacing8),
+                offset: const Offset(0, AppDimensions.spacing8),
               ),
             ],
           ),
@@ -233,7 +238,9 @@ class _AthkarListState extends State<_AthkarList> {
                         ),
                         const SizedBox(height: AppDimensions.spacing8),
                         ClipRRect(
-                          borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+                          borderRadius: BorderRadius.circular(
+                            AppDimensions.radiusMedium,
+                          ),
                           child: LinearProgressIndicator(
                             value: totalProgress,
                             backgroundColor: AppColors.primary.withValues(
@@ -271,7 +278,7 @@ class _AthkarListState extends State<_AthkarList> {
                   hintStyle: const TextStyle(
                     fontFamily: 'IBM Plex Sans Arabic',
                   ),
-                  prefixIcon: Icon(SolarLinearIcons.magnifer, size: 20),
+                  prefixIcon: const Icon(SolarLinearIcons.magnifer, size: 20),
                   suffixIcon: _searchQuery.isNotEmpty
                       ? IconButton(
                           icon: const Icon(Icons.clear, size: 20),
@@ -286,7 +293,9 @@ class _AthkarListState extends State<_AthkarList> {
                       ? Colors.white.withValues(alpha: 0.05)
                       : Colors.grey.withValues(alpha: 0.1),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
+                    borderRadius: BorderRadius.circular(
+                      AppDimensions.radiusLarge,
+                    ),
                     borderSide: BorderSide.none,
                   ),
                   contentPadding: const EdgeInsets.symmetric(
@@ -378,7 +387,7 @@ class _AthkarCard extends StatelessWidget {
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.03),
               blurRadius: AppDimensions.spacing24,
-              offset: Offset(0, AppDimensions.spacing12),
+              offset: const Offset(0, AppDimensions.spacing12),
             ),
         ],
       ),
@@ -426,7 +435,9 @@ class _AthkarCard extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         color: AppColors.primary.withValues(alpha: 0.05),
-                        borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
+                        borderRadius: BorderRadius.circular(
+                          AppDimensions.radiusLarge,
+                        ),
                         border: Border.all(
                           color: AppColors.primary.withValues(alpha: 0.1),
                         ),
@@ -487,7 +498,9 @@ class _AthkarCard extends StatelessWidget {
                           provider.decrement(item);
                         }
                       },
-                      borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
+                      borderRadius: BorderRadius.circular(
+                        AppDimensions.radiusLarge,
+                      ),
                       child: Container(
                         height: 56,
                         decoration: BoxDecoration(
@@ -498,7 +511,9 @@ class _AthkarCard extends StatelessWidget {
                                         alpha: 0.5,
                                       )
                                     : const Color(0xFFF8FAFC)),
-                          borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
+                          borderRadius: BorderRadius.circular(
+                            AppDimensions.radiusLarge,
+                          ),
                           border: isCompleted
                               ? null
                               : Border.all(
@@ -520,7 +535,9 @@ class _AthkarCard extends StatelessWidget {
                                       color: AppColors.primary.withValues(
                                         alpha: 0.1,
                                       ),
-                                      borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
+                                      borderRadius: BorderRadius.circular(
+                                        AppDimensions.radiusLarge,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -547,7 +564,7 @@ class _AthkarCard extends StatelessWidget {
                                 ] else ...[
                                   Text(
                                     '$remainingCount',
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                       fontSize: 22,
                                       fontWeight: FontWeight.bold,
                                       color: AppColors.primary,
@@ -571,7 +588,9 @@ class _AthkarCard extends StatelessWidget {
                                     ),
                                     decoration: BoxDecoration(
                                       color: Colors.white,
-                                      borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
+                                      borderRadius: BorderRadius.circular(
+                                        AppDimensions.radiusFull,
+                                      ),
                                       boxShadow: [
                                         BoxShadow(
                                           color: Colors.black.withValues(
@@ -591,7 +610,9 @@ class _AthkarCard extends StatelessWidget {
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: AppDimensions.spacing16),
+                                  const SizedBox(
+                                    width: AppDimensions.spacing16,
+                                  ),
                                 ],
                               ],
                             ),

@@ -94,7 +94,7 @@ class CustomersLocalDataSource {
     if ((phone != null && phone.isNotEmpty) ||
         (email != null && email.isNotEmpty)) {
       String whereClause = '';
-      List<dynamic> whereArgs = [];
+      final List<dynamic> whereArgs = [];
 
       if (phone != null && phone.isNotEmpty) {
         whereClause = 'phone = ?';
@@ -333,7 +333,7 @@ class CustomersLocalDataSource {
   }) async {
     final db = await _db;
     String whereClause = '1=1'; // Always true
-    List<dynamic> whereArgs = [];
+    final List<dynamic> whereArgs = [];
 
     if (search != null && search.isNotEmpty) {
       whereClause += ' AND (name LIKE ? OR phone LIKE ? OR username LIKE ?)';
@@ -362,7 +362,7 @@ class CustomersLocalDataSource {
 
     final db = await _db;
     String whereClause = '';
-    List<dynamic> whereArgs = [];
+    final List<dynamic> whereArgs = [];
 
     if (phone != null && phone.isNotEmpty) {
       whereClause = 'phone = ?';
@@ -429,7 +429,7 @@ class CustomersLocalDataSource {
 
     final db = await _db;
     String whereClause = '';
-    List<dynamic> whereArgs = [];
+    final List<dynamic> whereArgs = [];
 
     if (phone != null && phone.isNotEmpty) {
       whereClause = 'phone = ?';
@@ -513,7 +513,7 @@ class CustomersLocalDataSource {
   /// This prevents deleting valid customers while cleaning up truly orphaned records
   Future<void> clearSyncedCustomers({List<int>? serverCustomerIds}) async {
     final db = await _db;
-    
+
     // If we have the server's customer list, only delete records NOT in that list
     if (serverCustomerIds != null && serverCustomerIds.isNotEmpty) {
       // Delete synced customers whose remote_id is NOT in the server list

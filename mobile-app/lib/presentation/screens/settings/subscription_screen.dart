@@ -76,7 +76,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
       final date = DateTime.parse(dateStr);
       HijriCalendar.setLocal('en');
       final hijriDate = HijriCalendar.fromDate(date);
-      return hijriDate.toFormat("dd/mm/yyyy");
+      return hijriDate.toFormat('dd/mm/yyyy');
     } catch (e) {
       return dateStr;
     }
@@ -142,12 +142,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
         ),
       ),
       title: Text(
-        "نظام الاشتراك",
+        'نظام الاشتراك',
         style: theme.textTheme.titleLarge?.copyWith(
           fontSize: 18,
           fontWeight: FontWeight.w600,
           letterSpacing: -0.3,
-          color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+          color: isDark
+              ? AppColors.textPrimaryDark
+              : AppColors.textPrimaryLight,
         ),
       ),
       centerTitle: true,
@@ -235,7 +237,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
   ) {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
-      padding: EdgeInsets.only(
+      padding: const EdgeInsets.only(
         left: AppDimensions.paddingMedium,
         right: AppDimensions.paddingMedium,
         top: AppDimensions.spacing24,
@@ -275,12 +277,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
     final isActive = daysRemaining > 0;
 
     return SlideTransition(
-      position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero).animate(
-        CurvedAnimation(
-          parent: _fadeController,
-          curve: AppAnimations.decelerate,
-        ),
-      ),
+      position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+          .animate(
+            CurvedAnimation(
+              parent: _fadeController,
+              curve: AppAnimations.decelerate,
+            ),
+          ),
       child: Container(
         decoration: ShapeDecoration(
           gradient: LinearGradient(
@@ -347,16 +350,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              isActive
-                                  ? 'اشتراك نشط'
-                                  : 'انتهى الاشتراك',
+                              isActive ? 'اشتراك نشط' : 'انتهى الاشتراك',
                               style: theme.textTheme.titleMedium?.copyWith(
                                 fontWeight: FontWeight.w700,
                                 fontSize: 16,
                                 color: isActive
                                     ? (isDark
-                                        ? AppColors.textPrimaryDark
-                                        : AppColors.textPrimaryLight)
+                                          ? AppColors.textPrimaryDark
+                                          : AppColors.textPrimaryLight)
                                     : AppColors.error,
                               ),
                             ),
@@ -405,10 +406,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
                                 vertical: 6,
                               ),
                               decoration: ShapeDecoration(
-                                color: (isActive
-                                        ? AppColors.success
-                                        : AppColors.error)
-                                    .withValues(alpha: isDark ? 0.2 : 0.1),
+                                color:
+                                    (isActive
+                                            ? AppColors.success
+                                            : AppColors.error)
+                                        .withValues(alpha: isDark ? 0.2 : 0.1),
                                 shape: SmoothRectangleBorder(
                                   borderRadius: SmoothBorderRadius(
                                     cornerRadius: AppDimensions.radiusFull,
@@ -516,9 +518,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w800,
-                  color: isActive
-                      ? AppColors.primary
-                      : AppColors.error,
+                  color: isActive ? AppColors.primary : AppColors.error,
                 ),
               ),
             ],
@@ -530,12 +530,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
 
   Widget _buildSubscriptionPlansSection() {
     return SlideTransition(
-      position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero).animate(
-        CurvedAnimation(
-          parent: _fadeController,
-          curve: AppAnimations.decelerate,
-        ),
-      ),
+      position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+          .animate(
+            CurvedAnimation(
+              parent: _fadeController,
+              curve: AppAnimations.decelerate,
+            ),
+          ),
       child: const SubscriptionPlansSection(),
     );
   }

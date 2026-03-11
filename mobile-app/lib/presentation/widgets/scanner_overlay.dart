@@ -47,7 +47,7 @@ class ScannerOverlay extends StatelessWidget {
                 Shadow(
                   color: Colors.black.withValues(alpha: 0.8),
                   blurRadius: 10,
-                  offset: Offset(0, 2),
+                  offset: const Offset(0, 2),
                 ),
               ],
             ),

@@ -55,6 +55,8 @@ class BrowserScreen extends StatefulWidget {
 }
 
 class _BrowserScreenState extends State<BrowserScreen> {
+  static const int _maxTabs = 50; // Limit open tabs to prevent memory pressure
+
   final List<BrowserTab> _tabs = [];
   int _activeTabIndex = 0;
   final TextEditingController _urlController = TextEditingController();
@@ -95,10 +97,68 @@ class _BrowserScreenState extends State<BrowserScreen> {
       tab.dispose();
     }
     _tabs.clear();
-    
+
     _urlController.dispose();
     _searchTextController.dispose();
     super.dispose();
+  }
+
+  /// Clear all WebView cache, cookies, and storage (privacy/security)
+  Future<void> _clearBrowsingData() async {
+    try {
+      // Clear WebView cookies
+      await WebViewCookieManager().clearCookies();
+
+      // Clear cache for all tabs
+      for (var tab in _tabs) {
+        await tab.controller.clearCache();
+      }
+
+      // Clear reader controller cache
+      await _readerController.clearCache();
+
+      debugPrint('[Browser] Browsing data cleared successfully');
+    } catch (e) {
+      debugPrint('[Browser] Error clearing browsing data: $e');
+    }
+  }
+
+  /// Show clear browsing data confirmation dialog
+  void _showClearBrowsingDataDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('مسح بيانات التصفح'),
+        content: const Text(
+          'سيتم مسح السجل وملفات تعريف الارتباط والذاكرة المؤقتة. هل أنت متأكد؟',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('إلغاء'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final navigator = Navigator.of(context);
+              final messenger = ScaffoldMessenger.of(context);
+              navigator.pop();
+              await _clearBrowsingData();
+              await _historyService.clearHistory();
+              if (mounted) {
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('تم مسح بيانات التصفح بنجاح'),
+                    backgroundColor: Colors.green,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+            child: const Text('مسح'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _restoreSession() async {
@@ -156,6 +216,20 @@ class _BrowserScreenState extends State<BrowserScreen> {
     String? id,
     bool isDesktopMode = false,
   }) {
+    // Enforce tab limit - close oldest tab if at limit
+    if (_tabs.length >= _maxTabs) {
+      debugPrint('[Browser] Tab limit reached ($_maxTabs), closing oldest tab');
+      final oldestTab = _tabs.removeAt(0);
+      oldestTab.dispose();
+      if (_activeTabIndex > 0) {
+        _activeTabIndex--;
+      }
+      AnimatedToast.info(
+        context,
+        'تم إغلاق أقدم تبويب بسبب الوصول للحد الأقصى',
+      );
+    }
+
     final tabId = id ?? DateTime.now().millisecondsSinceEpoch.toString();
     final tab = BrowserTab(
       id: tabId,
@@ -234,9 +308,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
               // Inject CSS to allow websites to use their native color scheme
               _injectNativeColorScheme(tab.controller);
               // Ad blocker is always enabled - inject again to ensure it's active
-              tab.controller.runJavaScript(
-                _adBlocker.getBlockingJavaScript(),
-              );
+              tab.controller.runJavaScript(_adBlocker.getBlockingJavaScript());
               tab.jsInjected = true;
             }
           },
@@ -375,10 +447,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
         // High-DPI screens (>2.0) use 0.3, others use 0.5
         final devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
         final pixelRatio = devicePixelRatio > 2.0 ? 0.3 : 0.5;
-        
+
         final image = await boundary.toImage(pixelRatio: pixelRatio);
         try {
-          final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+          final byteData = await image.toByteData(
+            format: ui.ImageByteFormat.png,
+          );
           if (byteData != null && mounted) {
             setState(() {
               _tabs[_activeTabIndex].snapshot = byteData.buffer.asUint8List();
@@ -408,11 +482,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   void _executeSearch(String query) {
     if (query.isEmpty) return;
-    
+
     // Use JSON encoding for proper escaping of all special characters
     // This handles quotes, backslashes, newlines, and regex special chars
     final escapedQuery = query.replaceAll('"', '\\"');
-    
+
     _tabs[_activeTabIndex].controller.runJavaScript("""
       (function() {
         var searchTerm = "$escapedQuery";
@@ -511,7 +585,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
         });
       }
     } catch (e) {
-      debugPrint("Error checking reader mode: $e");
+      debugPrint('Error checking reader mode: $e');
     }
   }
 
@@ -551,7 +625,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
       }
 
       String jsonString = jsonStr.toString();
-      
+
       // Handle quoted string results from JavaScript
       if (jsonString.startsWith('"') && jsonString.endsWith('"')) {
         jsonString = jsonString
@@ -585,7 +659,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
         _readerTitle = title;
       });
     } catch (e) {
-      debugPrint("Error entering reader mode: $e");
+      debugPrint('Error entering reader mode: $e');
       if (mounted) {
         AnimatedToast.error(context, 'فشل في تفعيل وضع القراءة');
       }
@@ -594,7 +668,10 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   String _sanitizeHtml(String html) {
     // Remove script tags and their content
-    html = html.replaceAll(RegExp(r'<script[^>]*>.*?</script>', multiLine: true, dotAll: true), '');
+    html = html.replaceAll(
+      RegExp(r'<script[^>]*>.*?</script>', multiLine: true, dotAll: true),
+      '',
+    );
 
     // Remove event handlers (onclick, onerror, onload, etc.)
     html = html.replaceAll(RegExp(r'\s+on\w+\s*=\s*"[^"]*"'), '');
@@ -605,10 +682,22 @@ class _BrowserScreenState extends State<BrowserScreen> {
     html = html.replaceAll(RegExp(r'data:', caseSensitive: false), '');
 
     // Remove iframe, object, embed, form tags (self-closing and with content)
-    html = html.replaceAll(RegExp(r'<iframe[^>]*>.*?</iframe>', multiLine: true, dotAll: true), '');
-    html = html.replaceAll(RegExp(r'<object[^>]*>.*?</object>', multiLine: true, dotAll: true), '');
-    html = html.replaceAll(RegExp(r'<embed[^>]*>.*?</embed>', multiLine: true, dotAll: true), '');
-    html = html.replaceAll(RegExp(r'<form[^>]*>.*?</form>', multiLine: true, dotAll: true), '');
+    html = html.replaceAll(
+      RegExp(r'<iframe[^>]*>.*?</iframe>', multiLine: true, dotAll: true),
+      '',
+    );
+    html = html.replaceAll(
+      RegExp(r'<object[^>]*>.*?</object>', multiLine: true, dotAll: true),
+      '',
+    );
+    html = html.replaceAll(
+      RegExp(r'<embed[^>]*>.*?</embed>', multiLine: true, dotAll: true),
+      '',
+    );
+    html = html.replaceAll(
+      RegExp(r'<form[^>]*>.*?</form>', multiLine: true, dotAll: true),
+      '',
+    );
     html = html.replaceAll(RegExp(r'<iframe[^>]*/?>'), '');
     html = html.replaceAll(RegExp(r'<object[^>]*/?>'), '');
     html = html.replaceAll(RegExp(r'<embed[^>]*/?>'), '');
@@ -637,10 +726,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
     // Content Security Policy - Strict security for reader mode
     // Only allows inline styles (needed for theming), no scripts, no external resources
-    const cspPolicy = 
+    // SECURITY FIX: HTTPS only for images (no mixed content)
+    const cspPolicy =
         "default-src 'none'; "
         "style-src 'unsafe-inline'; "
-        "img-src data: https: http:; "
+        'img-src data: https:; '
         "font-src 'none'; "
         "script-src 'none'; "
         "connect-src 'none'; "
@@ -861,6 +951,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
                       ? 'تمت إضافة الإشارة المرجعية'
                       : 'تمت إزالة الإشارة المرجعية',
                 );
+              } else if (value == 'clear_data') {
+                _showClearBrowsingDataDialog();
               }
             },
             itemBuilder: (context) => [
@@ -896,6 +988,16 @@ class _BrowserScreenState extends State<BrowserScreen> {
                     Icon(SolarLinearIcons.history, size: 20),
                     SizedBox(width: 8),
                     Text('السجل والإشارات'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'clear_data',
+                child: Row(
+                  children: [
+                    Icon(SolarLinearIcons.trashBinMinimalistic, size: 20),
+                    SizedBox(width: 8),
+                    Text('مسح بيانات التصفح'),
                   ],
                 ),
               ),
@@ -949,10 +1051,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                     decoration: InputDecoration(
                       hintText: 'أدخل الرابط هنا...',
                       hintStyle: const TextStyle(fontSize: 14),
-                      prefixIcon: const Icon(
-                        SolarLinearIcons.global,
-                        size: 18,
-                      ),
+                      prefixIcon: const Icon(SolarLinearIcons.global, size: 18),
                       suffixIcon: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -1254,9 +1353,7 @@ class _TabsSwitcher extends StatelessWidget {
                       border: Border.all(
                         color: isSelected
                             ? AppColors.primary
-                            : (isDark
-                                  ? Colors.grey[800]!
-                                  : Colors.grey[300]!),
+                            : (isDark ? Colors.grey[800]! : Colors.grey[300]!),
                         width: isSelected ? 2 : 1,
                       ),
                     ),
@@ -1390,16 +1487,16 @@ class _WebViewWithErrorHandlingState extends State<_WebViewWithErrorHandling> {
             const SizedBox(height: 16),
             Text(
               'فشل تحميل الصفحة',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
               _errorMessage,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.grey,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),

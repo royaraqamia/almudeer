@@ -42,7 +42,7 @@ class SharingService {
   }
 
   /// Forward library items to Almudeer chats
-  /// 
+  ///
   /// P3-14 FIX: Properly handles file downloads, error handling, and progress indication
   Future<void> forwardItems(
     BuildContext context,
@@ -67,12 +67,18 @@ class SharingService {
 
       // Validate chats have senderContact
       final validChats = selectedChats
-          .where((chat) => chat.senderContact != null && chat.senderContact!.isNotEmpty)
+          .where(
+            (chat) =>
+                chat.senderContact != null && chat.senderContact!.isNotEmpty,
+          )
           .toList();
 
       if (validChats.isEmpty) {
         if (context.mounted) {
-          AnimatedToast.error(context, 'لا يمكن الإرسال: لا توجد محادثات صالحة');
+          AnimatedToast.error(
+            context,
+            'لا يمكن الإرسال: لا توجد محادثات صالحة',
+          );
         }
         return;
       }
@@ -94,14 +100,11 @@ class SharingService {
       try {
         // Prepare all items first (download files)
         final preparedItems = <_PreparedLibraryItem>[];
-        
+
         for (final item in items) {
           if (item.type == 'note') {
             // Notes don't need download
-            preparedItems.add(_PreparedLibraryItem(
-              item: item,
-              success: true,
-            ));
+            preparedItems.add(_PreparedLibraryItem(item: item, success: true));
           } else if (item.filePath != null) {
             // Download file if not cached
             try {
@@ -121,25 +124,31 @@ class SharingService {
 
               // Verify file exists after download
               if (await File(localPath).exists()) {
-                preparedItems.add(_PreparedLibraryItem(
-                  item: item,
-                  localPath: localPath,
-                  success: true,
-                ));
+                preparedItems.add(
+                  _PreparedLibraryItem(
+                    item: item,
+                    localPath: localPath,
+                    success: true,
+                  ),
+                );
               } else {
-                preparedItems.add(_PreparedLibraryItem(
-                  item: item,
-                  success: false,
-                  error: 'فشل تحميل الملف',
-                ));
+                preparedItems.add(
+                  _PreparedLibraryItem(
+                    item: item,
+                    success: false,
+                    error: 'فشل تحميل الملف',
+                  ),
+                );
               }
             } catch (e) {
               debugPrint('Failed to prepare library item ${item.title}: $e');
-              preparedItems.add(_PreparedLibraryItem(
-                item: item,
-                success: false,
-                error: 'خطأ في التحميل: ${e.toString()}',
-              ));
+              preparedItems.add(
+                _PreparedLibraryItem(
+                  item: item,
+                  success: false,
+                  error: 'خطأ في التحميل: ${e.toString()}',
+                ),
+              );
             }
           }
         }
@@ -160,37 +169,45 @@ class SharingService {
 
         // Send all prepared items in parallel
         final sendFutures = <Future<void>>[];
-        
+
         for (final prepared in preparedItems) {
           if (!prepared.success) continue;
-          
+
           for (final chat in validChats) {
             if (prepared.item.type == 'note') {
               // Send note as structured attachment
               sendFutures.add(
-                inputProvider.sendNote(
-                  chat.senderContact!,
-                  chat.channel,
-                  title: prepared.item.title,
-                  content: prepared.item.content ?? '',
-                ).catchError((e) {
-                  debugPrint('Failed to send note ${prepared.item.title}: $e');
-                  return false;
-                }),
+                inputProvider
+                    .sendNote(
+                      chat.senderContact!,
+                      chat.channel,
+                      title: prepared.item.title,
+                      content: prepared.item.content ?? '',
+                    )
+                    .catchError((e) {
+                      debugPrint(
+                        'Failed to send note ${prepared.item.title}: $e',
+                      );
+                      return false;
+                    }),
               );
             } else if (prepared.localPath != null) {
               // Send file
               sendFutures.add(
-                inputProvider.sendFile(
-                  chat.senderContact!,
-                  chat.channel,
-                  filePath: prepared.localPath!,
-                  type: _getItemType(prepared.item),
-                  fileName: prepared.item.title,
-                ).catchError((e) {
-                  debugPrint('Failed to send file ${prepared.item.title}: $e');
-                  return false;
-                }),
+                inputProvider
+                    .sendFile(
+                      chat.senderContact!,
+                      chat.channel,
+                      filePath: prepared.localPath!,
+                      type: _getItemType(prepared.item),
+                      fileName: prepared.item.title,
+                    )
+                    .catchError((e) {
+                      debugPrint(
+                        'Failed to send file ${prepared.item.title}: $e',
+                      );
+                      return false;
+                    }),
               );
             }
           }
@@ -199,7 +216,7 @@ class SharingService {
         // Execute all sends in parallel
         if (sendFutures.isNotEmpty) {
           await Future.wait(sendFutures);
-          
+
           if (context.mounted) {
             AnimatedToast.success(
               context,
@@ -209,7 +226,6 @@ class SharingService {
         } else if (context.mounted) {
           AnimatedToast.error(context, 'لا توجد عناصر صالحة للإرسال');
         }
-
       } catch (e) {
         // Close loading dialog if still open
         if (context.mounted && Navigator.canPop(context)) {
@@ -242,7 +258,7 @@ class SharingService {
             _handleIncomingSharedContent(media: value);
           },
           onError: (err) {
-            debugPrint("SharingService: getMediaStream error: $err");
+            debugPrint('SharingService: getMediaStream error: $err');
             return;
           },
         );
@@ -265,7 +281,7 @@ class SharingService {
   void _handleIncomingSharedContent({List<SharedMediaFile>? media}) async {
     final navigator = navigatorKey.currentState;
     if (navigator == null) {
-      debugPrint("SharingService: Navigator not ready, retrying in 500ms...");
+      debugPrint('SharingService: Navigator not ready, retrying in 500ms...');
       Future.delayed(
         const Duration(milliseconds: 500),
         () => _handleIncomingSharedContent(media: media),
@@ -279,9 +295,9 @@ class SharingService {
     String? intentAction;
     try {
       intentAction = await _channel.invokeMethod<String>('getIntentAction');
-      debugPrint("SharingService: Native Intent Action: $intentAction");
+      debugPrint('SharingService: Native Intent Action: $intentAction');
     } catch (e) {
-      debugPrint("SharingService: Error querying intent action: $e");
+      debugPrint('SharingService: Error querying intent action: $e');
     }
 
     // Direct View Flow: If "Open with" (ACTION_VIEW), open viewer or browser directly
@@ -357,10 +373,10 @@ class SharingService {
       // Execute all sends in parallel without blocking the UI thread sequentially
       if (sendTasks.isNotEmpty) {
         debugPrint(
-          "SharingService: Sending ${sendTasks.length} items in parallel...",
+          'SharingService: Sending ${sendTasks.length} items in parallel...',
         );
         Future.wait(sendTasks).catchError((e) {
-          debugPrint("SharingService: Error during parallel send: $e");
+          debugPrint('SharingService: Error during parallel send: $e');
           return [];
         });
       }

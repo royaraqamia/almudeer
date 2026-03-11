@@ -300,7 +300,9 @@ class _MessageBubbleState extends State<MessageBubble> {
       child: Container(
         color: widget.isHighlighted
             ? (isDark
-                  ? AppColors.primary.withValues(alpha: 0.2)  // More visible in dark mode
+                  ? AppColors.primary.withValues(
+                      alpha: 0.2,
+                    ) // More visible in dark mode
                   : AppColors.primary.withValues(alpha: 0.1))
             : (isSelected ? AppColors.primary.withValues(alpha: 0.1) : null),
         padding: EdgeInsets.only(
@@ -344,7 +346,9 @@ class _MessageBubbleState extends State<MessageBubble> {
                       borderRadius: _getBorderRadius(isOutgoing),
                       child: BackdropFilter(
                         filter: ui.ImageFilter.blur(
-                          sigmaX: isOutgoing ? 0 : 4,  // Reduced from 7 for better text readability
+                          sigmaX: isOutgoing
+                              ? 0
+                              : 4, // Reduced from 7 for better text readability
                           sigmaY: isOutgoing ? 0 : 4,
                         ),
                         child: Container(
@@ -376,7 +380,9 @@ class _MessageBubbleState extends State<MessageBubble> {
                                 color: isOutgoing
                                     ? Colors.white.withValues(alpha: 0.1)
                                     : (isDark ? Colors.white : Colors.black)
-                                          .withValues(alpha: 0.08),  // Increased from 0.05 for better definition
+                                          .withValues(
+                                            alpha: 0.08,
+                                          ), // Increased from 0.05 for better definition
                                 width: widget.message.channel == 'saved'
                                     ? 1.5
                                     : 0.5,
@@ -530,13 +536,16 @@ class _MessageBubbleState extends State<MessageBubble> {
                                     const SizedBox(width: 4),
                                     Text(
                                       'مُعدّلة',
-                                      style: theme.textTheme.labelSmall?.copyWith(
-                                        color: isOutgoing
-                                            ? Colors.white.withValues(alpha: 0.5)
-                                            : theme.hintColor,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w500,
-                                      ),
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                            color: isOutgoing
+                                                ? Colors.white.withValues(
+                                                    alpha: 0.5,
+                                                  )
+                                                : theme.hintColor,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w500,
+                                          ),
                                     ),
                                   ],
                                   if (isOutgoing &&
@@ -882,7 +891,7 @@ class _MessageBubbleState extends State<MessageBubble> {
     if (widget.message.sendStatus == MessageSendStatus.failed) {
       return Semantics(
         label: 'فشل الإرسال',
-        child: Icon(
+        child: const Icon(
           SolarLinearIcons.dangerCircle,
           size: 20,
           color: AppColors.error,

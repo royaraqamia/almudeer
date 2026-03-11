@@ -32,7 +32,9 @@ class PremiumSkeleton extends StatelessWidget {
     return Shimmer.fromColors(
       baseColor: baseColor,
       highlightColor: highlightColor,
-      period: const Duration(milliseconds: 2000), // Apple standard: 2000ms (was 1500ms)
+      period: const Duration(
+        milliseconds: 2000,
+      ), // Apple standard: 2000ms (was 1500ms)
       direction: ShimmerDirection.ltr,
       child: child,
     );
@@ -719,12 +721,10 @@ class GlobalSearchSkeletonLoader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     // Match library item card colors exactly for shimmer effect
     // Light: cardLight (#FFFFFFFF), Dark: cardDark (#1B4461)
-    final baseColor = isDark
-        ? AppColors.cardDark
-        : AppColors.cardLight;
+    final baseColor = isDark ? AppColors.cardDark : AppColors.cardLight;
     final highlightColor = isDark
         ? AppColors.cardDark.withValues(alpha: 0.8)
         : AppColors.cardLight.withValues(alpha: 0.7);
@@ -1997,7 +1997,7 @@ class _PremiumPeriodChipState extends State<PremiumPeriodChip>
               padding: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
                 gradient: widget.isSelected
-                    ? LinearGradient(
+                    ? const LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                         colors: [AppColors.primary, AppColors.primaryDark],
@@ -2150,9 +2150,7 @@ class PremiumStatCard extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            isPositive
-                ? SolarLinearIcons.arrowUp
-                : SolarLinearIcons.arrowDown,
+            isPositive ? SolarLinearIcons.arrowUp : SolarLinearIcons.arrowDown,
             size: 12,
             color: color,
           ),
@@ -2264,22 +2262,21 @@ class _ConfettiOverlayState extends State<ConfettiOverlay>
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: widget.duration,
-    );
-    
+    _controller = AnimationController(vsync: this, duration: widget.duration);
+
     for (int i = 0; i < 50; i++) {
-      _particles.add(_ConfettiParticle(
-        x: (i / 50),
-        y: -0.1 - (i * 0.02),
-        color: _colors[i % _colors.length],
-        size: 8 + (i % 4) * 2,
-        speed: 0.3 + (i % 5) * 0.1,
-        rotation: i * 0.5,
-      ));
+      _particles.add(
+        _ConfettiParticle(
+          x: (i / 50),
+          y: -0.1 - (i * 0.02),
+          color: _colors[i % _colors.length],
+          size: 8 + (i % 4) * 2,
+          speed: 0.3 + (i % 5) * 0.1,
+          rotation: i * 0.5,
+        ),
+      );
     }
-    
+
     _controller.forward();
     _controller.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
@@ -2340,15 +2337,17 @@ class _ConfettiPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     for (var particle in particles) {
-      final x = particle.x * size.width + (progress * particle.speed * size.width * 0.5);
+      final x =
+          particle.x * size.width +
+          (progress * particle.speed * size.width * 0.5);
       final y = (particle.y + progress * particle.speed * 2) * size.height;
-      
+
       if (y > size.height) continue;
-      
+
       final paint = Paint()
         ..color = particle.color.withValues(alpha: 1.0 - progress * 0.5)
         ..style = PaintingStyle.fill;
-      
+
       canvas.save();
       canvas.translate(x, y);
       canvas.rotate(particle.rotation + progress * 3);
@@ -2372,7 +2371,7 @@ class _ConfettiPainter extends CustomPainter {
 
 void showConfetti(BuildContext context, {VoidCallback? onComplete}) {
   late OverlayEntry overlayEntry;
-  
+
   overlayEntry = OverlayEntry(
     builder: (context) => ConfettiOverlay(
       onComplete: () {
@@ -2381,6 +2380,6 @@ void showConfetti(BuildContext context, {VoidCallback? onComplete}) {
       },
     ),
   );
-  
+
   Overlay.of(context).insert(overlayEntry);
 }

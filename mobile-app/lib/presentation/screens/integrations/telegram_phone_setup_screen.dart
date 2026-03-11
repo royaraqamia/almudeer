@@ -406,7 +406,7 @@ class _TelegramPhoneSetupScreenState extends State<TelegramPhoneSetupScreen> {
                         children: [
                           Row(
                             children: [
-                              Icon(
+                              const Icon(
                                 SolarLinearIcons.infoCircle,
                                 color: AppColors.telegramBlue,
                                 size: 18,
@@ -487,7 +487,11 @@ class _TelegramPhoneSetupScreenState extends State<TelegramPhoneSetupScreen> {
       ),
       child: Center(
         child: step < _currentStep
-            ? Icon(SolarLinearIcons.checkCircle, color: Colors.white, size: 16)
+            ? const Icon(
+                SolarLinearIcons.checkCircle,
+                color: Colors.white,
+                size: 16,
+              )
             : Text(
                 '$step',
                 style: TextStyle(

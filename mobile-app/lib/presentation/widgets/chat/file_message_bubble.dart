@@ -205,9 +205,7 @@ class _FileMessageBubbleState extends State<FileMessageBubble> {
               child: _isDownloading
                   ? _buildDetailedProgressIndicator()
                   : Icon(
-                      _localPath != null
-                          ? fileIcon
-                          : SolarLinearIcons.download,
+                      _localPath != null ? fileIcon : SolarLinearIcons.download,
                       size: 28,
                       color: widget.isOutgoing ? Colors.white : fileColor,
                     ),
@@ -253,10 +251,12 @@ class _FileMessageBubbleState extends State<FileMessageBubble> {
   }
 
   Widget _buildDetailedProgressIndicator() {
-    final percentage = _totalBytes > 0 ? (_downloadedBytes / _totalBytes * 100) : 0;
+    final percentage = _totalBytes > 0
+        ? (_downloadedBytes / _totalBytes * 100)
+        : 0;
     final progress = _totalBytes > 0 ? (_downloadedBytes / _totalBytes) : 0.0;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -288,7 +288,9 @@ class _FileMessageBubbleState extends State<FileMessageBubble> {
           '${_formatBytes(_downloadedBytes)} / ${_formatBytes(_totalBytes)}',
           style: TextStyle(
             fontSize: 8,
-            color: widget.isOutgoing ? Colors.white70 : Theme.of(context).hintColor,
+            color: widget.isOutgoing
+                ? Colors.white70
+                : Theme.of(context).hintColor,
           ),
         ),
       ],
@@ -525,9 +527,9 @@ class _FileMessageBubbleState extends State<FileMessageBubble> {
   String _formatBytes(dynamic size) {
     if (size == null) return '';
     try {
-      int bytes = size is int ? size : int.parse(size.toString());
-      if (bytes <= 0) return "0 B";
-      const suffixes = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
+      final int bytes = size is int ? size : int.parse(size.toString());
+      if (bytes <= 0) return '0 B';
+      const suffixes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
       // rough log1000 calculation removed, using loop below
       // Actually implementing proper loop is safer
       int iSafety = 0;

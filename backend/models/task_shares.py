@@ -258,7 +258,14 @@ async def share_task(
                 })
             except Exception as metrics_error:
                 logger.warning(f"Failed to log metrics for notification failure: {metrics_error}")
-            
+
+            # P6-1 FIX: Record metric for alerting service
+            try:
+                from services.alerting_service import record_alertable_metric
+                await record_alertable_metric("task_share_notification_failures")
+            except Exception as alert_error:
+                logger.warning(f"Failed to record alert metric: {alert_error}")
+
             # FIX: Queue notification for retry
             try:
                 from workers import queue_notification_for_retry
@@ -318,6 +325,13 @@ async def share_task(
                 })
             except Exception:
                 pass
+
+            # P6-1 FIX: Record metric for alerting service
+            try:
+                from services.alerting_service import record_alertable_metric
+                await record_alertable_metric("task_share_broadcast_failures")
+            except Exception as alert_error:
+                logger.warning(f"Failed to record alert metric: {alert_error}")
 
         return {
             "task_id": task_id,
@@ -471,6 +485,13 @@ async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str]
                     })
                 except Exception as metrics_error:
                     logger.warning(f"Failed to log metrics for notification failure: {metrics_error}")
+
+                # P6-1 FIX: Record metric for alerting service
+                try:
+                    from services.alerting_service import record_alertable_metric
+                    await record_alertable_metric("share_revoked_notification_failures")
+                except Exception as alert_error:
+                    logger.warning(f"Failed to record alert metric: {alert_error}")
 
         return True
 

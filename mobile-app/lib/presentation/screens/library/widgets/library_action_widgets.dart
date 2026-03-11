@@ -92,13 +92,17 @@ class SelectionToolbar extends StatelessWidget {
                   button: true,
                   child: Material(
                     color: AppColors.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
+                    borderRadius: BorderRadius.circular(
+                      AppDimensions.radiusFull,
+                    ),
                     child: InkWell(
                       onTap: () {
                         Haptics.lightTap();
                         onSelectAll();
                       },
-                      borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
+                      borderRadius: BorderRadius.circular(
+                        AppDimensions.radiusFull,
+                      ),
                       focusColor: AppColors.primary.withValues(alpha: 0.2),
                       hoverColor: AppColors.primary.withValues(alpha: 0.15),
                       child: Container(
@@ -151,7 +155,9 @@ class SelectionToolbar extends StatelessWidget {
                       Haptics.lightTap();
                       onShare();
                     },
-                    borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
+                    borderRadius: BorderRadius.circular(
+                      AppDimensions.radiusFull,
+                    ),
                     focusColor: AppColors.accent.withValues(alpha: 0.2),
                     hoverColor: AppColors.accent.withValues(alpha: 0.15),
                     child: Container(
@@ -160,7 +166,7 @@ class SelectionToolbar extends StatelessWidget {
                         minHeight: 44,
                       ),
                       padding: const EdgeInsets.all(AppDimensions.spacing8),
-                      child: Icon(
+                      child: const Icon(
                         SolarLinearIcons.share,
                         color: AppColors.accent,
                         size: AppDimensions.iconMedium,
@@ -183,7 +189,9 @@ class SelectionToolbar extends StatelessWidget {
                       Haptics.lightTap();
                       onDelete();
                     },
-                    borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
+                    borderRadius: BorderRadius.circular(
+                      AppDimensions.radiusFull,
+                    ),
                     focusColor: AppColors.error.withValues(alpha: 0.2),
                     hoverColor: AppColors.error.withValues(alpha: 0.15),
                     child: Container(
@@ -192,7 +200,7 @@ class SelectionToolbar extends StatelessWidget {
                         minHeight: 44,
                       ),
                       padding: const EdgeInsets.all(AppDimensions.spacing8),
-                      child: Icon(
+                      child: const Icon(
                         SolarLinearIcons.trashBinMinimalistic,
                         color: AppColors.error,
                         size: AppDimensions.iconMedium,
@@ -246,13 +254,17 @@ class UploadProgressDialog extends StatelessWidget {
                   padding: const EdgeInsets.all(AppDimensions.spacing12),
                   decoration: BoxDecoration(
                     color: AppColors.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
+                    borderRadius: BorderRadius.circular(
+                      AppDimensions.radiusLarge,
+                    ),
                   ),
                   child: Icon(
                     progress >= 1.0
                         ? SolarBoldIcons.checkCircle
                         : SolarLinearIcons.upload,
-                    color: progress >= 1.0 ? AppColors.success : AppColors.primary,
+                    color: progress >= 1.0
+                        ? AppColors.success
+                        : AppColors.primary,
                     size: AppDimensions.iconXLarge,
                   ),
                 ),
@@ -289,7 +301,9 @@ class UploadProgressDialog extends StatelessWidget {
                       color: Colors.transparent,
                       child: InkWell(
                         onTap: onCancel,
-                        borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
+                        borderRadius: BorderRadius.circular(
+                          AppDimensions.radiusFull,
+                        ),
                         focusColor: AppColors.error.withValues(alpha: 0.12),
                         hoverColor: AppColors.error.withValues(alpha: 0.04),
                         child: Container(
@@ -343,9 +357,9 @@ class UploadProgressDialog extends StatelessWidget {
                       ),
                       minimumSize: const Size(44, 44),
                     ),
-                    child: Text(
+                    child: const Text(
                       'تم',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: 'IBM Plex Sans Arabic',
                         fontWeight: FontWeight.bold,
                       ),
@@ -367,11 +381,7 @@ class LibraryErrorState extends StatelessWidget {
   final String message;
   final VoidCallback? onRetry;
 
-  const LibraryErrorState({
-    super.key,
-    required this.message,
-    this.onRetry,
-  });
+  const LibraryErrorState({super.key, required this.message, this.onRetry});
 
   @override
   Widget build(BuildContext context) {
@@ -388,7 +398,9 @@ class LibraryErrorState extends StatelessWidget {
           ),
           const SizedBox(height: AppDimensions.paddingLarge),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppDimensions.paddingLarge),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppDimensions.paddingLarge,
+            ),
             child: Text(
               message,
               textAlign: TextAlign.center,
@@ -420,7 +432,7 @@ class LibraryErrorState extends StatelessWidget {
                       horizontal: AppDimensions.paddingLarge,
                       vertical: AppDimensions.spacing12,
                     ),
-                    child: Row(
+                    child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
@@ -428,8 +440,8 @@ class LibraryErrorState extends StatelessWidget {
                           color: Colors.white,
                           size: AppDimensions.iconMedium,
                         ),
-                        const SizedBox(width: AppDimensions.spacing8),
-                        const Text(
+                        SizedBox(width: AppDimensions.spacing8),
+                        Text(
                           'إعادة المحاولة',
                           style: TextStyle(
                             color: Colors.white,
@@ -455,10 +467,7 @@ class LibraryErrorState extends StatelessWidget {
 class LibrarySkeletonLoader extends StatelessWidget {
   final bool isGridView;
 
-  const LibrarySkeletonLoader({
-    super.key,
-    this.isGridView = true,
-  });
+  const LibrarySkeletonLoader({super.key, this.isGridView = true});
 
   @override
   Widget build(BuildContext context) {
@@ -487,7 +496,9 @@ class LibrarySkeletonLoader extends StatelessWidget {
                     margin: const EdgeInsets.all(AppDimensions.spacing12),
                     decoration: BoxDecoration(
                       color: theme.colorScheme.outline.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
+                      borderRadius: BorderRadius.circular(
+                        AppDimensions.radiusLarge,
+                      ),
                     ),
                   ),
                 ),
@@ -500,7 +511,9 @@ class LibrarySkeletonLoader extends StatelessWidget {
                   width: double.infinity,
                   decoration: BoxDecoration(
                     color: theme.colorScheme.outline.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
+                    borderRadius: BorderRadius.circular(
+                      AppDimensions.radiusSmall,
+                    ),
                   ),
                 ),
                 const SizedBox(height: AppDimensions.spacing12),
@@ -530,7 +543,9 @@ class LibrarySkeletonLoader extends StatelessWidget {
                 height: 48,
                 decoration: BoxDecoration(
                   color: theme.colorScheme.outline.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+                  borderRadius: BorderRadius.circular(
+                    AppDimensions.radiusMedium,
+                  ),
                 ),
               ),
               Expanded(
@@ -544,8 +559,12 @@ class LibrarySkeletonLoader extends StatelessWidget {
                         height: 16,
                         width: double.infinity,
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.outline.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
+                          color: theme.colorScheme.outline.withValues(
+                            alpha: 0.1,
+                          ),
+                          borderRadius: BorderRadius.circular(
+                            AppDimensions.radiusSmall,
+                          ),
                         ),
                       ),
                       const SizedBox(height: AppDimensions.spacing8),
@@ -553,8 +572,12 @@ class LibrarySkeletonLoader extends StatelessWidget {
                         height: 12,
                         width: 100,
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.outline.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
+                          color: theme.colorScheme.outline.withValues(
+                            alpha: 0.1,
+                          ),
+                          borderRadius: BorderRadius.circular(
+                            AppDimensions.radiusSmall,
+                          ),
                         ),
                       ),
                     ],

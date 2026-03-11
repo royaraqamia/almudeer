@@ -1,0 +1,92 @@
+# Prometheus Alert Rules for Al-Mudeer Library
+# Save as: library_alerts.yml
+
+groups:
+  - name: library_alerts
+    interval: 30s
+    rules:
+      # Storage Quota Alerts
+      - alert: LibraryStorageQuotaWarning
+        expr: library_quota_warning >= 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Library storage at 80% capacity"
+          description: "License {{ $labels.license_id }} has reached 80% of storage quota"
+          
+      - alert: LibraryStorageQuotaCritical
+        expr: library_quota_warning >= 2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Library storage at 90% capacity"
+          description: "License {{ $labels.license_id }} has reached 90% of storage quota"
+          
+      - alert: LibraryStorageQuotaEmergency
+        expr: library_quota_warning >= 3
+        for: 2m
+        labels:
+          severity: emergency
+        annotations:
+          summary: "Library storage at 95% capacity"
+          description: "License {{ $labels.license_id }} has reached 95% of storage quota - uploads will fail soon"
+          
+      # Error Rate Alerts
+      - alert: LibraryHighErrorRate
+        expr: rate(library_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High library error rate"
+          description: "Error rate is {{ $value }} errors/sec for operation {{ $labels.operation }}"
+          
+      - alert: LibraryUploadFailures
+        expr: rate(library_uploads_total{status="failed"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Library upload failures detected"
+          description: "Upload failure rate is {{ $value }} failures/sec"
+          
+      # Latency Alerts
+      - alert: LibraryHighLatency
+        expr: histogram_quantile(0.95, rate(library_operation_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Library operation latency high"
+          description: "95th percentile latency is {{ $value }} seconds"
+          
+      - alert: LibraryVeryHighLatency
+        expr: histogram_quantile(0.95, rate(library_operation_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Library operation latency very high"
+          description: "95th percentile latency is {{ $value }} seconds"
+          
+      # Share System Alerts
+      - alert: LibraryShareNotificationFailures
+        expr: rate(library_errors_total{error_type="share_notification_failure"}[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Library share notification failures"
+          description: "Share notification failure rate is {{ $value }} failures/sec"
+          
+      # Availability Alerts
+      - alert: LibraryEndpointDown
+        expr: up{job="almudeer-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Al-Mudeer backend is down"
+          description: "The backend service has been unreachable for more than 1 minute"

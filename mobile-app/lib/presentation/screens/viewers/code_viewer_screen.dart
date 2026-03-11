@@ -124,18 +124,18 @@ class CodeViewerScreen extends StatefulWidget {
 }
 
 class _CodeViewerScreenState extends State<CodeViewerScreen> {
-  String _content = "";
+  String _content = '';
   bool _isLoading = true;
   String? _error;
   bool _showLineNumbers = true;
   double _fontSize = 13.0;
   String? _manualLanguage;
-  
+
   // P0 FIX: Retry logic
   int _retryCount = 0;
   static const int _maxRetries = 3;
   bool _isSizeError = false;
-  
+
   // P1 FIX: Search functionality
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
@@ -158,7 +158,7 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
   Future<void> _loadFile() async {
     try {
       final file = File(widget.filePath);
-      
+
       // P0 FIX: Check if file exists
       if (!await file.exists()) {
         if (mounted) {
@@ -170,7 +170,7 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
         }
         return;
       }
-      
+
       // P0 FIX: Check file size
       final fileSize = await file.length();
       if (fileSize > kMaxCodeFileSize) {
@@ -178,12 +178,13 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
           setState(() {
             _isLoading = false;
             _isSizeError = true;
-            _error = 'حجم الملف كبير جداً (${(fileSize / 1024 / 1024).toStringAsFixed(1)} ميجابايت). الحد الأقصى هو ${kMaxCodeFileSize ~/ 1024 ~/ 1024} ميجابايت';
+            _error =
+                'حجم الملف كبير جداً (${(fileSize / 1024 / 1024).toStringAsFixed(1)} ميجابايت). الحد الأقصى هو ${kMaxCodeFileSize ~/ 1024 ~/ 1024} ميجابايت';
           });
         }
         return;
       }
-      
+
       final content = await file.readAsString();
       if (mounted) {
         setState(() {
@@ -259,7 +260,9 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
   void _previousMatch() {
     if (_searchMatches.isEmpty) return;
     setState(() {
-      _currentSearchIndex = (_currentSearchIndex - 1 + _searchMatches.length) % _searchMatches.length;
+      _currentSearchIndex =
+          (_currentSearchIndex - 1 + _searchMatches.length) %
+          _searchMatches.length;
     });
   }
 
@@ -325,7 +328,10 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
                   if (_searchMatches.isNotEmpty)
                     Container(
                       margin: const EdgeInsets.only(left: 8),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
@@ -477,7 +483,10 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
                     const SizedBox(height: 16),
                     Text(
                       'محاولة $_retryCount من $_maxRetries...',
-                      style: const TextStyle(color: Colors.white70, fontSize: 14),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
                     ),
                   ],
                 ],
@@ -499,7 +508,9 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            _isSizeError ? SolarLinearIcons.file : SolarLinearIcons.dangerCircle,
+            _isSizeError
+                ? SolarLinearIcons.file
+                : SolarLinearIcons.dangerCircle,
             size: 64,
             color: Colors.white54,
           ),
@@ -514,9 +525,7 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
           const SizedBox(height: 8),
           Text(
             _error!,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: Colors.white54,
-            ),
+            style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white54),
             textAlign: TextAlign.center,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
@@ -530,7 +539,10 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
               ),
             ),
           ],

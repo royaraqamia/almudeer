@@ -115,18 +115,18 @@ class InboxProvider extends ChangeNotifier {
 
     for (final convo in topConversations) {
       final contact = convo.senderContact!;
-      
+
       // FIX P1-6: Check cooldown - skip if prefetched recently
       final lastPrefetch = _prefetchCooldowns[contact];
       if (lastPrefetch != null &&
           now.difference(lastPrefetch) < _prefetchCooldownDuration) {
         continue; // Still in cooldown
       }
-      
+
       if (!_prefetchedContacts.contains(contact)) {
         _prefetchedContacts.add(contact);
         _prefetchCooldowns[contact] = now;
-        
+
         // Prefetch in background
         _inboxRepository
             .getConversationMessagesCursor(contact, limit: 25)
@@ -507,7 +507,7 @@ class InboxProvider extends ChangeNotifier {
     // WhatsApp/Telegram/Email contacts should NOT be affected by admin profile changes
     if (index != -1) {
       final conversation = _conversations[index];
-      
+
       // Skip if this is NOT an Almudeer channel conversation
       if (conversation.channel.toLowerCase() != 'almudeer') {
         debugPrint(
@@ -524,7 +524,8 @@ class InboxProvider extends ChangeNotifier {
 
       // Update avatar if provided
       String? newAvatarUrl = conversation.avatarUrl;
-      if (updatedFields != null && updatedFields.containsKey('profile_image_url')) {
+      if (updatedFields != null &&
+          updatedFields.containsKey('profile_image_url')) {
         newAvatarUrl = updatedFields['profile_image_url'];
       }
 
@@ -584,7 +585,7 @@ class InboxProvider extends ChangeNotifier {
   /// Handle message edited event incrementally
   void _handleMessageEditedEvent(Map<String, dynamic> data) {
     debugPrint('[InboxProvider] Received message_edited event: $data');
-    
+
     final senderContact = data['sender_contact'] as String?;
     final recipientContact = data['recipient_contact'] as String?;
     final newBody = data['new_body'] as String?;
@@ -594,7 +595,9 @@ class InboxProvider extends ChangeNotifier {
     // For self edits or other channels, use sender_contact
     final targetContact = recipientContact ?? senderContact;
 
-    debugPrint('[InboxProvider] targetContact=$targetContact, newBody=$newBody, messageId=$messageId');
+    debugPrint(
+      '[InboxProvider] targetContact=$targetContact, newBody=$newBody, messageId=$messageId',
+    );
 
     if (targetContact != null && newBody != null) {
       updateMessageEdit(senderContact: targetContact, body: newBody);
@@ -611,7 +614,9 @@ class InboxProvider extends ChangeNotifier {
       }
     } else {
       // Fallback to refresh if data is missing
-      debugPrint('[InboxProvider] Missing required data, falling back to refresh');
+      debugPrint(
+        '[InboxProvider] Missing required data, falling back to refresh',
+      );
       refresh();
     }
   }
@@ -927,7 +932,9 @@ class InboxProvider extends ChangeNotifier {
         _recentSearches,
       );
     } catch (e) {
-      debugPrint('[InboxProvider] Failed to update recent searches after delete: $e');
+      debugPrint(
+        '[InboxProvider] Failed to update recent searches after delete: $e',
+      );
     }
   }
 
@@ -1059,12 +1066,16 @@ class InboxProvider extends ChangeNotifier {
 
       // FIX: Always refresh from server after deletion to ensure deleted
       // conversations stay deleted (server filters out deleted_at IS NOT NULL)
-      debugPrint('[InboxProvider] Bulk delete completed (${contactsToDelete.length} items), refreshing from server...');
+      debugPrint(
+        '[InboxProvider] Bulk delete completed (${contactsToDelete.length} items), refreshing from server...',
+      );
       await loadConversations(refresh: true);
       debugPrint('[InboxProvider] Refresh completed after bulk delete');
     } catch (e) {
-      _errorMessage = "Failed to delete some items";
-      debugPrint('[InboxProvider] Bulk delete failed: $e, refreshing to recover state...');
+      _errorMessage = 'Failed to delete some items';
+      debugPrint(
+        '[InboxProvider] Bulk delete failed: $e, refreshing to recover state...',
+      );
       await loadConversations(refresh: true);
     }
   }
@@ -1102,9 +1113,13 @@ class InboxProvider extends ChangeNotifier {
       await _inboxRepository.deleteConversation(contactToDelete);
       // FIX: Refresh from server to ensure deleted conversation stays deleted
       // This fetches fresh data which excludes conversations with deleted_at set
-      debugPrint('[InboxProvider] Conversation deleted successfully, refreshing from server...');
+      debugPrint(
+        '[InboxProvider] Conversation deleted successfully, refreshing from server...',
+      );
       await loadConversations(refresh: true);
-      debugPrint('[InboxProvider] Refresh completed, deleted conversation should be gone');
+      debugPrint(
+        '[InboxProvider] Refresh completed, deleted conversation should be gone',
+      );
     } catch (e) {
       // Revert
       if (conversation != null && index != -1) {
@@ -1124,7 +1139,9 @@ class InboxProvider extends ChangeNotifier {
   /// Restore a deleted conversation (for undo functionality)
   void restoreConversation(Conversation conversation) {
     // Check if already exists to avoid duplicates
-    final existingIndex = _conversations.indexWhere((c) => c.id == conversation.id);
+    final existingIndex = _conversations.indexWhere(
+      (c) => c.id == conversation.id,
+    );
     if (existingIndex != -1) return;
 
     // Insert at the top (below Saved Messages if it exists)
@@ -1145,7 +1162,7 @@ class InboxProvider extends ChangeNotifier {
     if (index == -1) return;
 
     final conversation = _conversations[index];
-    
+
     // Optimistic remove
     _conversations.removeAt(index);
     _decrementStatusCount(conversation.status);
@@ -1211,7 +1228,7 @@ class InboxProvider extends ChangeNotifier {
   /// Bulk archive selected conversations
   Future<void> bulkArchive() async {
     if (_selectedIds.isEmpty) return;
-    
+
     final ids = List<int>.from(_selectedIds);
     final contactsToArchive = <String>[];
 
@@ -1243,7 +1260,7 @@ class InboxProvider extends ChangeNotifier {
   /// Bulk mark as read
   Future<void> bulkMarkAsRead() async {
     if (_selectedIds.isEmpty) return;
-    
+
     final ids = List<int>.from(_selectedIds);
 
     for (var id in ids) {
@@ -1259,9 +1276,11 @@ class InboxProvider extends ChangeNotifier {
 
     try {
       await Future.wait(
-        ids.map((id) => _inboxRepository.markConversationRead(
-          _conversations.firstWhere((c) => c.id == id).senderContact ?? '',
-        )),
+        ids.map(
+          (id) => _inboxRepository.markConversationRead(
+            _conversations.firstWhere((c) => c.id == id).senderContact ?? '',
+          ),
+        ),
       );
     } catch (e) {
       // Ignore
@@ -1385,7 +1404,20 @@ class InboxProvider extends ChangeNotifier {
   /// Ensures a virtual "Saved Messages" entry exists at the top
   void _ensureSavedMessagesEntry() {
     // Helper to create Saved Messages conversation
-    Conversation createSaved() { return Conversation(id: -999, channel: "saved", senderContact: "__saved_messages__", senderName: "المسودَّة", body: "", status: "sent", createdAt: DateTime.now().toIso8601String(), messageCount: 0, unreadCount: 0); }
+    Conversation createSaved() {
+      return Conversation(
+        id: -999,
+        channel: 'saved',
+        senderContact: '__saved_messages__',
+        senderName: 'المسودَّة',
+        body: '',
+        status: 'sent',
+        createdAt: DateTime.now().toIso8601String(),
+        messageCount: 0,
+        unreadCount: 0,
+      );
+    }
+
     final index = _conversations.indexWhere(
       (c) => c.senderContact == '__saved_messages__',
     );

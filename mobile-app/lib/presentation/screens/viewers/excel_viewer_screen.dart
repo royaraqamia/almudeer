@@ -39,13 +39,13 @@ class _ExcelViewerScreenState extends State<ExcelViewerScreen> {
   bool _isAscending = true;
   int _fileSizeBytes = 0;
   bool _showSizeWarning = false;
-  
+
   // Pagination for large sheets
   int _currentPage = 0;
   int _totalPages = 0;
   List<List<excel_lib.CellValue?>> _currentSheetData = [];
   List<List<excel_lib.CellValue?>> _filteredData = [];
-  List<Map<String, dynamic>> _dataWithIndex = [];  // Preserve original order
+  List<Map<String, dynamic>> _dataWithIndex = []; // Preserve original order
 
   @override
   void initState() {
@@ -57,7 +57,7 @@ class _ExcelViewerScreenState extends State<ExcelViewerScreen> {
     try {
       final file = File(widget.filePath);
       _fileSizeBytes = await file.length();
-      
+
       // Show warning for large files
       if (_fileSizeBytes > kMaxExcelFileSizeWarning) {
         if (mounted) {
@@ -66,7 +66,7 @@ class _ExcelViewerScreenState extends State<ExcelViewerScreen> {
           });
         }
       }
-      
+
       final bytes = await file.readAsBytes();
       final excel = excel_lib.Excel.decodeBytes(bytes);
 
@@ -74,29 +74,28 @@ class _ExcelViewerScreenState extends State<ExcelViewerScreen> {
         // Load only first sheet initially to save memory
         final firstSheetName = excel.sheets.keys.first;
         final sheet = excel.sheets[firstSheetName]!;
-        
+
         // Convert sheet to list for pagination
         final sheetData = <List<excel_lib.CellValue?>>[];
         var maxColumns = 0;
 
         // Use iterateAllCells for memory-efficient reading
         for (var row in sheet.rows) {
-          final cellRow = row.map((cell) => cell as excel_lib.CellValue?).toList();
+          final cellRow = row
+              .map((cell) => cell as excel_lib.CellValue?)
+              .toList();
           sheetData.add(cellRow);
           if (cellRow.length > maxColumns) maxColumns = cellRow.length;
         }
-        
+
         // Store with original indices for stable sorting
         final dataWithIndex = <Map<String, dynamic>>[];
         for (var i = 0; i < sheetData.length; i++) {
-          dataWithIndex.add({
-            'index': i,
-            'row': sheetData[i],
-          });
+          dataWithIndex.add({'index': i, 'row': sheetData[i]});
         }
-        
+
         final totalPages = (sheetData.length / kMaxRowsPerPage).ceil();
-        
+
         setState(() {
           _excel = excel;
           _selectedSheet = firstSheetName;
@@ -121,7 +120,7 @@ class _ExcelViewerScreenState extends State<ExcelViewerScreen> {
   void _onSearch(String query) {
     setState(() {
       _searchQuery = query.trim().toLowerCase();
-      _currentPage = 0;  // Reset to first page on search
+      _currentPage = 0; // Reset to first page on search
     });
     _applyFilterAndSort();
   }
@@ -131,14 +130,12 @@ class _ExcelViewerScreenState extends State<ExcelViewerScreen> {
 
     // Apply filter
     if (_searchQuery.isNotEmpty) {
-      rest = rest
-          .where((entry) {
-            final row = entry['row'] as List<excel_lib.CellValue>;
-            return row.any((cell) =>
-              (cell.toString().toLowerCase().contains(_searchQuery))
-            );
-          })
-          .toList();
+      rest = rest.where((entry) {
+        final row = entry['row'] as List<excel_lib.CellValue>;
+        return row.any(
+          (cell) => (cell.toString().toLowerCase().contains(_searchQuery)),
+        );
+      }).toList();
     }
 
     // Apply sort with stable ordering
@@ -170,7 +167,7 @@ class _ExcelViewerScreenState extends State<ExcelViewerScreen> {
         if (comparison == 0) {
           return indexA.compareTo(indexB);
         }
-        
+
         return _isAscending ? comparison : -comparison;
       });
     }
@@ -178,11 +175,14 @@ class _ExcelViewerScreenState extends State<ExcelViewerScreen> {
     final totalPages = (rest.length / kMaxRowsPerPage).ceil();
     final startIndex = _currentPage * kMaxRowsPerPage;
     final endIndex = (startIndex + kMaxRowsPerPage).clamp(0, rest.length);
-    
+
     setState(() {
       _filteredData = [
-        _dataWithIndex.first['row'] as List<excel_lib.CellValue>,  // Header
-        ...rest.skip(startIndex).take(endIndex - startIndex).map((e) => e['row'] as List<excel_lib.CellValue>),
+        _dataWithIndex.first['row'] as List<excel_lib.CellValue>, // Header
+        ...rest
+            .skip(startIndex)
+            .take(endIndex - startIndex)
+            .map((e) => e['row'] as List<excel_lib.CellValue>),
       ];
       _totalPages = totalPages > 0 ? totalPages : 1;
     });
@@ -244,7 +244,10 @@ class _ExcelViewerScreenState extends State<ExcelViewerScreen> {
                   if (_currentSheetData.isNotEmpty)
                     Text(
                       'صفحة ${_currentPage + 1} / $_totalPages (${_filteredData.length} صف)',
-                      style: const TextStyle(fontSize: 10, color: Colors.white70),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.white70,
+                      ),
                     ),
                 ],
               ),
@@ -266,7 +269,7 @@ class _ExcelViewerScreenState extends State<ExcelViewerScreen> {
         actions: [
           if (!_isSearching)
             IconButton(
-              icon: Icon(SolarLinearIcons.magnifer),
+              icon: const Icon(SolarLinearIcons.magnifer),
               onPressed: () => setState(() => _isSearching = true),
             ),
           IconButton(
@@ -343,7 +346,9 @@ class _ExcelViewerScreenState extends State<ExcelViewerScreen> {
           const SizedBox(width: 16),
           IconButton(
             icon: const Icon(SolarLinearIcons.arrowRight, size: 20),
-            onPressed: _currentPage < _totalPages - 1 ? () => _changePage(1) : null,
+            onPressed: _currentPage < _totalPages - 1
+                ? () => _changePage(1)
+                : null,
             tooltip: 'الصفحة التالية',
           ),
         ],
@@ -513,7 +518,7 @@ class _ExcelViewerScreenState extends State<ExcelViewerScreen> {
                     );
                   }
 
-                  Widget cellContainer = Container(
+                  final Widget cellContainer = Container(
                     width: cellWidth,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,

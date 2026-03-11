@@ -20,7 +20,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
-      colorScheme: ColorScheme.light(
+      colorScheme: const ColorScheme.light(
         primary: AppColors.primary,
         onPrimary: Colors.white,
         secondary: AppColors.accent,
@@ -42,33 +42,33 @@ class AppTheme {
       textTheme: _buildTextTheme(Brightness.light),
 
       // AppBar
-      appBarTheme: AppBarTheme(
+      appBarTheme: const AppBarTheme(
         elevation: 0,
         centerTitle: true,
         backgroundColor: AppColors.backgroundLight,
         foregroundColor: AppColors.textPrimaryLight,
         surfaceTintColor: Colors.transparent,
-        titleTextStyle: const TextStyle(
+        titleTextStyle: TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.w600,
           color: AppColors.textPrimaryLight,
           fontFamily: 'IBM Plex Sans Arabic',
         ),
-        iconTheme: const IconThemeData(color: AppColors.textPrimaryLight),
+        iconTheme: IconThemeData(color: AppColors.textPrimaryLight),
       ),
 
       // Bottom Navigation
-      bottomNavigationBarTheme: BottomNavigationBarThemeData(
+      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         backgroundColor: AppColors.backgroundLight,
         selectedItemColor: AppColors.primary,
         unselectedItemColor: AppColors.textSecondaryLight,
         type: BottomNavigationBarType.fixed,
         elevation: 0,
-        selectedLabelStyle: const TextStyle(
+        selectedLabelStyle: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w600,
         ),
-        unselectedLabelStyle: const TextStyle(
+        unselectedLabelStyle: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w500,
         ),
@@ -188,35 +188,50 @@ class AppTheme {
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.borderLight, width: 1), // Apple: 1px (was 2px)
+          borderSide: const BorderSide(
+            color: AppColors.borderLight,
+            width: 1,
+          ), // Apple: 1px (was 2px)
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.borderLight, width: 1), // Apple: 1px
+          borderSide: const BorderSide(
+            color: AppColors.borderLight,
+            width: 1,
+          ), // Apple: 1px
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.primary, width: 1.5), // 1.5px for focus OK
+          borderSide: const BorderSide(
+            color: AppColors.primary,
+            width: 1.5,
+          ), // 1.5px for focus OK
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.error, width: 1), // Apple: 1px
+          borderSide: const BorderSide(
+            color: AppColors.error,
+            width: 1,
+          ), // Apple: 1px
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.error, width: 1.5), // 1.5px for focus
+          borderSide: const BorderSide(
+            color: AppColors.error,
+            width: 1.5,
+          ), // 1.5px for focus
         ),
         hintStyle: const TextStyle(
           color: AppColors.textTertiaryLight,
@@ -309,7 +324,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
-      colorScheme: ColorScheme.dark(
+      colorScheme: const ColorScheme.dark(
         primary: AppColors.primaryLight,
         onPrimary: Colors.white,
         secondary: AppColors.accent,
@@ -324,33 +339,33 @@ class AppTheme {
       textTheme: _buildTextTheme(Brightness.dark),
 
       // AppBar
-      appBarTheme: AppBarTheme(
+      appBarTheme: const AppBarTheme(
         elevation: 0,
         centerTitle: true,
         backgroundColor: AppColors.backgroundDark,
         foregroundColor: AppColors.textPrimaryDark,
         surfaceTintColor: Colors.transparent,
-        titleTextStyle: const TextStyle(
+        titleTextStyle: TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.w600,
           color: AppColors.textPrimaryDark,
           fontFamily: 'IBM Plex Sans Arabic',
         ),
-        iconTheme: const IconThemeData(color: AppColors.textPrimaryDark),
+        iconTheme: IconThemeData(color: AppColors.textPrimaryDark),
       ),
 
       // Bottom Navigation
-      bottomNavigationBarTheme: BottomNavigationBarThemeData(
+      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         backgroundColor: AppColors.surfaceDark,
         selectedItemColor: AppColors.primaryLight,
         unselectedItemColor: AppColors.textSecondaryDark,
         type: BottomNavigationBarType.fixed,
         elevation: 0,
-        selectedLabelStyle: const TextStyle(
+        selectedLabelStyle: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w600,
         ),
-        unselectedLabelStyle: const TextStyle(
+        unselectedLabelStyle: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w500,
         ),
@@ -368,7 +383,9 @@ class AppTheme {
             cornerSmoothing: 1.0,
           ),
         ),
-        shadowColor: Colors.black.withValues(alpha: 0.2), // Apple: Subtle shadow in dark mode
+        shadowColor: Colors.black.withValues(
+          alpha: 0.2,
+        ), // Apple: Subtle shadow in dark mode
       ),
 
       // Buttons - Using standardized heights and radius
@@ -471,35 +488,50 @@ class AppTheme {
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.borderDark, width: 1), // Apple: 1px (was 2px)
+          borderSide: const BorderSide(
+            color: AppColors.borderDark,
+            width: 1,
+          ), // Apple: 1px (was 2px)
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.borderDark, width: 1), // Apple: 1px
+          borderSide: const BorderSide(
+            color: AppColors.borderDark,
+            width: 1,
+          ), // Apple: 1px
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.primaryLight, width: 1.5), // 1.5px for focus
+          borderSide: const BorderSide(
+            color: AppColors.primaryLight,
+            width: 1.5,
+          ), // 1.5px for focus
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.error, width: 1), // Apple: 1px
+          borderSide: const BorderSide(
+            color: AppColors.error,
+            width: 1,
+          ), // Apple: 1px
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: SmoothBorderRadius(
             cornerRadius: AppDimensions.radiusInput,
             cornerSmoothing: 1.0,
           ),
-          borderSide: const BorderSide(color: AppColors.error, width: 1.5), // 1.5px for focus
+          borderSide: const BorderSide(
+            color: AppColors.error,
+            width: 1.5,
+          ), // 1.5px for focus
         ),
         hintStyle: const TextStyle(
           color: AppColors.textTertiaryDark,
@@ -726,7 +758,7 @@ class AppTheme {
 }
 
 /// Custom fast page transitions builder
-/// 
+///
 /// Apple HIG Compliance:
 /// - Respects system Reduce Motion preference
 /// - Uses fade-only transitions when Reduce Motion is enabled
@@ -742,8 +774,9 @@ class _FastPageTransitionsBuilder extends PageTransitionsBuilder {
   ) {
     // Apple HIG: Respect Reduce Motion preference
     final mediaQuery = MediaQuery.of(context);
-    final reduceMotion = mediaQuery.disableAnimations || mediaQuery.accessibleNavigation;
-    
+    final reduceMotion =
+        mediaQuery.disableAnimations || mediaQuery.accessibleNavigation;
+
     if (reduceMotion) {
       // Fade-only transition (no slide) for reduced motion
       return FadeTransition(
@@ -754,7 +787,7 @@ class _FastPageTransitionsBuilder extends PageTransitionsBuilder {
         child: child,
       );
     }
-    
+
     // Default: Fade + subtle slide for normal motion preference
     return FadeTransition(
       opacity: CurvedAnimation(parent: animation, curve: AppAnimations.enter),

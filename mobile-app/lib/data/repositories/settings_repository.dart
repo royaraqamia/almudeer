@@ -1,17 +1,17 @@
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
 import '../../../core/api/api_client.dart';
 import '../../../core/api/endpoints.dart';
 import '../models/user_preferences.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
 
 /// Repository for user settings and preferences
+/// 
+/// Uses SharedPreferences for local storage with graceful error handling.
+/// flutter_secure_storage was removed due to platform compatibility issues.
 class SettingsRepository {
   final ApiClient _apiClient;
   static const String _preferencesKey = 'user_preferences_cache';
-
-  // SECURITY: Use hardware-backed encrypted storage for cache
-  final _secureStorage = const FlutterSecureStorage();
 
   SettingsRepository({ApiClient? apiClient})
     : _apiClient = apiClient ?? ApiClient();
@@ -20,37 +20,30 @@ class SettingsRepository {
 
   /// Save preferences locally (Full Cache)
   Future<void> savePreferencesLocally(UserPreferences preferences) async {
-    final accountHash = await _apiClient.getAccountCacheHash();
-    final jsonString = jsonEncode(preferences.toJson());
-    await _secureStorage.write(
-      key: '${accountHash}_$_preferencesKey',
-      value: jsonString,
-    );
+    try {
+      final accountHash = await _apiClient.getAccountCacheHash();
+      final prefs = await SharedPreferences.getInstance();
+      final storageKey = '${accountHash}_$_preferencesKey';
+      final jsonString = jsonEncode(preferences.toJson());
+      await prefs.setString(storageKey, jsonString);
+    } catch (e) {
+      debugPrint('SettingsRepository: Failed to save preferences locally: $e');
+    }
   }
 
   /// Get local preferences (Full Cache)
   Future<UserPreferences?> getLocalPreferences() async {
     try {
       final accountHash = await _apiClient.getAccountCacheHash();
+      final prefs = await SharedPreferences.getInstance();
       final storageKey = '${accountHash}_$_preferencesKey';
-
-      String? jsonString = await _secureStorage.read(key: storageKey);
-
-      if (jsonString == null) {
-        // SECURITY-MIGRATION: Check legacy SharedPreferences
-        final prefs = await SharedPreferences.getInstance();
-        jsonString = prefs.getString(storageKey);
-        if (jsonString != null) {
-          await _secureStorage.write(key: storageKey, value: jsonString);
-          await prefs.remove(storageKey);
-        }
-      }
+      final jsonString = prefs.getString(storageKey);
 
       if (jsonString != null) {
         return UserPreferences.fromJson(jsonDecode(jsonString));
       }
     } catch (e) {
-      // Ignore cache errors
+      debugPrint('SettingsRepository: Failed to get local preferences: $e');
     }
     return null;
   }

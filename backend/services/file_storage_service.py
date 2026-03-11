@@ -5,6 +5,8 @@ Handles saving media files to the local filesystem and generating accessible URL
 Fixes applied:
 - Issue #28: Path traversal vulnerability prevention with secure_filename
 - Security: File size and type validation
+- P6-4: Circuit breaker for cascading failure prevention
+- P6-5: Retry logic for transient I/O errors
 """
 
 import os
@@ -12,6 +14,13 @@ import re
 import uuid
 import logging
 from typing import Optional, Tuple, List
+
+# P6-4: Import circuit breaker and retry utilities
+from utils.retry_circuit_breaker import (
+    file_storage_circuit_breaker,
+    retry_file_storage,
+    CircuitBreakerError
+)
 
 logger = logging.getLogger(__name__)
 
@@ -263,9 +272,14 @@ class FileStorageService:
             logger.error(f"Failed to save file async: {e}")
             raise
 
+    @file_storage_circuit_breaker
+    @retry_file_storage
     def delete_file(self, path_or_url: str) -> bool:
         """
         Delete a file from storage by its relative path or public URL.
+
+        P6-4: Wrapped with circuit breaker to prevent cascading failures.
+        P6-5: Wrapped with retry logic for transient I/O errors.
 
         Args:
             path_or_url: Relative path (e.g. 'stories/file.pkg') or public URL
@@ -293,7 +307,7 @@ class FileStorageService:
             # Then verify it stays within the upload directory
             abs_upload_dir = os.path.abspath(self.upload_dir)
             abs_path = os.path.abspath(os.path.normpath(os.path.join(self.upload_dir, relative_path)))
-            
+
             if not abs_path.startswith(abs_upload_dir + os.sep) and abs_path != abs_upload_dir:
                 logger.warning(f"Security: Path traversal attempt detected: {path_or_url}")
                 return False
@@ -306,7 +320,7 @@ class FileStorageService:
             return False
         except Exception as e:
             logger.error(f"Error deleting file {path_or_url}: {e}")
-            return False
+            raise  # Re-raise for retry/circuit breaker to handle
 
     def get_physical_path(self, path_or_url: str) -> str:
         """

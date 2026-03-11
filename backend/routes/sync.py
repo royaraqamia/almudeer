@@ -344,12 +344,17 @@ async def _process_operation(op: SyncOperation, license_id: int, background_task
                 if key == "quran_progress":
                     validation_error = _validate_quran_progress(data)
                     if validation_error:
+                        # Log validation failure for monitoring
+                        logger.warning(
+                            f"Quran progress validation failed for license {license_id}: {validation_error}",
+                            extra={"data": data, "license_id": license_id}
+                        )
                         return SyncResult(
                             operation_id=op.id,
                             success=False,
                             error=validation_error
                         )
-                
+
                 success = await update_preferences(license_id, **{key: json.dumps(data)})
                 return SyncResult(operation_id=op.id, success=success)
             else:

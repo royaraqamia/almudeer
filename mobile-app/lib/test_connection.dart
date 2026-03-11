@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 void main() async {
   runApp(
     const MaterialApp(
-      home: Scaffold(body: Center(child: Text("Running Network Test..."))),
+      home: Scaffold(body: Center(child: Text('Running Network Test...'))),
     ),
   );
 
@@ -72,7 +72,7 @@ void main() async {
 
     // Read response
     final responseBody = await response
-        .transform(SystemEncoding().decoder)
+        .transform(const SystemEncoding().decoder)
         .join();
     debugPrint(
       '   Body snippet: ${responseBody.substring(0, responseBody.length > 100 ? 100 : responseBody.length)}...',

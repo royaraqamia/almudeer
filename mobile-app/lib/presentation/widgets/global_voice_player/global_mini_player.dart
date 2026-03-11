@@ -188,7 +188,7 @@ class _GlobalMiniPlayerState extends State<GlobalMiniPlayer> {
                                   const SizedBox(width: 8),
                                   Text(
                                     player.currentPosition.inMilliseconds > 0
-                                        ? "${_formatDuration(player.currentPosition)} / ${_formatDuration(player.effectiveTotalDuration)}"
+                                        ? '${_formatDuration(player.currentPosition)} / ${_formatDuration(player.effectiveTotalDuration)}'
                                         : _formatDuration(
                                             player.effectiveTotalDuration,
                                           ),

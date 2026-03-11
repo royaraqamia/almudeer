@@ -47,10 +47,9 @@ class _SettingsRowState extends State<SettingsRow> {
     final isDark = theme.brightness == Brightness.dark;
 
     final row = Padding(
-      padding: widget.padding ??
-          const EdgeInsets.symmetric(
-            vertical: AppDimensions.spacing12,
-          ),
+      padding:
+          widget.padding ??
+          const EdgeInsets.symmetric(vertical: AppDimensions.spacing12),
       child: Row(
         children: [
           // Icon container with gradient
@@ -161,10 +160,7 @@ class _SettingsRowState extends State<SettingsRow> {
     // Non-interactive row
     return Column(
       children: [
-        Container(
-          constraints: const BoxConstraints(minHeight: 44),
-          child: row,
-        ),
+        Container(constraints: const BoxConstraints(minHeight: 44), child: row),
         if (widget.showDivider) const SettingsDivider(),
       ],
     );
@@ -188,11 +184,7 @@ class SettingsDivider extends StatelessWidget {
   final double indent;
   final double endIndent;
 
-  const SettingsDivider({
-    super.key,
-    this.indent = 64,
-    this.endIndent = 0,
-  });
+  const SettingsDivider({super.key, this.indent = 64, this.endIndent = 0});
 
   @override
   Widget build(BuildContext context) {
@@ -200,9 +192,7 @@ class SettingsDivider extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        vertical: AppDimensions.spacing4,
-      ),
+      padding: const EdgeInsets.symmetric(vertical: AppDimensions.spacing4),
       child: Divider(
         height: 1,
         thickness: 1,
@@ -241,7 +231,7 @@ class SettingsSectionHeader extends StatelessWidget {
             width: 4,
             height: AppDimensions.spacing24,
             decoration: BoxDecoration(
-              gradient: LinearGradient(
+              gradient: const LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [AppColors.primary, AppColors.primaryLight],
@@ -338,18 +328,16 @@ class _AnimatedSettingsSectionState extends State<AnimatedSettingsSection>
 
     _fadeAnimation = CurvedAnimation(
       parent: _controller,
-      curve: Interval(0.0, 0.6, curve: Curves.easeOut),
+      curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
     );
 
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.15),
-      end: Offset.zero,
-    ).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: const Interval(0.0, 1.0, curve: Curves.easeOutCubic),
-      ),
-    );
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.15), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _controller,
+            curve: const Interval(0.0, 1.0, curve: Curves.easeOutCubic),
+          ),
+        );
 
     Future.delayed(Duration(milliseconds: (widget.delay * 1000).round()), () {
       if (mounted) _controller.forward();
@@ -366,10 +354,7 @@ class _AnimatedSettingsSectionState extends State<AnimatedSettingsSection>
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: _fadeAnimation,
-      child: SlideTransition(
-        position: _slideAnimation,
-        child: widget.child,
-      ),
+      child: SlideTransition(position: _slideAnimation, child: widget.child),
     );
   }
 }

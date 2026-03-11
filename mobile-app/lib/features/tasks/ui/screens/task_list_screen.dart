@@ -76,10 +76,14 @@ class _TaskListScreenState extends State<TaskListScreen> {
   void _navigateToAddEditTask(BuildContext context, [TaskModel? task]) {
     Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (_) => TaskEditScreen(task: task))).then((_) {
+    ).push(MaterialPageRoute(builder: (_) => TaskEditScreen(task: task))).then((
+      _,
+    ) {
       // Refresh tasks when returning from edit screen to ensure latest data
       if (!context.mounted) return;
-      debugPrint('[TaskListScreen] Refreshing tasks after returning from edit screen');
+      debugPrint(
+        '[TaskListScreen] Refreshing tasks after returning from edit screen',
+      );
       context.read<TaskProvider>().loadTasks();
     });
   }
@@ -107,8 +111,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
                 physics: const BouncingScrollPhysics(),
                 slivers: [
                   _buildHeader(context),
-                  if (provider.tasks.isNotEmpty)
-                    const SliverToBoxAdapter(),
+                  if (provider.tasks.isNotEmpty) const SliverToBoxAdapter(),
                   SliverPersistentHeader(
                     pinned: true,
                     delegate: _FilterHeaderDelegate(
@@ -177,7 +180,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
       heroTag: 'task_fab',
       standalone: false,
       onPressed: () => _navigateToAddEditTask(context),
-      gradientColors: [const Color(0xFF2563EB), const Color(0xFF0891B2)],
+      gradientColors: const [Color(0xFF2563EB), Color(0xFF0891B2)],
       icon: const Icon(
         SolarBoldIcons.clipboardAdd,
         color: Colors.white,
@@ -256,12 +259,10 @@ class _TaskListScreenState extends State<TaskListScreen> {
       builder: (context, provider, _) {
         // Show cached data immediately - no skeleton loader
         if (provider.tasks.isEmpty) {
-          return SliverFillRemaining(
+          return const SliverFillRemaining(
             hasScrollBody: false,
             child: Center(
-              child: EmptyStateWidget(
-                icon: SolarLinearIcons.notes,
-              ),
+              child: EmptyStateWidget(icon: SolarLinearIcons.notes),
             ),
           );
         }
@@ -269,12 +270,10 @@ class _TaskListScreenState extends State<TaskListScreen> {
         final tasks = provider.filteredTasks;
 
         if (tasks.isEmpty) {
-          return SliverFillRemaining(
+          return const SliverFillRemaining(
             hasScrollBody: false,
             child: Center(
-              child: EmptyStateWidget(
-                icon: SolarLinearIcons.notes,
-              ),
+              child: EmptyStateWidget(icon: SolarLinearIcons.notes),
             ),
           );
         }

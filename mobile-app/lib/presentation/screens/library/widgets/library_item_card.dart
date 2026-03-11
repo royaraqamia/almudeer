@@ -41,10 +41,10 @@ class _LibraryItemCardState extends LibraryItemCardStateBase<LibraryItemCard>
 
   @override
   LibraryItem get item => widget.item;
-  
+
   @override
   LibraryProvider get provider => widget.provider;
-  
+
   @override
   VoidCallback get onView => widget.onView;
 
@@ -113,115 +113,148 @@ class _LibraryItemCardState extends LibraryItemCardStateBase<LibraryItemCard>
                           cornerSmoothing: 1.0,
                         ),
                         side: isSelected
-                            ? const BorderSide(color: AppColors.primary, width: 2)
+                            ? const BorderSide(
+                                color: AppColors.primary,
+                                width: 2,
+                              )
                             : BorderSide.none,
                       ),
                       shadows: [
-                        if (theme.brightness != Brightness.dark) AppShadows.premiumShadow,
+                        if (theme.brightness != Brightness.dark)
+                          AppShadows.premiumShadow,
                       ],
                     ),
                     child: Stack(
                       clipBehavior: Clip.none,
                       children: [
-                      Column(
-                        crossAxisAlignment: widget.item.type == 'note'
-                            ? CrossAxisAlignment.stretch
-                            : CrossAxisAlignment.start,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(
-                              AppDimensions.spacing12,
-                              AppDimensions.spacing12,
-                              AppDimensions.spacing12,
-                              AppDimensions.spacing4,
-                            ),
-                            child: Text(
-                              widget.item.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textDirection: widget.item.title.direction,
-                              textAlign: widget.item.type == 'note'
-                                  ? (widget.item.title.isArabic ? TextAlign.right : TextAlign.left)
-                                  : TextAlign.right,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                fontFamily: 'IBM Plex Sans Arabic',
+                        Column(
+                          crossAxisAlignment: widget.item.type == 'note'
+                              ? CrossAxisAlignment.stretch
+                              : CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                AppDimensions.spacing12,
+                                AppDimensions.spacing12,
+                                AppDimensions.spacing12,
+                                AppDimensions.spacing4,
                               ),
-                            ),
-                          ),
-                          Expanded(
-                            // Disable Hero animation to prevent flash when switching between grid/list layouts
-                            child: _buildItemPreview(widget.item),
-                          ),
-                        ],
-                      ),
-                      if (widget.provider.isSelectionMode)
-                        Positioned(
-                          bottom: -4,
-                          left: -4,
-                          child: Semantics(
-                            label: isSelected
-                                ? LibraryLocalizations.of(context).selected
-                                : LibraryLocalizations.of(context).notSelected,
-                            child: InkWell(
-                              onTap: () {
-                                Haptics.lightTap();
-                                widget.provider.toggleSelection(widget.item.id);
-                              },
-                              borderRadius: BorderRadius.circular(20),
-                              child: Container(
-                                width: 44,
-                                height: 44,
-                                decoration: BoxDecoration(
-                                  color: theme.scaffoldBackgroundColor,
-                                  shape: BoxShape.circle,
-                                  border: isSelected
-                                      ? null
-                                      : Border.all(color: theme.scaffoldBackgroundColor, width: 2),
+                              child: Text(
+                                widget.item.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textDirection: widget.item.title.direction,
+                                textAlign: widget.item.type == 'note'
+                                    ? (widget.item.title.isArabic
+                                          ? TextAlign.right
+                                          : TextAlign.left)
+                                    : TextAlign.right,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  fontFamily: 'IBM Plex Sans Arabic',
                                 ),
-                                child: isSelected
-                                    ? const Icon(SolarBoldIcons.checkCircle, color: AppColors.success, size: 32)
-                                    : Icon(SolarLinearIcons.stop, size: 20, color: isDark ? AppColors.textSecondaryDark : Colors.grey[400]),
                               ),
                             ),
-                          ),
+                            Expanded(
+                              // Disable Hero animation to prevent flash when switching between grid/list layouts
+                              child: _buildItemPreview(widget.item),
+                            ),
+                          ],
                         ),
-                      // Show shared badge for items shared with the user
-                      if (widget.item.isShared && widget.item.sharePermission != null)
-                        Positioned(
-                          top: AppDimensions.spacing8,
-                          right: AppDimensions.spacing8,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppDimensions.spacing8,
-                              vertical: AppDimensions.spacing4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: getPermissionColor(widget.item.sharePermission!).withValues(alpha: 0.9),
-                              borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  getPermissionIcon(widget.item.sharePermission!),
-                                  size: AppDimensions.iconSmall,
-                                  color: Colors.white,
-                                ),
-                                const SizedBox(width: AppDimensions.spacing4),
-                                Text(
-                                  getPermissionLabel(widget.item.sharePermission!),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
+                        if (widget.provider.isSelectionMode)
+                          Positioned(
+                            bottom: -4,
+                            left: -4,
+                            child: Semantics(
+                              label: isSelected
+                                  ? LibraryLocalizations.of(context).selected
+                                  : LibraryLocalizations.of(
+                                      context,
+                                    ).notSelected,
+                              child: InkWell(
+                                onTap: () {
+                                  Haptics.lightTap();
+                                  widget.provider.toggleSelection(
+                                    widget.item.id,
+                                  );
+                                },
+                                borderRadius: BorderRadius.circular(20),
+                                child: Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: theme.scaffoldBackgroundColor,
+                                    shape: BoxShape.circle,
+                                    border: isSelected
+                                        ? null
+                                        : Border.all(
+                                            color:
+                                                theme.scaffoldBackgroundColor,
+                                            width: 2,
+                                          ),
                                   ),
+                                  child: isSelected
+                                      ? const Icon(
+                                          SolarBoldIcons.checkCircle,
+                                          color: AppColors.success,
+                                          size: 32,
+                                        )
+                                      : Icon(
+                                          SolarLinearIcons.stop,
+                                          size: 20,
+                                          color: isDark
+                                              ? AppColors.textSecondaryDark
+                                              : Colors.grey[400],
+                                        ),
                                 ),
-                              ],
+                              ),
                             ),
                           ),
-                        ),
+                        // Show shared badge for items shared with the user
+                        if (widget.item.isShared &&
+                            widget.item.sharePermission != null)
+                          Positioned(
+                            top: AppDimensions.spacing8,
+                            right: AppDimensions.spacing8,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: AppDimensions.spacing8,
+                                vertical: AppDimensions.spacing4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: getPermissionColor(
+                                  widget.item.sharePermission!,
+                                ).withValues(alpha: 0.9),
+                                borderRadius: BorderRadius.circular(
+                                  AppDimensions.radiusSmall,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    getPermissionIcon(
+                                      widget.item.sharePermission!,
+                                    ),
+                                    size: AppDimensions.iconSmall,
+                                    color: Colors.white,
+                                  ),
+                                  const SizedBox(width: AppDimensions.spacing4),
+                                  Text(
+                                    getPermissionLabel(
+                                      widget.item.sharePermission!,
+                                    ),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -260,17 +293,18 @@ class LibraryItemListCard extends StatefulWidget {
   State<LibraryItemListCard> createState() => _LibraryItemListCardState();
 }
 
-class _LibraryItemListCardState extends LibraryItemCardStateBase<LibraryItemListCard>
+class _LibraryItemListCardState
+    extends LibraryItemCardStateBase<LibraryItemListCard>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
 
   @override
   LibraryItem get item => widget.item;
-  
+
   @override
   LibraryProvider get provider => widget.provider;
-  
+
   @override
   VoidCallback get onView => widget.onView;
 
@@ -340,141 +374,183 @@ class _LibraryItemListCardState extends LibraryItemCardStateBase<LibraryItemList
                           cornerSmoothing: 1.0,
                         ),
                         side: isSelected
-                            ? const BorderSide(color: AppColors.primary, width: 2)
+                            ? const BorderSide(
+                                color: AppColors.primary,
+                                width: 2,
+                              )
                             : BorderSide.none,
                       ),
                       shadows: [
-                        if (theme.brightness != Brightness.dark) AppShadows.premiumShadow,
+                        if (theme.brightness != Brightness.dark)
+                          AppShadows.premiumShadow,
                       ],
                     ),
                     child: Stack(
                       clipBehavior: Clip.none,
                       children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(AppDimensions.radiusCard),
-                        child: Row(
-                          children: [
-                            SizedBox(
-                              width: 72,
-                              height: 72,
-                              // Disable Hero animation to prevent flash when switching between grid/list layouts
-                              child: _buildItemPreview(widget.item),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: widget.item.type == 'note'
-                                    ? CrossAxisAlignment.stretch
-                                    : CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    widget.item.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textDirection: widget.item.title.direction,
-                                    textAlign: widget.item.type == 'note'
-                                        ? (widget.item.title.isArabic ? TextAlign.right : TextAlign.left)
-                                        : TextAlign.right,
-                                    style: theme.textTheme.titleSmall?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15,
-                                      fontFamily: 'IBM Plex Sans Arabic',
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(
+                            AppDimensions.radiusCard,
+                          ),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 72,
+                                height: 72,
+                                // Disable Hero animation to prevent flash when switching between grid/list layouts
+                                child: _buildItemPreview(widget.item),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: widget.item.type == 'note'
+                                      ? CrossAxisAlignment.stretch
+                                      : CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      widget.item.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      textDirection:
+                                          widget.item.title.direction,
+                                      textAlign: widget.item.type == 'note'
+                                          ? (widget.item.title.isArabic
+                                                ? TextAlign.right
+                                                : TextAlign.left)
+                                          : TextAlign.right,
+                                      style: theme.textTheme.titleSmall
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 15,
+                                            fontFamily: 'IBM Plex Sans Arabic',
+                                          ),
                                     ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      widget.item.isUploading
+                                          ? LibraryLocalizations.of(
+                                              context,
+                                            ).uploading
+                                          : '${widget.item.formattedSize}${widget.item.formattedSize.isNotEmpty ? ' • ' : ''}${widget.item.formattedDate}',
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color:
+                                                theme.brightness ==
+                                                    Brightness.dark
+                                                ? AppColors.textSecondaryDark
+                                                : AppColors.textSecondaryLight,
+                                            fontSize: 11,
+                                            fontFamily: 'IBM Plex Sans Arabic',
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                            ],
+                          ),
+                        ),
+                        if (widget.provider.isSelectionMode)
+                          Positioned(
+                            bottom: -4,
+                            left: -4,
+                            child: Semantics(
+                              label: isSelected
+                                  ? LibraryLocalizations.of(context).selected
+                                  : LibraryLocalizations.of(
+                                      context,
+                                    ).notSelected,
+                              child: InkWell(
+                                onTap: () {
+                                  Haptics.lightTap();
+                                  widget.provider.toggleSelection(
+                                    widget.item.id,
+                                  );
+                                },
+                                borderRadius: BorderRadius.circular(20),
+                                child: Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: theme.scaffoldBackgroundColor,
+                                    shape: BoxShape.circle,
+                                    border: isSelected
+                                        ? null
+                                        : Border.all(
+                                            color:
+                                                theme.scaffoldBackgroundColor,
+                                            width: 2,
+                                          ),
                                   ),
-                                  const SizedBox(height: 2),
+                                  child: isSelected
+                                      ? const Icon(
+                                          SolarBoldIcons.checkCircle,
+                                          color: AppColors.success,
+                                          size: 32,
+                                        )
+                                      : Icon(
+                                          SolarLinearIcons.stop,
+                                          size: 20,
+                                          color: isDark
+                                              ? AppColors.textSecondaryDark
+                                              : Colors.grey[400],
+                                        ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        // Show shared badge for items shared with the user
+                        if (widget.item.isShared &&
+                            widget.item.sharePermission != null)
+                          Positioned(
+                            top: AppDimensions.spacing8,
+                            right: AppDimensions.spacing8,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: AppDimensions.spacing8,
+                                vertical: AppDimensions.spacing4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: getPermissionColor(
+                                  widget.item.sharePermission!,
+                                ).withValues(alpha: 0.9),
+                                borderRadius: BorderRadius.circular(
+                                  AppDimensions.radiusSmall,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    getPermissionIcon(
+                                      widget.item.sharePermission!,
+                                    ),
+                                    size: AppDimensions.iconSmall,
+                                    color: Colors.white,
+                                  ),
+                                  const SizedBox(width: AppDimensions.spacing4),
                                   Text(
-                                    widget.item.isUploading
-                                        ? LibraryLocalizations.of(context).uploading
-                                        : '${widget.item.formattedSize}${widget.item.formattedSize.isNotEmpty ? ' • ' : ''}${widget.item.formattedDate}',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: theme.brightness == Brightness.dark
-                                          ? AppColors.textSecondaryDark
-                                          : AppColors.textSecondaryLight,
-                                      fontSize: 11,
-                                      fontFamily: 'IBM Plex Sans Arabic',
+                                    getPermissionLabel(
+                                      widget.item.sharePermission!,
+                                    ),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                            const SizedBox(width: 12),
-                          ],
-                        ),
-                      ),
-                      if (widget.provider.isSelectionMode)
-                        Positioned(
-                          bottom: -4,
-                          left: -4,
-                          child: Semantics(
-                            label: isSelected
-                                ? LibraryLocalizations.of(context).selected
-                                : LibraryLocalizations.of(context).notSelected,
-                            child: InkWell(
-                              onTap: () {
-                                Haptics.lightTap();
-                                widget.provider.toggleSelection(widget.item.id);
-                              },
-                              borderRadius: BorderRadius.circular(20),
-                              child: Container(
-                                width: 44,
-                                height: 44,
-                                decoration: BoxDecoration(
-                                  color: theme.scaffoldBackgroundColor,
-                                  shape: BoxShape.circle,
-                                  border: isSelected
-                                      ? null
-                                      : Border.all(color: theme.scaffoldBackgroundColor, width: 2),
-                                ),
-                                child: isSelected
-                                    ? const Icon(SolarBoldIcons.checkCircle, color: AppColors.success, size: 32)
-                                    : Icon(SolarLinearIcons.stop, size: 20, color: isDark ? AppColors.textSecondaryDark : Colors.grey[400]),
-                              ),
-                            ),
                           ),
-                        ),
-                      // Show shared badge for items shared with the user
-                      if (widget.item.isShared && widget.item.sharePermission != null)
-                        Positioned(
-                          top: AppDimensions.spacing8,
-                          right: AppDimensions.spacing8,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppDimensions.spacing8,
-                              vertical: AppDimensions.spacing4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: getPermissionColor(widget.item.sharePermission!).withValues(alpha: 0.9),
-                              borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  getPermissionIcon(widget.item.sharePermission!),
-                                  size: AppDimensions.iconSmall,
-                                  color: Colors.white,
-                                ),
-                                const SizedBox(width: AppDimensions.spacing4),
-                                Text(
-                                  getPermissionLabel(widget.item.sharePermission!),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
+                        if (widget.item.isUploading)
+                          Positioned(
+                            bottom: 8,
+                            left: 8,
+                            right: 8,
+                            child: _buildUploadProgressIndicator(),
                           ),
-                        ),
-                      if (widget.item.isUploading)
-                        Positioned(
-                          bottom: 8,
-                          left: 8,
-                          right: 8,
-                          child: _buildUploadProgressIndicator(),
-                        ),
                       ],
                     ),
                   ),
@@ -493,11 +569,13 @@ class _LibraryItemListCardState extends LibraryItemCardStateBase<LibraryItemList
     final progress = widget.item.uploadProgress ?? 0.0;
     final percentage = (progress * 100).toStringAsFixed(0);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: isDark ? Colors.black87.withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.95),
+        color: isDark
+            ? Colors.black87.withValues(alpha: 0.9)
+            : Colors.white.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
@@ -529,7 +607,7 @@ class _LibraryItemListCardState extends LibraryItemCardStateBase<LibraryItemList
                 ),
                 Text(
                   '$percentage%',
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
                     color: AppColors.primary,

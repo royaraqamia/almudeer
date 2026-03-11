@@ -82,7 +82,10 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen> {
           widget.fileType == null;
 
       if (needsExtensionDetection) {
-        String extension = p.extension(name).toLowerCase().replaceAll('.', '');
+        final String extension = p
+            .extension(name)
+            .toLowerCase()
+            .replaceAll('.', '');
 
         if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(extension)) {
           _fileType = 'image';
@@ -140,13 +143,7 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen> {
           _localPath = cachedPath;
         } else {
           // Download if it's a type that requires local access or if we want it persistent
-          final typesNeedingDownload = [
-            'pdf',
-            'code',
-            'csv',
-            'text',
-            'other',
-          ];
+          final typesNeedingDownload = ['pdf', 'code', 'csv', 'text', 'other'];
           if (typesNeedingDownload.contains(_fileType)) {
             await _downloadFile(_sanitizedUrl!, name);
           }
@@ -357,7 +354,7 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen> {
           children: [
             const Icon(SolarLinearIcons.file, size: 64, color: Colors.grey),
             const SizedBox(height: 16),
-            Text('No internal viewer for this file type.'),
+            const Text('No internal viewer for this file type.'),
             const SizedBox(height: 16),
             if (_localPath != null)
               ElevatedButton(

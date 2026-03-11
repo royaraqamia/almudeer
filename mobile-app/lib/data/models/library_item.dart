@@ -23,6 +23,10 @@ class LibraryItem {
   final bool isDownloading;
   final double? downloadProgress;
   final String? localPath;
+  // Issue #26: Trash support
+  final DateTime? deletedAt;
+  // P3-13: Version history support
+  final int? version;
   // P1-5: Download resume support
   final LibraryDownloadStatusType? downloadStatus;
   final int? downloadedBytes;
@@ -55,6 +59,8 @@ class LibraryItem {
     this.isDownloading = false,
     this.downloadProgress,
     this.localPath,
+    this.deletedAt,
+    this.version,
     this.downloadStatus,
     this.downloadedBytes,
     this.totalBytes,
@@ -113,6 +119,10 @@ class LibraryItem {
       totalBytes: null,
       // FIX: Original file path for retry
       originalFilePath: json['original_file_path'],
+      // Issue #26: Trash support
+      deletedAt: json['deleted_at'] != null ? DateTime.parse(json['deleted_at']) : null,
+      // P3-13: Version history support
+      version: json['version'],
     );
   }
 
@@ -144,6 +154,10 @@ class LibraryItem {
       'permission': sharePermission, // Also include 'permission' for compatibility
       // FIX: Original file path for retry
       'original_file_path': originalFilePath,
+      // Issue #26: Trash support
+      'deleted_at': deletedAt?.toIso8601String(),
+      // P3-13: Version history support
+      'version': version,
     };
   }
 
@@ -188,6 +202,8 @@ class LibraryItem {
     bool? isShared,
     String? sharedWith,
     String? sharePermission,
+    DateTime? deletedAt,
+    int? version,
   }) {
     return LibraryItem(
       id: id ?? this.id,
@@ -217,6 +233,8 @@ class LibraryItem {
       isShared: isShared ?? this.isShared,
       sharedWith: sharedWith ?? this.sharedWith,
       sharePermission: sharePermission ?? this.sharePermission,
+      deletedAt: deletedAt ?? this.deletedAt,
+      version: version ?? this.version,
     );
   }
 }

@@ -42,8 +42,14 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
     {'name': 'مشاري العفاسي', 'server': 'https://server8.mp3quran.net/afs/'},
     {'name': 'سعد الغامدي', 'server': 'https://server6.mp3quran.net/ghamdi/'},
     {'name': 'ماهر المعيقلي', 'server': 'https://server12.mp3quran.net/maher/'},
-    {'name': 'محمود خليل الحصري', 'server': 'https://server13.mp3quran.net/husr/'},
-    {'name': 'محمد صديق المنشاوي', 'server': 'https://server10.mp3quran.net/minsh/'},
+    {
+      'name': 'محمود خليل الحصري',
+      'server': 'https://server13.mp3quran.net/husr/',
+    },
+    {
+      'name': 'محمد صديق المنشاوي',
+      'server': 'https://server10.mp3quran.net/minsh/',
+    },
     {'name': 'محمد أيوب', 'server': 'https://server8.mp3quran.net/ayyub/'},
   ];
 
@@ -67,9 +73,7 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
 
   void _scrollToVerse(int verseNumber) {
     if (_itemScrollController.isAttached) {
-      _itemScrollController.jumpTo(
-        index: verseNumber - 1,
-      );
+      _itemScrollController.jumpTo(index: verseNumber - 1);
       _isAutoScrolling = false;
     }
   }
@@ -107,7 +111,7 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
   /// Fallback servers for each reciter - used when primary server fails
   static const List<List<String>> _reciterFallbackServers = [
     // Corresponds to _reciters order - backup mp3quran.net mirrors
-    ['https://server7.mp3quran.net/sds/'],  // السديس
+    ['https://server7.mp3quran.net/sds/'], // السديس
     ['https://server11.mp3quran.net/afs/'], // العفاسي
     ['https://server8.mp3quran.net/ghamdi/'], // الغامدي
     ['https://server7.mp3quran.net/maher/'], // المعيقلي
@@ -124,7 +128,9 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
     final audioProvider = context.read<AudioPlayerProvider>();
 
     // Don't show loading if already playing this surah
-    final isCurrentSurah = audioProvider.currentAudioTitle == quran.getSurahNameArabic(widget.surahNumber);
+    final isCurrentSurah =
+        audioProvider.currentAudioTitle ==
+        quran.getSurahNameArabic(widget.surahNumber);
     if (!isCurrentSurah || !audioProvider.isPlaying) {
       setState(() => _isLoadingAudio = true);
     }
@@ -132,43 +138,46 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
     try {
       // Try primary server first
       String serverUrl = _reciters[_currentReciter]['server']!;
-      
+
       // If primary failed before, try fallback
       final primaryServerKey = '${_currentReciter}_primary';
       if (_failedServers.contains(primaryServerKey) && retryCount == 0) {
         final fallbackServers = _reciterFallbackServers[_currentReciter];
         if (fallbackServers.isNotEmpty) {
           serverUrl = fallbackServers[0];
-          debugPrint('Using fallback server for reciter ${_reciters[_currentReciter]['name']}');
+          debugPrint(
+            'Using fallback server for reciter ${_reciters[_currentReciter]['name']}',
+          );
         }
       }
-      
+
       final paddedSurah = widget.surahNumber.toString().padLeft(3, '0');
       final url = '$serverUrl$paddedSurah.mp3';
       final surahName = quran.getSurahNameArabic(widget.surahNumber);
 
       await audioProvider.playQuranRecitation(url, surahName);
-      
+
       // Success - clear failed server mark
       _failedServers.remove(primaryServerKey);
     } catch (e) {
       debugPrint('Error loading audio (attempt ${retryCount + 1}): $e');
-      
+
       // Mark primary server as failed
       final primaryServerKey = '${_currentReciter}_primary';
       _failedServers.add(primaryServerKey);
-      
+
       // Retry once with fallback server
-      if (retryCount < 1 && _reciterFallbackServers[_currentReciter].isNotEmpty) {
+      if (retryCount < 1 &&
+          _reciterFallbackServers[_currentReciter].isNotEmpty) {
         debugPrint('Retrying with fallback server...');
         await Future.delayed(const Duration(milliseconds: 500));
         await _loadAndPlaySurah(retryCount: retryCount + 1);
         return;
       }
-      
+
       if (mounted) {
         AnimatedToast.error(
-          context, 
+          context,
           'خطأ في تحميل الصوت - تأكد من اتصال الإنترنت',
         );
       }
@@ -195,7 +204,9 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
     return Consumer<AudioPlayerProvider>(
       builder: (context, audioProvider, _) {
         final isPlaying = audioProvider.isPlaying;
-        final isCurrentSurah = audioProvider.currentAudioTitle == quran.getSurahNameArabic(widget.surahNumber);
+        final isCurrentSurah =
+            audioProvider.currentAudioTitle ==
+            quran.getSurahNameArabic(widget.surahNumber);
 
         return Scaffold(
           backgroundColor: theme.scaffoldBackgroundColor,
@@ -223,13 +234,19 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
                 children: [
                   IconButton(
                     icon: Icon(
-                      isPlaying && isCurrentSurah ? SolarBoldIcons.pause : SolarLinearIcons.play,
-                      color: (isPlaying && isCurrentSurah) ? AppColors.primary : null,
+                      isPlaying && isCurrentSurah
+                          ? SolarBoldIcons.pause
+                          : SolarLinearIcons.play,
+                      color: (isPlaying && isCurrentSurah)
+                          ? AppColors.primary
+                          : null,
                     ),
                     onPressed: () {
                       // Check if this is the current surah (regardless of playing state)
-                      final isActuallyCurrentSurah = audioProvider.currentAudioTitle == quran.getSurahNameArabic(widget.surahNumber);
-                      
+                      final isActuallyCurrentSurah =
+                          audioProvider.currentAudioTitle ==
+                          quran.getSurahNameArabic(widget.surahNumber);
+
                       if (isActuallyCurrentSurah && isPlaying) {
                         // Pause current surah
                         audioProvider.handler?.pause();
@@ -255,222 +272,232 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
                     ),
                 ],
               ),
-          PopupMenuButton<int>(
-            icon: const Icon(SolarLinearIcons.musicNote2),
-            tooltip: 'اختيار القارئ',
-            onSelected: (index) => _changeReciter(index),
-            itemBuilder: (context) => _reciters.asMap().entries.map((entry) {
-              return PopupMenuItem<int>(
-                value: entry.key,
-                child: Row(
-                  children: [
-                    if (entry.key == _currentReciter)
-                      const Icon(Icons.check, color: AppColors.primary, size: 18)
-                    else
-                      const SizedBox(width: 18),
-                    const SizedBox(width: 8),
-                    Text(entry.value['name']!),
-                  ],
-                ),
-              );
-            }).toList(),
-          ),
-          IconButton(
-            icon: const Icon(SolarLinearIcons.map),
-            onPressed: _showJumpToVerseDialog,
-            tooltip: 'الانتقال إلى آية',
-          ),
-          IconButton(
-            icon: Icon(
-              quranProvider.showTafsir
-                  ? SolarBoldIcons.notes
-                  : SolarLinearIcons.notes,
-              color: quranProvider.showTafsir ? AppColors.primary : null,
-            ),
-            onPressed: () => quranProvider.toggleTafsir(),
-            tooltip: 'تبديل التفسير',
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Basmalah (except for Surah At-Tawbah #9)
-            if (widget.surahNumber != 9)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24.0),
-                child: Text(
-                  quran.basmala,
-                  style: const TextStyle(
-                    fontFamily: 'Amiri Quran',
-                    fontSize: 28,
-                    fontWeight: FontWeight.w400,
-                    height: 1.8,
-                    inherit: false,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
+              PopupMenuButton<int>(
+                icon: const Icon(SolarLinearIcons.musicNote2),
+                tooltip: 'اختيار القارئ',
+                onSelected: (index) => _changeReciter(index),
+                itemBuilder: (context) =>
+                    _reciters.asMap().entries.map((entry) {
+                      return PopupMenuItem<int>(
+                        value: entry.key,
+                        child: Row(
+                          children: [
+                            if (entry.key == _currentReciter)
+                              const Icon(
+                                Icons.check,
+                                color: AppColors.primary,
+                                size: 18,
+                              )
+                            else
+                              const SizedBox(width: 18),
+                            const SizedBox(width: 8),
+                            Text(entry.value['name']!),
+                          ],
+                        ),
+                      );
+                    }).toList(),
               ),
-            Expanded(
-              child: ScrollablePositionedList.builder(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 16,
+              IconButton(
+                icon: const Icon(SolarLinearIcons.map),
+                onPressed: _showJumpToVerseDialog,
+                tooltip: 'الانتقال إلى آية',
+              ),
+              IconButton(
+                icon: Icon(
+                  quranProvider.showTafsir
+                      ? SolarBoldIcons.notes
+                      : SolarLinearIcons.notes,
+                  color: quranProvider.showTafsir ? AppColors.primary : null,
                 ),
-                itemCount: verseCount,
-                itemScrollController: _itemScrollController,
-                itemPositionsListener: _itemPositionsListener,
-                initialScrollIndex: widget.initialVerse != null
-                    ? widget.initialVerse! - 1
-                    : 0,
-                itemBuilder: (context, index) {
-                  final verseNumber = index + 1;
-                  final tafsirText = quranProvider.getTafsir(
-                    widget.surahNumber,
-                    verseNumber,
-                  );
-
-                  // Fetch remote tafsir lazily (outside build phase) - only once per verse
-                  final verseKey = '${widget.surahNumber}:$verseNumber';
-                  if (tafsirText.isEmpty && 
-                      quranProvider.selectedTafsir != 'local' &&
-                      !_requestedTafsirVerses.contains(verseKey)) {
-                    _requestedTafsirVerses.add(verseKey);
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      context.read<QuranProvider>().fetchRemoteTafsirIfNeeded(
+                onPressed: () => quranProvider.toggleTafsir(),
+                tooltip: 'تبديل التفسير',
+              ),
+            ],
+          ),
+          body: SafeArea(
+            child: Column(
+              children: [
+                // Basmalah (except for Surah At-Tawbah #9)
+                if (widget.surahNumber != 9)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24.0),
+                    child: Text(
+                      quran.basmala,
+                      style: TextStyle(
+                        fontFamily: 'Amiri Quran',
+                        fontSize: 28,
+                        fontWeight: FontWeight.w400,
+                        height: 1.8,
+                        inherit: false,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                Expanded(
+                  child: ScrollablePositionedList.builder(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 16,
+                    ),
+                    itemCount: verseCount,
+                    itemScrollController: _itemScrollController,
+                    itemPositionsListener: _itemPositionsListener,
+                    initialScrollIndex: widget.initialVerse != null
+                        ? widget.initialVerse! - 1
+                        : 0,
+                    itemBuilder: (context, index) {
+                      final verseNumber = index + 1;
+                      final tafsirText = quranProvider.getTafsir(
                         widget.surahNumber,
                         verseNumber,
                       );
-                    });
-                  }
 
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 24.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // Verse number separator
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8.0),
-                          child: Center(
-                            child: VerseSeparator(
-                              verseNumber: verseNumber,
-                              size: 50,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          quran.getVerse(
-                            widget.surahNumber,
-                            verseNumber,
-                            verseEndSymbol: false,
-                          ),
-                          textAlign: TextAlign.right,
-                          style: TextStyle(
-                            fontFamily: 'Amiri Quran',
-                            fontSize: quranProvider.fontSize,
-                            height: 2.0,
-                            fontWeight: FontWeight.w400,
-                            inherit: false,
-                            fontFeatures: const [
-                              FontFeature.enable('liga'),
-                              FontFeature.enable('calt'),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        // Share button
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                      // Fetch remote tafsir lazily (outside build phase) - only once per verse
+                      final verseKey = '${widget.surahNumber}:$verseNumber';
+                      if (tafsirText.isEmpty &&
+                          quranProvider.selectedTafsir != 'local' &&
+                          !_requestedTafsirVerses.contains(verseKey)) {
+                        _requestedTafsirVerses.add(verseKey);
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          context
+                              .read<QuranProvider>()
+                              .fetchRemoteTafsirIfNeeded(
+                                widget.surahNumber,
+                                verseNumber,
+                              );
+                        });
+                      }
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 24.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            IconButton(
-                              icon: const Icon(
-                                SolarLinearIcons.share,
-                                size: 20,
+                            // Verse number separator
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 8.0,
                               ),
-                              onPressed: () {
-                                final text =
-                                    '${quran.getVerse(widget.surahNumber, verseNumber, verseEndSymbol: true)}\n\n'
-                                    '[سورة ${quran.getSurahNameArabic(widget.surahNumber)}: $verseNumber]';
-                                Clipboard.setData(
-                                  ClipboardData(text: text),
-                                );
-                                ScaffoldMessenger.of(
-                                  context,
-                                ).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('تم نسخ الآية'),
-                                  ),
-                                );
-                              },
-                              constraints: const BoxConstraints(),
-                              padding: const EdgeInsets.all(8),
-                              tooltip: 'مشاركة الآية',
-                            ),
-                          ],
-                        ),
-                        if (quranProvider.showTafsir &&
-                            tafsirText.isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.surfaceContainerHighest
-                                  .withValues(alpha: 0.3),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border(
-                                right: BorderSide(
-                                  color: AppColors.primary.withValues(
-                                    alpha: 0.5,
-                                  ),
-                                  width: 4,
+                              child: Center(
+                                child: VerseSeparator(
+                                  verseNumber: verseNumber,
+                                  size: 50,
                                 ),
                               ),
                             ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                            const SizedBox(height: 16),
+                            Text(
+                              quran.getVerse(
+                                widget.surahNumber,
+                                verseNumber,
+                                verseEndSymbol: false,
+                              ),
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                fontFamily: 'Amiri Quran',
+                                fontSize: quranProvider.fontSize,
+                                height: 2.0,
+                                fontWeight: FontWeight.w400,
+                                inherit: false,
+                                fontFeatures: const [
+                                  FontFeature.enable('liga'),
+                                  FontFeature.enable('calt'),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            // Share button
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Text(
-                                  quranProvider.selectedTafsir == 'local'
-                                      ? 'تفسير ابن كثير (الكامل)'
-                                      : 'tafsir',
-                                  style: TextStyle(
-                                    fontFamily: 'IBM Plex Sans Arabic',
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.primary,
+                                IconButton(
+                                  icon: const Icon(
+                                    SolarLinearIcons.share,
+                                    size: 20,
                                   ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  tafsirText,
-                                  textAlign: TextAlign.right,
-                                  style: TextStyle(
-                                    fontFamily: 'IBM Plex Sans Arabic',
-                                    fontSize: quranProvider.fontSize - 6,
-                                    height: 1.8,
-                                    color: theme.textTheme.bodyMedium?.color,
-                                  ),
+                                  onPressed: () {
+                                    final text =
+                                        '${quran.getVerse(widget.surahNumber, verseNumber, verseEndSymbol: true)}\n\n'
+                                        '[سورة ${quran.getSurahNameArabic(widget.surahNumber)}: $verseNumber]';
+                                    Clipboard.setData(
+                                      ClipboardData(text: text),
+                                    );
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('تم نسخ الآية'),
+                                      ),
+                                    );
+                                  },
+                                  constraints: const BoxConstraints(),
+                                  padding: const EdgeInsets.all(8),
+                                  tooltip: 'مشاركة الآية',
                                 ),
                               ],
                             ),
-                          ),
-                        ],
-                        const SizedBox(height: 12),
-                        Divider(
-                          color: theme.dividerColor.withValues(alpha: 0.5),
+                            if (quranProvider.showTafsir &&
+                                tafsirText.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: theme
+                                      .colorScheme
+                                      .surfaceContainerHighest
+                                      .withValues(alpha: 0.3),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border(
+                                    right: BorderSide(
+                                      color: AppColors.primary.withValues(
+                                        alpha: 0.5,
+                                      ),
+                                      width: 4,
+                                    ),
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      quranProvider.selectedTafsir == 'local'
+                                          ? 'تفسير ابن كثير (الكامل)'
+                                          : 'tafsir',
+                                      style: const TextStyle(
+                                        fontFamily: 'IBM Plex Sans Arabic',
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.primary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      tafsirText,
+                                      textAlign: TextAlign.right,
+                                      style: TextStyle(
+                                        fontFamily: 'IBM Plex Sans Arabic',
+                                        fontSize: quranProvider.fontSize - 6,
+                                        height: 1.8,
+                                        color:
+                                            theme.textTheme.bodyMedium?.color,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 12),
+                            Divider(
+                              color: theme.dividerColor.withValues(alpha: 0.5),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  );
-                },
-              ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
-    );
+          ),
+        );
       },
     );
   }

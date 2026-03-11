@@ -60,7 +60,9 @@ class _QuranScreenState extends State<QuranScreen> {
       if (lowerQuery.isEmpty) {
         _filteredSurahs = List.generate(114, (index) => index + 1);
       } else {
-        _filteredSurahs = List.generate(114, (index) => index + 1).where((surahNumber) {
+        _filteredSurahs = List.generate(114, (index) => index + 1).where((
+          surahNumber,
+        ) {
           final names = _surahNamesCache[surahNumber - 1];
           return names['nameEn']!.contains(lowerQuery) ||
               names['nameAr']!.contains(lowerQuery) ||
@@ -128,12 +130,14 @@ class _QuranScreenState extends State<QuranScreen> {
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
-                    borderRadius: BorderRadius.circular(AppDimensions.radiusCard),
+                    borderRadius: BorderRadius.circular(
+                      AppDimensions.radiusCard,
+                    ),
                     boxShadow: [
                       BoxShadow(
                         color: AppColors.primary.withValues(alpha: 0.3),
                         blurRadius: AppDimensions.spacing16,
-                        offset: Offset(0, AppDimensions.spacing10),
+                        offset: const Offset(0, AppDimensions.spacing10),
                       ),
                     ],
                   ),
@@ -193,19 +197,17 @@ class _QuranScreenState extends State<QuranScreen> {
             padding: const EdgeInsets.all(AppDimensions.paddingMedium),
             child: TextField(
               controller: _searchController,
-              style: const TextStyle(
-                fontFamily: 'IBM Plex Sans Arabic',
-              ),
+              style: const TextStyle(fontFamily: 'IBM Plex Sans Arabic'),
               decoration: InputDecoration(
                 hintText: 'بحث عن سورة...',
-                hintStyle: const TextStyle(
-                  fontFamily: 'IBM Plex Sans Arabic',
-                ),
+                hintStyle: const TextStyle(fontFamily: 'IBM Plex Sans Arabic'),
                 prefixIcon: const Icon(SolarLinearIcons.magnifer),
                 filled: true,
                 fillColor: theme.cardColor,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
+                  borderRadius: BorderRadius.circular(
+                    AppDimensions.radiusLarge,
+                  ),
                   borderSide: BorderSide.none,
                 ),
                 contentPadding: const EdgeInsets.symmetric(
@@ -246,15 +248,23 @@ class _QuranScreenState extends State<QuranScreen> {
                               ),
                             );
                           },
-                          borderRadius: BorderRadius.circular(AppDimensions.radiusCard),
+                          borderRadius: BorderRadius.circular(
+                            AppDimensions.radiusCard,
+                          ),
                           child: Container(
-                            padding: const EdgeInsets.all(AppDimensions.paddingMedium),
+                            padding: const EdgeInsets.all(
+                              AppDimensions.paddingMedium,
+                            ),
                             decoration: BoxDecoration(
                               color: theme.cardColor,
-                              borderRadius: BorderRadius.circular(AppDimensions.radiusCard),
+                              borderRadius: BorderRadius.circular(
+                                AppDimensions.radiusCard,
+                              ),
                               border: isLastRead
                                   ? Border.all(
-                                      color: AppColors.primary.withValues(alpha: 0.5),
+                                      color: AppColors.primary.withValues(
+                                        alpha: 0.5,
+                                      ),
                                       width: 2,
                                     )
                                   : null,
@@ -263,7 +273,10 @@ class _QuranScreenState extends State<QuranScreen> {
                                   BoxShadow(
                                     color: Colors.black.withValues(alpha: 0.05),
                                     blurRadius: AppDimensions.spacing12,
-                                    offset: Offset(0, AppDimensions.spacing6),
+                                    offset: const Offset(
+                                      0,
+                                      AppDimensions.spacing6,
+                                    ),
                                   ),
                               ],
                             ),
@@ -274,7 +287,9 @@ class _QuranScreenState extends State<QuranScreen> {
                                   children: [
                                     Icon(
                                       SolarLinearIcons.star,
-                                      color: AppColors.primary.withValues(alpha: 0.1),
+                                      color: AppColors.primary.withValues(
+                                        alpha: 0.1,
+                                      ),
                                       size: 44,
                                     ),
                                     Text(
@@ -288,10 +303,13 @@ class _QuranScreenState extends State<QuranScreen> {
                                     ),
                                   ],
                                 ),
-                                const SizedBox(width: AppDimensions.paddingMedium),
+                                const SizedBox(
+                                  width: AppDimensions.paddingMedium,
+                                ),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         quran.getSurahNameArabic(surahNumber),
@@ -304,17 +322,25 @@ class _QuranScreenState extends State<QuranScreen> {
                                       Row(
                                         children: [
                                           Text(
-                                            quran.getPlaceOfRevelation(surahNumber) ==
+                                            quran.getPlaceOfRevelation(
+                                                      surahNumber,
+                                                    ) ==
                                                     'Makkah'
                                                 ? 'مكية'
                                                 : 'مدنية',
                                             style: TextStyle(
-                                              fontFamily: 'IBM Plex Sans Arabic',
-                                              color: theme.textTheme.bodySmall?.color,
+                                              fontFamily:
+                                                  'IBM Plex Sans Arabic',
+                                              color: theme
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.color,
                                               fontSize: 12,
                                             ),
                                           ),
-                                          const SizedBox(width: AppDimensions.spacing8),
+                                          const SizedBox(
+                                            width: AppDimensions.spacing8,
+                                          ),
                                           Container(
                                             width: 4,
                                             height: 4,
@@ -323,12 +349,18 @@ class _QuranScreenState extends State<QuranScreen> {
                                               shape: BoxShape.circle,
                                             ),
                                           ),
-                                          const SizedBox(width: AppDimensions.spacing8),
+                                          const SizedBox(
+                                            width: AppDimensions.spacing8,
+                                          ),
                                           Text(
                                             '${quran.getVerseCount(surahNumber)} آية',
                                             style: TextStyle(
-                                              fontFamily: 'IBM Plex Sans Arabic',
-                                              color: theme.textTheme.bodySmall?.color,
+                                              fontFamily:
+                                                  'IBM Plex Sans Arabic',
+                                              color: theme
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.color,
                                               fontSize: 12,
                                             ),
                                           ),
@@ -339,7 +371,7 @@ class _QuranScreenState extends State<QuranScreen> {
                                 ),
                                 Text(
                                   quran.getSurahName(surahNumber),
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     color: AppColors.primary,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 14,

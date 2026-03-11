@@ -45,7 +45,7 @@ class _AppBarActionButtonState extends State<AppBarActionButton> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    Widget buttonContent = GestureDetector(
+    final Widget buttonContent = GestureDetector(
       onTap: () {
         Haptics.lightTap();
         widget.onPressed?.call();
@@ -63,9 +63,7 @@ class _AppBarActionButtonState extends State<AppBarActionButton> {
           decoration: BoxDecoration(
             color: _isHovered
                 ? (widget.backgroundColor ??
-                      (isDark
-                          ? AppColors.hoverDark
-                          : AppColors.hoverLight))
+                      (isDark ? AppColors.hoverDark : AppColors.hoverLight))
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
           ),
@@ -198,10 +196,7 @@ class ScreenHeader extends StatelessWidget {
 class StandardEmptyState extends StatelessWidget {
   final IconData icon;
 
-  const StandardEmptyState({
-    super.key,
-    required this.icon,
-  });
+  const StandardEmptyState({super.key, required this.icon});
 
   @override
   Widget build(BuildContext context) {

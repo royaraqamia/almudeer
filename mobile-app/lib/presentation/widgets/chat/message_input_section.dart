@@ -217,7 +217,7 @@ class _MessageInputSectionState extends State<MessageInputSection> {
   }
 
   Future<void> _handleAttachmentSelection(String type) async {
-    List<File> selectedFiles = [];
+    final List<File> selectedFiles = [];
     try {
       if (type == 'camera') {
         final XFile? image = await ImagePicker().pickImage(
@@ -233,7 +233,7 @@ class _MessageInputSectionState extends State<MessageInputSection> {
           selectedFiles.addAll(images.map((x) => File(x.path)));
         }
       } else if (type == 'file') {
-        FilePickerResult? result = await FilePicker.platform.pickFiles(
+        final FilePickerResult? result = await FilePicker.platform.pickFiles(
           allowMultiple: true,
           type: FileType.any,
         );
@@ -339,7 +339,9 @@ class _MessageInputSectionState extends State<MessageInputSection> {
                         },
                         focusColor: AppColors.primary.withValues(alpha: 0.12),
                         hoverColor: AppColors.primary.withValues(alpha: 0.04),
-                        highlightColor: AppColors.primary.withValues(alpha: 0.08),
+                        highlightColor: AppColors.primary.withValues(
+                          alpha: 0.08,
+                        ),
                         borderRadius: BorderRadius.circular(22),
                         child: const Center(
                           child: Icon(
@@ -354,8 +356,7 @@ class _MessageInputSectionState extends State<MessageInputSection> {
                 ],
               ),
             )
-          else if (widget.replyToSender != null &&
-              widget.replyToBody != null)
+          else if (widget.replyToSender != null && widget.replyToBody != null)
             ReplyPreview(
               senderName: widget.replyToSender!,
               messageBody: widget.replyToBody!,
@@ -428,9 +429,7 @@ class _MessageInputSectionState extends State<MessageInputSection> {
                             ),
                             decoration: InputDecoration(
                               // Override global theme's fixed 48px height constraint
-                              constraints: const BoxConstraints(
-                                minHeight: 48,
-                              ),
+                              constraints: const BoxConstraints(minHeight: 48),
                               filled: false,
                               hintText: isEditing
                                   ? 'تعديل الرِّسالة...'
@@ -444,7 +443,9 @@ class _MessageInputSectionState extends State<MessageInputSection> {
                                     : AppColors.textTertiaryLight,
                               ),
                               prefixIcon: Semantics(
-                                label: _showEmoji ? 'إظهار الرموز' : 'إظهار الرموز',
+                                label: _showEmoji
+                                    ? 'إظهار الرموز'
+                                    : 'إظهار الرموز',
                                 button: true,
                                 child: SizedBox(
                                   width: 48,
@@ -463,12 +464,16 @@ class _MessageInputSectionState extends State<MessageInputSection> {
                                       size: 24,
                                     ),
                                     padding: const EdgeInsets.all(12),
-                                    tooltip: _showEmoji ? 'إخفاء الرموز' : 'الرموز',
+                                    tooltip: _showEmoji
+                                        ? 'إخفاء الرموز'
+                                        : 'الرموز',
                                   ),
                                 ),
                               ),
                               suffixIcon: Semantics(
-                                label: _showAttachments ? 'إخفاء المرفقات' : 'إضافة مرفق',
+                                label: _showAttachments
+                                    ? 'إخفاء المرفقات'
+                                    : 'إضافة مرفق',
                                 button: true,
                                 child: SizedBox(
                                   width: 48,
@@ -607,14 +612,14 @@ class _MessageInputSectionState extends State<MessageInputSection> {
                 final provider = context.read<ConversationDetailProvider>();
                 final inboxProvider = context.read<InboxProvider>();
                 final body = _controller.text.trim();
-                
+
                 // Validate before attempting save
                 if (body.isEmpty) {
                   AnimatedToast.info(context, 'لا يمكن حفظ رسالة فارغة');
                   provider.cancelEditing();
                   return;
                 }
-                
+
                 await provider.saveEditedMessage(body, inboxProvider);
               },
               focusColor: AppColors.primary.withValues(alpha: 0.2),
@@ -671,19 +676,19 @@ class _MessageInputSectionState extends State<MessageInputSection> {
                       ),
                     )
                   : isRtl == TextDirection.rtl
-                      ? const Icon(
-                          SolarBoldIcons.plain2,
-                          color: Colors.white,
-                          size: 24,
-                        )
-                      : Transform.rotate(
-                          angle: 3.14,
-                          child: const Icon(
-                            SolarBoldIcons.plain2,
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                        ),
+                  ? const Icon(
+                      SolarBoldIcons.plain2,
+                      color: Colors.white,
+                      size: 24,
+                    )
+                  : Transform.rotate(
+                      angle: 3.14,
+                      child: const Icon(
+                        SolarBoldIcons.plain2,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
             ),
           ),
         ),

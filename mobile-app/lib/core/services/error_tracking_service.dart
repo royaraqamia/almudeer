@@ -3,13 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 /// Error severity levels
-enum ErrorSeverity {
-  debug,
-  info,
-  warning,
-  error,
-  critical,
-}
+enum ErrorSeverity { debug, info, warning, error, critical }
 
 /// Error context for additional metadata
 class ErrorContext {
@@ -103,7 +97,8 @@ class TrackedError {
 /// - Optional reporting to external services (Sentry, etc.)
 /// - Error analytics and metrics
 class ErrorTrackingService extends ChangeNotifier {
-  static final ErrorTrackingService _instance = ErrorTrackingService._internal();
+  static final ErrorTrackingService _instance =
+      ErrorTrackingService._internal();
   factory ErrorTrackingService() => _instance;
   ErrorTrackingService._internal();
 
@@ -133,7 +128,9 @@ class ErrorTrackingService extends ChangeNotifier {
       _box = await Hive.openBox<Map<String, dynamic>>(_boxName);
       await _loadRecentErrors();
       _isInitialized = true;
-      debugPrint('[ErrorTrackingService] Initialized with ${_recentErrors.length} recent errors');
+      debugPrint(
+        '[ErrorTrackingService] Initialized with ${_recentErrors.length} recent errors',
+      );
     } catch (e) {
       debugPrint('[ErrorTrackingService] Initialization failed: $e');
       // Continue without persistence
@@ -167,7 +164,8 @@ class ErrorTrackingService extends ChangeNotifier {
     }
 
     // Update error counts
-    _errorCounts[trackedError.errorType] = (_errorCounts[trackedError.errorType] ?? 0) + 1;
+    _errorCounts[trackedError.errorType] =
+        (_errorCounts[trackedError.errorType] ?? 0) + 1;
 
     // Persist to disk
     if (_isInitialized && _box != null) {
@@ -188,7 +186,9 @@ class ErrorTrackingService extends ChangeNotifier {
         try {
           callback(trackedError);
         } catch (e) {
-          debugPrint('[ErrorTrackingService] Critical error callback failed: $e');
+          debugPrint(
+            '[ErrorTrackingService] Critical error callback failed: $e',
+          );
         }
       }
     }
@@ -216,11 +216,7 @@ class ErrorTrackingService extends ChangeNotifier {
 
   /// Track an error from ZoneSpecification
   void trackZoneError(Object error, StackTrace stackTrace) {
-    track(
-      error,
-      stackTrace: stackTrace,
-      severity: ErrorSeverity.error,
-    );
+    track(error, stackTrace: stackTrace, severity: ErrorSeverity.error);
   }
 
   /// Register callback for critical errors
@@ -297,10 +293,14 @@ class ErrorTrackingService extends ChangeNotifier {
       for (final key in keys.take(100)) {
         final data = _box!.get(key) as Map<dynamic, dynamic>?;
         if (data != null) {
-          _recentErrors.add(TrackedError.fromJson(Map<String, dynamic>.from(data)));
+          _recentErrors.add(
+            TrackedError.fromJson(Map<String, dynamic>.from(data)),
+          );
         }
       }
-      _recentErrors.sort((a, b) => b.context.timestamp.compareTo(a.context.timestamp));
+      _recentErrors.sort(
+        (a, b) => b.context.timestamp.compareTo(a.context.timestamp),
+      );
     } catch (e) {
       debugPrint('[ErrorTrackingService] Failed to load errors: $e');
     }
@@ -314,8 +314,8 @@ class ErrorTrackingService extends ChangeNotifier {
       final age = now.difference(error.context.timestamp);
       final isCritical = error.severity == ErrorSeverity.critical;
       final maxAge = isCritical
-          ? Duration(days: _criticalRetentionDays)
-          : Duration(days: _normalRetentionDays);
+          ? const Duration(days: _criticalRetentionDays)
+          : const Duration(days: _normalRetentionDays);
 
       if (age > maxAge) {
         toRemove.add(error.id);
@@ -331,7 +331,9 @@ class ErrorTrackingService extends ChangeNotifier {
     _errorCounts.clear();
 
     if (toRemove.isNotEmpty) {
-      debugPrint('[ErrorTrackingService] Cleaned up ${toRemove.length} old errors');
+      debugPrint(
+        '[ErrorTrackingService] Cleaned up ${toRemove.length} old errors',
+      );
     }
   }
 
@@ -346,7 +348,9 @@ class ErrorTrackingService extends ChangeNotifier {
 
     debugPrint('$prefix [${error.errorType}]: ${error.message}');
     if (error.stackTrace != null) {
-      debugPrint('Stack: ${error.stackTrace!.split('\n').take(5).join('\n')}...');
+      debugPrint(
+        'Stack: ${error.stackTrace!.split('\n').take(5).join('\n')}...',
+      );
     }
     if (error.context.screen != null) {
       debugPrint('Screen: ${error.context.screen}');

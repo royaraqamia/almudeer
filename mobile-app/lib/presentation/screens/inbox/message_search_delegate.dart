@@ -107,12 +107,12 @@ class MessageSearchDelegate extends SearchDelegate<InboxMessage?> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  "حدث خطأ ما",
+                  'حدث خطأ ما',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  "يرجى المحاولة مرة أخرى لاحقاً",
+                  'يرجى المحاولة مرة أخرى لاحقاً',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).hintColor,
                   ),
@@ -228,10 +228,10 @@ class MessageSearchDelegate extends SearchDelegate<InboxMessage?> {
                           final theme = Theme.of(context);
                           return Text(
                             isMe
-                                ? "أنت"
+                                ? 'أنت'
                                 : (message.senderName ??
                                       message.senderContact ??
-                                      "مجهول"),
+                                      'مجهول'),
                             style: theme.textTheme.titleSmall?.copyWith(
                               fontWeight: FontWeight.w600,
                             ),
@@ -244,7 +244,7 @@ class MessageSearchDelegate extends SearchDelegate<InboxMessage?> {
                         final theme = Theme.of(context);
                         final isDark = theme.brightness == Brightness.dark;
                         return Text(
-                          "$timeStr • $dateStr",
+                          '$timeStr • $dateStr',
                           style: theme.textTheme.labelSmall?.copyWith(
                             color: isDark
                                 ? AppColors.textSecondaryDark
@@ -268,7 +268,7 @@ class MessageSearchDelegate extends SearchDelegate<InboxMessage?> {
   Widget _buildHighlightedText(BuildContext context, String text) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    
+
     if (query.isEmpty) {
       return Text(
         text,
@@ -293,7 +293,9 @@ class MessageSearchDelegate extends SearchDelegate<InboxMessage?> {
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: theme.textTheme.bodyMedium?.copyWith(
-          color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+          color: isDark
+              ? AppColors.textSecondaryDark
+              : AppColors.textSecondaryLight,
           height: 1.5,
         ),
       );
@@ -316,7 +318,9 @@ class MessageSearchDelegate extends SearchDelegate<InboxMessage?> {
           TextSpan(
             text: text.substring(start, indexOfHighlight),
             style: TextStyle(
-              color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+              color: isDark
+                  ? AppColors.textSecondaryDark
+                  : AppColors.textSecondaryLight,
             ),
           ),
         );
@@ -331,7 +335,9 @@ class MessageSearchDelegate extends SearchDelegate<InboxMessage?> {
           style: TextStyle(
             color: isDark ? AppColors.textPrimaryDark : AppColors.primary,
             backgroundColor: isDark
-                ? AppColors.primary.withValues(alpha: 0.3)  // More visible in dark mode
+                ? AppColors.primary.withValues(
+                    alpha: 0.3,
+                  ) // More visible in dark mode
                 : AppColors.infoLight,
             fontWeight: FontWeight.w600,
           ),
@@ -346,7 +352,9 @@ class MessageSearchDelegate extends SearchDelegate<InboxMessage?> {
         TextSpan(
           text: text.substring(start),
           style: TextStyle(
-            color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+            color: isDark
+                ? AppColors.textSecondaryDark
+                : AppColors.textSecondaryLight,
           ),
         ),
       );

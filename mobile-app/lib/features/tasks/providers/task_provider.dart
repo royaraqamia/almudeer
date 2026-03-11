@@ -115,7 +115,9 @@ class TaskProvider extends ChangeNotifier {
     _webSocketService?.stream.listen((event) {
       final eventType = event['event'] as String?;
       if (eventType == 'task_shared') {
-        debugPrint('[TaskProvider] Received task_shared event, refreshing tasks');
+        debugPrint(
+          '[TaskProvider] Received task_shared event, refreshing tasks',
+        );
         // Refresh tasks to show the newly shared task
         loadTasks(triggerSync: false);
       }
@@ -215,7 +217,8 @@ class TaskProvider extends ChangeNotifier {
 
     // Check if cache is still valid (within validity window)
     final now = DateTime.now();
-    final cacheValid = _cachedFilteredTasks != null &&
+    final cacheValid =
+        _cachedFilteredTasks != null &&
         _cacheTimestamp != null &&
         now.difference(_cacheTimestamp!) < _cacheValidity &&
         _cachedFilter == _filter &&
@@ -227,7 +230,8 @@ class TaskProvider extends ChangeNotifier {
     }
 
     // FIX PERF-004: Only recompute if filter/search changed or tasks were modified
-    final needsRecompute = _cachedFilter != _filter ||
+    final needsRecompute =
+        _cachedFilter != _filter ||
         _cachedSearchQuery != _searchQuery ||
         _cachedTasksHash != _tasks.length;
 
@@ -349,11 +353,14 @@ class TaskProvider extends ChangeNotifier {
 
     try {
       final idsToDelete = _selectedIds.toList();
-      
+
       // Save removed tasks for potential undo
       final removedTasks = <TaskModel>[];
       for (final id in idsToDelete) {
-        final task = _tasks.firstWhere((t) => t.id == id, orElse: () => TaskModel(id: '', title: ''));
+        final task = _tasks.firstWhere(
+          (t) => t.id == id,
+          orElse: () => TaskModel(id: '', title: ''),
+        );
         if (task.id.isNotEmpty) {
           removedTasks.add(task);
         }
@@ -370,10 +377,10 @@ class TaskProvider extends ChangeNotifier {
 
       // Final refresh to ensure sync
       loadTasks(triggerSync: true);
-      
+
       return removedTasks;
     } catch (e) {
-      debugPrint("Error in bulk delete: $e");
+      debugPrint('Error in bulk delete: $e');
       loadTasks(triggerSync: true);
       return [];
     }
@@ -387,7 +394,7 @@ class TaskProvider extends ChangeNotifier {
       try {
         await _repository.updateTask(updatedTask);
       } catch (e) {
-        debugPrint("Error undoing bulk delete: $e");
+        debugPrint('Error undoing bulk delete: $e');
       }
     }
     _sortTasks();
@@ -447,12 +454,12 @@ class TaskProvider extends ChangeNotifier {
       // FIX: Clear sync failure on successful load
       _clearSyncFailure();
     } catch (e) {
-      debugPrint("Error loading tasks: $e");
+      debugPrint('Error loading tasks: $e');
       _isLoading = false;
-      
+
       // FIX: Track sync failure for UI indicator
       _trackSyncFailure(e.toString());
-      
+
       // Don't show error for offline - just keep showing cached data
       if (_tasks.isEmpty) {
         // Show empty state instead of error for offline scenarios
@@ -483,7 +490,7 @@ class TaskProvider extends ChangeNotifier {
         }
       }
     } catch (e) {
-      debugPrint("Error loading more tasks: $e");
+      debugPrint('Error loading more tasks: $e');
     } finally {
       _isLoadingMore = false;
       notifyListeners();
@@ -495,10 +502,11 @@ class TaskProvider extends ChangeNotifier {
       final userInfo = await _authRepository.getUserInfo();
       _currentUserEmail =
           userInfo.username ?? userInfo.licenseKey?.substring(0, 20);
-      _currentUserId = userInfo.licenseId?.toString(); // Backend uses license_id as user_id (JWT sub claim)
+      _currentUserId = userInfo.licenseId
+          ?.toString(); // Backend uses license_id as user_id (JWT sub claim)
       notifyListeners();
     } catch (e) {
-      debugPrint("Error loading current user: $e");
+      debugPrint('Error loading current user: $e');
     }
   }
 
@@ -508,7 +516,7 @@ class TaskProvider extends ChangeNotifier {
       _collaborators = collaborators;
       notifyListeners();
     } catch (e) {
-      debugPrint("Error loading collaborators: $e");
+      debugPrint('Error loading collaborators: $e');
     }
   }
 
@@ -558,7 +566,7 @@ class TaskProvider extends ChangeNotifier {
         await TaskAlarmService().scheduleAlarm(newTask);
       }
     } catch (e) {
-      debugPrint("Error adding task: $e");
+      debugPrint('Error adding task: $e');
       // Rollback on failure
       _tasks.removeWhere((t) => t.id == newTask.id);
       _setError('فشل إضافة المهمة. يرجى المحاولة مرة أخرى');
@@ -571,7 +579,9 @@ class TaskProvider extends ChangeNotifier {
     final now = DateTime.now();
     final lastToggle = _pendingToggles[task.id];
     if (lastToggle != null && now.difference(lastToggle) < _toggleDebounceMs) {
-      debugPrint('toggleTaskStatus: Debouncing rapid toggle for task ${task.id}');
+      debugPrint(
+        'toggleTaskStatus: Debouncing rapid toggle for task ${task.id}',
+      );
       return;
     }
     _pendingToggles[task.id] = now;
@@ -604,7 +614,7 @@ class TaskProvider extends ChangeNotifier {
         await TaskAlarmService().scheduleAlarm(updatedTask);
       }
     } catch (e) {
-      debugPrint("Error toggling task status: $e");
+      debugPrint('Error toggling task status: $e');
       _setError('فشل تحديث حالة المهمة. يرجى المحاولة مرة أخرى');
       await loadTasks(triggerSync: false);
     } finally {
@@ -632,7 +642,7 @@ class TaskProvider extends ChangeNotifier {
       // Return the removed task for potential undo
       return removedTask;
     } catch (e) {
-      debugPrint("Error deleting task: $e");
+      debugPrint('Error deleting task: $e');
       _setError('فشل حذف المهمة. يرجى المحاولة مرة أخرى');
       // Rollback
       _tasks.add(removedTask);
@@ -649,11 +659,11 @@ class TaskProvider extends ChangeNotifier {
     _tasks.add(updatedTask);
     _sortTasks();
     notifyListeners();
-    
+
     try {
       await _repository.updateTask(updatedTask);
     } catch (e) {
-      debugPrint("Error undoing delete: $e");
+      debugPrint('Error undoing delete: $e');
       // Remove again if restore fails
       _tasks.removeWhere((t) => t.id == task.id);
       notifyListeners();
@@ -689,7 +699,7 @@ class TaskProvider extends ChangeNotifier {
         await TaskAlarmService().cancelAlarm(updatedTask.id);
       }
     } catch (e) {
-      debugPrint("Error updating task: $e");
+      debugPrint('Error updating task: $e');
       _setError('فشل تحديث المهمة. يرجى المحاولة مرة أخرى');
       await loadTasks(triggerSync: false);
     }
@@ -710,7 +720,7 @@ class TaskProvider extends ChangeNotifier {
         expiresInDays: expiresInDays,
       );
     } catch (e) {
-      debugPrint("Error sharing task: $e");
+      debugPrint('Error sharing task: $e');
       rethrow;
     }
   }
@@ -727,7 +737,6 @@ class TaskProvider extends ChangeNotifier {
     );
   }
 
-
   Future<void> reorderTasks(int oldIndex, int newIndex) async {
     if (oldIndex == newIndex) return;
 
@@ -740,13 +749,15 @@ class TaskProvider extends ChangeNotifier {
     if (oldIndex == effectiveNewIndex) return;
 
     final List<TaskModel> filtered = List.from(filteredTasks);
-    
+
     // FIX: Validate indices are within bounds
     if (oldIndex < 0 || oldIndex >= filtered.length) {
-      debugPrint('reorderTasks: Invalid oldIndex $oldIndex, list length: ${filtered.length}');
+      debugPrint(
+        'reorderTasks: Invalid oldIndex $oldIndex, list length: ${filtered.length}',
+      );
       return;
     }
-    
+
     final TaskModel movedTask = filtered.removeAt(oldIndex);
     filtered.insert(effectiveNewIndex, movedTask);
 
@@ -766,9 +777,9 @@ class TaskProvider extends ChangeNotifier {
       newOrderIndex = filtered[effectiveNewIndex - 1].orderIndex + 1.0;
     } else {
       // Moving between two items - FIX: bounds check
-      double prevIndex = filtered[effectiveNewIndex - 1].orderIndex;
-      double nextIndex = (effectiveNewIndex + 1 < filtered.length) 
-          ? filtered[effectiveNewIndex + 1].orderIndex 
+      final double prevIndex = filtered[effectiveNewIndex - 1].orderIndex;
+      final double nextIndex = (effectiveNewIndex + 1 < filtered.length)
+          ? filtered[effectiveNewIndex + 1].orderIndex
           : prevIndex + 2.0;
       newOrderIndex = (prevIndex + nextIndex) / 2.0;
     }
@@ -788,7 +799,7 @@ class TaskProvider extends ChangeNotifier {
     try {
       await _repository.updateTask(updatedTask);
     } catch (e) {
-      debugPrint("Error persisting reorder: $e");
+      debugPrint('Error persisting reorder: $e');
       // Rollback if needed or just reload
       await loadTasks(triggerSync: false);
     }
@@ -815,17 +826,19 @@ class TaskProvider extends ChangeNotifier {
         // Don't default to 'read' if backend explicitly returns null
         // Backend returns share_permission only for shared tasks (not owned)
         final effectivePermission = task.sharePermission;
-        
+
         // Only set sharePermission if backend provided it
         // This ensures we don't incorrectly mark tasks
         if (effectivePermission != null) {
-          tasksMap[task.id] = task.copyWith(sharePermission: effectivePermission);
+          tasksMap[task.id] = task.copyWith(
+            sharePermission: effectivePermission,
+          );
         } else {
           // If backend didn't provide sharePermission, this might be an edge case
           // Log for debugging and default to 'read' for safety
           debugPrint(
             '[TaskProvider] Shared task ${task.id} has no sharePermission, '
-            'defaulting to read'
+            'defaulting to read',
           );
           tasksMap[task.id] = task.copyWith(sharePermission: 'read');
         }

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Request
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Union
 from datetime import datetime, timedelta
+import logging
 
 from models import (
     get_customers,
@@ -27,6 +28,8 @@ from security import sanitize_email, sanitize_phone, sanitize_string
 from dependencies import get_license_from_header, get_optional_license_from_header
 from db_helper import get_db, fetch_all
 from rate_limiting import limiter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["Features"])
 
@@ -205,7 +208,7 @@ class PreferencesUpdate(BaseModel):
     preferred_languages: Optional[Union[str, List[str]]] = None
     reply_length: Optional[str] = None
     formality_level: Optional[str] = None
-    
+
     # Cross-device sync fields
     quran_progress: Optional[str] = None
     athkar_stats: Optional[str] = None
@@ -227,12 +230,61 @@ class PreferencesUpdate(BaseModel):
             try:
                 import json
                 parsed = json.loads(v)
-                if isinstance(parsed, list) and len(parsed) > 50:
-                    raise ValueError('Calculator history cannot exceed 50 entries')
-            except (json.JSONDecodeError, TypeError):
-                pass  # Not a valid JSON string, skip validation
+                if isinstance(parsed, list):
+                    if len(parsed) > 50:
+                        raise ValueError('Calculator history cannot exceed 50 entries')
+            except json.JSONDecodeError as e:
+                # Invalid JSON string - reject it
+                raise ValueError(f'Calculator history must be valid JSON: {e}')
+            except TypeError as e:
+                # Not a parseable format - reject it
+                raise ValueError(f'Calculator history must be valid JSON: {e}')
             return v
         return v
+
+
+# ============ Calculator History Schemas ============
+
+class CalculatorHistoryEntry(BaseModel):
+    """Schema for a single calculator history entry with timestamp"""
+    entry: str = Field(..., min_length=1, max_length=500)
+    timestamp: str  # ISO 8601 format
+
+    @field_validator('entry')
+    @classmethod
+    def sanitize_entry(cls, v):
+        """Sanitize calculator entry to prevent XSS/injection"""
+        if not v:
+            return v
+        # Remove potentially dangerous characters/patterns
+        # Keep: Arabic, English, numbers, math operators, parentheses, common functions
+        # Block: < > " ' ` \ and control characters
+        import re
+        # Strip HTML-like tags
+        v = re.sub(r'<[^>]*>', '', v)
+        # Remove control characters except newline/tab
+        v = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', v)
+        # Limit length
+        return v[:500]
+
+
+class CalculatorHistoryUpdate(BaseModel):
+    """Schema for updating calculator history"""
+    history: List[CalculatorHistoryEntry] = Field(default_factory=list)
+
+    @field_validator('history')
+    @classmethod
+    def validate_history_length(cls, v):
+        """Validate history doesn't exceed maximum entries"""
+        if len(v) > 50:
+            raise ValueError('Calculator history cannot exceed 50 entries')
+        return v
+
+
+class CalculatorHistoryResponse(BaseModel):
+    """Schema for calculator history response"""
+    success: bool
+    history: List[CalculatorHistoryEntry]
 
 
 # ============ Athkar Schemas ============
@@ -321,9 +373,14 @@ async def update_quran_progress(
     # Validate the progress data
     validation_error = _validate_quran_progress(data)
     if validation_error:
+        # Log validation failure for monitoring
+        logger.warning(
+            f"Quran progress validation failed for license {license['license_id']}: {validation_error}",
+            extra={"data": data, "license_id": license["license_id"]}
+        )
         # Bilingual error message (Arabic/English)
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail={
                 "error": validation_error,
                 "error_en": _translate_validation_error(validation_error)
@@ -339,6 +396,8 @@ async def update_quran_progress(
 
 def _translate_validation_error(arabic_error: str) -> str:
     """Translate common validation errors to English for API responses."""
+    import re
+    
     translations = {
         "تنسيق البيانات غير صالح: يجب أن يكون كائن JSON": "Invalid data format: must be a JSON object",
         "البيانات غير مكتملة: رقم السورة مطلوب": "Incomplete data: surah number is required",
@@ -347,17 +406,32 @@ def _translate_validation_error(arabic_error: str) -> str:
         "رقم السورة غير صالح: يجب أن يكون بين 1 و 114": "Invalid surah number: must be between 1 and 114",
         "رقم الآية غير صالح: يجب أن يكون رقماً صحيحاً": "Invalid verse number: must be an integer",
         "رقم الآية غير صالح: يجب أن يكون رقماً موجباً": "Invalid verse number: must be a positive number",
+        "رقم الآية غير صالح": "Invalid verse number:",
     }
-    
+
     # Check for exact match first
     if arabic_error in translations:
         return translations[arabic_error]
+
+    # Check for partial match using regex patterns for dynamic errors
+    patterns = [
+        (r"رقم السورة غير صالح.*بين 1 و 114.*إدخال (\d+)", r"Invalid surah number: must be between 1 and 114, got \1"),
+        (r"رقم السورة غير صالح.*رقماً صحيحاً", "Invalid surah number: must be an integer"),
+        (r"رقم الآية غير صالح.*رقماً صحيحاً", "Invalid verse number: must be an integer"),
+        (r"رقم الآية غير صالح.*رقماً موجباً.*إدخال (-?\d+)", r"Invalid verse number: must be positive, got \1"),
+        (r"رقم الآية غير صالح.*لها (\d+) آيات.*إدخال (\d+)", r"Invalid verse number: surah has only \1 verses, got \2"),
+        (r"رقم السورة غير صالح", "Invalid surah number: must be between 1 and 114"),
+        (r"رقم الآية غير صالح", "Invalid verse number: invalid value"),
+    ]
     
-    # Check for partial match (for dynamic errors with numbers)
-    for arabic_key, english_val in translations.items():
-        if arabic_key.split(':')[0] in arabic_error:
-            return english_val
-    
+    for pattern, replacement in patterns:
+        match = re.search(pattern, arabic_error)
+        if match:
+            # Handle numbered replacements
+            if isinstance(replacement, str) and r"\1" in replacement:
+                return re.sub(pattern, replacement, arabic_error)
+            return replacement
+
     return "Invalid Quran progress data"
 
 
@@ -410,6 +484,112 @@ async def update_user_preferences(
         **data.dict(exclude_none=True)
     )
     return {"success": True, "message": "تم حفظ التفضيلات"}
+
+
+# ============ Calculator History Routes ============
+
+@router.get("/calculator/history", response_model=CalculatorHistoryResponse)
+@limiter.limit("60/minute")
+async def get_calculator_history(
+    request: Request,
+    license: dict = Depends(get_license_from_header)
+):
+    """
+    Get user's calculator history for cross-device sync.
+    
+    Returns structured history entries with timestamps.
+    """
+    prefs = await get_preferences(license["license_id"])
+    raw_history = prefs.get('calculator_history', [])
+    
+    # Parse history - could be JSON string or already parsed list
+    history_entries = []
+    if isinstance(raw_history, str):
+        try:
+            import json
+            parsed = json.loads(raw_history)
+            if isinstance(parsed, list):
+                raw_history = parsed
+        except (json.JSONDecodeError, TypeError):
+            raw_history = []
+    
+    # Convert to structured entries
+    if isinstance(raw_history, list):
+        for item in raw_history:
+            if isinstance(item, dict):
+                # Structured format: {entry, timestamp}
+                history_entries.append(CalculatorHistoryEntry(
+                    entry=item.get('entry', ''),
+                    timestamp=item.get('timestamp', datetime.utcnow().isoformat())
+                ))
+            elif isinstance(item, str):
+                # Legacy format: just the entry string
+                history_entries.append(CalculatorHistoryEntry(
+                    entry=item,
+                    timestamp=datetime.utcnow().isoformat()
+                ))
+    
+    return CalculatorHistoryResponse(success=True, history=history_entries)
+
+
+@router.patch("/calculator/history")
+@limiter.limit("30/minute")
+async def update_calculator_history(
+    request: Request,
+    data: CalculatorHistoryUpdate,
+    license: dict = Depends(get_license_from_header)
+):
+    """
+    Update user's calculator history for cross-device sync.
+    
+    Accepts structured history entries with timestamps.
+    Stores as JSON array in user_preferences.
+    """
+    import json
+    
+    # Convert to structured format for storage
+    history_data = [
+        {
+            'entry': entry.entry,
+            'timestamp': entry.timestamp
+        }
+        for entry in data.history
+    ]
+    
+    # Log for monitoring
+    logger.info(
+        f"Calculator history updated: {len(history_data)} entries for license {license['license_id']}",
+        extra={"license_id": license["license_id"], "entry_count": len(history_data)}
+    )
+    
+    await update_preferences(
+        license["license_id"],
+        calculator_history=json.dumps(history_data)
+    )
+    
+    return {"success": True, "message": "تم حفظ سجل الحاسبة"}
+
+
+@router.delete("/calculator/history")
+@limiter.limit("10/minute")
+async def clear_calculator_history(
+    request: Request,
+    license: dict = Depends(get_license_from_header)
+):
+    """Clear user's calculator history"""
+    import json
+    
+    logger.info(
+        f"Calculator history cleared for license {license['license_id']}",
+        extra={"license_id": license["license_id"]}
+    )
+    
+    await update_preferences(
+        license["license_id"],
+        calculator_history=json.dumps([])
+    )
+    
+    return {"success": True, "message": "تم مسح سجل الحاسبة"}
 
 
 # ============ Voice Transcription Schemas Removed ============

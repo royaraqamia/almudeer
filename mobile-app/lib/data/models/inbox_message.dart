@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:collection';  // P0-2 FIX: Import for LinkedHashMap
+import 'dart:collection'; // P0-2 FIX: Import for LinkedHashMap
 import 'package:uuid/uuid.dart';
 
 enum MessageSendStatus { none, sending, sent, failed }
@@ -10,7 +10,7 @@ class InboxMessage {
   // Previous timestamp-based approach had small collision risk when:
   // - Multiple messages sent in same millisecond
   // - App restarts quickly (same session timestamp)
-  static final Uuid _uuid = Uuid();
+  static final Uuid _uuid = const Uuid();
   // P0-2 FIX: Use LinkedHashMap to guarantee insertion order for proper LRU eviction
   // Regular Map in Dart does not guarantee iteration order, which could cause
   // wrong entries to be evicted and lead to UUID collision
@@ -132,12 +132,16 @@ class InboxMessage {
     final uuidString = uuid.toString();
 
     // Convert UUID to int using hash
-    final id = _uuidToIntCache[uuidString] ?? (uuidString.hashCode % 1000000).abs() * -1;
+    final id =
+        _uuidToIntCache[uuidString] ??
+        (uuidString.hashCode % 1000000).abs() * -1;
     if (!_uuidToIntCache.containsKey(uuidString)) {
       _uuidToIntCache[uuidString] = id;
       // P0-2 FIX: LRU eviction - remove oldest 100 entries when cache exceeds max size
       if (_uuidToIntCache.length > _maxCacheSize) {
-        final keysToRemove = _uuidToIntCache.keys.take(_evictBatchSize).toList();
+        final keysToRemove = _uuidToIntCache.keys
+            .take(_evictBatchSize)
+            .toList();
         for (final key in keysToRemove) {
           _uuidToIntCache.remove(key);
         }
@@ -495,14 +499,16 @@ class InboxMessage {
     try {
       final createdTS = timestamp ?? createdAt;
       final created = DateTime.parse(createdTS).toUtc();
-      if (DateTime.now().toUtc().difference(created) > const Duration(hours: 24)) {
+      if (DateTime.now().toUtc().difference(created) >
+          const Duration(hours: 24)) {
         return false;
       }
     } catch (e) {
       // If parsing fails, fall back to createdAt (which is guaranteed non-null in constructor)
       try {
         final created = DateTime.parse(createdAt).toUtc();
-        if (DateTime.now().toUtc().difference(created) > const Duration(hours: 24)) {
+        if (DateTime.now().toUtc().difference(created) >
+            const Duration(hours: 24)) {
           return false;
         }
       } catch (e2) {

@@ -42,7 +42,9 @@ class WhatsappSetupForm extends StatelessWidget {
                 width: 60,
                 height: 2,
                 decoration: ShapeDecoration(
-                  color: setupStep >= 2 ? AppColors.primary : theme.dividerColor,
+                  color: setupStep >= 2
+                      ? AppColors.primary
+                      : theme.dividerColor,
                   shape: SmoothRectangleBorder(
                     borderRadius: SmoothBorderRadius(
                       cornerRadius: 1,
@@ -192,17 +194,15 @@ class WhatsappSetupForm extends StatelessWidget {
         SizedBox(
           width: double.infinity,
           child: AppGradientButton(
-            onPressed: !RegExp(r'^\d{15}$').hasMatch(phoneIdController.text.trim())
+            onPressed:
+                !RegExp(r'^\d{15}$').hasMatch(phoneIdController.text.trim())
                 ? null
                 : () {
                     Haptics.lightTap();
                     onStepChange(setupStep + 1);
                   },
             text: 'التَّالي',
-            gradientColors: [
-              AppColors.primary,
-              AppColors.primaryDark,
-            ],
+            gradientColors: const [AppColors.primary, AppColors.primaryDark],
           ),
         ),
       ],
@@ -323,7 +323,7 @@ class WhatsappSetupForm extends StatelessWidget {
                         onSave();
                       },
                 text: 'ربط',
-                gradientColors: [
+                gradientColors: const [
                   AppColors.primary,
                   AppColors.primaryDark,
                 ],

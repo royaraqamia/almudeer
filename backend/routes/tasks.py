@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request, Form, File, UploadFile
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request, Form, File, UploadFile, Query
 import json
 from typing import List, Optional
 from datetime import datetime
@@ -14,7 +14,16 @@ from pydantic import BaseModel, Field, validator
 from constants.tasks import MAX_FILE_SIZE
 from db_helper import get_db, fetch_one
 
-router = APIRouter(prefix="/api/tasks", tags=["Tasks"])
+router = APIRouter(
+    prefix="/api/tasks",
+    tags=["Tasks"],
+    responses={
+        401: {"description": "Unauthorized - Invalid or missing authentication token"},
+        403: {"description": "Forbidden - User lacks required permissions"},
+        404: {"description": "Not Found - Task does not exist"},
+        500: {"description": "Internal Server Error"},
+    }
+)
  
 async def notify_assignment(license_id: int, task_id: str, title: str, assignee: str, sender_name: str):
     """Send push notification to assignee"""
@@ -35,7 +44,12 @@ async def notify_assignment(license_id: int, task_id: str, title: str, assignee:
         import traceback
         logging.error(f"Failed to send assignment notification to {assignee} for task {task_id}: {e}\n{traceback.format_exc()}")
 
-@router.get("/collaborators", response_model=List[dict])
+@router.get(
+    "/collaborators",
+    response_model=List[dict],
+    summary="List Task Collaborators",
+    description="Get all users sharing the same license key. Used for task assignment and sharing."
+)
 async def list_collaborators(
     user: dict = Depends(get_current_user)
 ):
@@ -46,29 +60,100 @@ async def list_collaborators(
         rows = await fetch_all(db, "SELECT email, name, role FROM users WHERE license_key_id = ?", (license_id,))
         return [dict(row) for row in rows]
 
-@router.get("/", response_model=List[TaskResponse])
+@router.get(
+    "/",
+    response_model=List[TaskResponse],
+    summary="List Tasks",
+    description="""
+Get all tasks for the current user's license.
+
+## Features:
+- **Visibility**: Returns tasks owned by user OR shared with user
+- **Pagination**: Supports both offset-based and cursor-based pagination
+- **Incremental Sync**: Use `since` parameter to fetch only changed tasks
+- **Private Tasks**: Only visible to creator (visibility='private')
+
+## Pagination:
+- **Offset-based**: Use `limit` and `offset` parameters
+- **Cursor-based**: Use `cursor` parameter with `created_at` timestamp (recommended for large datasets)
+
+## Filtering:
+- Use `since` to get tasks updated after a specific timestamp
+""",
+    responses={
+        200: {
+            "description": "List of tasks",
+            "content": {
+                "application/json": {
+                    "example": [
+                        {
+                            "id": "task-123",
+                            "title": "Complete project report",
+                            "description": "Finish Q4 report",
+                            "is_completed": False,
+                            "priority": "high",
+                            "due_date": "2026-03-15T23:59:59Z",
+                            "category": "Work",
+                            "created_by": "user-1",
+                            "visibility": "shared",
+                            "share_permission": "edit"
+                        }
+                    ]
+                }
+            }
+        }
+    }
+)
 async def list_tasks(
-    since: Optional[datetime] = None,
-    limit: Optional[int] = None,
-    offset: Optional[int] = 0,
-    cursor: Optional[str] = None,  # Cursor for pagination
+    since: Optional[datetime] = Query(None, description="Fetch tasks updated after this timestamp"),
+    limit: Optional[int] = Query(None, description="Maximum number of tasks to return", ge=1, le=200),
+    offset: Optional[int] = Query(0, description="Number of tasks to skip", ge=0),
+    cursor: Optional[str] = Query(None, description="Cursor for pagination (created_at timestamp)"),
     user: dict = Depends(get_current_user)
 ):
     """Get tasks. Private tasks only visible to creator.
-    
+
     Supports cursor-based pagination for better performance with large datasets.
     Use the 'created_at' of the last task as the cursor for next page.
     """
     tasks = await get_tasks(user["license_id"], user["user_id"], since=since, limit=limit, offset=offset, cursor=cursor)
     return tasks
 
-@router.post("/", response_model=TaskResponse)
+@router.post(
+    "/",
+    response_model=TaskResponse,
+    summary="Create Task",
+    description="""
+Create or update a task (atomic upsert with LWW conflict resolution).
+
+## Features:
+- **Atomic Upsert**: Creates new task or updates existing one using Last-Write-Wins
+- **File Attachments**: Upload images and documents (max 20MB per file)
+- **Subtasks**: Support for nested subtasks with completion tracking
+- **Recurrence**: Daily, weekly, or monthly recurring tasks
+- **Alarms**: Schedule notifications for task deadlines
+- **Sharing**: Share tasks with other license users (read/edit/admin permissions)
+
+## Request Format:
+- `task_json`: JSON string containing task data (Form field)
+- `files`: Optional file attachments (multipart form)
+
+## Conflict Resolution:
+Uses Last-Write-Wins (LWW) with 5-second clock skew tolerance for offline sync scenarios.
+""",
+    responses={
+        200: {"description": "Task created/updated successfully"},
+        400: {"description": "Invalid task data or file validation failed"},
+        409: {"description": "Conflict - Duplicate task detected"},
+        429: {"description": "Rate limit exceeded"},
+    }
+)
 @limiter.limit(RateLimits.API)
 async def create_new_task(
     request: Request,
     background_tasks: BackgroundTasks,
-    task_json: str = Form(...),
-    files: Optional[List[UploadFile]] = File(None),
+    task_json: str = Form(..., description="JSON string containing task data"),
+    files: Optional[List[UploadFile]] = File(None, description="Optional file attachments (max 20MB each)"),
     user: dict = Depends(get_current_user)
 ):
     """Create or sync a task (atomic upsert) with support for file attachments"""

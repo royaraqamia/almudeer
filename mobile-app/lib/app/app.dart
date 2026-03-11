@@ -15,7 +15,7 @@ import '../presentation/providers/auth_provider.dart';
 import '../presentation/providers/inbox_provider.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import '../core/services/notification_navigator.dart';
-import '../core/services/offline_sync_service.dart';
+import '../core/services/offline_sync_service.dart' as offline;
 import '../core/services/websocket_service.dart';
 import '../presentation/providers/customers_provider.dart';
 import '../presentation/providers/conversation_detail_provider.dart';
@@ -64,7 +64,7 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _performAppInitialization();
 
-      context.read<OfflineSyncService>().addListener(_onSyncStatusChange);
+      context.read<offline.OfflineSyncService>().addListener(_onSyncStatusChange);
 
       context.read<AuthProvider>().setAccountSwitchCallback(() {
         _handleAccountSwitch();
@@ -81,7 +81,7 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
   @override
   void dispose() {
     try {
-      context.read<OfflineSyncService>().removeListener(_onSyncStatusChange);
+      context.read<offline.OfflineSyncService>().removeListener(_onSyncStatusChange);
     } catch (_) {}
 
     _deepLinkSubscription?.cancel();
@@ -125,7 +125,7 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
       // Staggered Execution: Spread tasks across frames to avoid ANR
       // T+100ms: Kick off sync
       Future.delayed(const Duration(milliseconds: 100), () {
-        if (mounted) context.read<OfflineSyncService>().syncAll();
+        if (mounted) context.read<offline.OfflineSyncService>().syncAll();
       });
 
       // T+800ms: Library specific resume logic
@@ -148,10 +148,10 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
 
   void _onSyncStatusChange() {
     if (!mounted) return;
-    final syncService = context.read<OfflineSyncService>();
+    final syncService = context.read<offline.OfflineSyncService>();
 
     // When sync completes successfully, refresh UI providers to show new data
-    if (syncService.status == SyncStatus.success) {
+    if (syncService.status == offline.SyncStatus.success) {
       debugPrint('[AppRoot] Sync Success - Refreshing UI Providers');
 
       // Use microtask to yield to UI thread and avoid blocking
@@ -356,11 +356,11 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
         Locale('ar', 'SA'),
         Locale('ar', 'SY'),
       ],
-      localizationsDelegates: [
+      localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
-        const AppLocalizationsDelegate(),
+        AppLocalizationsDelegate(),
       ],
 
       // Navigation - use home instead of initialRoute for reliable initial build

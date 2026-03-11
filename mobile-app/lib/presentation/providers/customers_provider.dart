@@ -66,11 +66,13 @@ class CustomersProvider extends ChangeNotifier {
   Customer? getCustomerByContact(String? contact) {
     if (contact == null || contact.isEmpty) return null;
     try {
-      return _customers.firstWhere((c) =>
-          c.phone == contact ||
-          c.email == contact ||
-          c.username == contact ||
-          c.contact == contact);
+      return _customers.firstWhere(
+        (c) =>
+            c.phone == contact ||
+            c.email == contact ||
+            c.username == contact ||
+            c.contact == contact,
+      );
     } catch (e) {
       return null;
     }
@@ -127,14 +129,14 @@ class CustomersProvider extends ChangeNotifier {
 
       if (result['success'] == false) {
         // Revert optimistic deletion on failure
-        _error = result['message'] ?? "فشل الحذف";
+        _error = result['message'] ?? 'فشل الحذف';
         notifyListeners();
         loadCustomers(refresh: true);
       } else {
         notifyListeners();
       }
     } catch (e) {
-      _error = "فشل حذف بعض العناصر";
+      _error = 'فشل حذف بعض العناصر';
       notifyListeners();
       loadCustomers(refresh: true);
     }
@@ -178,13 +180,13 @@ class CustomersProvider extends ChangeNotifier {
   ) async {
     // Support for username change migration
     final oldContact = updatedFields['old_sender_contact'] as String?;
-    
+
     // 1. Update in-memory list - find by either old or new contact
     int index = _customers.indexWhere((c) => c.contact == contact);
     if (index == -1 && oldContact != null) {
       index = _customers.indexWhere((c) => c.contact == oldContact);
     }
-    
+
     if (index != -1) {
       final oldCustomer = _customers[index];
 
@@ -243,8 +245,7 @@ class CustomersProvider extends ChangeNotifier {
       try {
         final cache = PersistentCacheService();
         final accountHash = await _repository.apiClient.getAccountCacheHash();
-        final cacheKey =
-            '${accountHash}_list_${_currentPage}_$_searchQuery';
+        final cacheKey = '${accountHash}_list_${_currentPage}_$_searchQuery';
         final cachedData = await cache.get<Map<String, dynamic>>(
           PersistentCacheService.boxCustomers,
           cacheKey,

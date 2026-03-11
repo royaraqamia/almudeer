@@ -67,13 +67,13 @@ void main() {
 
       // Simulate going offline
       connectivityStream.add([ConnectivityResult.none]);
-      await Future.delayed(Duration(milliseconds: 600)); // Debounce
+      await Future.delayed(const Duration(milliseconds: 600)); // Debounce
 
       expect(service.status, ConnectivityStatus.offline);
 
       // Simulate coming back online
       connectivityStream.add([ConnectivityResult.wifi]);
-      await Future.delayed(Duration(milliseconds: 600)); // Debounce
+      await Future.delayed(const Duration(milliseconds: 600)); // Debounce
 
       expect(service.status, ConnectivityStatus.online);
     });
@@ -87,7 +87,7 @@ void main() {
       ).thenAnswer((_) async => http.Response('server error', 500));
 
       connectivityStream.add([ConnectivityResult.wifi]);
-      await Future.delayed(Duration(milliseconds: 600));
+      await Future.delayed(const Duration(milliseconds: 600));
 
       // Should be offline because server is down
       expect(service.status, ConnectivityStatus.offline);

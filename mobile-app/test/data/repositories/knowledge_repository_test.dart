@@ -44,7 +44,10 @@ void main() {
             {
               'text': 'Document 1',
               'id': '123',
-              'metadata': {'source': 'manual', 'created_at': '2024-01-01T00:00:00Z'},
+              'metadata': {
+                'source': 'manual',
+                'created_at': '2024-01-01T00:00:00Z',
+              },
             },
           ],
         },
@@ -55,7 +58,7 @@ void main() {
       ).thenAnswer((_) async => responseData);
 
       final result = await repository.getKnowledgeDocuments();
-      
+
       expect(result.length, 1);
       expect(result.first.text, 'Document 1');
       expect(result.first.id, '123');
@@ -63,20 +66,23 @@ void main() {
       verify(mockApiClient.get(Endpoints.knowledgeDocuments)).called(1);
     });
 
-    test('getKnowledgeDocuments returns empty list when no documents', () async {
-      final responseData = {
-        'success': true,
-        'data': {'documents': []},
-      };
+    test(
+      'getKnowledgeDocuments returns empty list when no documents',
+      () async {
+        final responseData = {
+          'success': true,
+          'data': {'documents': []},
+        };
 
-      when(
-        mockApiClient.get(Endpoints.knowledgeDocuments),
-      ).thenAnswer((_) async => responseData);
+        when(
+          mockApiClient.get(Endpoints.knowledgeDocuments),
+        ).thenAnswer((_) async => responseData);
 
-      final result = await repository.getKnowledgeDocuments();
-      
-      expect(result, isEmpty);
-    });
+        final result = await repository.getKnowledgeDocuments();
+
+        expect(result, isEmpty);
+      },
+    );
 
     test('getKnowledgeDocuments falls back to cache on API error', () async {
       when(
@@ -91,20 +97,23 @@ void main() {
       );
     });
 
-    test('getKnowledgeDocuments handles malformed response gracefully', () async {
-      final responseData = {
-        'success': true,
-        // Missing 'documents' key
-      };
+    test(
+      'getKnowledgeDocuments handles malformed response gracefully',
+      () async {
+        final responseData = {
+          'success': true,
+          // Missing 'documents' key
+        };
 
-      when(
-        mockApiClient.get(Endpoints.knowledgeDocuments),
-      ).thenAnswer((_) async => responseData);
+        when(
+          mockApiClient.get(Endpoints.knowledgeDocuments),
+        ).thenAnswer((_) async => responseData);
 
-      final result = await repository.getKnowledgeDocuments();
-      
-      expect(result, isEmpty);
-    });
+        final result = await repository.getKnowledgeDocuments();
+
+        expect(result, isEmpty);
+      },
+    );
   });
 
   group('KnowledgeRepository - Add Document', () {
@@ -146,7 +155,7 @@ void main() {
 
     test('addKnowledgeDocument throws on text exceeding max length', () async {
       final longText = 'a' * (KnowledgeBaseConstants.maxTextLength + 1);
-      
+
       await expectLater(
         () => repository.addKnowledgeDocument(longText),
         throwsA(isA<ArgumentError>()),
@@ -164,36 +173,38 @@ void main() {
       await repository.addKnowledgeDocument('Test');
 
       // Verify the API call was made (cache invalidation is fire-and-forget now)
-      verify(mockApiClient.post(
-        Endpoints.knowledgeDocuments,
-        body: anyNamed('body'),
-      )).called(1);
-      
+      verify(
+        mockApiClient.post(
+          Endpoints.knowledgeDocuments,
+          body: anyNamed('body'),
+        ),
+      ).called(1);
+
       // Give async cache invalidation time to complete
-      await Future.delayed(Duration(milliseconds: 50));
+      await Future.delayed(const Duration(milliseconds: 50));
     });
   });
 
   group('KnowledgeRepository - Update Document', () {
     test('updateKnowledgeDocument calls put with correct data', () async {
       when(
-        mockApiClient.put(
-          any,
-          body: anyNamed('body'),
-        ),
+        mockApiClient.put(any, body: anyNamed('body')),
       ).thenAnswer((_) async => {'success': true});
 
       await repository.updateKnowledgeDocument('123', 'Updated text');
-      
+
       // Give async cache invalidation time to complete
-      await Future.delayed(Duration(milliseconds: 50));
+      await Future.delayed(const Duration(milliseconds: 50));
 
       verify(
         mockApiClient.put(
           '/api/knowledge/documents/123',
           body: argThat(
-            isA<Map<String, dynamic>>()
-                .having((m) => m['text'], 'text', 'Updated text'),
+            isA<Map<String, dynamic>>().having(
+              (m) => m['text'],
+              'text',
+              'Updated text',
+            ),
           ),
         ),
       ).called(1);
@@ -206,14 +217,17 @@ void main() {
       );
     });
 
-    test('updateKnowledgeDocument throws on text exceeding max length', () async {
-      final longText = 'a' * (KnowledgeBaseConstants.maxTextLength + 1);
+    test(
+      'updateKnowledgeDocument throws on text exceeding max length',
+      () async {
+        final longText = 'a' * (KnowledgeBaseConstants.maxTextLength + 1);
 
-      await expectLater(
-        () => repository.updateKnowledgeDocument('123', longText),
-        throwsA(isA<ArgumentError>()),
-      );
-    });
+        await expectLater(
+          () => repository.updateKnowledgeDocument('123', longText),
+          throwsA(isA<ArgumentError>()),
+        );
+      },
+    );
 
     test('updateKnowledgeDocument uses string ID when parse fails', () async {
       when(
@@ -221,9 +235,9 @@ void main() {
       ).thenAnswer((_) async => {'success': true});
 
       await repository.updateKnowledgeDocument('abc-xyz', 'Test');
-      
+
       // Give async cache invalidation time to complete
-      await Future.delayed(Duration(milliseconds: 50));
+      await Future.delayed(const Duration(milliseconds: 50));
 
       verify(
         mockApiClient.put(
@@ -241,13 +255,11 @@ void main() {
       ).thenAnswer((_) async => {'success': true});
 
       await repository.deleteKnowledgeDocument('123');
-      
-      // Give async cache invalidation time to complete
-      await Future.delayed(Duration(milliseconds: 50));
 
-      verify(
-        mockApiClient.delete('/api/knowledge/documents/123'),
-      ).called(1);
+      // Give async cache invalidation time to complete
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      verify(mockApiClient.delete('/api/knowledge/documents/123')).called(1);
     });
 
     test('deleteKnowledgeDocument uses string ID when parse fails', () async {
@@ -256,9 +268,9 @@ void main() {
       ).thenAnswer((_) async => {'success': true});
 
       await repository.deleteKnowledgeDocument('abc-xyz');
-      
+
       // Give async cache invalidation time to complete
-      await Future.delayed(Duration(milliseconds: 50));
+      await Future.delayed(const Duration(milliseconds: 50));
 
       verify(
         mockApiClient.delete('/api/knowledge/documents/abc-xyz'),
@@ -271,9 +283,9 @@ void main() {
       ).thenAnswer((_) async => {'success': true});
 
       await repository.deleteKnowledgeDocument('123');
-      
+
       // Give async cache invalidation time to complete
-      await Future.delayed(Duration(milliseconds: 50));
+      await Future.delayed(const Duration(milliseconds: 50));
 
       verify(mockApiClient.delete('/api/knowledge/documents/123')).called(1);
     });
@@ -290,9 +302,9 @@ void main() {
       ).thenAnswer((_) async => {'success': true});
 
       await repository.uploadKnowledgeFile('/path/to/file.pdf');
-      
+
       // Give async cache invalidation time to complete
-      await Future.delayed(Duration(milliseconds: 50));
+      await Future.delayed(const Duration(milliseconds: 50));
 
       verify(
         mockApiClient.uploadFile(
@@ -322,7 +334,7 @@ void main() {
       );
 
       // Give async cache invalidation time to complete
-      await Future.delayed(Duration(milliseconds: 50));
+      await Future.delayed(const Duration(milliseconds: 50));
 
       verify(
         mockApiClient.uploadFile(
@@ -354,9 +366,9 @@ void main() {
       await repository.uploadKnowledgeFile('/path/to/file.pdf');
       await repository.uploadKnowledgeFile('/path/to/file.txt');
       await repository.uploadKnowledgeFile('/path/to/file.docx');
-      
+
       // Give async cache invalidation time to complete
-      await Future.delayed(Duration(milliseconds: 50));
+      await Future.delayed(const Duration(milliseconds: 50));
 
       verify(
         mockApiClient.uploadFile(
@@ -386,9 +398,9 @@ void main() {
       ).thenAnswer((_) async => {'success': true});
 
       await repository.uploadKnowledgeFile('/path/to/file.pdf');
-      
+
       // Give async cache invalidation time to complete
-      await Future.delayed(Duration(milliseconds: 50));
+      await Future.delayed(const Duration(milliseconds: 50));
 
       // Verify upload was called twice (initial + 1 retry)
       verify(
@@ -413,9 +425,9 @@ void main() {
         () => repository.uploadKnowledgeFile('/path/to/file.pdf'),
         throwsA(isA<Exception>()),
       );
-      
+
       // Give async cache invalidation time to complete (it will fail silently)
-      await Future.delayed(Duration(milliseconds: 50));
+      await Future.delayed(const Duration(milliseconds: 50));
 
       // Verify upload was called 3 times (initial + 2 retries)
       verify(
@@ -442,10 +454,7 @@ void main() {
         'id': '123',
         'text': 'Test document',
         'file_path': '/files/test.pdf',
-        'metadata': {
-          'source': 'file',
-          'created_at': '2024-01-01T12:00:00Z',
-        },
+        'metadata': {'source': 'file', 'created_at': '2024-01-01T12:00:00Z'},
       };
 
       final doc = KnowledgeDocument.fromJson(json);
@@ -458,10 +467,7 @@ void main() {
     });
 
     test('fromJson handles missing metadata', () {
-      final json = {
-        'id': '123',
-        'text': 'Test document',
-      };
+      final json = {'id': '123', 'text': 'Test document'};
 
       final doc = KnowledgeDocument.fromJson(json);
 
@@ -485,11 +491,11 @@ void main() {
     });
 
     test('isFile and isText properties work correctly', () {
-      final fileDoc = KnowledgeDocument(
+      final fileDoc = const KnowledgeDocument(
         text: 'file.pdf',
         source: KnowledgeSource.file,
       );
-      final textDoc = KnowledgeDocument(
+      final textDoc = const KnowledgeDocument(
         text: 'Some text',
         source: KnowledgeSource.manual,
       );
@@ -509,10 +515,19 @@ void main() {
     });
 
     test('fromString parses correctly', () {
-      expect(KnowledgeSource.fromString('manual'), equals(KnowledgeSource.manual));
-      expect(KnowledgeSource.fromString('mobile_app'), equals(KnowledgeSource.mobileApp));
+      expect(
+        KnowledgeSource.fromString('manual'),
+        equals(KnowledgeSource.manual),
+      );
+      expect(
+        KnowledgeSource.fromString('mobile_app'),
+        equals(KnowledgeSource.mobileApp),
+      );
       expect(KnowledgeSource.fromString('file'), equals(KnowledgeSource.file));
-      expect(KnowledgeSource.fromString('unknown'), equals(KnowledgeSource.manual));
+      expect(
+        KnowledgeSource.fromString('unknown'),
+        equals(KnowledgeSource.manual),
+      );
     });
   });
 

@@ -86,9 +86,7 @@ class ChannelSettingsForm extends StatelessWidget {
                 Expanded(
                   child: Text(
                     displayName,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      height: 1.5,
-                    ),
+                    style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),
                     textAlign: TextAlign.left,
                     textDirection: TextDirection.ltr,
                   ),
@@ -100,16 +98,15 @@ class ChannelSettingsForm extends StatelessWidget {
 
           // Save settings button
           AppGradientButton(
-            onPressed: isLoading ? null : () {
-              Haptics.lightTap();
-              onUpdateSettings(type);
-            },
+            onPressed: isLoading
+                ? null
+                : () {
+                    Haptics.lightTap();
+                    onUpdateSettings(type);
+                  },
             isLoading: isLoading,
             text: 'حفظ الإعدادات',
-            gradientColors: [
-              AppColors.primary,
-              AppColors.primaryDark,
-            ],
+            gradientColors: const [AppColors.primary, AppColors.primaryDark],
           ),
         ],
       ),

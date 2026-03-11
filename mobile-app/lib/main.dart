@@ -13,6 +13,7 @@ import 'presentation/providers/conversation_detail_provider.dart';
 import 'presentation/providers/message_input_provider.dart';
 import 'presentation/providers/customers_provider.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 // Active Sessions screen removed
 import 'services/fcm_service.dart';
 
@@ -38,7 +39,7 @@ import 'features/tasks/services/task_alarm_service.dart';
 import 'presentation/providers/athkar_provider.dart';
 import 'presentation/providers/quran_provider.dart';
 import 'core/services/browser_download_manager.dart';
-import 'core/services/media_cache_manager.dart';  // P3-15 FIX: Add import
+import 'core/services/media_cache_manager.dart'; // P3-15 FIX: Add import
 import 'services/athkar_reminder_service.dart';
 import 'core/models/browser_tab_persistence.dart';
 
@@ -56,7 +57,27 @@ void main() async {
   }
 
   // Ensure Flutter bindings are initialized
-  WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  final WidgetsBinding widgetsBinding =
+      WidgetsFlutterBinding.ensureInitialized();
+
+  // P9: Initialize Firebase first (required for Crashlytics)
+  await Firebase.initializeApp();
+
+  // P9: Initialize Firebase Crashlytics for production crash reporting
+  if (kReleaseMode) {
+    await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
+    // Pass all uncaught errors to Crashlytics
+    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+    PlatformDispatcher.instance.onError = (error, stack) {
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      return true;
+    };
+    debugPrint('Firebase Crashlytics initialized for production');
+  } else {
+    // Development: disable Crashlytics but keep error handling
+    await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(false);
+    debugPrint('Firebase Crashlytics disabled in development mode');
+  }
 
   // Preserve native splash screen until we explicitly remove it
   // This ensures seamless transition without flash
@@ -118,11 +139,14 @@ void main() async {
 
   // P3-15 FIX: Perform startup cache cleanup for attachments
   // Run in background to avoid blocking startup
-  MediaCacheManager().performStartupCleanup().then((_) {
-    debugPrint('Startup cache cleanup completed');
-  }).catchError((e) {
-    debugPrint('Startup cache cleanup error: $e');
-  });
+  MediaCacheManager()
+      .performStartupCleanup()
+      .then((_) {
+        debugPrint('Startup cache cleanup completed');
+      })
+      .catchError((e) {
+        debugPrint('Startup cache cleanup error: $e');
+      });
 
   // Relocated from SplashScreen: Initialize core services early
   try {
@@ -215,7 +239,8 @@ class AlMudeerApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => MessageInputProvider()),
         // Library Provider
         ChangeNotifierProvider(
-          create: (context) => LibraryProvider(webSocketService: webSocketService),
+          create: (context) =>
+              LibraryProvider(webSocketService: webSocketService),
         ),
         // Calculator Provider
         ChangeNotifierProvider(create: (_) => CalculatorProvider()),

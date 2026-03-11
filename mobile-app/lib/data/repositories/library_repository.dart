@@ -1139,4 +1139,114 @@ class LibraryRepository {
 
   /// P0-4 FIX: Check if repository is disposed
   bool get isDisposed => _isDisposed;
+
+  // Issue #26: Trash functionality
+  Future<List<LibraryItem>> getTrashItems() async {
+    try {
+      int? licenseId = await _apiClient.getLicenseId();
+      if (licenseId == null) {
+        final licenseKey = await _apiClient.getLicenseKey();
+        if (licenseKey != null && licenseKey.isNotEmpty) {
+          licenseId = 0;
+        }
+      }
+      if (licenseId == null) {
+        return [];
+      }
+
+      final response = await _apiClient.get(
+        '${Endpoints.libraryItems}trash',
+      );
+
+      if (response['success'] == true) {
+        final List itemsJson = response['items'] ?? [];
+        final items = itemsJson
+            .map((json) => LibraryItem.fromJson(json))
+            .toList();
+        return items;
+      }
+      return [];
+    } catch (e) {
+      debugPrint('[LibraryRepository] Failed to get trash items: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> restoreFromTrash(int itemId) async {
+    try {
+      final response = await _apiClient.post(
+        '${Endpoints.libraryItems}$itemId/restore',
+      );
+
+      if (response['success'] != true) {
+        throw Exception(response['detail']?['message_ar'] ?? 'فشل الاستعادة من سلة المهملات');
+      }
+    } catch (e) {
+      debugPrint('[LibraryRepository] Failed to restore from trash: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> deletePermanently(int itemId) async {
+    try {
+      final response = await _apiClient.delete(
+        '${Endpoints.libraryItems}$itemId',
+      );
+
+      if (response['success'] != true) {
+        throw Exception(response['detail']?['message_ar'] ?? 'فشل الحذف النهائي');
+      }
+    } catch (e) {
+      debugPrint('[LibraryRepository] Failed to delete permanently: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> emptyTrash() async {
+    try {
+      final response = await _apiClient.delete(
+        '${Endpoints.libraryItems}trash/empty',
+      );
+
+      if (response['success'] != true) {
+        throw Exception(response['detail']?['message_ar'] ?? 'فشل إفراغ سلة المهملات');
+      }
+    } catch (e) {
+      debugPrint('[LibraryRepository] Failed to empty trash: $e');
+      rethrow;
+    }
+  }
+
+  // P3-13: Version history functionality
+  Future<List<Map<String, dynamic>>> getItemVersions(int itemId) async {
+    try {
+      final response = await _apiClient.get(
+        '${Endpoints.libraryItems}$itemId/versions',
+      );
+
+      if (response['success'] == true) {
+        final List versionsJson = response['versions'] ?? [];
+        return versionsJson.map((json) => Map<String, dynamic>.from(json)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('[LibraryRepository] Failed to get item versions: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> restoreVersion(int itemId, int versionId) async {
+    try {
+      final response = await _apiClient.post(
+        '${Endpoints.libraryItems}$itemId/versions/$versionId/restore',
+      );
+
+      if (response['success'] != true) {
+        throw Exception(response['detail']?['message_ar'] ?? 'فشل استعادة الإصدار');
+      }
+    } catch (e) {
+      debugPrint('[LibraryRepository] Failed to restore version: $e');
+      rethrow;
+    }
+  }
 }

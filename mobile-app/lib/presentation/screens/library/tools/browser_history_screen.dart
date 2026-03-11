@@ -21,7 +21,7 @@ class _BrowserHistoryScreenState extends State<BrowserHistoryScreen>
   final BrowserHistoryService _historyService = BrowserHistoryService();
   final BrowserBookmarkService _bookmarkService = BrowserBookmarkService();
   final TextEditingController _searchController = TextEditingController();
-  String _searchQuery = "";
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -299,11 +299,7 @@ class _BookmarkListState extends State<_BookmarkList> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              SolarLinearIcons.bookmark,
-              size: 64,
-              color: Colors.grey,
-            ),
+            const Icon(SolarLinearIcons.bookmark, size: 64, color: Colors.grey),
             const SizedBox(height: 16),
             const Text('لا توجد إشارات مرجعية'),
             const SizedBox(height: 8),
@@ -349,10 +345,7 @@ class _BookmarkListState extends State<_BookmarkList> {
             }
           },
           child: ListTile(
-            leading: const Icon(
-              SolarLinearIcons.bookmark,
-              color: Colors.amber,
-            ),
+            leading: const Icon(SolarLinearIcons.bookmark, color: Colors.amber),
             title: Text(
               bookmark.title,
               maxLines: 1,
@@ -369,7 +362,9 @@ class _BookmarkListState extends State<_BookmarkList> {
                 // Find the actual index in the full bookmarks list
                 final fullBookmarks = widget.service.getBookmarks();
                 final actualIndex = fullBookmarks.indexWhere(
-                  (e) => e.url == bookmark.url && e.timestamp == bookmark.timestamp,
+                  (e) =>
+                      e.url == bookmark.url &&
+                      e.timestamp == bookmark.timestamp,
                 );
                 if (actualIndex != -1) {
                   await widget.service.deleteBookmark(actualIndex);

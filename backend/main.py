@@ -267,6 +267,15 @@ async def lifespan(app: FastAPI):
             logger.info("Metrics collection started (60s interval)")
         except Exception as e:
             logger.warning(f"Failed to start metrics collection: {e}")
+
+        # P6-1 FIX: Start alerting service for proactive monitoring
+        try:
+            from services.alerting_service import get_alerting_service
+            alerting_service = get_alerting_service()
+            await alerting_service.start_monitoring()
+            logger.info("Alerting service started monitoring (threshold-based alerts)")
+        except Exception as e:
+            logger.warning(f"Failed to start alerting service: {e}")
         
         # Start FCM token cleanup worker (daily)
         try:
@@ -368,6 +377,14 @@ async def lifespan(app: FastAPI):
             logger.info("Persistent Task Queue Worker stopped")
     except Exception as e:
         logger.warning(f"Error stopping task queue: {e}")
+    try:
+        # P6-1 FIX: Stop alerting service
+        from services.alerting_service import get_alerting_service
+        alerting_service = get_alerting_service()
+        await alerting_service.stop_monitoring()
+        logger.info("Alerting service stopped")
+    except Exception as e:
+        logger.warning(f"Error stopping alerting service: {e}")
     try:
         telegram_listener = get_telegram_listener()
         await telegram_listener.stop()
@@ -507,6 +524,35 @@ except Exception as e:
 # Health check endpoints (no prefix, accessible at root level)
 from health_check import router as health_router
 app.include_router(health_router)
+
+# Prometheus metrics endpoint for monitoring
+@app.get("/metrics", tags=["Monitoring"])
+async def get_metrics():
+    """
+    Prometheus metrics endpoint.
+    
+    Exposes metrics for:
+    - Library operations (uploads, downloads, storage)
+    - System health (Redis, WebSocket, Database)
+    - Business metrics (active users, messages)
+    
+    Scrape this endpoint with Prometheus every 15-30 seconds.
+    """
+    from services.library_metrics_service import get_library_metrics
+    from services.metrics_service import MetricsCollector
+    
+    # Get library metrics
+    library_metrics = get_library_metrics()
+    
+    # Combine with system metrics
+    metrics_collector = MetricsCollector()
+    system_metrics = await metrics_collector.collect_all_metrics()
+    
+    # Return Prometheus format for library metrics
+    return Response(
+        content=library_metrics.get_metrics(),
+        media_type="text/plain; version=0.0.4; charset=utf-8"
+    )
 
 # Sync routes for offline operation support
 from routes.sync import router as sync_router

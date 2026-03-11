@@ -32,8 +32,9 @@ class SettingsProvider extends ChangeNotifier {
   double _uploadProgress = 0.0;
   String? _uploadingFileName;
   bool _isDisposed = false;
-  int _loadGeneration = 0; // Incremented on reset to invalidate stale async results
-  
+  int _loadGeneration =
+      0; // Incremented on reset to invalidate stale async results
+
   // Issue #8: Specific loading state for knowledge documents
   KnowledgeLoadState _knowledgeLoadState = KnowledgeLoadState.initial;
 
@@ -43,7 +44,8 @@ class SettingsProvider extends ChangeNotifier {
     IntegrationsRepository? integrationsRepository,
   }) : _repository = repository ?? SettingsRepository(),
        _knowledgeRepository = knowledgeRepository ?? KnowledgeRepository(),
-       _integrationsRepository = integrationsRepository ?? IntegrationsRepository();
+       _integrationsRepository =
+           integrationsRepository ?? IntegrationsRepository();
 
   SettingsState get state => _state;
   SettingsState get integrationsState => _integrationsState;
@@ -79,7 +81,8 @@ class SettingsProvider extends ChangeNotifier {
         final cache = PersistentCacheService();
         final accountHash = await _repository.apiClient.getAccountCacheHash();
         // Issue #7: Use specific cache key prefix
-        final cacheKey = '${KnowledgeBaseConstants.cacheKeyPrefix}${accountHash}_documents';
+        final cacheKey =
+            '${KnowledgeBaseConstants.cacheKeyPrefix}${accountHash}_documents';
         final cachedDocs = await cache.get<Map<String, dynamic>>(
           PersistentCacheService.boxKnowledge,
           cacheKey,
@@ -236,13 +239,13 @@ class SettingsProvider extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-    
+
     if (text.length > KnowledgeBaseConstants.maxTextLength) {
       _errorMessage = 'النص طويل جداً';
       notifyListeners();
       return false;
     }
-    
+
     // Issue #5: Generate unique ID with UUID to prevent collisions
     final uuid = const Uuid().v4().substring(0, 8);
     final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}_$uuid';
@@ -273,7 +276,10 @@ class SettingsProvider extends ChangeNotifier {
 
   /// Update text document
   /// Issue #2: Fixed silent error swallowing - now properly handles errors
-  Future<bool> updateKnowledgeDocument(KnowledgeDocument doc, String text) async {
+  Future<bool> updateKnowledgeDocument(
+    KnowledgeDocument doc,
+    String text,
+  ) async {
     if (doc.id == null) {
       _errorMessage = 'المستند غير موجود';
       notifyListeners();
@@ -286,7 +292,7 @@ class SettingsProvider extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-    
+
     if (text.length > KnowledgeBaseConstants.maxTextLength) {
       _errorMessage = 'النص طويل جداً';
       notifyListeners();
@@ -309,7 +315,8 @@ class SettingsProvider extends ChangeNotifier {
       }
 
       // Issue #2: Fire and forget BUT with proper error logging and user notification
-      _knowledgeRepository.updateKnowledgeDocument(doc.id!, text)
+      _knowledgeRepository
+          .updateKnowledgeDocument(doc.id!, text)
           .then((_) {
             debugPrint('[SettingsProvider] Document updated successfully');
             loadSettings(); // Silent background refresh
@@ -346,22 +353,27 @@ class SettingsProvider extends ChangeNotifier {
     if (errorStr.contains('هذا الملف موجود بالفعل')) {
       return 'هذا الملف موجود بالفعل';
     }
-    if (errorStr.contains('موجود بالفعل') || errorStr.contains('already exists')) {
+    if (errorStr.contains('موجود بالفعل') ||
+        errorStr.contains('already exists')) {
       return 'هذا المستند موجود بالفعل';
     }
-    if (errorStr.contains('تجاوزت حد التخزين') || errorStr.contains('storage limit')) {
+    if (errorStr.contains('تجاوزت حد التخزين') ||
+        errorStr.contains('storage limit')) {
       return 'تجاوزت حد التخزين المسموح به';
     }
     if (errorStr.contains('حجم الملف كبير') || errorStr.contains('file size')) {
       return 'حجم الملف كبير جداً';
     }
-    if (errorStr.contains('نوع الملف') || errorStr.contains('file type') || errorStr.contains('not allowed')) {
+    if (errorStr.contains('نوع الملف') ||
+        errorStr.contains('file type') ||
+        errorStr.contains('not allowed')) {
       return 'نوع الملف غير مدعوم';
     }
     if (errorStr.contains('غير موجود') || errorStr.contains('not found')) {
       return 'المستند غير موجود';
     }
-    if (errorStr.contains('النص لا يمكن أن يكون فارغاً') || errorStr.contains('empty')) {
+    if (errorStr.contains('النص لا يمكن أن يكون فارغاً') ||
+        errorStr.contains('empty')) {
       return 'النص لا يمكن أن يكون فارغاً';
     }
     if (errorStr.contains('النص طويل جداً') || errorStr.contains('too long')) {
@@ -440,7 +452,8 @@ class SettingsProvider extends ChangeNotifier {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: KnowledgeBaseConstants.allowedFileExtensions
-            .map((e) => e.substring(1)).toList(), // Remove leading dot
+            .map((e) => e.substring(1))
+            .toList(), // Remove leading dot
         allowMultiple: true,
       );
 
@@ -485,10 +498,7 @@ class SettingsProvider extends ChangeNotifier {
   _FileValidation _validateKnowledgeFile(PlatformFile file) {
     // Issue #3: Use constant instead of hardcoded value
     if (file.size > KnowledgeBaseConstants.maxFileSize) {
-      return _FileValidation(
-        false,
-        'حجم الملف يتجاوز 20 ميجابايت',
-      );
+      return _FileValidation(false, 'حجم الملف يتجاوز 20 ميجابايت');
     }
 
     // Check file extension
@@ -521,9 +531,9 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
 
     bool allSuccess = true;
-    List<FailedFile> newFailedFiles = [];
-    List<String> errorMessages = [];
-    List<String> skippedFiles = [];
+    final List<FailedFile> newFailedFiles = [];
+    final List<String> errorMessages = [];
+    final List<String> skippedFiles = [];
 
     // Combine pending and failed files
     final allFiles = [..._pendingFiles, ..._failedFiles.map((f) => f.file)];
@@ -545,7 +555,8 @@ class SettingsProvider extends ChangeNotifier {
           file.path!,
           onProgress: (progress) {
             // Issue #1: Use captured variable instead of loop variable
-            final overallProgress = ((currentIndex + progress) / totalFiles) * 100;
+            final overallProgress =
+                ((currentIndex + progress) / totalFiles) * 100;
             _uploadProgress = overallProgress;
             notifyListeners();
           },
@@ -574,7 +585,9 @@ class SettingsProvider extends ChangeNotifier {
 
     // Issue #2: Add skipped files to error messages
     if (skippedFiles.isNotEmpty) {
-      errorMessages.add('تم تخطي ${skippedFiles.length} ملف(s) بسبب مسار غير صالح: ${skippedFiles.join(', ')}');
+      errorMessages.add(
+        'تم تخطي ${skippedFiles.length} ملف(s) بسبب مسار غير صالح: ${skippedFiles.join(', ')}',
+      );
     }
 
     if (!allSuccess || skippedFiles.isNotEmpty) {

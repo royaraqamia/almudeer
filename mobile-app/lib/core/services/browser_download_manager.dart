@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 import 'package:background_downloader/background_downloader.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -7,15 +8,26 @@ import 'package:path_provider/path_provider.dart';
 import '../models/download_task.dart' as model;
 import 'package:flutter/foundation.dart';
 
+/// Pending download request for queue management
+class _PendingDownload {
+  final String url;
+  final String? fileName;
+
+  _PendingDownload({required this.url, this.fileName});
+}
+
 class BrowserDownloadManager {
   static final BrowserDownloadManager _instance =
       BrowserDownloadManager._internal();
   factory BrowserDownloadManager() => _instance;
   BrowserDownloadManager._internal();
 
+  static const int _maxConcurrentDownloads = 5; // Limit concurrent downloads
   late Box<model.DownloadTask> _tasksBox;
   final StreamController<List<model.DownloadTask>> _tasksController =
       StreamController<List<model.DownloadTask>>.broadcast();
+  int _activeDownloadCount = 0;
+  final Queue<_PendingDownload> _pendingQueue = Queue();
 
   Stream<List<model.DownloadTask>> get tasksStream => _tasksController.stream;
   List<model.DownloadTask> get currentTasks =>
@@ -61,7 +73,7 @@ class BrowserDownloadManager {
         if (!backgroundTaskIds.contains(task.id)) {
           // Task is no longer tracked by background downloader
           task.status = model.DownloadStatus.failed;
-          task.error = "Interrupted or lost";
+          task.error = 'Interrupted or lost';
           await _tasksBox.put(task.id, task);
         }
       }
@@ -81,16 +93,28 @@ class BrowserDownloadManager {
         task.status = model.DownloadStatus.completed;
         task.progress = 1.0;
         await _handlePostDownload(task);
+        // Decrement active count and process queue
+        if (_activeDownloadCount > 0) _activeDownloadCount--;
+        await _processNextQueuedDownload();
         break;
       case TaskStatus.failed:
         task.status = model.DownloadStatus.failed;
-        task.error = "Download failed";
+        task.error = 'Download failed';
+        // Decrement active count and process queue
+        if (_activeDownloadCount > 0) _activeDownloadCount--;
+        await _processNextQueuedDownload();
         break;
       case TaskStatus.canceled:
         task.status = model.DownloadStatus.canceled;
+        // Decrement active count and process queue
+        if (_activeDownloadCount > 0) _activeDownloadCount--;
+        await _processNextQueuedDownload();
         break;
       case TaskStatus.paused:
         task.status = model.DownloadStatus.paused;
+        // Decrement active count (paused doesn't use active slot)
+        if (_activeDownloadCount > 0) _activeDownloadCount--;
+        await _processNextQueuedDownload();
         break;
       default:
         break;
@@ -120,19 +144,19 @@ class BrowserDownloadManager {
   String _sanitizeFileName(String name) {
     // Remove or replace path traversal sequences
     name = name.replaceAll('../', '').replaceAll('..\\', '');
-    
+
     // Remove null bytes and other control characters
     name = name.replaceAll(RegExp(r'[\x00-\x1f\x7f]'), '');
-    
+
     // Replace invalid filename characters with underscore
     // Windows: < > : " / \ | ? *
     // Also remove leading/trailing dots and spaces (Windows issue)
     name = name.replaceAll(RegExp(r'[<>:"/\\\\|?*]'), '_');
     name = name.trim();
-    
+
     // Remove leading/trailing dots (problematic on Windows and Unix)
     name = name.replaceAll(RegExp(r'^\.+|\.+$'), '');
-    
+
     // Limit filename length (most filesystems support 255 chars)
     if (name.length > 200) {
       // Preserve extension
@@ -144,24 +168,35 @@ class BrowserDownloadManager {
         name = name.substring(0, 200);
       }
     }
-    
+
     // If empty after sanitization, generate a safe default
     if (name.isEmpty || name == '.' || name == '..') {
       return 'download_${DateTime.now().millisecondsSinceEpoch}';
     }
-    
+
     return name;
   }
 
   Future<void> startDownload(String url, {String? fileName}) async {
+    // Check if we've reached the concurrent download limit
+    if (_activeDownloadCount >= _maxConcurrentDownloads) {
+      // Queue the download for later
+      debugPrint(
+        '[DownloadManager] Queueing download (limit: $_maxConcurrentDownloads)',
+      );
+      _pendingQueue.add(_PendingDownload(url: url, fileName: fileName));
+      return;
+    }
+
+    _activeDownloadCount++;
     final id = DateTime.now().millisecondsSinceEpoch.toString();
-    
+
     // Extract filename from URL or use provided one
     var name = fileName ?? url.split('/').last;
-    
+
     // Sanitize filename to prevent path traversal and invalid characters
     name = _sanitizeFileName(name);
-    
+
     // Ensure filename has valid format
     if (name.isEmpty || !name.contains('.')) {
       name = 'download_${DateTime.now().millisecondsSinceEpoch}.bin';
@@ -200,6 +235,21 @@ class BrowserDownloadManager {
     _tasksController.add(_tasksBox.values.toList());
 
     await FileDownloader().enqueue(downloadTask);
+  }
+
+  /// Process next queued download if capacity is available
+  Future<void> _processNextQueuedDownload() async {
+    if (_pendingQueue.isEmpty ||
+        _activeDownloadCount >= _maxConcurrentDownloads) {
+      return;
+    }
+
+    final pending = _pendingQueue.removeFirst();
+    debugPrint('[DownloadManager] Processing queued download: ${pending.url}');
+
+    // Decrement count first since startDownload will increment it
+    _activeDownloadCount--;
+    await startDownload(pending.url, fileName: pending.fileName);
   }
 
   Future<void> pauseDownload(String id) async {
@@ -274,8 +324,7 @@ class BrowserDownloadManager {
         final appDocDir = await getApplicationDocumentsDirectory();
         final filePath = '${appDocDir.path}/${task.savedPath}';
 
-        if (fileName.endsWith('.mov') ||
-            fileName.endsWith('.avi')) {
+        if (fileName.endsWith('.mov') || fileName.endsWith('.avi')) {
           await Gal.putVideo(filePath);
         } else {
           await Gal.putImage(filePath);

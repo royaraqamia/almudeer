@@ -34,7 +34,8 @@ class TaskListItem extends StatefulWidget {
   State<TaskListItem> createState() => _TaskListItemState();
 }
 
-class _TaskListItemState extends State<TaskListItem> with SingleTickerProviderStateMixin {
+class _TaskListItemState extends State<TaskListItem>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
 
@@ -90,7 +91,9 @@ class _TaskListItemState extends State<TaskListItem> with SingleTickerProviderSt
             }
 
             Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => TaskEditScreen(task: widget.task)),
+              MaterialPageRoute(
+                builder: (_) => TaskEditScreen(task: widget.task),
+              ),
             );
           }
         },
@@ -124,7 +127,9 @@ class _TaskListItemState extends State<TaskListItem> with SingleTickerProviderSt
                     ),
                     shadows: [
                       BoxShadow(
-                        color: isDark ? AppColors.shadowPrimaryDark : Colors.black.withValues(alpha: 0.08),
+                        color: isDark
+                            ? AppColors.shadowPrimaryDark
+                            : Colors.black.withValues(alpha: 0.08),
                         blurRadius: 8,
                         offset: const Offset(0, 2),
                       ),
@@ -155,9 +160,7 @@ class _TaskListItemState extends State<TaskListItem> with SingleTickerProviderSt
                         right: AppDimensions.spacing12,
                         top: 0,
                         bottom: 0,
-                        child: Align(
-                          child: _buildCheckbox(context),
-                        ),
+                        child: Align(child: _buildCheckbox(context)),
                       ),
                       // Selection indicator overlay - fade in/out to avoid layout shifts
                       Positioned(
@@ -173,11 +176,24 @@ class _TaskListItemState extends State<TaskListItem> with SingleTickerProviderSt
                               shape: BoxShape.circle,
                               border: widget.isSelected
                                   ? null
-                                  : Border.all(color: theme.scaffoldBackgroundColor, width: 2),
+                                  : Border.all(
+                                      color: theme.scaffoldBackgroundColor,
+                                      width: 2,
+                                    ),
                             ),
                             child: widget.isSelected
-                                ? const Icon(SolarBoldIcons.checkCircle, color: AppColors.success, size: 24)
-                                : Icon(SolarLinearIcons.stop, size: 14, color: isDark ? AppColors.textSecondaryDark : Colors.grey[400]),
+                                ? const Icon(
+                                    SolarBoldIcons.checkCircle,
+                                    color: AppColors.success,
+                                    size: 24,
+                                  )
+                                : Icon(
+                                    SolarLinearIcons.stop,
+                                    size: 14,
+                                    color: isDark
+                                        ? AppColors.textSecondaryDark
+                                        : Colors.grey[400],
+                                  ),
                           ),
                         ),
                       ),
@@ -192,20 +208,28 @@ class _TaskListItemState extends State<TaskListItem> with SingleTickerProviderSt
                               vertical: AppDimensions.spacing4,
                             ),
                             decoration: BoxDecoration(
-                              color: _getPermissionColor(widget.task.sharePermission!).withValues(alpha: 0.9),
-                              borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
+                              color: _getPermissionColor(
+                                widget.task.sharePermission!,
+                              ).withValues(alpha: 0.9),
+                              borderRadius: BorderRadius.circular(
+                                AppDimensions.radiusSmall,
+                              ),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
-                                  _getPermissionIcon(widget.task.sharePermission!),
+                                  _getPermissionIcon(
+                                    widget.task.sharePermission!,
+                                  ),
                                   size: AppDimensions.iconSmall,
                                   color: Colors.white,
                                 ),
                                 const SizedBox(width: AppDimensions.spacing4),
                                 Text(
-                                  _getPermissionLabel(widget.task.sharePermission!),
+                                  _getPermissionLabel(
+                                    widget.task.sharePermission!,
+                                  ),
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 10,
@@ -256,7 +280,7 @@ class _TaskListItemState extends State<TaskListItem> with SingleTickerProviderSt
               ? Semantics(
                   label: 'مكتملة',
                   checked: true,
-                  child: Icon(
+                  child: const Icon(
                     SolarBoldIcons.checkCircle,
                     size: 20,
                     color: AppColors.success,
@@ -272,88 +296,89 @@ class _TaskListItemState extends State<TaskListItem> with SingleTickerProviderSt
     final theme = Theme.of(context);
 
     return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // Date/time on the left (right in RTL)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Date/time on the left (right in RTL)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (widget.task.dueDate != null) ...[
+                _buildInfoTag(
+                  context,
+                  SolarLinearIcons.calendar,
+                  _getRelativeDate(widget.task.dueDate!),
+                  isWarning: isOverdue,
+                ),
+              ],
+              if (widget.task.alarmEnabled &&
+                  widget.task.alarmTime != null) ...[
+                const SizedBox(height: 2),
+                _buildInfoTag(
+                  context,
+                  SolarLinearIcons.bellBing,
+                  TimeOfDay.fromDateTime(
+                    widget.task.alarmTime!,
+                  ).format(context),
+                  color: AppColors.primary,
+                ),
+              ],
+              if (widget.task.recurrence != null &&
+                  widget.task.recurrence!.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                _buildInfoTag(
+                  context,
+                  SolarLinearIcons.refresh,
+                  _getRecurrenceLabel(widget.task.recurrence!),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(width: AppDimensions.spacing12),
+          // Task content
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (widget.task.dueDate != null) ...[
-                  _buildInfoTag(
-                    context,
-                    SolarLinearIcons.calendar,
-                    _getRelativeDate(widget.task.dueDate!),
-                    isWarning: isOverdue,
+                Text(
+                  widget.task.title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                    decoration: widget.task.isCompleted
+                        ? TextDecoration.lineThrough
+                        : null,
+                    color: widget.task.isCompleted
+                        ? theme.textTheme.bodySmall?.color
+                        : theme.textTheme.titleMedium?.color,
                   ),
-                ],
-                if (widget.task.alarmEnabled && widget.task.alarmTime != null) ...[
+                ),
+                if (widget.task.category != null) ...[
                   const SizedBox(height: 2),
-                  _buildInfoTag(
-                    context,
-                    SolarLinearIcons.bellBing,
-                    TimeOfDay.fromDateTime(
-                      widget.task.alarmTime!,
-                    ).format(context),
-                    color: AppColors.primary,
-                  ),
+                  _buildCategoryTag(context, widget.task.category!),
                 ],
-                if (widget.task.recurrence != null &&
-                    widget.task.recurrence!.isNotEmpty) ...[
+                if (widget.task.description != null &&
+                    widget.task.description!.isNotEmpty) ...[
                   const SizedBox(height: 2),
-                  _buildInfoTag(
-                    context,
-                    SolarLinearIcons.refresh,
-                    _getRecurrenceLabel(widget.task.recurrence!),
+                  Text(
+                    widget.task.description!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontSize: 12,
+                      height: 1.3,
+                    ),
                   ),
                 ],
+                _buildAssignmentInfo(context),
               ],
             ),
-            const SizedBox(width: AppDimensions.spacing12),
-            // Task content
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    widget.task.title,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                      decoration: widget.task.isCompleted
-                          ? TextDecoration.lineThrough
-                          : null,
-                      color: widget.task.isCompleted
-                          ? theme.textTheme.bodySmall?.color
-                          : theme.textTheme.titleMedium?.color,
-                    ),
-                  ),
-                  if (widget.task.category != null) ...[
-                    const SizedBox(height: 2),
-                    _buildCategoryTag(context, widget.task.category!),
-                  ],
-                  if (widget.task.description != null &&
-                      widget.task.description!.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      widget.task.description!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontSize: 12,
-                        height: 1.3,
-                      ),
-                    ),
-                  ],
-                  _buildAssignmentInfo(context),
-                ],
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -376,7 +401,7 @@ class _TaskListItemState extends State<TaskListItem> with SingleTickerProviderSt
     } else {
       HijriCalendar.setLocal('ar');
       final hijri = HijriCalendar.fromDate(date);
-      return hijri.toFormat("DD , dd MMMM").toEnglishNumbers;
+      return hijri.toFormat('DD , dd MMMM').toEnglishNumbers;
     }
   }
 
@@ -403,7 +428,12 @@ class _TaskListItemState extends State<TaskListItem> with SingleTickerProviderSt
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final tagColor =
-        color ?? (isWarning ? AppColors.error : (isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight));
+        color ??
+        (isWarning
+            ? AppColors.error
+            : (isDark
+                  ? AppColors.textSecondaryDark
+                  : AppColors.textSecondaryLight));
 
     return Container(
       padding: const EdgeInsets.symmetric(
@@ -438,7 +468,8 @@ class _TaskListItemState extends State<TaskListItem> with SingleTickerProviderSt
   }
 
   Widget _buildCategoryTag(BuildContext context, String category) {
-    final categoryColor = AppColors.taskCategoryColors[category] ?? AppColors.primary;
+    final categoryColor =
+        AppColors.taskCategoryColors[category] ?? AppColors.primary;
 
     return Container(
       padding: const EdgeInsets.symmetric(
@@ -456,11 +487,7 @@ class _TaskListItemState extends State<TaskListItem> with SingleTickerProviderSt
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            _getCategoryIcon(category),
-            size: 10,
-            color: categoryColor,
-          ),
+          Icon(_getCategoryIcon(category), size: 10, color: categoryColor),
           const SizedBox(width: 2),
           Text(
             category,
@@ -508,10 +535,14 @@ class _TaskListItemState extends State<TaskListItem> with SingleTickerProviderSt
     IconData icon = SolarLinearIcons.user;
     Color color = AppColors.primary;
 
-    if (widget.task.assignedTo != null && widget.task.assignedTo != currentUser) {
+    if (widget.task.assignedTo != null &&
+        widget.task.assignedTo != currentUser) {
       final collab = provider.collaborators.firstWhere(
         (c) => c['email'] == widget.task.assignedTo,
-        orElse: () => {'email': widget.task.assignedTo, 'name': widget.task.assignedTo},
+        orElse: () => {
+          'email': widget.task.assignedTo,
+          'name': widget.task.assignedTo,
+        },
       );
       displayLabel = 'مسندة إلى: ${collab['name'] ?? collab['email']}';
     } else if (widget.task.assignedTo == currentUser &&
@@ -519,7 +550,10 @@ class _TaskListItemState extends State<TaskListItem> with SingleTickerProviderSt
         widget.task.createdBy != currentUser) {
       final collab = provider.collaborators.firstWhere(
         (c) => c['email'] == widget.task.createdBy,
-        orElse: () => {'email': widget.task.createdBy, 'name': widget.task.createdBy},
+        orElse: () => {
+          'email': widget.task.createdBy,
+          'name': widget.task.createdBy,
+        },
       );
       displayLabel = 'بواسطة: ${collab['name'] ?? collab['email']}';
       icon = SolarLinearIcons.userHandUp;

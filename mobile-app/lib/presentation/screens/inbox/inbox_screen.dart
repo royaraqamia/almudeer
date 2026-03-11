@@ -122,7 +122,7 @@ class _InboxScreenState extends State<InboxScreen>
             size: 32,
           ),
           heroTag: 'inbox_compose_fab',
-          gradientColors: [const Color(0xFF2563EB), const Color(0xFF0891B2)],
+          gradientColors: const [Color(0xFF2563EB), Color(0xFF0891B2)],
         ),
       ),
       body: SafeArea(
@@ -156,9 +156,9 @@ class _InboxScreenState extends State<InboxScreen>
                     itemBuilder: (context, index) {
                       if (index >= inbox.filteredConversations.length) {
                         // Load more indicator
-                        return Center(
+                        return const Center(
                           child: Padding(
-                            padding: const EdgeInsets.all(
+                            padding: EdgeInsets.all(
                               AppDimensions.paddingMedium,
                             ),
                             child: SizedBox(

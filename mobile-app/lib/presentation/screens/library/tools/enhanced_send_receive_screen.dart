@@ -117,10 +117,7 @@ class _EnhancedSendReceiveScreenState extends State<EnhancedSendReceiveScreen>
           ),
           tabs: const [
             Tab(text: 'الأجهزة', icon: Icon(SolarLinearIcons.smartphone)),
-            Tab(
-              text: 'النقل',
-              icon: Icon(SolarLinearIcons.transferHorizontal),
-            ),
+            Tab(text: 'النقل', icon: Icon(SolarLinearIcons.transferHorizontal)),
             Tab(text: 'السجل', icon: Icon(SolarLinearIcons.clockCircle)),
           ],
         ),
@@ -439,7 +436,7 @@ class _DevicesTab extends StatelessWidget {
     return Column(
       children: provider.missingRequirements.map((req) {
         String title;
-        String actionText = 'تفعيل';
+        final String actionText = 'تفعيل';
         IconData icon = SolarLinearIcons.dangerCircle;
 
         switch (req) {
@@ -752,9 +749,7 @@ class _DevicesTab extends StatelessWidget {
                           _formatBytes(size),
                           style: TextStyle(
                             fontSize: 12,
-                            color: Theme.of(
-                              context,
-                            ).textTheme.bodySmall?.color,
+                            color: Theme.of(context).textTheme.bodySmall?.color,
                           ),
                         ),
                       );
@@ -801,7 +796,7 @@ class _DevicesTab extends StatelessWidget {
   String _formatBytes(int bytes) {
     if (bytes <= 0) return '0 B';
     const suffixes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    var i = (math.log(bytes) / math.log(1024)).floor();
+    final i = (math.log(bytes) / math.log(1024)).floor();
     return '${(bytes / math.pow(1024, i)).toStringAsFixed(1)} ${suffixes[i]}';
   }
 }
@@ -978,9 +973,7 @@ class _ScanningIndicatorState extends State<_ScanningIndicator>
 class _AnimatedEmptyState extends StatefulWidget {
   final IconData icon;
 
-  const _AnimatedEmptyState({
-    required this.icon,
-  });
+  const _AnimatedEmptyState({required this.icon});
 
   @override
   State<_AnimatedEmptyState> createState() => _AnimatedEmptyStateState();
@@ -1054,9 +1047,7 @@ class _EmptyDevicesState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _AnimatedEmptyState(
-      icon: SolarLinearIcons.transmission,
-    );
+    return const _AnimatedEmptyState(icon: SolarLinearIcons.transmission);
   }
 }
 
@@ -1065,9 +1056,7 @@ class _EmptyTransfersState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _AnimatedEmptyState(
-      icon: SolarLinearIcons.folderOpen,
-    );
+    return const _AnimatedEmptyState(icon: SolarLinearIcons.folderOpen);
   }
 }
 
@@ -1076,9 +1065,7 @@ class _EmptyHistoryState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _AnimatedEmptyState(
-      icon: SolarLinearIcons.clockCircle,
-    );
+    return const _AnimatedEmptyState(icon: SolarLinearIcons.clockCircle);
   }
 }
 
@@ -1114,7 +1101,7 @@ class _DeviceCard extends StatelessWidget {
                   color: AppColors.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(
+                child: const Icon(
                   SolarLinearIcons.smartphone,
                   color: AppColors.primary,
                 ),
@@ -1211,7 +1198,10 @@ class _HistoryTab extends StatelessWidget {
                   provider.clearHistory();
                   AnimatedToast.success(context, 'تم مسح السجل');
                 },
-                icon: const Icon(SolarLinearIcons.trashBinMinimalistic, size: 20),
+                icon: const Icon(
+                  SolarLinearIcons.trashBinMinimalistic,
+                  size: 20,
+                ),
                 label: const Text(
                   'مسح الكل',
                   style: TextStyle(fontFamily: 'IBM Plex Sans Arabic'),
@@ -1420,19 +1410,19 @@ class _TransferCard extends StatelessWidget {
                 ),
               ),
             if (isCompleted)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
                 child: Row(
                   children: [
-                    const Icon(
+                    Icon(
                       SolarBoldIcons.checkCircle,
                       size: 14,
                       color: Colors.green,
                     ),
-                    const SizedBox(width: 4),
+                    SizedBox(width: 4),
                     Text(
                       'تم بنجاح',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
                         color: Colors.green,
                         fontWeight: FontWeight.bold,
@@ -1450,7 +1440,7 @@ class _TransferCard extends StatelessWidget {
   String _formatBytes(int bytes) {
     if (bytes <= 0) return '0 B';
     const suffixes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    var i = (math.log(bytes) / math.log(1024)).floor();
+    final i = (math.log(bytes) / math.log(1024)).floor();
     return '${(bytes / math.pow(1024, i)).toStringAsFixed(1)} ${suffixes[i]}';
   }
 

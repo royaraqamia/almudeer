@@ -205,7 +205,51 @@ class OfflineSyncService extends ChangeNotifier {
     }
   }
 
+  /// Maximum retry attempts for failed operations
+  static const int _maxRetryAttempts = 3;
+
+  /// Base delay for exponential backoff (milliseconds)
+  static const int _retryBaseDelayMs = 1000;
+
+  /// Process operation with retry logic and exponential backoff
   Future<void> _processOperation(PendingOperation operation) async {
+    int attempt = 0;
+    int delayMs = _retryBaseDelayMs;
+
+    while (attempt < _maxRetryAttempts) {
+      try {
+        await _executeOperation(operation);
+        return; // Success
+      } catch (e) {
+        attempt++;
+        final errorMsg = e.toString();
+        
+        // Don't retry validation errors (400 Bad Request)
+        if (errorMsg.contains('400') || 
+            errorMsg.contains('validation') ||
+            errorMsg.contains('Invalid')) {
+          debugPrint('[SyncManager] Operation ${operation.id} failed validation (not retrying): $e');
+          rethrow;
+        }
+        
+        if (attempt >= _maxRetryAttempts) {
+          debugPrint('[SyncManager] Operation ${operation.id} failed after $attempt attempts: $e');
+          rethrow;
+        }
+        
+        // Exponential backoff with jitter
+        final jitter = DateTime.now().millisecondsSinceEpoch % 500;
+        final totalDelay = delayMs + jitter;
+        debugPrint('[SyncManager] Operation ${operation.id} failed (attempt $attempt/$_maxRetryAttempts), retrying in ${totalDelay}ms...');
+
+        await Future.delayed(Duration(milliseconds: totalDelay));
+        delayMs *= 2; // Exponential backoff
+      }
+    }
+  }
+
+  /// Execute the actual operation (switch statement)
+  Future<void> _executeOperation(PendingOperation operation) async {
     switch (operation.type) {
       case 'send':
         await _inboxRepository.sendMessage(
@@ -297,7 +341,21 @@ class OfflineSyncService extends ChangeNotifier {
     }
   }
 
+  /// Maximum number of verses in any surah (Al-Baqarah)
+  static const int _maxVersesInSurah = 286;
+
+  /// Validate Quran progress data before syncing
+  bool _isValidQuranProgress(int surah, int verse) {
+    return surah >= 1 && surah <= 114 && verse >= 1 && verse <= _maxVersesInSurah;
+  }
+
   Future<void> queueQuranProgress(int surah, int verse) async {
+    // Validate before queuing to prevent server rejections
+    if (!_isValidQuranProgress(surah, verse)) {
+      debugPrint('Invalid Quran progress skipped: surah=$surah, verse=$verse');
+      return;
+    }
+
     final accountHash = await _getAccountHash();
     await _pendingOperationsService.addOperation(
       type: 'sync_quran_progress',

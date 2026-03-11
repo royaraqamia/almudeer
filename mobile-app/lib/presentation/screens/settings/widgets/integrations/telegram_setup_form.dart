@@ -120,18 +120,17 @@ class TelegramSetupForm extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: AppGradientButton(
-              onPressed: !RegExp(r'^\d+:[A-Za-z0-9_-]+$')
-                      .hasMatch(tokenController.text.trim())
+              onPressed:
+                  !RegExp(
+                    r'^\d+:[A-Za-z0-9_-]+$',
+                  ).hasMatch(tokenController.text.trim())
                   ? null
                   : () {
                       Haptics.lightTap();
                       onSave();
                     },
               text: 'ربط',
-              gradientColors: [
-                AppColors.primary,
-                AppColors.primaryDark,
-              ],
+              gradientColors: const [AppColors.primary, AppColors.primaryDark],
             ),
           ),
         ],

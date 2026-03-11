@@ -44,9 +44,12 @@ class LibraryProvider extends ChangeNotifier {
   CustomersRepository? _customersRepository;
   final WebSocketService? _webSocketService;
 
-  LibraryProvider({LibraryRepository? repository, CustomersRepository? customersRepository, WebSocketService? webSocketService})
-    : _repository = repository ?? LibraryRepository(),
-      _webSocketService = webSocketService {
+  LibraryProvider({
+    LibraryRepository? repository,
+    CustomersRepository? customersRepository,
+    WebSocketService? webSocketService,
+  }) : _repository = repository ?? LibraryRepository(),
+       _webSocketService = webSocketService {
     _customersRepository = customersRepository;
     _listenToSyncEvents();
     _fetchInitialData();
@@ -116,7 +119,8 @@ class LibraryProvider extends ChangeNotifier {
   // P3-14: Share state
   List<LibraryItem> _sharedItems = [];
   bool _isLoadingShared = false;
-  Map<int, List<Map<String, dynamic>>> _itemShares = {}; // itemId -> shares list
+  Map<int, List<Map<String, dynamic>>> _itemShares =
+      {}; // itemId -> shares list
 
   // Username Lookup State for sharing
   bool _isCheckingUsername = false;
@@ -141,8 +145,7 @@ class LibraryProvider extends ChangeNotifier {
     return _items.where((item) {
       final title = item.title.toLowerCase();
       final fileType = item.type.toLowerCase();
-      return title.contains(query) ||
-          fileType.contains(query);
+      return title.contains(query) || fileType.contains(query);
     }).toList();
   }
 
@@ -161,47 +164,60 @@ class LibraryProvider extends ChangeNotifier {
 
   void _listenToSyncEvents() {
     // Use transform to properly handle async callbacks in stream
-    _repository.syncStream.transform(StreamTransformer.fromHandlers(
-      handleData: (_, sink) {
-        // Check if disposed before proceeding
-        if (!_disposed) {
-          fetchItems(refresh: false).then((_) {
-            // Silently handle completion
-          }).catchError((error) {
-            debugPrint('[LibraryProvider] Sync refresh failed: $error');
-          });
-        }
-      },
-    )).listen((_) {
-      // Data handled in transform
-    });
+    _repository.syncStream
+        .transform(
+          StreamTransformer.fromHandlers(
+            handleData: (_, sink) {
+              // Check if disposed before proceeding
+              if (!_disposed) {
+                fetchItems(refresh: false)
+                    .then((_) {
+                      // Silently handle completion
+                    })
+                    .catchError((error) {
+                      debugPrint(
+                        '[LibraryProvider] Sync refresh failed: $error',
+                      );
+                    });
+              }
+            },
+          ),
+        )
+        .listen((_) {
+          // Data handled in transform
+        });
 
     // Listen for WebSocket share events
     if (_webSocketService != null) {
-      _websocketSubscription = _webSocketService.stream.listen((event) async {
-        try {
-          final eventType = event['event'] as String?;
-          if (eventType == null || eventType.isEmpty) return;
-          if (eventType == 'library_shared') {
-            debugPrint('[LibraryProvider] Received library_shared event, refreshing items');
-            // Refresh items to show the newly shared item
-            if (!_disposed) {
-              await fetchItems(refresh: true);
+      _websocketSubscription = _webSocketService.stream.listen(
+        (event) async {
+          try {
+            final eventType = event['event'] as String?;
+            if (eventType == null || eventType.isEmpty) return;
+            if (eventType == 'library_shared') {
+              debugPrint(
+                '[LibraryProvider] Received library_shared event, refreshing items',
+              );
+              // Refresh items to show the newly shared item
+              if (!_disposed) {
+                await fetchItems(refresh: true);
+              }
             }
+          } catch (e, stackTrace) {
+            debugPrint('[LibraryProvider] WebSocket event error: $e');
+            debugPrint('Stack: $stackTrace');
+            // FIX: Cancel subscription on error to prevent memory leaks
+            _websocketSubscription?.cancel();
+            _websocketSubscription = null;
           }
-        } catch (e, stackTrace) {
-          debugPrint('[LibraryProvider] WebSocket event error: $e');
-          debugPrint('Stack: $stackTrace');
-          // FIX: Cancel subscription on error to prevent memory leaks
+        },
+        onError: (error) {
+          // FIX: Handle stream errors and cleanup subscription
+          debugPrint('[LibraryProvider] WebSocket stream error: $error');
           _websocketSubscription?.cancel();
           _websocketSubscription = null;
-        }
-      }, onError: (error) {
-        // FIX: Handle stream errors and cleanup subscription
-        debugPrint('[LibraryProvider] WebSocket stream error: $error');
-        _websocketSubscription?.cancel();
-        _websocketSubscription = null;
-      });
+        },
+      );
     }
   }
 
@@ -234,11 +250,12 @@ class LibraryProvider extends ChangeNotifier {
     bool loadMore = false,
   }) async {
     // Increment token on category/query change to invalidate stale requests
-    final bool categoryChanged = category != null && category != _currentCategory;
+    final bool categoryChanged =
+        category != null && category != _currentCategory;
     final bool queryChanged = query != null && query != _currentQuery;
 
     if (categoryChanged) {
-      final oldCategory = _currentCategory;  // Save old category before updating
+      final oldCategory = _currentCategory; // Save old category before updating
       _currentCategory = category;
       _categoryChangeToken++;
       // Cancel any in-flight request for the previous category
@@ -306,13 +323,18 @@ class LibraryProvider extends ChangeNotifier {
           (newItems) async {
             // FIX #6: Ignore stale emissions from previous category/query requests
             if (currentToken != _categoryChangeToken) {
-              debugPrint('[LibraryProvider] Ignoring stale data: token mismatch (current=$_categoryChangeToken, emission=$currentToken)');
+              debugPrint(
+                '[LibraryProvider] Ignoring stale data: token mismatch (current=$_categoryChangeToken, emission=$currentToken)',
+              );
               return;
             }
 
             // FIX: Check if this emission is from an in-flight request that should be cancelled
-            if (_inFlightCategoryToken != null && currentToken < _inFlightCategoryToken!) {
-              debugPrint('[LibraryProvider] Ignoring data from superseded request (current=$currentToken, inFlight=$_inFlightCategoryToken)');
+            if (_inFlightCategoryToken != null &&
+                currentToken < _inFlightCategoryToken!) {
+              debugPrint(
+                '[LibraryProvider] Ignoring data from superseded request (current=$currentToken, inFlight=$_inFlightCategoryToken)',
+              );
               return;
             }
 
@@ -321,7 +343,8 @@ class LibraryProvider extends ChangeNotifier {
             // FIX: Use token-based invalidation to prevent race conditions
             final fetchToken = currentToken;
             final now = DateTime.now();
-            final sharedItemsCacheExpired = _sharedItemsLastFetched == null ||
+            final sharedItemsCacheExpired =
+                _sharedItemsLastFetched == null ||
                 now.difference(_sharedItemsLastFetched!) > _sharedItemsCacheTTL;
 
             if ((refresh && sharedItemsCacheExpired) || _sharedItems.isEmpty) {
@@ -331,16 +354,24 @@ class LibraryProvider extends ChangeNotifier {
                 if (fetchToken == _categoryChangeToken && !_disposed) {
                   _sharedItems = sharedItems;
                   _sharedItemsLastFetched = now;
-                  debugPrint('[LibraryProvider] Fetched ${_sharedItems.length} shared items');
+                  debugPrint(
+                    '[LibraryProvider] Fetched ${_sharedItems.length} shared items',
+                  );
                 } else {
-                  debugPrint('[LibraryProvider] Discarding stale shared items: token mismatch');
+                  debugPrint(
+                    '[LibraryProvider] Discarding stale shared items: token mismatch',
+                  );
                 }
               } catch (e, stackTrace) {
-                debugPrint('[LibraryProvider] Failed to fetch shared items: $e');
+                debugPrint(
+                  '[LibraryProvider] Failed to fetch shared items: $e',
+                );
                 debugPrint('[LibraryProvider] Stack trace: $stackTrace');
                 // Log the full exception details for debugging
                 if (e is ApiException) {
-                  debugPrint('[LibraryProvider] ApiException: statusCode=${e.statusCode}, message=${e.message}');
+                  debugPrint(
+                    '[LibraryProvider] ApiException: statusCode=${e.statusCode}, message=${e.message}',
+                  );
                 }
                 // Don't fail the entire fetch - just continue without shared items
               }
@@ -351,7 +382,10 @@ class LibraryProvider extends ChangeNotifier {
 
             // Client-side filtering as safety net to ensure only correct category items are shown
             // This prevents flashes of wrong items when backend or cache returns unexpected data
-            final filteredItems = _filterItemsByCategory(allItems, _currentCategory);
+            final filteredItems = _filterItemsByCategory(
+              allItems,
+              _currentCategory,
+            );
 
             if (loadMore) {
               // Append new items, filtering out duplicates by ID
@@ -366,8 +400,10 @@ class LibraryProvider extends ChangeNotifier {
               // Apply client-side filtering to ensure category correctness
               _items = filteredItems.map((remoteItem) {
                 // First try direct ID match
-                int optimisticIndex = _items.indexWhere((i) => i.id == remoteItem.id);
-                
+                int optimisticIndex = _items.indexWhere(
+                  (i) => i.id == remoteItem.id,
+                );
+
                 // If no direct match, check if this real ID matches a temp ID we created
                 if (optimisticIndex == -1) {
                   // Look for temp IDs that map to this real ID
@@ -379,15 +415,18 @@ class LibraryProvider extends ChangeNotifier {
                     }
                   }
                   if (foundTempId != null) {
-                    optimisticIndex = _items.indexWhere((i) => i.id == foundTempId);
+                    optimisticIndex = _items.indexWhere(
+                      (i) => i.id == foundTempId,
+                    );
                   }
                 }
-                
+
                 if (optimisticIndex != -1) {
                   final optimisticItem = _items[optimisticIndex];
 
                   // Check if we have a pending update for this item
-                  final pendingUpdate = _pendingUpdates[remoteItem.id] ?? 
+                  final pendingUpdate =
+                      _pendingUpdates[remoteItem.id] ??
                       _pendingUpdates[optimisticItem.id];
                   if (pendingUpdate != null) {
                     // If remote content matches what we saved, keep local version
@@ -427,21 +466,28 @@ class LibraryProvider extends ChangeNotifier {
                   // No pending update - use content-based comparison instead of timestamp
                   // to avoid timezone/server clock issues
                   final titleMatches = optimisticItem.title == remoteItem.title;
-                  final contentMatches = (optimisticItem.content ?? '') == (remoteItem.content ?? '');
-                  
+                  final contentMatches =
+                      (optimisticItem.content ?? '') ==
+                      (remoteItem.content ?? '');
+
                   if (titleMatches && contentMatches) {
                     // Content is the same, keep local (preserves any UI-only state)
                     return optimisticItem;
                   }
-                  
+
                   // Content differs - check if local was modified more recently
                   // Use a tolerance window to account for clock skew
-                  final timeDiff = optimisticItem.updatedAt.difference(remoteItem.updatedAt).inSeconds.abs();
-                  if (timeDiff <= _timestampToleranceSeconds && titleMatches && contentMatches) {
+                  final timeDiff = optimisticItem.updatedAt
+                      .difference(remoteItem.updatedAt)
+                      .inSeconds
+                      .abs();
+                  if (timeDiff <= _timestampToleranceSeconds &&
+                      titleMatches &&
+                      contentMatches) {
                     // Within tolerance and content matches - keep local
                     return optimisticItem;
                   }
-                  
+
                   // Accept remote version if it's significantly newer
                   debugPrint(
                     '[LibraryProvider] Using remote data for id=${remoteItem.id} '
@@ -456,7 +502,7 @@ class LibraryProvider extends ChangeNotifier {
             notifyListeners();
           },
           onError: (error) {
-            debugPrint("Provider Error: $error");
+            debugPrint('Provider Error: $error');
             _isLoading = false;
             _isFetchingMore = false;
 
@@ -467,9 +513,7 @@ class LibraryProvider extends ChangeNotifier {
                 errorStr.contains('authentication') ||
                 errorStr.contains('unauthorized') ||
                 errorStr.contains('forbidden')) {
-              debugPrint(
-                '[LibraryProvider] Auth error detected: $error',
-              );
+              debugPrint('[LibraryProvider] Auth error detected: $error');
               // Don't clear data immediately - let user see cached content
               // AuthProvider will handle logout via SecurityEventService
             }
@@ -494,13 +538,13 @@ class LibraryProvider extends ChangeNotifier {
 
     // Add owned items first (they take precedence)
     for (final item in ownedItems) {
-      if (item.id == 0) continue;  // Skip invalid items
+      if (item.id == 0) continue; // Skip invalid items
       itemsMap[item.id] = item;
     }
 
     // Add shared items that aren't already owned
     for (final item in sharedItems) {
-      if (item.id == 0) continue;  // Skip invalid items
+      if (item.id == 0) continue; // Skip invalid items
       if (!itemsMap.containsKey(item.id)) {
         // FIX BUG #4: Preserve the actual sharePermission from backend
         // Backend returns share_permission for shared items, null for owned
@@ -512,7 +556,7 @@ class LibraryProvider extends ChangeNotifier {
           // Log for debugging and default to 'read' for safety
           debugPrint(
             '[LibraryProvider] Shared item ${item.id} has no sharePermission, '
-            'defaulting to read'
+            'defaulting to read',
           );
           itemsMap[item.id] = item.copyWith(sharePermission: 'read');
         }
@@ -525,16 +569,21 @@ class LibraryProvider extends ChangeNotifier {
   /// Filter items by category as a safety net to prevent wrong items from showing
   /// Notes category: only 'note' type
   /// Files category: 'file', 'image', 'audio', 'video' types
-  List<LibraryItem> _filterItemsByCategory(List<LibraryItem> items, String category) {
+  List<LibraryItem> _filterItemsByCategory(
+    List<LibraryItem> items,
+    String category,
+  ) {
     if (category == 'notes') {
       return items.where((item) => item.type == 'note').toList();
     } else if (category == 'files') {
       return items
-          .where((item) =>
-              item.type == 'file' ||
-              item.type == 'image' ||
-              item.type == 'audio' ||
-              item.type == 'video')
+          .where(
+            (item) =>
+                item.type == 'file' ||
+                item.type == 'image' ||
+                item.type == 'audio' ||
+                item.type == 'video',
+          )
           .toList();
     }
     // Tools or unknown category - return as-is
@@ -544,9 +593,13 @@ class LibraryProvider extends ChangeNotifier {
   /// Remove pending updates for items that no longer exist in the list
   void _cleanupStalePendingUpdates() {
     final itemIds = _items.map((i) => i.id).toSet();
-    final staleIds = _pendingUpdates.keys.where((id) => !itemIds.contains(id)).toList();
+    final staleIds = _pendingUpdates.keys
+        .where((id) => !itemIds.contains(id))
+        .toList();
     for (final id in staleIds) {
-      debugPrint('[LibraryProvider] Cleaning up stale pending update for id=$id');
+      debugPrint(
+        '[LibraryProvider] Cleaning up stale pending update for id=$id',
+      );
       _pendingUpdates.remove(id);
     }
   }
@@ -557,24 +610,37 @@ class LibraryProvider extends ChangeNotifier {
     // Get IDs of items in the new category
     // Files category includes multiple types: file, image, audio, video
     final categoryItemIds = _items
-        .where((item) =>
-          (category == 'notes' && item.type == 'note') ||
-          (category == 'files' && 
-            (item.type == 'file' || item.type == 'image' || item.type == 'audio' || item.type == 'video')))
+        .where(
+          (item) =>
+              (category == 'notes' && item.type == 'note') ||
+              (category == 'files' &&
+                  (item.type == 'file' ||
+                      item.type == 'image' ||
+                      item.type == 'audio' ||
+                      item.type == 'video')),
+        )
         .map((i) => i.id)
         .toSet();
-    
+
     // Remove pending updates for items not in the current category
-    final idsToRemove = _pendingUpdates.keys.where((id) => !categoryItemIds.contains(id)).toList();
+    final idsToRemove = _pendingUpdates.keys
+        .where((id) => !categoryItemIds.contains(id))
+        .toList();
     for (final id in idsToRemove) {
-      debugPrint('[LibraryProvider] Cleaning up pending update for id=$id (category change to $category)');
+      debugPrint(
+        '[LibraryProvider] Cleaning up pending update for id=$id (category change to $category)',
+      );
       _pendingUpdates.remove(id);
     }
-    
+
     // Also clean temp-to-real ID mappings for items not in current category
-    final tempIdsToRemove = _tempToRealIdMap.keys.where((id) => !categoryItemIds.contains(id)).toList();
+    final tempIdsToRemove = _tempToRealIdMap.keys
+        .where((id) => !categoryItemIds.contains(id))
+        .toList();
     for (final id in tempIdsToRemove) {
-      debugPrint('[LibraryProvider] Cleaning up temp-to-real mapping for id=$id (category change to $category)');
+      debugPrint(
+        '[LibraryProvider] Cleaning up temp-to-real mapping for id=$id (category change to $category)',
+      );
       _tempToRealIdMap.remove(id);
     }
   }
@@ -699,23 +765,27 @@ class LibraryProvider extends ChangeNotifier {
 
   Future<void> updateNote(int id, String title, String content) async {
     debugPrint('[LibraryProvider] updateNote called: id=$id, title=$title');
-    
+
     // Track pending update with actual content to compare against server response
     _pendingUpdates[id] = {'title': title, 'content': content};
-    
+
     // Optimistic in-memory update
     final index = _items.indexWhere((item) => item.id == id);
     LibraryItem? oldItem;
     if (index != -1) {
       oldItem = _items[index];
-      debugPrint('[LibraryProvider] Found item at index=$index, old updatedAt=${oldItem.updatedAt}');
+      debugPrint(
+        '[LibraryProvider] Found item at index=$index, old updatedAt=${oldItem.updatedAt}',
+      );
       // FIX: Update updatedAt to ensure merge logic keeps optimistic update
       _items[index] = _items[index].copyWith(
         title: title,
         content: content,
         updatedAt: DateTime.now(),
       );
-      debugPrint('[LibraryProvider] Updated item, new updatedAt=${_items[index].updatedAt}');
+      debugPrint(
+        '[LibraryProvider] Updated item, new updatedAt=${_items[index].updatedAt}',
+      );
       notifyListeners();
     } else {
       debugPrint('[LibraryProvider] Item not found in local list!');
@@ -747,7 +817,9 @@ class LibraryProvider extends ChangeNotifier {
 
     if (!hasSpace || _disposed) {
       // Show storage limit warning
-      debugPrint('[LibraryProvider] Storage limit reached or disposed, cannot upload $fileName');
+      debugPrint(
+        '[LibraryProvider] Storage limit reached or disposed, cannot upload $fileName',
+      );
       // Could show a snackbar/notification here
       return;
     }
@@ -787,7 +859,8 @@ class LibraryProvider extends ChangeNotifier {
           final now = DateTime.now();
           final lastUpdate = _lastProgressUpdate[tempId];
           if (lastUpdate != null &&
-              now.difference(lastUpdate).inMilliseconds < _progressThrottleIntervalMs) {
+              now.difference(lastUpdate).inMilliseconds <
+                  _progressThrottleIntervalMs) {
             return;
           }
           _lastProgressUpdate[tempId] = now;
@@ -872,17 +945,25 @@ class LibraryProvider extends ChangeNotifier {
     // FIX: Check if we have the original file path to retry
     final filePath = item.originalFilePath;
     if (filePath == null) {
-      debugPrint('[LibraryProvider] Cannot retry upload: original file path not found');
-      throw Exception('File path not available for retry. Please select the file again.');
+      debugPrint(
+        '[LibraryProvider] Cannot retry upload: original file path not found',
+      );
+      throw Exception(
+        'File path not available for retry. Please select the file again.',
+      );
     }
 
     // Verify the file still exists
     final file = File(filePath);
     if (!await file.exists()) {
-      debugPrint('[LibraryProvider] Cannot retry upload: file no longer exists');
+      debugPrint(
+        '[LibraryProvider] Cannot retry upload: file no longer exists',
+      );
       // Remove the failed item
       removeFailedUpload(itemId);
-      throw Exception('The selected file no longer exists. Please select a new file.');
+      throw Exception(
+        'The selected file no longer exists. Please select a new file.',
+      );
     }
 
     // Get customerId from the item
@@ -913,7 +994,9 @@ class LibraryProvider extends ChangeNotifier {
   }) async {
     if (_selectedIds.isEmpty) return;
 
-    final itemsToShare = _items.where((item) => _selectedIds.contains(item.id)).toList();
+    final itemsToShare = _items
+        .where((item) => _selectedIds.contains(item.id))
+        .toList();
 
     if (itemsToShare.isEmpty) return;
 
@@ -944,7 +1027,9 @@ class LibraryProvider extends ChangeNotifier {
     // FIX BUG #7: Throw detailed error for partial/complete failures
     if (failCount > 0 && successCount > 0) {
       // Partial success - throw with details so caller can show warning
-      debugPrint('[LibraryProvider] Shared $successCount items, failed $failCount');
+      debugPrint(
+        '[LibraryProvider] Shared $successCount items, failed $failCount',
+      );
       throw PartialShareException(
         successCount: successCount,
         failCount: failCount,
@@ -972,10 +1057,10 @@ class LibraryProvider extends ChangeNotifier {
         permission: permission,
         expiresInDays: expiresInDays,
       );
-      
+
       // Track analytics
       // In a full implementation, send to backend analytics endpoint
-      
+
       // Refresh shares list
       await loadItemShares(itemId);
     } catch (e) {
@@ -996,14 +1081,17 @@ class LibraryProvider extends ChangeNotifier {
   }
 
   /// P3-14: Fetch items shared with current user
-  Future<void> fetchSharedWithMe({String? permission, bool refresh = false}) async {
+  Future<void> fetchSharedWithMe({
+    String? permission,
+    bool refresh = false,
+  }) async {
     if (refresh) {
       _sharedItems.clear();
     }
-    
+
     _isLoadingShared = true;
     notifyListeners();
-    
+
     try {
       final items = await _repository.getSharedWithMe(permission: permission);
       _sharedItems = items;
@@ -1016,19 +1104,16 @@ class LibraryProvider extends ChangeNotifier {
   }
 
   /// P3-14: Remove a share
-  Future<void> removeShare({
-    required int shareId,
-    int? itemId,
-  }) async {
+  Future<void> removeShare({required int shareId, int? itemId}) async {
     try {
       await _repository.removeShare(shareId);
-      
+
       // Remove from local cache
       if (itemId != null && _itemShares.containsKey(itemId)) {
         _itemShares[itemId]?.removeWhere((share) => share['id'] == shareId);
         notifyListeners();
       }
-      
+
       // Refresh shared items list
       await fetchSharedWithMe(refresh: true);
     } catch (e) {
@@ -1048,10 +1133,12 @@ class LibraryProvider extends ChangeNotifier {
         shareId: shareId,
         permission: permission,
       );
-      
+
       // Update local cache
       if (itemId != null && _itemShares.containsKey(itemId)) {
-        final shareIndex = _itemShares[itemId]!.indexWhere((share) => share['id'] == shareId);
+        final shareIndex = _itemShares[itemId]!.indexWhere(
+          (share) => share['id'] == shareId,
+        );
         if (shareIndex != -1) {
           _itemShares[itemId]![shareIndex]['permission'] = permission;
           notifyListeners();
@@ -1080,10 +1167,11 @@ class LibraryProvider extends ChangeNotifier {
   int _generateTempId() {
     // Use UUID v4 for true uniqueness - generates random 128-bit number
     // Then take modulo to fit in 32-bit signed int range
-    final uuid = DateTime.now().microsecondsSinceEpoch.toRadixString(16) +
-                 DateTime.now().microsecond.toRadixString(16) +
-                 (DateTime.now().millisecond * 17).toRadixString(16) +
-                 (DateTime.now().second * 31).toRadixString(16);
+    final uuid =
+        DateTime.now().microsecondsSinceEpoch.toRadixString(16) +
+        DateTime.now().microsecond.toRadixString(16) +
+        (DateTime.now().millisecond * 17).toRadixString(16) +
+        (DateTime.now().second * 31).toRadixString(16);
     final hash = uuid.hashCode.abs();
     // Ensure it's within 32-bit signed int range and positive
     return (hash % _maxInt32) + 1;
@@ -1112,7 +1200,9 @@ class LibraryProvider extends ChangeNotifier {
             final fullName = result['full_name'];
             final companyName = result['company_name'];
             // Handle case where these might be Maps instead of Strings
-            _foundUsernameDetails = (fullName is String ? fullName : (companyName is String ? companyName : 'مستخدم معروف'));
+            _foundUsernameDetails = (fullName is String
+                ? fullName
+                : (companyName is String ? companyName : 'مستخدم معروف'));
             _usernameNotFound = false;
           } else {
             _foundUsernameDetails = null;
@@ -1137,6 +1227,72 @@ class LibraryProvider extends ChangeNotifier {
     _usernameNotFound = false;
     if (_usernameLookupTimer?.isActive ?? false) _usernameLookupTimer!.cancel();
     notifyListeners();
+  }
+
+  // Issue #26: Trash functionality
+  Future<List<LibraryItem>> getTrashItems() async {
+    try {
+      return await _repository.getTrashItems();
+    } catch (e) {
+      debugPrint('[LibraryProvider] Failed to get trash items: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> restoreFromTrash(int itemId) async {
+    try {
+      await _repository.restoreFromTrash(itemId);
+      // Refresh items to show the restored item
+      await fetchItems(refresh: true);
+    } catch (e) {
+      debugPrint('[LibraryProvider] Failed to restore from trash: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> deletePermanently(int itemId) async {
+    try {
+      await _repository.deletePermanently(itemId);
+      // Remove from local list optimistically
+      _items.removeWhere((item) => item.id == itemId);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[LibraryProvider] Failed to delete permanently: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> emptyTrash() async {
+    try {
+      await _repository.emptyTrash();
+      // Clear trash items from local list
+      _items.removeWhere((item) => item.deletedAt != null);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[LibraryProvider] Failed to empty trash: $e');
+      rethrow;
+    }
+  }
+
+  // P3-13: Version history functionality
+  Future<List<Map<String, dynamic>>> getItemVersions(int itemId) async {
+    try {
+      return await _repository.getItemVersions(itemId);
+    } catch (e) {
+      debugPrint('[LibraryProvider] Failed to get item versions: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> restoreVersion(int itemId, int versionId) async {
+    try {
+      await _repository.restoreVersion(itemId, versionId);
+      // Refresh items to show the restored version
+      await fetchItems(refresh: true);
+    } catch (e) {
+      debugPrint('[LibraryProvider] Failed to restore version: $e');
+      rethrow;
+    }
   }
 
   @override

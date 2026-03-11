@@ -40,7 +40,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   int _retryCount = 0;
   static const int _maxRetries = 3;
   bool _isNetworkError = false;
-  
+
   // P0 FIX: Force reload by changing key
   int _reloadKey = 0;
 
@@ -156,14 +156,15 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
                         ? null
                         : event.cumulativeBytesLoaded /
                               (event.expectedTotalBytes ?? 1),
-                    valueColor: AlwaysStoppedAnimation(AppColors.primary),
+                    valueColor: const AlwaysStoppedAnimation(AppColors.primary),
                   ),
                 ),
                 errorBuilder: (context, error, stackTrace) {
-                  _isNetworkError = error is SocketException || 
-                                   error.toString().contains('Socket') ||
-                                   error.toString().contains('Network');
-                  
+                  _isNetworkError =
+                      error is SocketException ||
+                      error.toString().contains('Socket') ||
+                      error.toString().contains('Network');
+
                   return _buildErrorView(error);
                 },
               ),
@@ -173,7 +174,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
       ),
     );
   }
-  
+
   // ISSUE-007: Error view with retry button
   Widget _buildErrorView(dynamic error) {
     final canRetry = _retryCount < _maxRetries;
@@ -184,7 +185,9 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            _isNetworkError ? SolarLinearIcons.volumeCross : SolarLinearIcons.galleryRemove,
+            _isNetworkError
+                ? SolarLinearIcons.volumeCross
+                : SolarLinearIcons.galleryRemove,
             size: 64,
             color: Colors.white54,
           ),
@@ -199,9 +202,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
           const SizedBox(height: 8),
           Text(
             error.toString(),
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: Colors.white54,
-            ),
+            style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white54),
             textAlign: TextAlign.center,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
@@ -215,7 +216,10 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
               ),
             ),
           ],
@@ -294,9 +298,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   }
 
   Future<void> _saveImage(BuildContext context) async {
-    final String? path =
-        widget.imageFile?.path ??
-        widget.imageUrl;
+    final String? path = widget.imageFile?.path ?? widget.imageUrl;
 
     if (path == null && widget.imageData == null) {
       if (context.mounted) {

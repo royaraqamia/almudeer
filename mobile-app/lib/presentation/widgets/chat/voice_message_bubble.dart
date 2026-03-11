@@ -372,7 +372,7 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
                                   if (player.currentMessage?.id ==
                                       widget.message.id) {
                                     Haptics.selection(); // Tactile seeking
-                                    double seek =
+                                    final double seek =
                                         details.localPosition.dx /
                                         constraints.maxWidth;
                                     _onSeek(player, seek.clamp(0.0, 1.0));
@@ -433,7 +433,7 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
 
                                 return Text(
                                   isPlayingMe || isPausedMe
-                                      ? "${_formatDuration(myPos)} / ${_formatDuration(totalDuration)}"
+                                      ? '${_formatDuration(myPos)} / ${_formatDuration(totalDuration)}'
                                       : (totalDuration != Duration.zero
                                             ? _formatDuration(totalDuration)
                                             : 'رسالة صوتية'),
@@ -453,7 +453,8 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
                               GestureDetector(
                                 onTap: () {
                                   Haptics.mediumTap();
-                                  double newSpeed = player.playbackSpeed >= 2.0
+                                  final double newSpeed =
+                                      player.playbackSpeed >= 2.0
                                       ? 1.0
                                       : player.playbackSpeed + 0.5;
                                   player.setSpeed(newSpeed);

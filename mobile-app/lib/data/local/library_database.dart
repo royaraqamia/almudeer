@@ -166,9 +166,7 @@ class LibraryDatabase {
           final columns = await db.rawQuery(
             'PRAGMA table_info(c_library_items)',
           );
-          final hasError = columns.any(
-            (col) => col['name'] == 'has_error',
-          );
+          final hasError = columns.any((col) => col['name'] == 'has_error');
 
           if (!hasError) {
             await db.execute(
@@ -213,9 +211,7 @@ class LibraryDatabase {
           final columns = await db.rawQuery(
             'PRAGMA table_info(c_library_items)',
           );
-          final hasCachedAt = columns.any(
-            (col) => col['name'] == 'cached_at',
-          );
+          final hasCachedAt = columns.any((col) => col['name'] == 'cached_at');
 
           if (!hasCachedAt) {
             await db.execute(
@@ -229,7 +225,9 @@ class LibraryDatabase {
           final columns = await db.rawQuery(
             'PRAGMA table_info(c_library_items)',
           );
-          final columnNames = columns.map((col) => col['name'] as String).toSet();
+          final columnNames = columns
+              .map((col) => col['name'] as String)
+              .toSet();
 
           // Add download-related columns
           if (!columnNames.contains('is_downloading')) {
@@ -281,7 +279,9 @@ class LibraryDatabase {
           final columns = await db.rawQuery(
             'PRAGMA table_info(c_library_items)',
           );
-          final columnNames = columns.map((col) => col['name'] as String).toSet();
+          final columnNames = columns
+              .map((col) => col['name'] as String)
+              .toSet();
 
           if (!columnNames.contains('share_permission')) {
             await db.execute(
@@ -298,7 +298,7 @@ class LibraryDatabase {
   // P0-3: Check if cache is valid (not expired)
   Future<bool> isCacheValid({required int licenseKeyId, String? type}) async {
     final db = await database;
-    
+
     // Get the most recent cache timestamp for this license
     final result = await db.query(
       'c_library_items',
@@ -306,13 +306,15 @@ class LibraryDatabase {
       where: 'license_key_id = ?',
       whereArgs: [licenseKeyId],
     );
-    
+
     if (result.isEmpty || result.first['latest_cache'] == null) {
       return false; // No cache exists
     }
-    
+
     try {
-      final lastCacheTime = DateTime.parse(result.first['latest_cache'] as String);
+      final lastCacheTime = DateTime.parse(
+        result.first['latest_cache'] as String,
+      );
       final age = DateTime.now().difference(lastCacheTime);
       return age < _cacheTTL;
     } catch (e) {
@@ -371,8 +373,8 @@ class LibraryDatabase {
     String? type,
   }) async {
     final db = await database;
-    List<String> conditions = ['license_key_id = ?'];
-    List<dynamic> whereArgs = [licenseKeyId];
+    final List<String> conditions = ['license_key_id = ?'];
+    final List<dynamic> whereArgs = [licenseKeyId];
 
     if (type != null && type != 'all') {
       if (type == 'notes' || type == 'note') {
@@ -409,7 +411,7 @@ class LibraryDatabase {
 
   Future<void> updateItem(int id, Map<String, dynamic> updates) async {
     final db = await database;
-    
+
     // FIX: Convert boolean values to integers (1/0) as SQLite doesn't support booleans
     final sanitizedUpdates = <String, dynamic>{};
     for (final entry in updates.entries) {
@@ -419,7 +421,7 @@ class LibraryDatabase {
         sanitizedUpdates[entry.key] = entry.value;
       }
     }
-    
+
     await db.update(
       'c_library_items',
       {...sanitizedUpdates, 'updated_at': DateTime.now().toIso8601String()},
@@ -505,7 +507,7 @@ class LibraryDatabase {
     if (licenseKeyId != null) {
       where = 'license_key_id = ?';
       whereArgs = [licenseKeyId];
-      
+
       if (query != null && query.isNotEmpty) {
         where += ' AND (title LIKE ? OR content LIKE ?)';
         whereArgs.addAll(['%$query%', '%$query%']);

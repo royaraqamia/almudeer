@@ -251,7 +251,7 @@ class _ImportContactsScreenState extends State<ImportContactsScreen> {
                   _selectedIds.length == _filteredContacts.length
                       ? 'إلغاء الكل'
                       : 'تحديد الكل',
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: AppColors.primary,
                     fontWeight: FontWeight.bold,
                   ),
@@ -352,9 +352,7 @@ class _ImportContactsScreenState extends State<ImportContactsScreen> {
 
   Widget _buildBody(ThemeData theme) {
     if (_permissionDenied) {
-      return EmptyStateWidget(
-        icon: SolarLinearIcons.forbiddenCircle,
-      );
+      return const EmptyStateWidget(icon: SolarLinearIcons.forbiddenCircle);
     }
 
     if (_isLoading) {
@@ -369,9 +367,7 @@ class _ImportContactsScreenState extends State<ImportContactsScreen> {
     }
 
     if (_filteredContacts.isEmpty) {
-      return const EmptyStateWidget(
-        icon: SolarLinearIcons.magnifer,
-      );
+      return const EmptyStateWidget(icon: SolarLinearIcons.magnifer);
     }
 
     return ListView.builder(

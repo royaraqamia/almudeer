@@ -33,7 +33,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   bool isReady = false;
   String errorMessage = '';
   bool _isHorizontalSwipe = false;
-  
+
   // P0 FIX: Retry logic
   int _retryCount = 0;
   static const int _maxRetries = 3;
@@ -67,7 +67,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           setState(() {
             _isLoading = false;
             _isSizeError = true;
-            errorMessage = 'حجم الملف كبير جداً (${(fileSize / 1024 / 1024).toStringAsFixed(1)} ميجابايت). الحد الأقصى هو ${kMaxPdfFileSize ~/ 1024 ~/ 1024} ميجابايت';
+            errorMessage =
+                'حجم الملف كبير جداً (${(fileSize / 1024 / 1024).toStringAsFixed(1)} ميجابايت). الحد الأقصى هو ${kMaxPdfFileSize ~/ 1024 ~/ 1024} ميجابايت';
           });
         }
         return;
@@ -143,7 +144,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     const SizedBox(height: 16),
                     Text(
                       'محاولة $_retryCount من $_maxRetries...',
-                      style: const TextStyle(color: Colors.white70, fontSize: 14),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
                     ),
                   ],
                 ],
@@ -213,7 +217,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
-                "${(currentPage ?? 0) + 1} / ${pages ?? 0}",
+                '${(currentPage ?? 0) + 1} / ${pages ?? 0}',
                 style: const TextStyle(color: Colors.white),
               ),
             )
@@ -231,7 +235,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            _isSizeError ? SolarLinearIcons.file : SolarLinearIcons.dangerCircle,
+            _isSizeError
+                ? SolarLinearIcons.file
+                : SolarLinearIcons.dangerCircle,
             size: 64,
             color: Colors.white54,
           ),
@@ -246,9 +252,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           const SizedBox(height: 8),
           Text(
             errorMessage,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: Colors.white54,
-            ),
+            style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white54),
             textAlign: TextAlign.center,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
@@ -262,7 +266,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
               ),
             ),
           ],

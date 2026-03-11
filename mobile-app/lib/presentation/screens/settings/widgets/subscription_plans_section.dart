@@ -150,16 +150,12 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
                   ),
                 ],
               ),
-              child: Row(
+              child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(
-                    SolarLinearIcons.tag,
-                    size: 12,
-                    color: Colors.white,
-                  ),
-                  const SizedBox(width: 4),
-                  const Text(
+                  Icon(SolarLinearIcons.tag, size: 12, color: Colors.white),
+                  SizedBox(width: 4),
+                  Text(
                     'وفر 25%',
                     style: TextStyle(
                       color: Colors.white,
@@ -213,7 +209,9 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
             if (icon != null) ...[
               IconTheme(
                 data: IconThemeData(
-                  color: isSelected ? Colors.white : AppColors.textTertiaryLight,
+                  color: isSelected
+                      ? Colors.white
+                      : AppColors.textTertiaryLight,
                   size: 15,
                 ),
                 child: icon,
@@ -223,7 +221,11 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
             Text(
               title,
               style: TextStyle(
-                color: isSelected ? Colors.white : (isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight),
+                color: isSelected
+                    ? Colors.white
+                    : (isDark
+                          ? AppColors.textSecondaryDark
+                          : AppColors.textSecondaryLight),
                 fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
                 fontSize: 14,
               ),
@@ -247,7 +249,9 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
             Text(
               '\$',
               style: TextStyle(
-                color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+                color: isDark
+                    ? AppColors.textSecondaryDark
+                    : AppColors.textSecondaryLight,
                 fontSize: 24,
                 fontWeight: FontWeight.w500,
                 height: 1.2,
@@ -259,17 +263,16 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
               transitionBuilder: (child, animation) {
                 return ScaleTransition(
                   scale: animation,
-                  child: FadeTransition(
-                    opacity: animation,
-                    child: child,
-                  ),
+                  child: FadeTransition(opacity: animation, child: child),
                 );
               },
               child: Text(
                 price,
                 key: ValueKey(isYearly),
                 style: TextStyle(
-                  color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                  color: isDark
+                      ? AppColors.textPrimaryDark
+                      : AppColors.textPrimaryLight,
                   fontSize: 64,
                   fontWeight: FontWeight.w800,
                   height: 1,
@@ -281,7 +284,9 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
             Text(
               ' / $period',
               style: TextStyle(
-                color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+                color: isDark
+                    ? AppColors.textSecondaryDark
+                    : AppColors.textSecondaryLight,
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
               ),
@@ -316,7 +321,9 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
                 Text(
                   '•',
                   style: TextStyle(
-                    color: isDark ? AppColors.textTertiaryDark : AppColors.textTertiaryLight,
+                    color: isDark
+                        ? AppColors.textTertiaryDark
+                        : AppColors.textTertiaryLight,
                     fontSize: 12,
                   ),
                 ),
@@ -324,7 +331,9 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
                 Text(
                   '120\$/سنة',
                   style: TextStyle(
-                    color: isDark ? AppColors.textTertiaryDark : AppColors.textTertiaryLight,
+                    color: isDark
+                        ? AppColors.textTertiaryDark
+                        : AppColors.textTertiaryLight,
                     decoration: TextDecoration.lineThrough,
                     decorationThickness: 1.5,
                     fontSize: 13,
@@ -342,7 +351,10 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
   Widget _buildFeaturesList(bool isDark) {
     final features = [
       {'icon': SolarLinearIcons.checkCircle, 'text': 'جميع الميزات الأساسية'},
-      {'icon': SolarLinearIcons.usersGroupTwoRounded, 'text': 'عدد غير محدود من المستخدمين'},
+      {
+        'icon': SolarLinearIcons.usersGroupTwoRounded,
+        'text': 'عدد غير محدود من المستخدمين',
+      },
       {'icon': SolarLinearIcons.clockCircle, 'text': 'دعم فني على مدار الساعة'},
       {'icon': SolarLinearIcons.cloud, 'text': 'تحديثات مجانية مستمرة'},
     ];
@@ -380,7 +392,9 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
                 Text(
                   feature['text'] as String,
                   style: TextStyle(
-                    color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+                    color: isDark
+                        ? AppColors.textSecondaryDark
+                        : AppColors.textSecondaryLight,
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
                   ),
@@ -405,14 +419,8 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
         decoration: ShapeDecoration(
           gradient: LinearGradient(
             colors: isSubscribed
-                ? [
-                    AppColors.surfaceCardDark,
-                    AppColors.surfaceDark,
-                  ]
-                : [
-                    AppColors.primary,
-                    AppColors.primaryDark,
-                  ],
+                ? [AppColors.surfaceCardDark, AppColors.surfaceDark]
+                : [AppColors.primary, AppColors.primaryDark],
             begin: Alignment.centerLeft,
             end: Alignment.centerRight,
           ),
@@ -435,9 +443,11 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            onTap: isSubscribed ? null : () {
-              // Handle subscription action
-            },
+            onTap: isSubscribed
+                ? null
+                : () {
+                    // Handle subscription action
+                  },
             borderRadius: BorderRadius.circular(AppDimensions.radiusButton),
             child: Center(
               child: Row(

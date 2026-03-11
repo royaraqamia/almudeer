@@ -41,12 +41,18 @@ async def get_preferences(license_id: int) -> dict:
                     # On error, treat as simple string or empty list
                     prefs["preferred_languages"] = [str(raw_langs)]
 
-            # Handle calculator_history - stored as JSON array
+            # Handle calculator_history - stored as JSON array of structured entries
+            # Each entry: {entry: string, timestamp: ISO8601}
             raw_history = prefs.get("calculator_history")
             if raw_history:
                 try:
-                    prefs["calculator_history"] = json.loads(raw_history)
-                except Exception:
+                    parsed = json.loads(raw_history)
+                    # Ensure it's a list and preserve structure
+                    if isinstance(parsed, list):
+                        prefs["calculator_history"] = parsed
+                    else:
+                        prefs["calculator_history"] = []
+                except (json.JSONDecodeError, TypeError):
                     prefs["calculator_history"] = []
             else:
                 prefs["calculator_history"] = []
@@ -129,8 +135,11 @@ async def update_preferences(license_id: int, **kwargs) -> bool:
     for k, v in updates.items():
         if k in ('preferred_languages', 'calculator_history'):
             if isinstance(v, list):
+                # For calculator_history, entries might be dicts with timestamps
+                # For preferred_languages, entries are strings
+                # Either way, serialize to JSON
                 updates[k] = json.dumps(v)
-                logger.info(f"Serialized {k} list to JSON: {updates[k]}")
+                logger.info(f"Serialized {k} list to JSON: {updates[k][:100]}...")
             elif isinstance(v, str) and v.strip().startswith('['):
                 # Already JSON string, keep as-is
                 updates[k] = v

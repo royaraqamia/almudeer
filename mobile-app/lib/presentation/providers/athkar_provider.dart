@@ -186,6 +186,7 @@ class AthkarProvider extends ChangeNotifier {
   }
 
   void setMisbahaTarget(int target) {
+    if (target <= 0) return;
     _misbahaTarget = target;
     notifyListeners();
     _saveToStorageDebounced();

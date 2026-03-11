@@ -110,26 +110,27 @@ class EnhancedTransferService {
       BackgroundTransferService();
   final _uuid = const Uuid();
   final _secureStorage = const FlutterSecureStorage();
-  String? _cachedDeviceId;  // Cache device ID to avoid repeated storage reads
+  String? _cachedDeviceId; // Cache device ID to avoid repeated storage reads
 
   // Configuration
   static const int defaultChunkSize =
       1024 * 1024; // 1MB chunks (optimized for WiFi Direct speeds)
   static const int maxRetries = 5;
-  static const int defaultWindowSize = 20;  // 20 chunks in-flight (20MB with 1MB chunks)
+  static const int defaultWindowSize =
+      20; // 20 chunks in-flight (20MB with 1MB chunks)
   static const Duration chunkTimeout = Duration(seconds: 30);
   static const Duration handshakeTimeout = Duration(seconds: 10);
   static const Duration verificationTimeout = Duration(seconds: 60);
   static const Duration connectionRetryDelay = Duration(seconds: 2);
   static const String serviceId = 'com.royaraqamia.almudeer.transfer';
-  
+
   // File transfer limits
-  static const int maxFileSize = 2 * 1024 * 1024 * 1024;  // 2GB max file size
+  static const int maxFileSize = 2 * 1024 * 1024 * 1024; // 2GB max file size
   static const List<String> blockedFileExtensions = [
-    '.exe', '.bat', '.cmd', '.sh', '.ps1',  // Executables
-    '.apk', '.xapk',  // Android packages (prevent malware)
-    '.js', '.vbs', '.jar',  // Scripts
-    '.msi', '.dmg',  // Installers
+    '.exe', '.bat', '.cmd', '.sh', '.ps1', // Executables
+    '.apk', '.xapk', // Android packages (prevent malware)
+    '.js', '.vbs', '.jar', // Scripts
+    '.msi', '.dmg', // Installers
   ];
 
   // State
@@ -146,11 +147,12 @@ class EnhancedTransferService {
   _sessionBufferedChunkMetadata = {};
   // Buffer for FILE payloads that arrive before metadata (race condition fix)
   final Map<String, Map<int, Uint8List>> _filePayloadBuffer = {};
-  
+
   // Progress update batching (reduce database writes)
-  final Map<String, int> _pendingProgressUpdates = {};  // sessionId -> completedChunks
+  final Map<String, int> _pendingProgressUpdates =
+      {}; // sessionId -> completedChunks
   final Map<String, Timer> _progressDebounceTimers = {};
-  static const int progressUpdateInterval = 10;  // Update every 10 chunks
+  static const int progressUpdateInterval = 10; // Update every 10 chunks
   static const Duration progressDebounceDelay = Duration(milliseconds: 500);
 
   // Nearby Connections
@@ -386,7 +388,7 @@ class EnhancedTransferService {
 
       final deviceId = await _getDeviceId();
 
-      bool success = await Nearby().startAdvertising(
+      final bool success = await Nearby().startAdvertising(
         deviceName,
         _strategy,
         serviceId: serviceId,
@@ -422,7 +424,7 @@ class EnhancedTransferService {
         return true;
       }
 
-      bool success = await Nearby().startDiscovery(
+      final bool success = await Nearby().startDiscovery(
         deviceName,
         _strategy,
         serviceId: serviceId,
@@ -664,7 +666,9 @@ class EnhancedTransferService {
       if (fileSize > maxFileSize) {
         final sizeMB = (fileSize / (1024 * 1024)).toStringAsFixed(1);
         final maxMB = (maxFileSize / (1024 * 1024)).toStringAsFixed(0);
-        throw Exception('حجم الملف كبير جداً ($sizeMB MB). الحد الأقصى: $maxMB MB');
+        throw Exception(
+          'حجم الملف كبير جداً ($sizeMB MB). الحد الأقصى: $maxMB MB',
+        );
       }
 
       final fileName = file.path.split('/').last;
@@ -976,13 +980,13 @@ class EnhancedTransferService {
           final file = File(path);
           if (await file.exists()) {
             final bytes = await file.readAsBytes();
-            
+
             // Try to parse as chunk data with index prefix
             if (bytes.length >= 4) {
               final byteData = bytes.buffer.asByteData(bytes.offsetInBytes, 4);
               final chunkIndex = byteData.getInt32(0);
               final chunkData = bytes.sublist(4);
-              
+
               // Find session to get session ID
               try {
                 final session = _activeSessions.values.firstWhere(
@@ -990,16 +994,17 @@ class EnhancedTransferService {
                       s.deviceId == endpointId &&
                       s.direction == TransferDirection.receiving,
                 );
-                
+
                 // Buffer the file payload by session ID and chunk index
                 _filePayloadBuffer.putIfAbsent(
                   session.sessionId,
                   () => {},
                 )[chunkIndex] = chunkData;
-                
+
                 // Check if metadata is already here
                 final metadata =
-                    _sessionBufferedChunkMetadata[session.sessionId]?[chunkIndex];
+                    _sessionBufferedChunkMetadata[session
+                        .sessionId]?[chunkIndex];
                 if (metadata != null) {
                   // Metadata already here, process immediately
                   await _processReceivedChunk(
@@ -1020,7 +1025,11 @@ class EnhancedTransferService {
               }
             } else {
               // Legacy FILE payload without index prefix
-              await _handleIncomingChunkBytes(endpointId, bytes, isLegacy: true);
+              await _handleIncomingChunkBytes(
+                endpointId,
+                bytes,
+                isLegacy: true,
+              );
             }
 
             // Cleanup temporary file
@@ -1129,7 +1138,7 @@ class EnhancedTransferService {
 
     // Clean up metadata buffer
     _sessionBufferedChunkMetadata[sessionId]?.remove(chunkIndex);
-    
+
     // Clean up pending chunk indices buffer (memory leak fix)
     _sessionPendingChunkIndices[sessionId]?.remove(chunkIndex);
 
@@ -1178,7 +1187,11 @@ class EnhancedTransferService {
       _notifySessionUpdate(session);
 
       // Batch database updates to reduce I/O overhead (performance fix)
-      await _scheduleProgressUpdate(sessionId, session.completedChunks, session.bytesTransferred);
+      await _scheduleProgressUpdate(
+        sessionId,
+        session.completedChunks,
+        session.bytesTransferred,
+      );
       await _database.markChunkReceived(sessionId, chunkIndex);
 
       // 6. Send ACK
@@ -1493,7 +1506,11 @@ class EnhancedTransferService {
       final session = _activeSessions[sessionId];
       if (session != null) {
         // Batch database updates to reduce I/O overhead (performance fix)
-        await _scheduleProgressUpdate(sessionId, session.completedChunks, session.bytesTransferred);
+        await _scheduleProgressUpdate(
+          sessionId,
+          session.completedChunks,
+          session.bytesTransferred,
+        );
         await _database.markChunkReceived(sessionId, chunkIndex);
       }
     }
@@ -1721,7 +1738,9 @@ class EnhancedTransferService {
     _sessionPendingChunkIndices.remove(sessionId);
     _sessionBufferedChunkData.remove(sessionId);
     _sessionBufferedChunkMetadata.remove(sessionId);
-    _filePayloadBuffer.remove(sessionId);  // Clear file payload buffer (memory leak fix)
+    _filePayloadBuffer.remove(
+      sessionId,
+    ); // Clear file payload buffer (memory leak fix)
 
     // Remove from active sessions
     _activeSessions.remove(sessionId);
@@ -1757,13 +1776,13 @@ class EnhancedTransferService {
       // Compress message to reduce bandwidth (especially for large metadata)
       final jsonBytes = utf8.encode(jsonEncode(message));
       final compressed = _compressBytes(jsonBytes);
-      
+
       // Encrypt for end-to-end security (placeholder - see _encryptData)
       // In production, enable this after proper key exchange:
       // final secret = await _generateSharedSecret(endpointId);
       // final encrypted = _encryptData(compressed, secret);
       // await Nearby().sendBytesPayload(endpointId, encrypted);
-      
+
       // For now, send without encryption (WiFi Direct has WPA2 encryption)
       await Nearby().sendBytesPayload(endpointId, compressed);
     } catch (e) {
@@ -1788,10 +1807,10 @@ class EnhancedTransferService {
   ) async {
     // Cancel existing timer
     _progressDebounceTimers[sessionId]?.cancel();
-    
+
     // Track pending update
     _pendingProgressUpdates[sessionId] = completedChunks;
-    
+
     // Schedule debounced update
     _progressDebounceTimers[sessionId] = Timer(progressDebounceDelay, () async {
       final pendingChunks = _pendingProgressUpdates.remove(sessionId);
@@ -1811,7 +1830,7 @@ class EnhancedTransferService {
       }
       _progressDebounceTimers.remove(sessionId);
     });
-    
+
     // Force update every N chunks regardless of debounce
     if (completedChunks % progressUpdateInterval == 0) {
       _progressDebounceTimers[sessionId]?.cancel();
@@ -1835,7 +1854,7 @@ class EnhancedTransferService {
   Future<void> _flushProgressUpdate(String sessionId) async {
     _progressDebounceTimers[sessionId]?.cancel();
     _progressDebounceTimers.remove(sessionId);
-    
+
     final pendingChunks = _pendingProgressUpdates.remove(sessionId);
     if (pendingChunks != null) {
       final session = _activeSessions[sessionId];
@@ -1988,17 +2007,19 @@ class EnhancedTransferService {
     // Try to load from secure storage
     try {
       String? deviceId = await _secureStorage.read(key: 'device_id');
-      
+
       if (deviceId == null || deviceId.isEmpty) {
         // Generate new device ID
         deviceId = _uuid.v4();
         await _secureStorage.write(key: 'device_id', value: deviceId);
       }
-      
+
       _cachedDeviceId = deviceId;
       return deviceId;
     } catch (e) {
-      debugPrint('[EnhancedTransferService] Error accessing secure storage: $e');
+      debugPrint(
+        '[EnhancedTransferService] Error accessing secure storage: $e',
+      );
       // Fallback to in-memory generation (not ideal but prevents crash)
       final deviceId = _uuid.v4();
       _cachedDeviceId = deviceId;

@@ -660,7 +660,7 @@ class ApiClient {
     bool requiresAuth = false,
     String? overrideLicenseKey,
   }) async {
-    Uri uri = Uri.parse(url);
+    final uri = Uri.parse(url);
     final headers = <String, String>{};
     if (requiresAuth) {
       // SECURITY: Use JWT only, never license key

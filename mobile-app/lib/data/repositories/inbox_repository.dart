@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io';  // P2-11 FIX: For SocketException, HttpException
+import 'dart:io'; // P2-11 FIX: For SocketException, HttpException
 import 'dart:async'; // For TimeoutException
 import 'package:flutter/foundation.dart';
 import '../../../core/api/api_client.dart';
@@ -12,11 +12,11 @@ import '../datasources/local/inbox_local_datasource.dart';
 
 // P2-11 FIX: Error classification for better retry logic
 enum MessageSendErrorType {
-  network,      // Connection timeout, no internet
-  server,       // 5xx server errors
-  validation,   // 4xx client errors (bad request, invalid data)
-  auth,         // 401/403 authentication errors
-  unknown,      // Any other error
+  network, // Connection timeout, no internet
+  server, // 5xx server errors
+  validation, // 4xx client errors (bad request, invalid data)
+  auth, // 401/403 authentication errors
+  unknown, // Any other error
 }
 
 class MessageSendException implements Exception {
@@ -34,9 +34,9 @@ class MessageSendException implements Exception {
 
   @override
   String toString() => 'MessageSendException($errorType): $message';
-  
+
   /// Whether this error is retryable
-  bool get isRetryable => 
+  bool get isRetryable =>
       errorType == MessageSendErrorType.network ||
       errorType == MessageSendErrorType.server;
 }
@@ -78,7 +78,7 @@ class InboxRepository {
       PersistentCacheService.boxInbox,
       cacheKey,
     );
-    
+
     if (_connectivityService.isOffline) {
       // Offline: always return cached data, never throw error
       if (cached != null) {
@@ -126,16 +126,17 @@ class InboxRepository {
   /// Archive a conversation
   Future<void> archiveConversation(String senderContact) async {
     if (_connectivityService.isOnline) {
-      await _apiClient.post(
-        Endpoints.archiveConversation(senderContact),
-      );
+      await _apiClient.post(Endpoints.archiveConversation(senderContact));
       final hash = await _apiClient.getAccountCacheHash();
       await _cache.deleteByPrefix(PersistentCacheService.boxInbox, hash);
     }
   }
 
   /// Toggle pin status for a conversation
-  Future<void> togglePinConversation(String senderContact, bool isPinned) async {
+  Future<void> togglePinConversation(
+    String senderContact,
+    bool isPinned,
+  ) async {
     if (_connectivityService.isOnline) {
       await _apiClient.post(
         Endpoints.togglePinConversation(senderContact),
@@ -324,7 +325,7 @@ class InboxRepository {
         }
       }
     } catch (e) {
-      debugPrint("Error fetching WhatsApp templates: $e");
+      debugPrint('Error fetching WhatsApp templates: $e');
     }
 
     // Try reading from cache if offline or API failed
@@ -413,16 +414,22 @@ class InboxRepository {
       for (var att in attachments) {
         if (att.containsKey('path')) {
           fileEntries.add(MapEntry('files', att['path']));
-          debugPrint('[InboxRepository] Adding file to multipart: ${att['path']} (type: ${att['type']})');
+          debugPrint(
+            '[InboxRepository] Adding file to multipart: ${att['path']} (type: ${att['type']})',
+          );
         } else {
-          debugPrint('[InboxRepository] Attachment without path, adding to otherAttachments: ${att['type']}');
+          debugPrint(
+            '[InboxRepository] Attachment without path, adding to otherAttachments: ${att['type']}',
+          );
           otherAttachments.add(att);
         }
       }
     }
 
     debugPrint('[InboxRepository] fileEntries count: ${fileEntries.length}');
-    debugPrint('[InboxRepository] otherAttachments count: ${otherAttachments.length}');
+    debugPrint(
+      '[InboxRepository] otherAttachments count: ${otherAttachments.length}',
+    );
 
     if (otherAttachments.isNotEmpty) {
       fields['attachments'] = jsonEncode(otherAttachments);
@@ -458,7 +465,8 @@ class InboxRepository {
         errorType: MessageSendErrorType.network,
         originalException: e,
       );
-    } on TimeoutException catch (e) { // ignore: dead_code_on_catch_subtype
+    } on TimeoutException catch (e) {
+      // ignore: dead_code_on_catch_subtype
       // P2-11 FIX: Classify timeout as network error
       throw MessageSendException(
         'انتهت مهلة الاتصال',
@@ -704,10 +712,12 @@ class InboxRepository {
     // Check for conflicting local operation
     final hasConflict = await hasConflictingPendingOperation(messageId);
     if (hasConflict) {
-      debugPrint('[InboxRepository] Skipping remote edit for message $messageId - pending local operation exists');
+      debugPrint(
+        '[InboxRepository] Skipping remote edit for message $messageId - pending local operation exists',
+      );
       return false;
     }
-    
+
     // No conflict - apply the remote edit
     await applyRemoteMessageEdit(messageId, newBody, editedAt);
     return true;
@@ -718,10 +728,12 @@ class InboxRepository {
     // Check for conflicting local operation
     final hasConflict = await hasConflictingPendingOperation(messageId);
     if (hasConflict) {
-      debugPrint('[InboxRepository] Skipping remote delete for message $messageId - pending local operation exists');
+      debugPrint(
+        '[InboxRepository] Skipping remote delete for message $messageId - pending local operation exists',
+      );
       return false;
     }
-    
+
     // No conflict - apply the remote deletion
     await applyRemoteMessageDelete(messageId);
     return true;
@@ -735,10 +747,10 @@ class InboxRepository {
     try {
       // Update conversations in local database
       await _localDataSource.updateConversationContact(oldContact, newContact);
-      
+
       // Update messages in local database
       await _localDataSource.updateMessageSenderContact(oldContact, newContact);
-      
+
       debugPrint(
         '[InboxRepository] Migrated conversation contact: $oldContact -> $newContact',
       );

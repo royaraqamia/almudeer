@@ -115,7 +115,7 @@ class Conversation {
 
     // If body has content, use it (and prepend emoji if attachments exist)
     if (body.isNotEmpty) {
-      String preview = body.replaceAll('\n', ' ');
+      final String preview = body.replaceAll('\n', ' ');
       if (attachments != null && attachments!.isNotEmpty) {
         final att = attachments!.first;
         final type = att['type']?.toString().toLowerCase();
@@ -222,7 +222,9 @@ class Conversation {
   String? _getCustomerName() {
     if (customer == null) return null;
     // Check if customer has a 'name' field with value
-    final customerMap = customer is Map ? customer as Map<String, dynamic> : null;
+    final customerMap = customer is Map
+        ? customer as Map<String, dynamic>
+        : null;
     if (customerMap != null) {
       final name = customerMap['name'] as String?;
       if (name != null && name.isNotEmpty) {

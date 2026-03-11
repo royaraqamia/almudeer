@@ -33,7 +33,8 @@ class MessageInputProvider extends ChangeNotifier {
 
     String? replyToSenderName,
     List<Map<String, dynamic>>? customAttachments,
-    void Function(double progress, int uploadedBytes, int totalBytes)? onUploadProgress,
+    void Function(double progress, int uploadedBytes, int totalBytes)?
+    onUploadProgress,
   }) async {
     final senderContact = chatProvider.senderContact;
     if (senderContact == null) return false;
@@ -93,15 +94,15 @@ class MessageInputProvider extends ChangeNotifier {
       final List<Future<Map<String, dynamic>?>> compressionTasks = mediaFiles
           .map((file) async {
             File? compressedFile;
-            String type = "document";
+            String type = 'document';
 
             final ext = p.extension(file.path).toLowerCase();
-            if ([".jpg", ".jpeg", ".png"].contains(ext)) {
+            if (['.jpg', '.jpeg', '.png'].contains(ext)) {
               compressedFile = await MediaService.compressImage(file);
-              type = "image";
-            } else if ([".mp4", ".mov"].contains(ext)) {
+              type = 'image';
+            } else if (['.mp4', '.mov'].contains(ext)) {
               compressedFile = await MediaService.compressVideo(file);
-              type = "video";
+              type = 'video';
             } else if ([
               '.aac',
               '.m4a',
@@ -112,10 +113,10 @@ class MessageInputProvider extends ChangeNotifier {
               '.amr',
             ].contains(ext)) {
               if (metadata != null && metadata['is_voice_note'] == true) {
-                type = "voice";
+                type = 'voice';
                 compressedFile = file;
               } else {
-                type = "audio";
+                type = 'audio';
                 compressedFile = file;
               }
             } else {
@@ -124,8 +125,8 @@ class MessageInputProvider extends ChangeNotifier {
 
             if (compressedFile != null) {
               final Map<String, dynamic> attData = {
-                "path": compressedFile.path,
-                "type": type,
+                'path': compressedFile.path,
+                'type': type,
               };
               if (metadata != null) {
                 attData.addAll(metadata);
@@ -142,11 +143,13 @@ class MessageInputProvider extends ChangeNotifier {
       attachments = results.whereType<Map<String, dynamic>>().toList();
 
       // Update message with compressed attachments (background update)
-      debugPrint('[MessageInputProvider] Processed attachments: ${attachments.length}');
+      debugPrint(
+        '[MessageInputProvider] Processed attachments: ${attachments.length}',
+      );
       for (var att in attachments) {
         debugPrint('  - type: ${att['type']}, path: ${att['path']}');
       }
-      
+
       // Update the optimistic message with actual attachments after compression
       chatProvider.updateMessageAttachments(optimisticMessage.id, attachments);
     }
@@ -157,7 +160,9 @@ class MessageInputProvider extends ChangeNotifier {
     }
 
     // DEBUG: Log final attachments before sending to repository
-    debugPrint('[MessageInputProvider] Final attachments count: ${attachments?.length ?? 0}');
+    debugPrint(
+      '[MessageInputProvider] Final attachments count: ${attachments?.length ?? 0}',
+    );
 
     try {
       // 2. API Call with progress callback (throttled to prevent excessive UI updates)
@@ -178,7 +183,7 @@ class MessageInputProvider extends ChangeNotifier {
             return; // Skip this update
           }
           lastProgressUpdate = now;
-          
+
           if (onUploadProgress != null && totalUploadBytes > 0) {
             final uploadedBytes = (progress * totalUploadBytes).round();
             onUploadProgress(progress, uploadedBytes, totalUploadBytes);
@@ -236,7 +241,7 @@ class MessageInputProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       // 5. Fail Optimistic
-      debugPrint("Message send failed: $e");
+      debugPrint('Message send failed: $e');
       chatProvider.markMessageFailed(optimisticMessage.id);
       return false;
     }
@@ -256,7 +261,7 @@ class MessageInputProvider extends ChangeNotifier {
       );
       return true;
     } catch (e) {
-      debugPrint("Background message send failed: $e");
+      debugPrint('Background message send failed: $e');
       rethrow;
     }
   }
@@ -284,7 +289,7 @@ class MessageInputProvider extends ChangeNotifier {
 
       return true;
     } catch (e) {
-      debugPrint("Note send failed: $e");
+      debugPrint('Note send failed: $e');
       rethrow;
     }
   }
@@ -316,7 +321,7 @@ class MessageInputProvider extends ChangeNotifier {
 
       return true;
     } catch (e) {
-      debugPrint("Task send failed: $e");
+      debugPrint('Task send failed: $e');
       rethrow;
     }
   }
@@ -350,7 +355,7 @@ class MessageInputProvider extends ChangeNotifier {
           }
         }
       } catch (e) {
-        debugPrint("[MessageInputProvider] Compression error in sendFile: $e");
+        debugPrint('[MessageInputProvider] Compression error in sendFile: $e');
       }
 
       final fileAttachment = {
@@ -371,7 +376,7 @@ class MessageInputProvider extends ChangeNotifier {
 
       return true;
     } catch (e) {
-      debugPrint("File send failed: $e");
+      debugPrint('File send failed: $e');
       rethrow;
     }
   }

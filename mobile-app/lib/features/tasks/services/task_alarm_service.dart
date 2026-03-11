@@ -55,7 +55,9 @@ class TaskAlarmService {
         tz.setLocalLocation(tz.getLocation(timeZoneId));
         debugPrint('TaskAlarmService: Timezone set to "$timeZoneId"');
       } catch (e) {
-        debugPrint('TaskAlarmService: Failed to get location for "$timeZoneId": $e');
+        debugPrint(
+          'TaskAlarmService: Failed to get location for "$timeZoneId": $e',
+        );
         // Try common timezone ID formats
         final fallbackIds = [
           timeZoneId,
@@ -78,7 +80,9 @@ class TaskAlarmService {
         }
 
         if (!located) {
-          debugPrint('TaskAlarmService: All timezone lookups failed, using UTC');
+          debugPrint(
+            'TaskAlarmService: All timezone lookups failed, using UTC',
+          );
           tz.setLocalLocation(tz.getLocation('UTC'));
         }
       }
@@ -292,7 +296,7 @@ class TaskAlarmService {
         // Check if this alarm needs to be updated (exists with different time)
         final existingNotification = pendingNotifications.firstWhere(
           (p) => p.id == notificationId,
-          orElse: () => PendingNotificationRequest(-1, '', '', null),
+          orElse: () => const PendingNotificationRequest(-1, '', '', null),
         );
 
         if (existingNotification.id == notificationId) {

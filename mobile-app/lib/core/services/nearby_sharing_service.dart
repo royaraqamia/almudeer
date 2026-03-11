@@ -162,7 +162,7 @@ class NearbySharingService {
 
   Future<bool> startAdvertising(String userName) async {
     try {
-      bool success = await Nearby().startAdvertising(
+      final bool success = await Nearby().startAdvertising(
         userName,
         strategy,
         onConnectionInitiated: (endpointId, info) {
@@ -185,14 +185,14 @@ class NearbySharingService {
       if (success) _state = NearbySharingState.advertising;
       return success;
     } catch (e) {
-      debugPrint("NearbySharingService: Error starting advertising: $e");
+      debugPrint('NearbySharingService: Error starting advertising: $e');
       return false;
     }
   }
 
   Future<bool> startDiscovery(String userName) async {
     try {
-      bool success = await Nearby().startDiscovery(
+      final bool success = await Nearby().startDiscovery(
         userName,
         strategy,
         onEndpointFound: (endpointId, endpointName, serviceId) {
@@ -207,7 +207,7 @@ class NearbySharingService {
       if (success) _state = NearbySharingState.discovering;
       return success;
     } catch (e) {
-      debugPrint("NearbySharingService: Error starting discovery: $e");
+      debugPrint('NearbySharingService: Error starting discovery: $e');
       return false;
     }
   }

@@ -105,13 +105,15 @@ class TestCalculatorHistoryValidation:
 
     @pytest.mark.asyncio
     async def test_calculator_history_invalid_json_string(self, mock_license_dependency):
-        """Test that invalid JSON string is accepted (validation skips it)"""
+        """Test that invalid JSON string is rejected"""
         from routes.features import PreferencesUpdate
-        
-        # Invalid JSON should pass validation (validator skips invalid JSON strings)
-        data = PreferencesUpdate(calculator_history="not valid json")
-        
-        assert data.calculator_history == "not valid json"
+        from pydantic import ValidationError
+
+        # Invalid JSON should now be rejected (security fix)
+        with pytest.raises(ValidationError) as exc_info:
+            PreferencesUpdate(calculator_history="not valid json")
+
+        assert "Calculator history must be valid JSON" in str(exc_info.value)
 
 
 class TestCalculatorPreferencesEndpoint:

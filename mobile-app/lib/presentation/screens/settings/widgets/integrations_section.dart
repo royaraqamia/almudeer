@@ -305,7 +305,7 @@ class _IntegrationsSectionState extends State<IntegrationsSection>
                 child: AppGradientButton(
                   onPressed: () => _saveSetup(type),
                   text: 'بدء الربط برقم الهاتف',
-                  gradientColors: [Color(0xFF2563EB), Color(0xFF0891B2)],
+                  gradientColors: const [Color(0xFF2563EB), Color(0xFF0891B2)],
                 ),
               ),
             ],

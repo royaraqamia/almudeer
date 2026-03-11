@@ -251,10 +251,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       appBar: AppBar(
         title: const Text(
           'الإعدادات',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         backgroundColor: theme.scaffoldBackgroundColor,
         elevation: 0,
@@ -284,9 +281,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                       delay: 0.1,
                       child: Column(
                         key: _integrationsKey,
-                        children: [
-                          const IntegrationsSection(),
-                        ],
+                        children: const [IntegrationsSection()],
                       ),
                     ),
                     const SizedBox(height: AppDimensions.spacing32),
@@ -297,8 +292,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                       child: Column(
                         key: _knowledgeKey,
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SettingsSectionHeader(
+                        children: const [
+                          SettingsSectionHeader(
                             title: SettingsStrings.knowledgeBase,
                             subtitle: SettingsStrings.knowledgeBaseSubtitle,
                             showAccentBar: true,
@@ -330,7 +325,8 @@ class _SettingsScreenState extends State<SettingsScreen>
 
     // Filter to get only the text document (source='manual' or 'mobile_app')
     final textDocs = docs.where((doc) {
-      final isManual = doc.source == KnowledgeSource.manual ||
+      final isManual =
+          doc.source == KnowledgeSource.manual ||
           doc.source == KnowledgeSource.mobileApp;
       return isManual;
     }).toList();
@@ -338,7 +334,9 @@ class _SettingsScreenState extends State<SettingsScreen>
     final textDoc = hasTextDoc ? textDocs.first : null;
 
     // Filter to get only file documents (source='file')
-    final fileDocs = docs.where((doc) => doc.source == KnowledgeSource.file).toList();
+    final fileDocs = docs
+        .where((doc) => doc.source == KnowledgeSource.file)
+        .toList();
 
     return PremiumCard(
       padding: const EdgeInsets.all(AppDimensions.paddingMedium),
@@ -352,7 +350,7 @@ class _SettingsScreenState extends State<SettingsScreen>
               ),
               child: Row(
                 children: [
-                  GradientIconContainer(
+                  const GradientIconContainer(
                     icon: SolarLinearIcons.documentText,
                     size: 40,
                     iconSize: 24,
@@ -372,17 +370,28 @@ class _SettingsScreenState extends State<SettingsScreen>
                   const SizedBox(width: AppDimensions.spacing8),
                   // Edit button (disabled for unsaved documents with temp IDs)
                   Opacity(
-                    opacity: textDoc.id != null && !textDoc.id!.startsWith('temp_') && !textDoc.id!.startsWith('pending_') ? 1.0 : 0.5,
+                    opacity:
+                        textDoc.id != null &&
+                            !textDoc.id!.startsWith('temp_') &&
+                            !textDoc.id!.startsWith('pending_')
+                        ? 1.0
+                        : 0.5,
                     child: IconButton(
                       icon: const Icon(
                         SolarLinearIcons.pen,
                         size: 22,
                         color: AppColors.primary,
                       ),
-                      onPressed: textDoc.id != null && !textDoc.id!.startsWith('temp_') && !textDoc.id!.startsWith('pending_')
+                      onPressed:
+                          textDoc.id != null &&
+                              !textDoc.id!.startsWith('temp_') &&
+                              !textDoc.id!.startsWith('pending_')
                           ? () => _startEditing(textDoc)
                           : null,
-                      tooltip: textDoc.id != null && (textDoc.id!.startsWith('temp_') || textDoc.id!.startsWith('pending_'))
+                      tooltip:
+                          textDoc.id != null &&
+                              (textDoc.id!.startsWith('temp_') ||
+                                  textDoc.id!.startsWith('pending_'))
                           ? 'جاري الحفظ...'
                           : 'تعديل',
                       padding: EdgeInsets.zero,
@@ -399,12 +408,12 @@ class _SettingsScreenState extends State<SettingsScreen>
                       size: 22,
                       color: AppColors.error,
                     ),
-                    onPressed: () => _showDeleteConfirmation(
-                      context,
-                      provider,
-                      textDoc,
-                    ),
-                    tooltip: textDoc.id != null && (textDoc.id!.startsWith('temp_') || textDoc.id!.startsWith('pending_'))
+                    onPressed: () =>
+                        _showDeleteConfirmation(context, provider, textDoc),
+                    tooltip:
+                        textDoc.id != null &&
+                            (textDoc.id!.startsWith('temp_') ||
+                                textDoc.id!.startsWith('pending_'))
                         ? 'جاري الحفظ...'
                         : 'حذف',
                     padding: EdgeInsets.zero,
@@ -433,7 +442,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                   ),
                   child: Row(
                     children: [
-                      GradientIconContainer(
+                      const GradientIconContainer(
                         icon: SolarLinearIcons.paperclip,
                         size: 40,
                         iconSize: 24,
@@ -487,11 +496,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                           size: 22,
                           color: AppColors.error,
                         ),
-                        onPressed: () => _showDeleteConfirmation(
-                          context,
-                          provider,
-                          doc,
-                        ),
+                        onPressed: () =>
+                            _showDeleteConfirmation(context, provider, doc),
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(
                           minWidth: 40,
@@ -528,7 +534,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                   child: AppTextField(
                     controller: _newDocController,
                     maxLines: null,
-                    hintText: _editingDoc != null ? 'عدّل النص...' : 'أدخل معلومات جديدة...',
+                    hintText: _editingDoc != null
+                        ? 'عدّل النص...'
+                        : 'أدخل معلومات جديدة...',
                     height: 144,
                     maxHeight: 144,
                     textAlignVertical: TextAlignVertical.top,
@@ -547,23 +555,31 @@ class _SettingsScreenState extends State<SettingsScreen>
                           onPressed: _newDocController.text.trim().isEmpty
                               ? null
                               : () {
-                                  if (_newDocController.text.trim().isNotEmpty) {
+                                  if (_newDocController.text
+                                      .trim()
+                                      .isNotEmpty) {
                                     if (_editingDoc != null) {
                                       // Update existing document
-                                      provider.updateKnowledgeDocument(_editingDoc!, _newDocController.text.trim());
+                                      provider.updateKnowledgeDocument(
+                                        _editingDoc!,
+                                        _newDocController.text.trim(),
+                                      );
                                     } else {
                                       // Add new document
-                                      provider.addKnowledgeDocument(_newDocController.text);
+                                      provider.addKnowledgeDocument(
+                                        _newDocController.text,
+                                      );
                                     }
                                     // Clear editing state after frame to avoid setState during build
-                                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                                      if (mounted) {
-                                        setState(() {
-                                          _editingDoc = null;
-                                          _newDocController.clear();
+                                    WidgetsBinding.instance
+                                        .addPostFrameCallback((_) {
+                                          if (mounted) {
+                                            setState(() {
+                                              _editingDoc = null;
+                                              _newDocController.clear();
+                                            });
+                                          }
                                         });
-                                      }
-                                    });
                                   }
                                 },
                         ),
@@ -583,7 +599,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                       if (value.trim().isNotEmpty) {
                         if (_editingDoc != null) {
                           // Update existing document
-                          provider.updateKnowledgeDocument(_editingDoc!, value.trim());
+                          provider.updateKnowledgeDocument(
+                            _editingDoc!,
+                            value.trim(),
+                          );
                           // Clear editing state after frame to avoid setState during build
                           WidgetsBinding.instance.addPostFrameCallback((_) {
                             if (mounted) {
@@ -606,7 +625,9 @@ class _SettingsScreenState extends State<SettingsScreen>
 
           // File upload button - always show
           AppGradientButton(
-            onPressed: provider.isUploading ? null : () => provider.pickKnowledgeFile(),
+            onPressed: provider.isUploading
+                ? null
+                : () => provider.pickKnowledgeFile(),
             icon: provider.isUploading
                 ? Icons.cloud_upload_outlined
                 : SolarLinearIcons.fileText,
@@ -618,9 +639,7 @@ class _SettingsScreenState extends State<SettingsScreen>
               AppColors.primary.withValues(alpha: 0.1),
               AppColors.primary.withValues(alpha: 0.05),
             ],
-            border: Border.all(
-              color: AppColors.primary.withValues(alpha: 0.2),
-            ),
+            border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
           ),
           // File upload info note
           const SizedBox(height: AppDimensions.spacing8),
@@ -640,7 +659,9 @@ class _SettingsScreenState extends State<SettingsScreen>
               child: LinearProgressIndicator(
                 value: provider.uploadProgress / 100,
                 backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-                valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                  AppColors.primary,
+                ),
                 minHeight: 6,
               ),
             ),

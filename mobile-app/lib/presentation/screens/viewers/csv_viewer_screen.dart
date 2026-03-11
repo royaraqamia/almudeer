@@ -29,7 +29,7 @@ class CsvViewerScreen extends StatefulWidget {
 class _CsvViewerScreenState extends State<CsvViewerScreen> {
   List<List<dynamic>> _data = [];
   List<List<dynamic>> _filteredData = [];
-  List<Map<String, dynamic>> _dataWithIndex = [];  // Preserve original order
+  List<Map<String, dynamic>> _dataWithIndex = []; // Preserve original order
   bool _isLoading = true;
   String? _error;
   bool _isSearching = false;
@@ -37,12 +37,12 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
   int? _sortColumnIndex;
   bool _isAscending = true;
   int _originalRowCount = 0;
-  
+
   // P0 FIX: Retry logic
   int _retryCount = 0;
   static const int _maxRetries = 3;
   bool _isSizeError = false;
-  
+
   // P0 FIX: Pagination
   int _currentPage = 0;
   int _totalPages = 0;
@@ -56,7 +56,7 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
   Future<void> _loadCsv() async {
     try {
       final file = File(widget.filePath);
-      
+
       // P0 FIX: Check if file exists
       if (!await file.exists()) {
         if (mounted) {
@@ -68,7 +68,7 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
         }
         return;
       }
-      
+
       // P0 FIX: Check file size
       final fileSize = await file.length();
       if (fileSize > kMaxCsvFileSize) {
@@ -76,12 +76,13 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
           setState(() {
             _isLoading = false;
             _isSizeError = true;
-            _error = 'حجم الملف كبير جداً (${(fileSize / 1024 / 1024).toStringAsFixed(1)} ميجابايت). الحد الأقصى هو ${kMaxCsvFileSize ~/ 1024 ~/ 1024} ميجابايت';
+            _error =
+                'حجم الملف كبير جداً (${(fileSize / 1024 / 1024).toStringAsFixed(1)} ميجابايت). الحد الأقصى هو ${kMaxCsvFileSize ~/ 1024 ~/ 1024} ميجابايت';
           });
         }
         return;
       }
-      
+
       final content = await file.readAsString();
 
       // Use RFC 4180 compliant CSV parser
@@ -91,14 +92,11 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
         // Store data with original indices for stable sorting
         final dataWithIndex = <Map<String, dynamic>>[];
         for (var i = 0; i < data.length; i++) {
-          dataWithIndex.add({
-            'index': i,
-            'row': data[i],
-          });
+          dataWithIndex.add({'index': i, 'row': data[i]});
         }
 
         final totalPages = (data.length / kCsvRowsPerPage).ceil();
-        
+
         setState(() {
           _data = data;
           _dataWithIndex = dataWithIndex;
@@ -148,14 +146,10 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
 
     // Apply filter
     if (query.isNotEmpty) {
-      rest = rest
-          .where((entry) {
-            final row = entry['row'] as List<dynamic>;
-            return row.any((cell) =>
-              cell.toString().toLowerCase().contains(query)
-            );
-          })
-          .toList();
+      rest = rest.where((entry) {
+        final row = entry['row'] as List<dynamic>;
+        return row.any((cell) => cell.toString().toLowerCase().contains(query));
+      }).toList();
     }
 
     // Apply sort with stable ordering (preserve original order for equal values)
@@ -166,8 +160,12 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
         final indexA = a['index'] as int;
         final indexB = b['index'] as int;
 
-        final valA = _sortColumnIndex! < rowA.length ? rowA[_sortColumnIndex!] : '';
-        final valB = _sortColumnIndex! < rowB.length ? rowB[_sortColumnIndex!] : '';
+        final valA = _sortColumnIndex! < rowA.length
+            ? rowA[_sortColumnIndex!]
+            : '';
+        final valB = _sortColumnIndex! < rowB.length
+            ? rowB[_sortColumnIndex!]
+            : '';
 
         int comparison;
         final numA = double.tryParse(valA.toString());
@@ -192,11 +190,14 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
     final totalPages = (rest.length / kCsvRowsPerPage).ceil();
     final startIndex = _currentPage * kCsvRowsPerPage;
     final endIndex = (startIndex + kCsvRowsPerPage).clamp(0, rest.length);
-    
+
     setState(() {
       _filteredData = [
         ...header.map((e) => e['row'] as List<dynamic>),
-        ...rest.skip(startIndex).take(endIndex - startIndex).map((e) => e['row'] as List<dynamic>),
+        ...rest
+            .skip(startIndex)
+            .take(endIndex - startIndex)
+            .map((e) => e['row'] as List<dynamic>),
       ];
       _totalPages = totalPages > 0 ? totalPages : 1;
     });
@@ -257,7 +258,10 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
                   if (_data.isNotEmpty)
                     Text(
                       '${_filteredData.length} / $_originalRowCount صفوف',
-                      style: const TextStyle(fontSize: 10, color: Colors.white70),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.white70,
+                      ),
                     ),
                 ],
               ),
@@ -279,7 +283,9 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
           if (_sortColumnIndex != null)
             IconButton(
               icon: Icon(
-                _isAscending ? SolarLinearIcons.arrowUp : SolarLinearIcons.arrowDown,
+                _isAscending
+                    ? SolarLinearIcons.arrowUp
+                    : SolarLinearIcons.arrowDown,
                 size: 20,
               ),
               tooltip: _isAscending ? 'ترتيب تصاعدي' : 'ترتيب تنازلي',
@@ -315,7 +321,10 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
                     const SizedBox(height: 16),
                     Text(
                       'محاولة $_retryCount من $_maxRetries...',
-                      style: const TextStyle(color: Colors.white70, fontSize: 14),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
                     ),
                   ],
                 ],
@@ -345,7 +354,9 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            _isSizeError ? SolarLinearIcons.file : SolarLinearIcons.dangerCircle,
+            _isSizeError
+                ? SolarLinearIcons.file
+                : SolarLinearIcons.dangerCircle,
             size: 64,
             color: Colors.white54,
           ),
@@ -360,9 +371,7 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
           const SizedBox(height: 8),
           Text(
             _error!,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: Colors.white54,
-            ),
+            style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white54),
             textAlign: TextAlign.center,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
@@ -376,7 +385,10 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
               ),
             ),
           ],
@@ -411,7 +423,9 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
           const SizedBox(width: 16),
           IconButton(
             icon: const Icon(SolarLinearIcons.arrowRight, size: 20),
-            onPressed: _currentPage < _totalPages - 1 ? () => _changePage(1) : null,
+            onPressed: _currentPage < _totalPages - 1
+                ? () => _changePage(1)
+                : null,
             tooltip: 'الصفحة التالية',
           ),
         ],
@@ -493,7 +507,7 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
                     );
                   }
 
-                  Widget cellContainer = Container(
+                  final Widget cellContainer = Container(
                     width: cellWidth,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
