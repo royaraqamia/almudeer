@@ -262,3 +262,19 @@
 -dontwarn javax.xml.stream.events.Characters
 -dontwarn javax.xml.namespace.QName
 -dontwarn org.apache.tika.**
+
+# Kotlinx Serialization - keep Instant classes
+-keep class kotlin.time.Instant { *; }
+-keep class kotlin.time.Instant$Companion { *; }
+-dontwarn kotlin.time.Instant
+-dontwarn kotlin.time.Instant$Companion
+
+# Keep kotlinx.serialization classes
+-keepattributes *Annotation*, InnerClasses
+-dontwarn kotlinx.serialization.**
+-keep class kotlinx.serialization.** { *; }
+-keepclassmembers class kotlinx.serialization.** { *; }
+
+# Keep Kotlin serialization plugin generated classes
+-keepclassmembers class **$$serializer { *; }
+-keep class **$$serializer { *; }
