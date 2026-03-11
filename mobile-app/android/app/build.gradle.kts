@@ -21,21 +21,13 @@ android {
 
     signingConfigs {
         create("release") {
-            // Priority: Environment Variable > key.properties > Fallback null
-            keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: (keystoreProperties["keyAlias"] as String?)
-            keyPassword = System.getenv("ANDROID_KEY_PASSWORD") ?: (keystoreProperties["keyPassword"] as String?)
-            storePassword = System.getenv("ANDROID_STORE_PASSWORD") ?: (keystoreProperties["storePassword"] as String?)
-            
-            val storeFilePath = System.getenv("ANDROID_STORE_FILE") ?: (keystoreProperties["storeFile"] as String?)
-            val keystoreFile = storeFilePath?.let { file(it) }
-            
-            if (keystoreFile?.exists() == true) {
-                storeFile = keystoreFile
-            } else {
-                println("WARNING: Release keystore file not found at $storeFilePath. Build will be unsigned.")
-                // Prevent Gradle from failing due to missing file by not assigning storeFile
-                // R8/ValidateSigning task will be bypassed if signingConfig is not applied correctly
-            }
+            // Priority: Environment Variable > key.properties
+            keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: (keystoreProperties["keyAlias"] as String)
+            keyPassword = System.getenv("ANDROID_KEY_PASSWORD") ?: (keystoreProperties["keyPassword"] as String)
+            storePassword = System.getenv("ANDROID_STORE_PASSWORD") ?: (keystoreProperties["storePassword"] as String)
+
+            val storeFilePath = System.getenv("ANDROID_STORE_FILE") ?: (keystoreProperties["storeFile"] as String)
+            storeFile = file(storeFilePath)
         }
     }
     
@@ -101,19 +93,14 @@ android {
             // Enable minification and shrinking
             isMinifyEnabled = true
             isShrinkResources = true
-            
+
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            
-            // Only apply signing if a valid keystore was found
-            if (signingConfigs.getByName("release").storeFile?.exists() == true) {
-                signingConfig = signingConfigs.getByName("release")
-            } else {
-                // Producing an unsigned APK is better than a hard failure during development
-                println("INFO: Signing skipped for 'release' build type because keystore is missing.")
-            }
+
+            // Apply signing configuration
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
