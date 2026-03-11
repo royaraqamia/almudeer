@@ -89,6 +89,14 @@ class MockSettingsProvider extends _i1.Mock implements _i2.SettingsProvider {
           as double);
 
   @override
+  _i2.KnowledgeLoadState get knowledgeLoadState =>
+      (super.noSuchMethod(
+            Invocation.getter(#knowledgeLoadState),
+            returnValue: _i2.KnowledgeLoadState.initial,
+          )
+          as _i2.KnowledgeLoadState);
+
+  @override
   _i4.Future<bool> get isExternalStorageGranted =>
       (super.noSuchMethod(
             Invocation.getter(#isExternalStorageGranted),
@@ -221,6 +229,17 @@ class MockSettingsProvider extends _i1.Mock implements _i2.SettingsProvider {
   _i4.Future<bool> addKnowledgeDocument(String? text) =>
       (super.noSuchMethod(
             Invocation.method(#addKnowledgeDocument, [text]),
+            returnValue: _i4.Future<bool>.value(false),
+          )
+          as _i4.Future<bool>);
+
+  @override
+  _i4.Future<bool> updateKnowledgeDocument(
+    _i3.KnowledgeDocument? doc,
+    String? text,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#updateKnowledgeDocument, [doc, text]),
             returnValue: _i4.Future<bool>.value(false),
           )
           as _i4.Future<bool>);

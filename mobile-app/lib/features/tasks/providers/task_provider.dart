@@ -173,6 +173,23 @@ class TaskProvider extends ChangeNotifier {
   Map<String, String> getTypingUsers(String taskId) =>
       _taskTypingUsers[taskId] ?? {};
 
+  // FIX #4: Clear typing indicator for a task (called on screen dispose)
+  void clearTypingIndicator(String taskId) {
+    // Cancel all typing timers for this task
+    final keysToRemove = <String>[];
+    for (final key in _typingTimers.keys) {
+      if (key.startsWith('${taskId}_')) {
+        _typingTimers[key]?.cancel();
+        keysToRemove.add(key);
+      }
+    }
+    for (final key in keysToRemove) {
+      _typingTimers.remove(key);
+    }
+    // Clear typing users for this task
+    _taskTypingUsers.remove(taskId);
+  }
+
   List<TaskModel> _tasks = [];
   List<Map<String, dynamic>> _collaborators = [];
   String? _currentUserEmail;

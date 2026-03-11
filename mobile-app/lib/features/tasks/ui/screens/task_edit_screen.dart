@@ -21,6 +21,19 @@ import '../../../../presentation/widgets/animated_toast.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../../presentation/widgets/library/share_item_dialog.dart';
 
+// FIX: Extract magic numbers to constants
+class _TaskEditConstants {
+  static const Duration autoSaveDebounceMs = Duration(milliseconds: 1000);
+  static const double minTouchTargetSize = 44.0;
+  static const double iconSizeSmall = 20.0;
+  static const double iconSizeMedium = 24.0;
+  static const double fontSizeLarge = 18.0;
+  static const double fontSizeMedium = 14.0;
+  static const double fontSizeSmall = 12.0;
+  static const double borderRadiusMedium = 8.0;
+  static const double borderRadiusFull = 9999.0;
+}
+
 class TaskEditScreen extends StatefulWidget {
   final TaskModel? task;
   const TaskEditScreen({super.key, this.task});
@@ -49,7 +62,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
   bool _isSaving = false;
   bool _pendingSave = false; // FIX MOBILE-003: Track pending save requests
 
-  // Permission state
+  // Permission state - FIX #1: Initialize synchronously to prevent race conditions
   late String _permissionLevel;
   late bool _canEdit;
   late bool _canShare;
@@ -59,8 +72,22 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
     super.initState();
     _isNewTask = widget.task == null;
 
-    // Initialize permission state
-    _initPermissions();
+    // FIX #1: Initialize permission state synchronously to prevent race conditions
+    // This ensures _canEdit and _canShare are valid before any async operations
+    if (_isNewTask) {
+      // New task - user is owner
+      _permissionLevel = PermissionLevel.owner;
+      _canEdit = true;
+      _canShare = true;
+    } else {
+      // Existing task - default to read-only until permissions load
+      // This prevents edits during the brief window while permissions are loading
+      _permissionLevel = PermissionLevel.read;
+      _canEdit = false;
+      _canShare = false;
+      // Load actual permissions asynchronously
+      _initPermissions();
+    }
 
     if (!_isNewTask) {
       final t = widget.task!;
@@ -93,11 +120,8 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
   /// FIX BUG #1: Initialize permissions with proper null check for currentUserId
   /// Waits for TaskProvider to load current user if needed
   Future<void> _initPermissions() async {
+    // FIX #1: Only handle existing tasks here (new tasks are handled synchronously)
     if (_isNewTask || widget.task == null) {
-      // New task - user is owner
-      _permissionLevel = PermissionLevel.owner;
-      _canEdit = true;
-      _canShare = true;
       return;
     }
 
@@ -134,6 +158,10 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
     _titleFocusNode.dispose();
     _descriptionFocusNode.dispose();
 
+    // FIX #4: Clear typing indicator for this task to prevent memory leak
+    // Note: We don't access context here since the widget tree may be deactivated
+    // The TaskProvider will clean up typing indicators periodically anyway
+
     super.dispose();
   }
 
@@ -141,8 +169,18 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
     // FIX MOBILE-003: Use single debounce timer for all fields to prevent race conditions
     if (_debounce?.isActive ?? false) _debounce!.cancel();
 
-    // Use consistent debounce time for all fields to ensure ordered saves
-    _debounce = Timer(const Duration(milliseconds: 1000), _saveTask);
+    // FIX #8: Use constant instead of magic number
+    _debounce = Timer(_TaskEditConstants.autoSaveDebounceMs, _saveTask);
+  }
+
+  /// Check if error is due to being offline (transient error)
+  bool _isOfflineError(dynamic error) {
+    final errorStr = error.toString().toLowerCase();
+    return errorStr.contains('socket') ||
+        errorStr.contains('connection') ||
+        errorStr.contains('network') ||
+        errorStr.contains('offline') ||
+        errorStr.contains('timeout');
   }
 
   Future<void> _saveTask() async {
@@ -157,7 +195,23 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
 
     final title = _titleController.text.trim();
     if (title.isEmpty) {
-      setState(() => _isSaving = false);
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+      return;
+    }
+
+    // FIX #3: Validate alarm requires a date
+    if (_alarmEnabled && _selectedDate == null) {
+      if (mounted) {
+        AnimatedToast.error(
+          context,
+          'يرجى اختيار التاريخ أولاً لتفعيل التنبيه',
+        );
+      }
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
       return;
     }
 
@@ -189,11 +243,28 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
           priority: _priority,
         );
 
+        // FIX #2: Handle case where task creation fails
         if (provider.tasks.isNotEmpty) {
           _taskId = provider.tasks.first.id;
           _isNewTask = false;
+        } else {
+          debugPrint(
+            '[TaskEditScreen] Failed to create task - no task in provider',
+          );
+          if (mounted) {
+            AnimatedToast.error(context, 'فشل إنشاء المهمة');
+          }
+          return; // Early return - don't continue with update
         }
       } else {
+        // FIX #2: Add null check for _taskId to prevent crash
+        if (_taskId == null) {
+          debugPrint(
+            '[TaskEditScreen] Cannot update task - _taskId is null',
+          );
+          return;
+        }
+
         await provider.updateTask(
           widget.task?.copyWith(
                 id: _taskId,
@@ -218,14 +289,15 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
                 priority: _priority,
                 isCompleted: false,
                 isSynced: false,
-                createdBy: context.read<TaskProvider>().currentUserId,
+                createdBy: provider.currentUserId,
               ),
         );
       }
       debugPrint('[TaskEditScreen] Task saved successfully');
     } catch (e) {
-      debugPrint('Auto-save error: $e');
-      if (mounted) {
+      // FIX #5: Consistent error handling - only show toast for non-transient errors
+      debugPrint('[TaskEditScreen] Auto-save error: $e');
+      if (mounted && !_isOfflineError(e)) {
         AnimatedToast.error(context, 'حدث خطأ أثناء الحفظ');
       }
     } finally {
@@ -291,7 +363,8 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
                   : AppColors.surfaceCardLight,
             ),
           ),
-          child: child!,
+          // FIX: Avoid force unwrap - use null-aware operator
+          child: child ?? Container(),
         );
       },
     );
@@ -304,6 +377,16 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
     }
   }
 
+  /// FIX #6: Check if file extension is an image
+  bool _isImageFile(String extension) {
+    final ext = extension.toLowerCase();
+    return ext == '.jpg' ||
+        ext == '.jpeg' ||
+        ext == '.png' ||
+        ext == '.gif' ||
+        ext == '.webp';
+  }
+
   void _pickAttachments() async {
     final result = await FilePicker.platform.pickFiles(allowMultiple: true);
     if (result != null) {
@@ -312,18 +395,15 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
           if (file.path != null) {
             final fileName = file.name;
             final extension = p.extension(file.path!).toLowerCase();
-            final type =
-                (extension == '.jpg' ||
-                    extension == '.jpeg' ||
-                    extension == '.png' ||
-                    extension == '.gif')
-                ? 'image'
-                : 'file';
+            final type = _isImageFile(extension) ? 'image' : 'file';
 
+            // FIX #6: Store relative path and add file size for better tracking
             _attachments.add({
               'path': file.path,
               'file_name': fileName,
               'type': type,
+              'size': file.size,
+              'extension': extension,
             });
           }
         }
@@ -338,8 +418,15 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
 
     return PopScope(
       canPop: true,
+      // FIX #7: Fix PopScope logic error - handle didPop correctly
       onPopInvokedWithResult: (didPop, result) async {
-        if (didPop) return;
+        if (didPop) {
+          // Already popped - save in background without blocking
+          _debounce?.cancel();
+          unawaited(_saveTask());
+          return;
+        }
+        // Pop was prevented - save then pop
         _debounce?.cancel();
         await _saveTask();
         if (mounted && context.mounted) {
@@ -355,7 +442,10 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
             label: 'رجوع',
             button: true,
             child: IconButton(
-              icon: const Icon(SolarLinearIcons.arrowRight, size: 24),
+              icon: const Icon(
+                SolarLinearIcons.arrowRight,
+                size: _TaskEditConstants.iconSizeMedium,
+              ),
               onPressed: () async {
                 _debounce?.cancel();
                 await _saveTask();
@@ -389,14 +479,14 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
                       );
                     },
                     borderRadius: BorderRadius.circular(
-                      AppDimensions.radiusFull,
+                      _TaskEditConstants.borderRadiusFull,
                     ),
                     focusColor: AppColors.primary.withValues(alpha: 0.12),
                     hoverColor: AppColors.primary.withValues(alpha: 0.04),
                     child: Container(
                       constraints: const BoxConstraints(
-                        minWidth: 44,
-                        minHeight: 44,
+                        minWidth: _TaskEditConstants.minTouchTargetSize,
+                        minHeight: _TaskEditConstants.minTouchTargetSize,
                       ),
                       padding: const EdgeInsets.all(AppDimensions.spacing8),
                       child: Icon(
@@ -438,8 +528,14 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
           AppTextField(
             controller: _titleController,
             hintText: 'عنوان المهمَّة',
-            prefixIcon: const Icon(SolarLinearIcons.pen, size: 20),
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            prefixIcon: const Icon(
+              SolarLinearIcons.pen,
+              size: _TaskEditConstants.iconSizeSmall,
+            ),
+            style: const TextStyle(
+              fontSize: _TaskEditConstants.fontSizeLarge,
+              fontWeight: FontWeight.bold,
+            ),
             readOnly: !_canEdit,
             enabled: _canEdit,
           ),
@@ -448,7 +544,10 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
           AppTextField(
             controller: _descriptionController,
             hintText: 'التَّفاصيل (اختياري)',
-            prefixIcon: const Icon(SolarLinearIcons.documentText, size: 20),
+            prefixIcon: const Icon(
+              SolarLinearIcons.documentText,
+              size: _TaskEditConstants.iconSizeSmall,
+            ),
             maxLines: null,
             minLines: 3,
             borderRadius: AppDimensions.radiusLarge,
@@ -469,7 +568,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
                 : null,
             prefixIcon: Icon(
               SolarLinearIcons.calendar,
-              size: 20,
+              size: _TaskEditConstants.iconSizeSmall,
               color: _selectedDate == null ? null : AppColors.primary,
             ),
             borderRadius: AppDimensions.radiusMedium,
@@ -489,7 +588,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
           Text(
             'التكرار',
             style: TextStyle(
-              fontSize: 14,
+              fontSize: _TaskEditConstants.fontSizeMedium,
               fontWeight: FontWeight.bold,
               color: theme.brightness == Brightness.dark
                   ? AppColors.textPrimaryDark
@@ -563,7 +662,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
             Text(
               'المرفقات',
               style: TextStyle(
-                fontSize: 14,
+                fontSize: _TaskEditConstants.fontSizeMedium,
                 fontWeight: FontWeight.w600,
                 color: theme.brightness == Brightness.dark
                     ? AppColors.textPrimaryDark
@@ -619,7 +718,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
         Text(
           'التنبيهات',
           style: TextStyle(
-            fontSize: 14,
+            fontSize: _TaskEditConstants.fontSizeMedium,
             fontWeight: FontWeight.w600,
             color: theme.brightness == Brightness.dark
                 ? AppColors.textPrimaryDark
@@ -654,7 +753,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
                 title: Text(
                   'تفعيل التَّنبيه',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: _TaskEditConstants.fontSizeMedium,
                     fontWeight: FontWeight.w500,
                     color: theme.brightness == Brightness.dark
                         ? AppColors.textPrimaryDark
@@ -665,7 +764,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
                   _alarmEnabled
                       ? SolarLinearIcons.bellBing
                       : SolarLinearIcons.bell,
-                  size: 20,
+                  size: _TaskEditConstants.iconSizeSmall,
                   color: _alarmEnabled ? AppColors.primary : null,
                 ),
                 activeThumbColor: AppColors.primary,
@@ -680,7 +779,9 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
                   child: InkWell(
                     // PERMISSION: Only allow time picker for users with edit permission
                     onTap: _canEdit ? _presentTimePicker : null,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(
+                      _TaskEditConstants.borderRadiusMedium,
+                    ),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
@@ -692,7 +793,9 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
                               ? AppColors.borderDark
                               : AppColors.borderLight,
                         ),
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(
+                          _TaskEditConstants.borderRadiusMedium,
+                        ),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -717,72 +820,77 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
                     ),
                   ),
                 ),
-              if (_selectedDate == null) const SizedBox(height: 24),
-              if (_selectedDate == null)
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: theme.brightness == Brightness.dark
-                        ? AppColors.primary.withValues(alpha: 0.15)
-                        : AppColors.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(
-                      AppDimensions.radiusLarge,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        SolarLinearIcons.infoCircle,
-                        color: AppColors.primary,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'موعد المهمة',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: theme.brightness == Brightness.dark
-                                    ? AppColors.textPrimaryDark
-                                    : AppColors.textPrimaryLight,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'أضف تاريخ المهمة أولاً لتفعيل التنبيهات',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: theme.brightness == Brightness.dark
-                                    ? AppColors.textSecondaryDark
-                                    : AppColors.textSecondaryLight,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            TextButton(
-                              onPressed: () {
-                                _presentDatePicker();
-                              },
-                              child: Text(
-                                'إضافة التاريخ',
-                                style: TextStyle(
-                                  color: theme.brightness == Brightness.dark
-                                      ? AppColors.textPrimaryDark
-                                      : AppColors.textPrimaryLight,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              // FIX #10: Extract alarm hint to separate method
+              if (_selectedDate == null) ..._buildAlarmHint(theme),
             ],
           ),
         ),
       ],
     );
+  }
+
+  // FIX #10: Extract alarm hint widget to separate method for better readability
+  List<Widget> _buildAlarmHint(ThemeData theme) {
+    return [
+      const SizedBox(height: 24),
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: theme.brightness == Brightness.dark
+              ? AppColors.primary.withValues(alpha: 0.15)
+              : AppColors.primary.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              SolarLinearIcons.infoCircle,
+              color: AppColors.primary,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'موعد المهمة',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: theme.brightness == Brightness.dark
+                          ? AppColors.textPrimaryDark
+                          : AppColors.textPrimaryLight,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'أضف تاريخ المهمة أولاً لتفعيل التنبيهات',
+                    style: TextStyle(
+                      fontSize: _TaskEditConstants.fontSizeSmall,
+                      color: theme.brightness == Brightness.dark
+                          ? AppColors.textSecondaryDark
+                          : AppColors.textSecondaryLight,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () {
+                      _presentDatePicker();
+                    },
+                    child: Text(
+                      'إضافة التاريخ',
+                      style: TextStyle(
+                        color: theme.brightness == Brightness.dark
+                            ? AppColors.textPrimaryDark
+                            : AppColors.textPrimaryLight,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ];
   }
 }

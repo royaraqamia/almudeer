@@ -36,11 +36,11 @@ class _TrashScreenState extends State<TrashScreen> {
 
   Future<void> _loadTrash() async {
     setState(() => _isLoading = true);
-    
+
     try {
       final provider = context.read<LibraryProvider>();
       final items = await provider.getTrashItems();
-      
+
       setState(() {
         _trashItems = items;
         _isLoading = false;
@@ -60,11 +60,11 @@ class _TrashScreenState extends State<TrashScreen> {
 
   Future<void> _restoreItem(LibraryItem item) async {
     Haptics.lightTap();
-    
+
     try {
       final provider = context.read<LibraryProvider>();
       await provider.restoreFromTrash(item.id);
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -94,7 +94,7 @@ class _TrashScreenState extends State<TrashScreen> {
 
   Future<void> _deletePermanently(LibraryItem item) async {
     if (!mounted) return;
-    
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -153,7 +153,7 @@ class _TrashScreenState extends State<TrashScreen> {
     if (_trashItems.isEmpty) return;
 
     if (!mounted) return;
-    
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -189,8 +189,8 @@ class _TrashScreenState extends State<TrashScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('تم إفراغ سلة المهملات'),
+          const SnackBar(
+            content: Text('تم إفراغ سلة المهملات'),
             backgroundColor: AppColors.success,
           ),
         );
@@ -211,7 +211,9 @@ class _TrashScreenState extends State<TrashScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final itemCount = _selectedItems.isEmpty ? _trashItems.length : _selectedItems.length;
+    final itemCount = _selectedItems.isEmpty
+        ? _trashItems.length
+        : _selectedItems.length;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -255,7 +257,7 @@ class _TrashScreenState extends State<TrashScreen> {
               ),
             // Empty trash button
             IconButton(
-              icon: Icon(SolarLinearIcons.trashBinMinimalistic),
+              icon: const Icon(SolarLinearIcons.trashBinMinimalistic),
               color: AppColors.error,
               onPressed: _trashItems.isNotEmpty ? _emptyTrash : null,
             ),
@@ -291,7 +293,7 @@ class _TrashScreenState extends State<TrashScreen> {
             // Bulk delete
             if (_selectedItems.isNotEmpty)
               IconButton(
-                icon: Icon(SolarLinearIcons.trashBinMinimalistic),
+                icon: const Icon(SolarLinearIcons.trashBinMinimalistic),
                 color: AppColors.error,
                 onPressed: () async {
                   final provider = context.read<LibraryProvider>();
@@ -317,35 +319,41 @@ class _TrashScreenState extends State<TrashScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _trashItems.isEmpty
-              ? _buildEmptyState(theme)
-              : _buildTrashList(theme),
+          ? _buildEmptyState(theme)
+          : _buildTrashList(theme),
     );
   }
 
   Widget _buildEmptyState(ThemeData theme) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        EmptyStateWidget(
-          icon: SolarLinearIcons.trashBinMinimalistic,
-          iconColor: theme.colorScheme.primary,
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppDimensions.paddingLarge),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            EmptyStateWidget(
+              icon: SolarLinearIcons.trashBinMinimalistic,
+              iconColor: theme.colorScheme.primary,
+            ),
+            const SizedBox(height: AppDimensions.spacing24),
+            Text(
+              'سلة المهملات فارغة',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppDimensions.spacing8),
+            Text(
+              'العناصر المحذوفة ستظهر هنا لمدة 30 يوماً',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
-        const SizedBox(height: AppDimensions.spacing16),
-        Text(
-          'سلة المهملات فارغة',
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: AppDimensions.spacing8),
-        Text(
-          'العناصر المحذوفة ستظهر هنا لمدة 30 يوماً',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ],
+      ),
     );
   }
 
@@ -377,7 +385,10 @@ class _TrashScreenState extends State<TrashScreen> {
               color: AppColors.error.withValues(alpha: 0.7),
               borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
             ),
-            child: const Icon(SolarLinearIcons.trashBinMinimalistic, color: Colors.white),
+            child: const Icon(
+              SolarLinearIcons.trashBinMinimalistic,
+              color: Colors.white,
+            ),
           ),
           confirmDismiss: (direction) async {
             if (direction == DismissDirection.startToEnd) {
@@ -418,7 +429,7 @@ class _TrashScreenState extends State<TrashScreen> {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
               side: isSelected
-                  ? BorderSide(color: AppColors.primary, width: 2)
+                  ? const BorderSide(color: AppColors.primary, width: 2)
                   : BorderSide.none,
             ),
             child: InkWell(
@@ -465,13 +476,17 @@ class _TrashScreenState extends State<TrashScreen> {
                       ),
                       const SizedBox(width: AppDimensions.spacing12),
                     ],
-                    
+
                     // Icon based on type
                     Container(
                       padding: const EdgeInsets.all(AppDimensions.spacing10),
                       decoration: BoxDecoration(
-                        color: _getItemTypeColor(item.type).withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+                        color: _getItemTypeColor(
+                          item.type,
+                        ).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(
+                          AppDimensions.radiusMedium,
+                        ),
                       ),
                       child: Icon(
                         _getItemTypeIcon(item.type),
@@ -479,9 +494,9 @@ class _TrashScreenState extends State<TrashScreen> {
                         size: AppDimensions.iconMedium,
                       ),
                     ),
-                    
+
                     const SizedBox(width: AppDimensions.spacing12),
-                    
+
                     // Item info
                     Expanded(
                       child: Column(
@@ -505,7 +520,7 @@ class _TrashScreenState extends State<TrashScreen> {
                         ],
                       ),
                     ),
-                    
+
                     // Actions
                     if (!_isSelecting) ...[
                       IconButton(
@@ -514,7 +529,7 @@ class _TrashScreenState extends State<TrashScreen> {
                         onPressed: () => _restoreItem(item),
                       ),
                       IconButton(
-                        icon: Icon(SolarLinearIcons.trashBinMinimalistic),
+                        icon: const Icon(SolarLinearIcons.trashBinMinimalistic),
                         color: AppColors.error,
                         onPressed: () => _deletePermanently(item),
                       ),
@@ -563,7 +578,7 @@ class _TrashScreenState extends State<TrashScreen> {
     if (date == null) return '';
     final now = DateTime.now();
     final diff = now.difference(date);
-    
+
     if (diff.inDays == 0) {
       return 'اليوم';
     } else if (diff.inDays == 1) {

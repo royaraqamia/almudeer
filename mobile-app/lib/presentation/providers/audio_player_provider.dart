@@ -610,8 +610,9 @@ class AudioPlayerProvider extends ChangeNotifier {
 
   Future<void> togglePlay() async {
     if (_handler == null ||
-        (_currentMessage == null && _currentAudioTitle == null))
+        (_currentMessage == null && _currentAudioTitle == null)) {
       return;
+    }
 
     final player = _handler!.player;
     final actuallyPlaying = player.playing;

@@ -82,7 +82,7 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
     String? searchQuery,
     int? page = 1,
     int? pageSize = 20,
-    bool skipCacheEmission = false,
+    bool? skipCacheEmission = false,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#getItemsStream, [], {
@@ -362,6 +362,62 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
     Invocation.method(#dispose, []),
     returnValueForMissingStub: null,
   );
+
+  @override
+  _i6.Future<List<_i3.LibraryItem>> getTrashItems() =>
+      (super.noSuchMethod(
+            Invocation.method(#getTrashItems, []),
+            returnValue: _i6.Future<List<_i3.LibraryItem>>.value(
+              <_i3.LibraryItem>[],
+            ),
+          )
+          as _i6.Future<List<_i3.LibraryItem>>);
+
+  @override
+  _i6.Future<void> restoreFromTrash(int? itemId) =>
+      (super.noSuchMethod(
+            Invocation.method(#restoreFromTrash, [itemId]),
+            returnValue: _i6.Future<void>.value(),
+            returnValueForMissingStub: _i6.Future<void>.value(),
+          )
+          as _i6.Future<void>);
+
+  @override
+  _i6.Future<void> deletePermanently(int? itemId) =>
+      (super.noSuchMethod(
+            Invocation.method(#deletePermanently, [itemId]),
+            returnValue: _i6.Future<void>.value(),
+            returnValueForMissingStub: _i6.Future<void>.value(),
+          )
+          as _i6.Future<void>);
+
+  @override
+  _i6.Future<void> emptyTrash() =>
+      (super.noSuchMethod(
+            Invocation.method(#emptyTrash, []),
+            returnValue: _i6.Future<void>.value(),
+            returnValueForMissingStub: _i6.Future<void>.value(),
+          )
+          as _i6.Future<void>);
+
+  @override
+  _i6.Future<List<Map<String, dynamic>>> getItemVersions(int? itemId) =>
+      (super.noSuchMethod(
+            Invocation.method(#getItemVersions, [itemId]),
+            returnValue: _i6.Future<List<Map<String, dynamic>>>.value(
+              <Map<String, dynamic>>[],
+            ),
+          )
+          as _i6.Future<List<Map<String, dynamic>>>);
+
+  @override
+  _i6.Future<void> restoreVersion(int? itemId, int? versionId) =>
+      (super.noSuchMethod(
+            Invocation.method(#restoreVersion, [itemId, versionId]),
+            returnValue: _i6.Future<void>.value(),
+            returnValueForMissingStub: _i6.Future<void>.value(),
+          )
+          as _i6.Future<void>);
 }
 
 /// A class which mocks [ApiClient].

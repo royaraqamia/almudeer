@@ -388,6 +388,14 @@ class MockOfflineSyncService extends _i1.Mock
           as _i3.Future<Map<String, dynamic>?>);
 
   @override
+  _i3.Future<Map<String, dynamic>?> getAthkarProgress() =>
+      (super.noSuchMethod(
+            Invocation.method(#getAthkarProgress, []),
+            returnValue: _i3.Future<Map<String, dynamic>?>.value(),
+          )
+          as _i3.Future<Map<String, dynamic>?>);
+
+  @override
   _i3.Future<void> queueAthkarProgress(
     Map<String, int>? counts,
     int? misbaha,

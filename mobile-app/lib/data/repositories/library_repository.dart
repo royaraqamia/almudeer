@@ -30,7 +30,7 @@ class LibraryRepository {
 
   // FIX Issue #2: Mutex lock to prevent concurrent sync operations
   final Lock _syncLock = Lock();
-  
+
   // P0-4 FIX: Track disposal state to prevent operations during/after disposal
   bool _isDisposed = false;
 
@@ -66,19 +66,26 @@ class LibraryRepository {
     if (licenseId == null) {
       final licenseKey = await _apiClient.getLicenseKey();
       final accessToken = await _apiClient.getAccessToken();
-      debugPrint('[LibraryRepository] licenseId=null, licenseKey=${licenseKey != null ? "${licenseKey.substring(0, 4)}..." : "null"}, accessToken=${accessToken != null ? "present" : "null"}');
-      
+      debugPrint(
+        '[LibraryRepository] licenseId=null, licenseKey=${licenseKey != null ? "${licenseKey.substring(0, 4)}..." : "null"}, accessToken=${accessToken != null ? "present" : "null"}',
+      );
+
       // Try one more time with explicit key if we have it
       if (licenseKey != null && licenseKey.isNotEmpty) {
         // We have a license key but no ID - this is OK, use a placeholder
         // The backend will authenticate via JWT token
-        licenseId = 0; // Placeholder - backend doesn't actually use this for API calls
-        debugPrint('[LibraryRepository] Using placeholder licenseId=0, JWT auth will handle it');
+        licenseId =
+            0; // Placeholder - backend doesn't actually use this for API calls
+        debugPrint(
+          '[LibraryRepository] Using placeholder licenseId=0, JWT auth will handle it',
+        );
       }
     }
 
     if (licenseId == null) {
-      debugPrint('[LibraryRepository] No license ID or key found - returning empty list');
+      debugPrint(
+        '[LibraryRepository] No license ID or key found - returning empty list',
+      );
       yield [];
       return;
     }
@@ -87,7 +94,10 @@ class LibraryRepository {
     // P0-3: Check cache validity before using cached data
     // Skip cache emission when explicitly requested (e.g., category switches to prevent flash of wrong items)
     if (page == 1 && !skipCacheEmission) {
-      final isCacheValid = await _db.isCacheValid(licenseKeyId: licenseId, type: category);
+      final isCacheValid = await _db.isCacheValid(
+        licenseKeyId: licenseId,
+        type: category,
+      );
       final cachedItems = await _db.getCachedItems(
         licenseKeyId: licenseId,
         type: category,
@@ -107,13 +117,17 @@ class LibraryRepository {
       // P0-3: If cache is expired, force refresh from remote
       // Cache exists but is stale - continue to fetch fresh data below
       if (!isCacheValid && cachedItems.isNotEmpty) {
-        debugPrint('[LibraryRepository] Cache expired, will refresh from remote');
+        debugPrint(
+          '[LibraryRepository] Cache expired, will refresh from remote',
+        );
       }
     }
 
     try {
       // 2. Fetch remote data
-      debugPrint('[LibraryRepository] About to fetch remote items for category=$category');
+      debugPrint(
+        '[LibraryRepository] About to fetch remote items for category=$category',
+      );
       final remoteItems = await _fetchRemoteItems(
         customerId: customerId,
         category: category,
@@ -121,7 +135,9 @@ class LibraryRepository {
         page: page,
         pageSize: pageSize,
       );
-      debugPrint('[LibraryRepository] Successfully fetched ${remoteItems.length} remote items');
+      debugPrint(
+        '[LibraryRepository] Successfully fetched ${remoteItems.length} remote items',
+      );
 
       // 3. Cache remote data (only if not searching, or implement advanced caching logic)
       if (page == 1 && (searchQuery == null || searchQuery.isEmpty)) {
@@ -165,20 +181,27 @@ class LibraryRepository {
     if (category != null) {
       String? backendCategory;
       if (category == 'notes' || category == 'note') {
-        backendCategory = 'notes';  // Backend filters: type = 'note'
+        backendCategory = 'notes'; // Backend filters: type = 'note'
         // FIX: Include content field for notes so we can compare with local changes
         queryParams['include_content'] = 'true';
-        debugPrint('[LibraryRepository] Fetching notes with include_content=true, category=$category');
+        debugPrint(
+          '[LibraryRepository] Fetching notes with include_content=true, category=$category',
+        );
       } else if (category == 'files' || category == 'file') {
-        backendCategory = 'files';  // Backend filters: type IN ('image', 'audio', 'video', 'file')
+        backendCategory =
+            'files'; // Backend filters: type IN ('image', 'audio', 'video', 'file')
       } else if (category == 'tools') {
         // Tools category - not implemented in backend yet
         // Return empty list to prevent errors
-        debugPrint('[LibraryRepository] Tools category not supported by backend, returning empty');
+        debugPrint(
+          '[LibraryRepository] Tools category not supported by backend, returning empty',
+        );
         return [];
       } else {
         // Unknown category - log warning and fetch without category filter
-        debugPrint('[LibraryRepository] Unknown category: $category, fetching without filter');
+        debugPrint(
+          '[LibraryRepository] Unknown category: $category, fetching without filter',
+        );
       }
 
       if (backendCategory != null) {
@@ -198,10 +221,12 @@ class LibraryRepository {
 
     if (response['success'] == true) {
       final List itemsJson = response['items'] ?? [];
-      final firstContent = itemsJson.isNotEmpty 
+      final firstContent = itemsJson.isNotEmpty
           ? (itemsJson.first['content'] ?? 'NULL').toString()
           : 'N/A';
-      debugPrint('[LibraryRepository] Fetched ${itemsJson.length} items, first item content: ${firstContent.length > 20 ? firstContent.substring(0, 20) : firstContent}...');
+      debugPrint(
+        '[LibraryRepository] Fetched ${itemsJson.length} items, first item content: ${firstContent.length > 20 ? firstContent.substring(0, 20) : firstContent}...',
+      );
       return itemsJson.map((json) => LibraryItem.fromJson(json)).toList();
     } else {
       throw Exception(response['detail'] ?? 'فشل جلب عناصر المكتبة');
@@ -327,7 +352,7 @@ class LibraryRepository {
   }) async {
     // P1-7 FIX: Increment local version for conflict detection
     _localVersions[itemId] = (_localVersions[itemId] ?? 0) + 1;
-    
+
     // 1. Add to pending actions with version info
     await _db.addPendingAction(
       actionType: 'update',
@@ -409,11 +434,13 @@ class LibraryRepository {
     // Prevent multiple sync operations from being scheduled simultaneously
     if (_syncScheduled) {
       if (kDebugMode) {
-        print('LibraryRepository: Sync already scheduled, skipping duplicate request');
+        print(
+          'LibraryRepository: Sync already scheduled, skipping duplicate request',
+        );
       }
       return;
     }
-    
+
     _syncScheduled = true;
     // Run sync in next microtask to avoid blocking UI
     // Using Future.delayed to ensure it runs after current frame
@@ -442,7 +469,9 @@ class LibraryRepository {
       // P0-4 FIX: Check again inside lock (double-check pattern)
       if (_isDisposed) {
         if (kDebugMode) {
-          print('LibraryRepository: Skipping sync - repository disposed during lock acquisition');
+          print(
+            'LibraryRepository: Skipping sync - repository disposed during lock acquisition',
+          );
         }
         return;
       }
@@ -472,351 +501,380 @@ class LibraryRepository {
               continue;
             }
 
-          switch (action['action_type']) {
-          case 'create':
-            if (action['item_type'] == 'note') {
-              // 1. Check if local item still exists (wasn't deleted while waiting)
-              if (localId != null) {
-                final exists = await _db.itemExists(localId);
-                if (!exists) {
-                  // Item deleted locally. Skip creation.
-                  success = true; // Mark as handled to remove action
-                  break;
-                }
-              }
-
-              final response = await _apiClient.post(
-                Endpoints.libraryNote,
-                body: payload,
-              );
-              if (response['success'] == true && response['item'] != null) {
-                // Double check existence before caching (race condition during network call)
-                if (localId != null) {
-                  final exists = await _db.itemExists(localId);
-                  if (!exists) {
-                    // Item deleted during network call. Discard result.
-                    success = true;
-                    break;
-                  }
-                }
-
-                // Replace temp item with real item in cache
-                final realItem = LibraryItem.fromJson(response['item']);
-                if (kDebugMode) {
-                  print(
-                    'LibraryRepository: Sync SUCCESS for note creation. Real ID: ${realItem.id}, Local ID: $localId',
-                  );
-                }
-                await _db.cacheItems([realItem]);
-
-                // Remove the temporary local item if we had one
-                if (localId != null) {
-                  await _db.deleteItem(localId);
-                  
-                  // FIX: Update any pending update actions to use the real server ID
-                  // This prevents "ITEM_NOT_FOUND" errors when update actions reference
-                  // a temp ID that no longer exists after successful creation
-                  await _updatePendingActionsForTempId(localId, realItem.id);
-                }
-                success = true;
-                anySucceeded = true;
-                // Issue #16: Clear failure count on success
-                _failedSyncAttempts.remove(actionId);
-              }
-            }
-            break;
-
-          case 'upload':
-            // Issue #14: Handle queued file uploads
-            final filePath = payload['file_path'] as String?;
-            if (filePath != null && await File(filePath).exists()) {
-              try {
-                final fields = <String, String>{};
-                if (payload['title'] != null) {
-                  fields['title'] = payload['title'];
-                }
-                if (payload['customer_id'] != null) {
-                  fields['customer_id'] = payload['customer_id'].toString();
-                }
-
-                final response = await _apiClient.uploadFile(
-                  Endpoints.libraryUpload,
-                  filePath: filePath,
-                  fieldName: 'file',
-                  fields: fields,
-                );
-
-                if (response['success'] == true) {
-                  final item = LibraryItem.fromJson(response['item']);
-                  await _db.cacheItems([item]);
-
-                  // Remove temp item if exists
+            switch (action['action_type']) {
+              case 'create':
+                if (action['item_type'] == 'note') {
+                  // 1. Check if local item still exists (wasn't deleted while waiting)
                   if (localId != null) {
-                    await _db.deleteItem(localId);
-                    
-                    // FIX: Update any pending update actions to use the real server ID
-                    await _updatePendingActionsForTempId(localId, item.id);
+                    final exists = await _db.itemExists(localId);
+                    if (!exists) {
+                      // Item deleted locally. Skip creation.
+                      success = true; // Mark as handled to remove action
+                      break;
+                    }
                   }
-                  success = true;
-                  anySucceeded = true;
-                  _failedSyncAttempts.remove(actionId);
-                }
-              } catch (e) {
-                if (kDebugMode) {
-                  print('Upload failed for action $actionId: $e');
-                }
-              }
-            } else {
-              // File no longer exists, skip
-              success = true;
-            }
-            break;
 
-          case 'delete':
-            final id = payload['id'] as int;
-            // If ID is temporary (large range), don't send to server
-            if (_isTempId(id)) {
-              await _db.deleteItem(id);
-              success = true; // Treated as success locally
-            } else {
-              try {
-                final response = await _apiClient.delete(
-                  Endpoints.libraryItem(id),
-                );
-                success = response['success'] == true;
-                if (success) {
-                  // Issue #13: Now safe to remove after successful sync
-                  await _db.deleteItem(id);
-                  anySucceeded = true;
-                  _failedSyncAttempts.remove(actionId);
-                }
-              } on ItemNotFoundException catch (e) {
-                // Item already doesn't exist on server - treat as success
-                if (kDebugMode) {
-                  print('LibraryRepository: Item $id already deleted on server: $e');
-                }
-                await _clearOrphanedPendingAction(actionId, id);
-                success = true;
-                anySucceeded = true;
-              }
-            }
-            break;
-
-          case 'update':
-            final id = payload['id'] as int;
-            final localVersion = payload['local_version'] as int?;
-
-            if (_isTempId(id)) {
-              // Temp item - check if there's a pending create action for this ID
-              final list = await _db.getPendingActions();
-              bool foundCreate = false;
-              
-              for (var a in list) {
-                if (a['action_type'] == 'create' && a['local_id'] == id) {
-                  // Merge this update into the pending create action
-                  final newPayload = jsonDecode(a['payload']);
-                  if (payload['title'] != null) {
-                    newPayload['title'] = payload['title'];
-                  }
-                  if (payload['content'] != null) {
-                    newPayload['content'] = payload['content'];
-                  }
-                  if (payload['customer_id'] != null) {
-                    newPayload['customer_id'] = payload['customer_id'];
-                  }
-                  
-                  await _db.removePendingAction(a['id']);
-                  await _db.addPendingAction(
-                    actionType: 'create',
-                    itemType: 'note',
-                    payload: newPayload,
-                    localId: id,
+                  final response = await _apiClient.post(
+                    Endpoints.libraryNote,
+                    body: payload,
                   );
-                  success = true;
-                  foundCreate = true;
-                  if (kDebugMode) {
-                    print('LibraryRepository: Merged update into pending create for temp ID $id');
+                  if (response['success'] == true && response['item'] != null) {
+                    // Double check existence before caching (race condition during network call)
+                    if (localId != null) {
+                      final exists = await _db.itemExists(localId);
+                      if (!exists) {
+                        // Item deleted during network call. Discard result.
+                        success = true;
+                        break;
+                      }
+                    }
+
+                    // Replace temp item with real item in cache
+                    final realItem = LibraryItem.fromJson(response['item']);
+                    if (kDebugMode) {
+                      print(
+                        'LibraryRepository: Sync SUCCESS for note creation. Real ID: ${realItem.id}, Local ID: $localId',
+                      );
+                    }
+                    await _db.cacheItems([realItem]);
+
+                    // Remove the temporary local item if we had one
+                    if (localId != null) {
+                      await _db.deleteItem(localId);
+
+                      // FIX: Update any pending update actions to use the real server ID
+                      // This prevents "ITEM_NOT_FOUND" errors when update actions reference
+                      // a temp ID that no longer exists after successful creation
+                      await _updatePendingActionsForTempId(
+                        localId,
+                        realItem.id,
+                      );
+                    }
+                    success = true;
+                    anySucceeded = true;
+                    // Issue #16: Clear failure count on success
+                    _failedSyncAttempts.remove(actionId);
                   }
-                  break;
                 }
-              }
-              
-              if (!foundCreate) {
-                // Create action already processed - this update should have been updated by _updatePendingActionsForTempId
-                // If we reach here, something went wrong. Clear this orphaned action.
-                if (kDebugMode) {
-                  print('LibraryRepository: Update for temp ID $id found no pending create - clearing orphaned action');
-                }
-                success = true; // Mark as success to remove the stale action
-                await _db.removePendingAction(actionId);
-              }
-            } else {
-              // P1-7 FIX: Check for conflict with server version
-              // First fetch current server version
-              int? serverVersion;
-              try {
-                final currentItem = await _apiClient.get(Endpoints.libraryItem(id));
-                if (currentItem['success'] == true && currentItem['item'] != null) {
-                  serverVersion = currentItem['item']['version'] as int?;
-                }
-              } on ItemNotFoundException catch (e) {
-                // Item doesn't exist on server - clear stale pending actions
-                if (kDebugMode) {
-                  print('LibraryRepository: Item $id not found on server - clearing stale pending actions: $e');
-                }
-                // Mark as success to remove the pending action (item was deleted or never created)
-                success = true;
-                await _clearOrphanedPendingAction(actionId, id);
                 break;
-              } catch (e) {
-                // If we can't fetch, proceed with update (offline-first)
-                if (kDebugMode) {
-                  print('LibraryRepository: Could not fetch current version for item $id: $e');
-                }
-              }
 
-              // P1-7 FIX: Compare versions - if server version is newer, notify conflict
-              if (serverVersion != null && localVersion != null && serverVersion > localVersion) {
-                if (kDebugMode) {
-                  print('LibraryRepository: CONFLICT detected for item $id. '
-                      'Server version: $serverVersion, Local version: $localVersion');
-                }
-                // Conflict resolution UI - Future implementation
-                // When re-implementing, you would:
-                // 1. Create a ConflictResolutionService
-                // 2. Show dialog with both versions (local vs server)
-                // 3. Let user choose: keep local, use server, or merge
-                // 4. For now, using LWW (Last Write Wins) - proceed with local version
-              }
+              case 'upload':
+                // Issue #14: Handle queued file uploads
+                final filePath = payload['file_path'] as String?;
+                if (filePath != null && await File(filePath).exists()) {
+                  try {
+                    final fields = <String, String>{};
+                    if (payload['title'] != null) {
+                      fields['title'] = payload['title'];
+                    }
+                    if (payload['customer_id'] != null) {
+                      fields['customer_id'] = payload['customer_id'].toString();
+                    }
 
-              // Create a copy of payload without the ID
-              final apiPayload = Map<String, dynamic>.from(payload)
-                ..remove('id')
-                ..remove('local_version'); // Don't send internal version to server
+                    final response = await _apiClient.uploadFile(
+                      Endpoints.libraryUpload,
+                      filePath: filePath,
+                      fieldName: 'file',
+                      fields: fields,
+                    );
 
-              try {
-                final response = await _apiClient.patch(
-                  Endpoints.libraryItem(id),
-                  body: apiPayload,
-                );
-                success = response['success'] == true;
-                if (success) {
-                  anySucceeded = true;
-                  _failedSyncAttempts.remove(actionId);
-                  // P1-7 FIX: Update local version on successful sync
-                  _localVersions[id] = serverVersion != null ? serverVersion + 1 : (localVersion ?? 1);
-                }
-              } on ItemNotFoundException catch (e) {
-                // Item doesn't exist on server - clear stale pending actions
-                if (kDebugMode) {
-                  print('LibraryRepository: Item $id not found during update - clearing stale action: $e');
-                }
-                // Mark as success to remove the pending action
-                success = true;
-                await _clearOrphanedPendingAction(actionId, id);
-              }
-            }
-            break;
+                    if (response['success'] == true) {
+                      final item = LibraryItem.fromJson(response['item']);
+                      await _db.cacheItems([item]);
 
-          case 'bulk_delete':
-            final itemsIds = List<int>.from(payload['item_ids']);
-            final realIds = <int>[];
-            final tempIds = <int>[];
+                      // Remove temp item if exists
+                      if (localId != null) {
+                        await _db.deleteItem(localId);
 
-            // Separate real and temp IDs
-            for (var id in itemsIds) {
-              if (_isTempId(id)) {
-                tempIds.add(id);
-              } else {
-                realIds.add(id);
-              }
-            }
-
-            // Clean up temp IDs locally immediately
-            for (var id in tempIds) {
-              await _db.deleteItem(id);
-            }
-
-            if (realIds.isNotEmpty) {
-              try {
-                final response = await _apiClient.post(
-                  Endpoints.libraryBulkDelete,
-                  body: {'item_ids': realIds},
-                );
-                success = response['success'] == true;
-                if (success) {
-                  // Remove verified real IDs from cache
-                  for (var id in realIds) {
-                    await _db.deleteItem(id);
+                        // FIX: Update any pending update actions to use the real server ID
+                        await _updatePendingActionsForTempId(localId, item.id);
+                      }
+                      success = true;
+                      anySucceeded = true;
+                      _failedSyncAttempts.remove(actionId);
+                    }
+                  } catch (e) {
+                    if (kDebugMode) {
+                      print('Upload failed for action $actionId: $e');
+                    }
                   }
-                  anySucceeded = true;
-                  _failedSyncAttempts.remove(actionId);
+                } else {
+                  // File no longer exists, skip
+                  success = true;
                 }
-              } on ItemNotFoundException catch (e) {
-                // Some items don't exist - remove the ones that do exist
-                if (kDebugMode) {
-                  print('LibraryRepository: Bulk delete partial failure: $e');
+                break;
+
+              case 'delete':
+                final id = payload['id'] as int;
+                // If ID is temporary (large range), don't send to server
+                if (_isTempId(id)) {
+                  await _db.deleteItem(id);
+                  success = true; // Treated as success locally
+                } else {
+                  try {
+                    final response = await _apiClient.delete(
+                      Endpoints.libraryItem(id),
+                    );
+                    success = response['success'] == true;
+                    if (success) {
+                      // Issue #13: Now safe to remove after successful sync
+                      await _db.deleteItem(id);
+                      anySucceeded = true;
+                      _failedSyncAttempts.remove(actionId);
+                    }
+                  } on ItemNotFoundException catch (e) {
+                    // Item already doesn't exist on server - treat as success
+                    if (kDebugMode) {
+                      print(
+                        'LibraryRepository: Item $id already deleted on server: $e',
+                      );
+                    }
+                    await _clearOrphanedPendingAction(actionId, id);
+                    success = true;
+                    anySucceeded = true;
+                  }
                 }
-                // Still remove all IDs from local cache (they're either deleted or never existed)
-                for (var id in realIds) {
+                break;
+
+              case 'update':
+                final id = payload['id'] as int;
+                final localVersion = payload['local_version'] as int?;
+
+                if (_isTempId(id)) {
+                  // Temp item - check if there's a pending create action for this ID
+                  final list = await _db.getPendingActions();
+                  bool foundCreate = false;
+
+                  for (var a in list) {
+                    if (a['action_type'] == 'create' && a['local_id'] == id) {
+                      // Merge this update into the pending create action
+                      final newPayload = jsonDecode(a['payload']);
+                      if (payload['title'] != null) {
+                        newPayload['title'] = payload['title'];
+                      }
+                      if (payload['content'] != null) {
+                        newPayload['content'] = payload['content'];
+                      }
+                      if (payload['customer_id'] != null) {
+                        newPayload['customer_id'] = payload['customer_id'];
+                      }
+
+                      await _db.removePendingAction(a['id']);
+                      await _db.addPendingAction(
+                        actionType: 'create',
+                        itemType: 'note',
+                        payload: newPayload,
+                        localId: id,
+                      );
+                      success = true;
+                      foundCreate = true;
+                      if (kDebugMode) {
+                        print(
+                          'LibraryRepository: Merged update into pending create for temp ID $id',
+                        );
+                      }
+                      break;
+                    }
+                  }
+
+                  if (!foundCreate) {
+                    // Create action already processed - this update should have been updated by _updatePendingActionsForTempId
+                    // If we reach here, something went wrong. Clear this orphaned action.
+                    if (kDebugMode) {
+                      print(
+                        'LibraryRepository: Update for temp ID $id found no pending create - clearing orphaned action',
+                      );
+                    }
+                    success =
+                        true; // Mark as success to remove the stale action
+                    await _db.removePendingAction(actionId);
+                  }
+                } else {
+                  // P1-7 FIX: Check for conflict with server version
+                  // First fetch current server version
+                  int? serverVersion;
+                  try {
+                    final currentItem = await _apiClient.get(
+                      Endpoints.libraryItem(id),
+                    );
+                    if (currentItem['success'] == true &&
+                        currentItem['item'] != null) {
+                      serverVersion = currentItem['item']['version'] as int?;
+                    }
+                  } on ItemNotFoundException catch (e) {
+                    // Item doesn't exist on server - clear stale pending actions
+                    if (kDebugMode) {
+                      print(
+                        'LibraryRepository: Item $id not found on server - clearing stale pending actions: $e',
+                      );
+                    }
+                    // Mark as success to remove the pending action (item was deleted or never created)
+                    success = true;
+                    await _clearOrphanedPendingAction(actionId, id);
+                    break;
+                  } catch (e) {
+                    // If we can't fetch, proceed with update (offline-first)
+                    if (kDebugMode) {
+                      print(
+                        'LibraryRepository: Could not fetch current version for item $id: $e',
+                      );
+                    }
+                  }
+
+                  // P1-7 FIX: Compare versions - if server version is newer, notify conflict
+                  if (serverVersion != null &&
+                      localVersion != null &&
+                      serverVersion > localVersion) {
+                    if (kDebugMode) {
+                      print(
+                        'LibraryRepository: CONFLICT detected for item $id. '
+                        'Server version: $serverVersion, Local version: $localVersion',
+                      );
+                    }
+                    // Conflict resolution UI - Future implementation
+                    // When re-implementing, you would:
+                    // 1. Create a ConflictResolutionService
+                    // 2. Show dialog with both versions (local vs server)
+                    // 3. Let user choose: keep local, use server, or merge
+                    // 4. For now, using LWW (Last Write Wins) - proceed with local version
+                  }
+
+                  // Create a copy of payload without the ID
+                  final apiPayload = Map<String, dynamic>.from(payload)
+                    ..remove('id')
+                    ..remove(
+                      'local_version',
+                    ); // Don't send internal version to server
+
+                  try {
+                    final response = await _apiClient.patch(
+                      Endpoints.libraryItem(id),
+                      body: apiPayload,
+                    );
+                    success = response['success'] == true;
+                    if (success) {
+                      anySucceeded = true;
+                      _failedSyncAttempts.remove(actionId);
+                      // P1-7 FIX: Update local version on successful sync
+                      _localVersions[id] = serverVersion != null
+                          ? serverVersion + 1
+                          : (localVersion ?? 1);
+                    }
+                  } on ItemNotFoundException catch (e) {
+                    // Item doesn't exist on server - clear stale pending actions
+                    if (kDebugMode) {
+                      print(
+                        'LibraryRepository: Item $id not found during update - clearing stale action: $e',
+                      );
+                    }
+                    // Mark as success to remove the pending action
+                    success = true;
+                    await _clearOrphanedPendingAction(actionId, id);
+                  }
+                }
+                break;
+
+              case 'bulk_delete':
+                final itemsIds = List<int>.from(payload['item_ids']);
+                final realIds = <int>[];
+                final tempIds = <int>[];
+
+                // Separate real and temp IDs
+                for (var id in itemsIds) {
+                  if (_isTempId(id)) {
+                    tempIds.add(id);
+                  } else {
+                    realIds.add(id);
+                  }
+                }
+
+                // Clean up temp IDs locally immediately
+                for (var id in tempIds) {
                   await _db.deleteItem(id);
                 }
-                success = true;
-                anySucceeded = true;
-              }
-            } else {
-              // If only temp IDs, we are done
-              success = true;
-              anySucceeded = true;
+
+                if (realIds.isNotEmpty) {
+                  try {
+                    final response = await _apiClient.post(
+                      Endpoints.libraryBulkDelete,
+                      body: {'item_ids': realIds},
+                    );
+                    success = response['success'] == true;
+                    if (success) {
+                      // Remove verified real IDs from cache
+                      for (var id in realIds) {
+                        await _db.deleteItem(id);
+                      }
+                      anySucceeded = true;
+                      _failedSyncAttempts.remove(actionId);
+                    }
+                  } on ItemNotFoundException catch (e) {
+                    // Some items don't exist - remove the ones that do exist
+                    if (kDebugMode) {
+                      print(
+                        'LibraryRepository: Bulk delete partial failure: $e',
+                      );
+                    }
+                    // Still remove all IDs from local cache (they're either deleted or never existed)
+                    for (var id in realIds) {
+                      await _db.deleteItem(id);
+                    }
+                    success = true;
+                    anySucceeded = true;
+                  }
+                } else {
+                  // If only temp IDs, we are done
+                  success = true;
+                  anySucceeded = true;
+                }
+                break;
             }
-            break;
-        }
 
-        if (success) {
-          await _db.removePendingAction(action['id']);
-          // Issue #16: Clear failure count on success
-          _failedSyncAttempts.remove(action['id']);
-        } else {
-          // Issue #16: Track failure count
-          _failedSyncAttempts[action['id']] =
-              (_failedSyncAttempts[action['id']] ?? 0) + 1;
-        }
-      } catch (e) {
-        // Issue #16: Track failure count
-        _failedSyncAttempts[action['id']] =
-            (_failedSyncAttempts[action['id']] ?? 0) + 1;
+            if (success) {
+              await _db.removePendingAction(action['id']);
+              // Issue #16: Clear failure count on success
+              _failedSyncAttempts.remove(action['id']);
+            } else {
+              // Issue #16: Track failure count
+              _failedSyncAttempts[action['id']] =
+                  (_failedSyncAttempts[action['id']] ?? 0) + 1;
+            }
+          } catch (e) {
+            // Issue #16: Track failure count
+            _failedSyncAttempts[action['id']] =
+                (_failedSyncAttempts[action['id']] ?? 0) + 1;
 
-        if (kDebugMode) {
-          print(
-            'Sync failed for action ${action['id']} (${action['action_type']}): $e',
-          );
-          print('Payload: ${action['payload']}');
+            if (kDebugMode) {
+              print(
+                'Sync failed for action ${action['id']} (${action['action_type']}): $e',
+              );
+              print('Payload: ${action['payload']}');
 
-          // Issue #16: Notify if approaching retry limit
-          final attempts = _failedSyncAttempts[action['id']] ?? 0;
-          if (attempts >= maxSyncRetries - 1) {
-            print(
-              'WARNING: Action ${action['id']} is about to exceed max retries',
-            );
+              // Issue #16: Notify if approaching retry limit
+              final attempts = _failedSyncAttempts[action['id']] ?? 0;
+              if (attempts >= maxSyncRetries - 1) {
+                print(
+                  'WARNING: Action ${action['id']} is about to exceed max retries',
+                );
+              }
+            }
+            // Keep in queue to retry later
           }
         }
-        // Keep in queue to retry later
-      }
-    }
 
-    if (anySucceeded) {
-      _syncController.add(null);
-    }
-  } catch (e, stackTrace) {
-    // P1-8 FIX: Log sync errors with stack trace for debugging
-    debugPrint('[LibraryRepository] Sync error: $e');
-    debugPrint('Stack trace: $stackTrace');
-  } finally {
-    // P1-8 FIX: Ensure lock is always released
-    debugPrint('[LibraryRepository] Sync lock released');
+        if (anySucceeded) {
+          _syncController.add(null);
+        }
+      } catch (e, stackTrace) {
+        // P1-8 FIX: Log sync errors with stack trace for debugging
+        debugPrint('[LibraryRepository] Sync error: $e');
+        debugPrint('Stack trace: $stackTrace');
+      } finally {
+        // P1-8 FIX: Ensure lock is always released
+        debugPrint('[LibraryRepository] Sync lock released');
+      }
+    }); // End of mutex lock
   }
-}); // End of mutex lock
-}
 
   /// Issue #14: Check connectivity helper
   Future<bool> _checkConnectivity() async {
@@ -851,7 +909,8 @@ class LibraryRepository {
       if (response['success'] == true) {
         final storage = response['statistics']?['storage'];
         final storageUsage = storage?['total_bytes'] ?? 0;
-        final storageLimit = storage?['limit_bytes'] ?? (100 * 1024 * 1024); // 100MB default
+        final storageLimit =
+            storage?['limit_bytes'] ?? (100 * 1024 * 1024); // 100MB default
         final remaining = storageLimit - storageUsage;
         return remaining >= fileSizeBytes;
       }
@@ -872,15 +931,19 @@ class LibraryRepository {
         final storage = response['statistics']?['storage'] ?? {};
         final used = storage['total_bytes'] ?? 0;
         final limit = storage['limit_bytes'] ?? (100 * 1024 * 1024);
-        return {
-          'used': used,
-          'limit': limit,
-          'remaining': limit - used,
-        };
+        return {'used': used, 'limit': limit, 'remaining': limit - used};
       }
-      return {'used': 0, 'limit': 100 * 1024 * 1024, 'remaining': 100 * 1024 * 1024};
+      return {
+        'used': 0,
+        'limit': 100 * 1024 * 1024,
+        'remaining': 100 * 1024 * 1024,
+      };
     } catch (e) {
-      return {'used': 0, 'limit': 100 * 1024 * 1024, 'remaining': 100 * 1024 * 1024};
+      return {
+        'used': 0,
+        'limit': 100 * 1024 * 1024,
+        'remaining': 100 * 1024 * 1024,
+      };
     }
   }
 
@@ -893,8 +956,11 @@ class LibraryRepository {
       }
 
       // Get all items (may need pagination for large libraries)
-      final items = await _db.getCachedItems(licenseKeyId: licenseId, type: category);
-      
+      final items = await _db.getCachedItems(
+        licenseKeyId: licenseId,
+        type: category,
+      );
+
       final exportData = {
         'exported_at': DateTime.now().toIso8601String(),
         'license_id': licenseId,
@@ -920,7 +986,7 @@ class LibraryRepository {
       for (final itemJson in itemsJson) {
         // Create note or file from imported data
         final item = LibraryItem.fromJson(itemJson);
-        
+
         if (item.type == 'note') {
           await createNote(
             title: item.title,
@@ -930,7 +996,7 @@ class LibraryRepository {
         }
         // For files, we would need the actual file data
         // This is a simplified version - full implementation would handle file uploads
-        
+
         importedCount++;
       }
 
@@ -941,12 +1007,15 @@ class LibraryRepository {
   }
 
   /// FIX Issue #20: Save export to file
-  Future<String?> saveExportToFile(Map<String, dynamic> exportData, String filename) async {
+  Future<String?> saveExportToFile(
+    Map<String, dynamic> exportData,
+    String filename,
+  ) async {
     try {
       final directory = await getApplicationDocumentsDirectory();
       final file = File('${directory.path}/$filename');
 
-      final jsonString = JsonEncoder.withIndent('  ').convert(exportData);
+      final jsonString = const JsonEncoder.withIndent('  ').convert(exportData);
       await file.writeAsString(jsonString);
 
       return file.path;
@@ -971,7 +1040,7 @@ class LibraryRepository {
         'expires_in_days': expiresInDays,
       },
     );
-    
+
     if (response['success'] == true) {
       return response;
     } else {
@@ -999,15 +1068,21 @@ class LibraryRepository {
       final List itemsJson = response['items'] ?? [];
       return itemsJson.map((json) => LibraryItem.fromJson(json)).toList();
     } else {
-      debugPrint('[LibraryRepository] getSharedWithMe failed: detail=${response['detail']}');
-      throw Exception(response['detail']?['message_ar'] ?? response['detail']?['message'] ?? 'فشل جلب العناصر المشتركة');
+      debugPrint(
+        '[LibraryRepository] getSharedWithMe failed: detail=${response['detail']}',
+      );
+      throw Exception(
+        response['detail']?['message_ar'] ??
+            response['detail']?['message'] ??
+            'فشل جلب العناصر المشتركة',
+      );
     }
   }
 
   /// P3-14: List shares for a specific item (owner only)
   Future<List<Map<String, dynamic>>> listItemShares(int itemId) async {
     final response = await _apiClient.get('/api/library/$itemId/shares');
-    
+
     if (response['success'] == true) {
       final List sharesJson = response['shares'] ?? [];
       return sharesJson.map((json) => Map<String, dynamic>.from(json)).toList();
@@ -1019,9 +1094,11 @@ class LibraryRepository {
   /// P3-14: Remove a share (revoke access)
   Future<void> removeShare(int shareId) async {
     final response = await _apiClient.delete('/api/library/shares/$shareId');
-    
+
     if (response['success'] != true) {
-      throw Exception(response['detail']?['message_ar'] ?? 'فشل إزالة المشاركة');
+      throw Exception(
+        response['detail']?['message_ar'] ?? 'فشل إزالة المشاركة',
+      );
     }
   }
 
@@ -1034,9 +1111,11 @@ class LibraryRepository {
       '/api/library/shares/$shareId/permission',
       body: {'permission': permission},
     );
-    
+
     if (response['success'] != true) {
-      throw Exception(response['detail']?['message_ar'] ?? 'فشل تحديث الصلاحية');
+      throw Exception(
+        response['detail']?['message_ar'] ?? 'فشل تحديث الصلاحية',
+      );
     }
   }
 
@@ -1054,7 +1133,7 @@ class LibraryRepository {
         'pairing_code': pairingCode,
       },
     );
-    
+
     if (response['success'] == true) {
       return response;
     } else {
@@ -1065,21 +1144,27 @@ class LibraryRepository {
   /// P3-1/Nearby: List paired devices
   Future<List<Map<String, dynamic>>> listPairedDevices() async {
     final response = await _apiClient.get('/api/devices/paired');
-    
+
     if (response['success'] == true) {
       final List devicesJson = response['devices'] ?? [];
-      return devicesJson.map((json) => Map<String, dynamic>.from(json)).toList();
+      return devicesJson
+          .map((json) => Map<String, dynamic>.from(json))
+          .toList();
     } else {
-      throw Exception(response['detail']?['message_ar'] ?? 'فشل جلب الأجهزة المقترنة');
+      throw Exception(
+        response['detail']?['message_ar'] ?? 'فشل جلب الأجهزة المقترنة',
+      );
     }
   }
 
   /// P3-1/Nearby: Unpair a device
   Future<void> unpairDevice(int pairingId) async {
     final response = await _apiClient.delete('/api/devices/unpair/$pairingId');
-    
+
     if (response['success'] != true) {
-      throw Exception(response['detail']?['message_ar'] ?? 'فشل إلغاء الاقتران');
+      throw Exception(
+        response['detail']?['message_ar'] ?? 'فشل إلغاء الاقتران',
+      );
     }
   }
 
@@ -1093,7 +1178,9 @@ class LibraryRepository {
   /// P0-5 FIX: Prevents stale sync actions from blocking the queue
   Future<void> _clearOrphanedPendingAction(int actionId, int itemId) async {
     if (kDebugMode) {
-      print('LibraryRepository: Clearing orphaned pending action $actionId for item $itemId');
+      print(
+        'LibraryRepository: Clearing orphaned pending action $actionId for item $itemId',
+      );
     }
     await _db.removePendingAction(actionId);
     // Also remove from local cache if it exists
@@ -1106,12 +1193,12 @@ class LibraryRepository {
   /// when update actions reference a temp ID that no longer exists
   Future<void> _updatePendingActionsForTempId(int tempId, int realId) async {
     final pendingActions = await _db.getPendingActions();
-    
+
     for (var action in pendingActions) {
       if (action['action_type'] == 'update') {
         final payload = jsonDecode(action['payload'] as String);
         final id = payload['id'] as int?;
-        
+
         if (id == tempId) {
           // Update the payload with the real server ID
           payload['id'] = realId;
@@ -1122,7 +1209,9 @@ class LibraryRepository {
             payload: payload,
           );
           if (kDebugMode) {
-            print('LibraryRepository: Updated pending update action from temp ID $tempId to real ID $realId');
+            print(
+              'LibraryRepository: Updated pending update action from temp ID $tempId to real ID $realId',
+            );
           }
         }
       }
@@ -1154,9 +1243,7 @@ class LibraryRepository {
         return [];
       }
 
-      final response = await _apiClient.get(
-        '${Endpoints.libraryItems}trash',
-      );
+      final response = await _apiClient.get('${Endpoints.libraryItems}trash');
 
       if (response['success'] == true) {
         final List itemsJson = response['items'] ?? [];
@@ -1179,7 +1266,9 @@ class LibraryRepository {
       );
 
       if (response['success'] != true) {
-        throw Exception(response['detail']?['message_ar'] ?? 'فشل الاستعادة من سلة المهملات');
+        throw Exception(
+          response['detail']?['message_ar'] ?? 'فشل الاستعادة من سلة المهملات',
+        );
       }
     } catch (e) {
       debugPrint('[LibraryRepository] Failed to restore from trash: $e');
@@ -1194,7 +1283,9 @@ class LibraryRepository {
       );
 
       if (response['success'] != true) {
-        throw Exception(response['detail']?['message_ar'] ?? 'فشل الحذف النهائي');
+        throw Exception(
+          response['detail']?['message_ar'] ?? 'فشل الحذف النهائي',
+        );
       }
     } catch (e) {
       debugPrint('[LibraryRepository] Failed to delete permanently: $e');
@@ -1209,7 +1300,9 @@ class LibraryRepository {
       );
 
       if (response['success'] != true) {
-        throw Exception(response['detail']?['message_ar'] ?? 'فشل إفراغ سلة المهملات');
+        throw Exception(
+          response['detail']?['message_ar'] ?? 'فشل إفراغ سلة المهملات',
+        );
       }
     } catch (e) {
       debugPrint('[LibraryRepository] Failed to empty trash: $e');
@@ -1226,7 +1319,9 @@ class LibraryRepository {
 
       if (response['success'] == true) {
         final List versionsJson = response['versions'] ?? [];
-        return versionsJson.map((json) => Map<String, dynamic>.from(json)).toList();
+        return versionsJson
+            .map((json) => Map<String, dynamic>.from(json))
+            .toList();
       }
       return [];
     } catch (e) {
@@ -1242,7 +1337,9 @@ class LibraryRepository {
       );
 
       if (response['success'] != true) {
-        throw Exception(response['detail']?['message_ar'] ?? 'فشل استعادة الإصدار');
+        throw Exception(
+          response['detail']?['message_ar'] ?? 'فشل استعادة الإصدار',
+        );
       }
     } catch (e) {
       debugPrint('[LibraryRepository] Failed to restore version: $e');

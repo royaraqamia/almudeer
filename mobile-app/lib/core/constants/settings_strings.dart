@@ -35,4 +35,21 @@ class SettingsStrings {
   static const String uploadError = 'فشل رفع بعض الملفات';
   static const String pickFileError = 'فشل اختيار الملف: @error';
   static const String addDocError = 'فشل إضافة المستند';
+
+  // Subscription Screen
+  static const String subscriptionSystem = 'نظام الاشتراك';
+  static const String activeSubscription = 'اشتراك نشط';
+  static const String expiredSubscription = 'انتهى الاشتراك';
+  static const String expiresOn = 'ينتهي في';
+  static const String daysRemainingLabel = 'متبقي @days يوم';
+  static const String subscriptionProgress = 'تقدم الاشتراك: @percent٪';
+  static const String back = 'رجوع';
+  static const String activeSubscriptionSemantics = 'اشتراك نشط';
+  static const String expiredSubscriptionSemantics = 'انتهى الاشتراك';
+  static const String daysRemainingSemantics = '@days يوم متبقي';
+  static const String subscriptionProgressSemantics = 'تقدم الاشتراك: @percent٪';
+  static const String loadingError = 'حدث خطأ أثناء تحميل البيانات';
+  static const String retry = 'إعادة المحاولة';
+  static const String subscriptionActive = 'اشتراكك نشط';
+  static const String subscribeNow = 'اشترك الآن';
 }

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/constants/colors.dart';
 import '../../../../core/constants/dimensions.dart';
 import '../../../../core/constants/animations.dart';
+import '../../../../core/constants/settings_strings.dart';
 import '../../../providers/auth_provider.dart';
 
 class SubscriptionPlansSection extends StatefulWidget {
@@ -20,6 +21,9 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
   bool isYearly = true;
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
+  
+  // Loading state for subscription action
+  bool _isLoading = false;
 
   @override
   void initState() {
@@ -443,17 +447,13 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            onTap: isSubscribed
-                ? null
-                : () {
-                    // Handle subscription action
-                  },
+            onTap: isSubscribed ? null : _handleSubscribe,
             borderRadius: BorderRadius.circular(AppDimensions.radiusButton),
             child: Center(
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  if (!isSubscribed) ...[
+                  if (!isSubscribed && !_isLoading) ...[
                     const Icon(
                       SolarLinearIcons.wallet,
                       size: 20,
@@ -461,8 +461,21 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
                     ),
                     const SizedBox(width: 8),
                   ],
+                  if (_isLoading) ...[
+                    const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
                   Text(
-                    isSubscribed ? 'اشتراكك نشط' : 'اشترك الآن',
+                    isSubscribed
+                        ? SettingsStrings.subscriptionActive
+                        : SettingsStrings.subscribeNow,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 16,
@@ -477,5 +490,56 @@ class _SubscriptionPlansSectionState extends State<SubscriptionPlansSection>
         ),
       ),
     );
+  }
+
+  /// Handle subscription action
+  Future<void> _handleSubscribe() async {
+    setState(() => _isLoading = true);
+
+    try {
+      // For now, just simulate a loading state
+      await Future.delayed(const Duration(seconds: 2));
+
+      if (!mounted) return;
+
+      // Example: Navigate to payment screen or show payment options dialog
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isYearly 
+                ? 'سيتم توجيهك للدفع السنوي (90\$)' 
+                : 'سيتم توجيهك للدفع الشهري (10\$/شهر)'),
+            backgroundColor: AppColors.primary,
+            behavior: SnackBarBehavior.floating,
+            shape: SmoothRectangleBorder(
+              borderRadius: SmoothBorderRadius(
+                cornerRadius: AppDimensions.radiusMedium,
+                cornerSmoothing: 1.0,
+              ),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('حدث خطأ: $e'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: SmoothRectangleBorder(
+            borderRadius: SmoothBorderRadius(
+              cornerRadius: AppDimensions.radiusMedium,
+              cornerSmoothing: 1.0,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 }

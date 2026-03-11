@@ -37,11 +37,11 @@ class _VersionHistoryScreenState extends State<VersionHistoryScreen> {
 
   Future<void> _loadVersions() async {
     setState(() => _isLoading = true);
-    
+
     try {
       final provider = context.read<LibraryProvider>();
       final versions = await provider.getItemVersions(widget.item.id);
-      
+
       setState(() {
         _versions = versions;
         _isLoading = false;
@@ -61,7 +61,7 @@ class _VersionHistoryScreenState extends State<VersionHistoryScreen> {
 
   Future<void> _restoreVersion(int versionId, int versionNumber) async {
     if (!mounted) return;
-    
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -150,15 +150,41 @@ class _VersionHistoryScreenState extends State<VersionHistoryScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _versions.isEmpty
-              ? _buildEmptyState(theme)
-              : _buildVersionsList(theme),
+          ? _buildEmptyState(theme)
+          : _buildVersionsList(theme),
     );
   }
 
   Widget _buildEmptyState(ThemeData theme) {
-    return EmptyStateWidget(
-      icon: SolarLinearIcons.history,
-      iconColor: theme.colorScheme.primary,
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppDimensions.paddingLarge),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            EmptyStateWidget(
+              icon: SolarLinearIcons.history,
+              iconColor: theme.colorScheme.primary,
+            ),
+            const SizedBox(height: AppDimensions.spacing24),
+            Text(
+              'لا يوجد سجل إصدارات',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppDimensions.spacing8),
+            Text(
+              'سيظهر هنا سجل التعديلات عند تحرير العنصر',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -177,7 +203,7 @@ class _VersionHistoryScreenState extends State<VersionHistoryScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
             side: isCurrentVersion
-                ? BorderSide(color: AppColors.primary, width: 2)
+                ? const BorderSide(color: AppColors.primary, width: 2)
                 : BorderSide.none,
           ),
           child: InkWell(
@@ -202,7 +228,9 @@ class _VersionHistoryScreenState extends State<VersionHistoryScreen> {
                           color: isCurrentVersion
                               ? AppColors.primary
                               : theme.colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
+                          borderRadius: BorderRadius.circular(
+                            AppDimensions.radiusSmall,
+                          ),
                         ),
                         child: Text(
                           'v${version['version']}',
@@ -215,9 +243,9 @@ class _VersionHistoryScreenState extends State<VersionHistoryScreen> {
                           ),
                         ),
                       ),
-                      
+
                       const SizedBox(width: AppDimensions.spacing12),
-                      
+
                       // Timestamp
                       Expanded(
                         child: Text(
@@ -227,7 +255,7 @@ class _VersionHistoryScreenState extends State<VersionHistoryScreen> {
                           ),
                         ),
                       ),
-                      
+
                       // Restore button
                       if (!isCurrentVersion && !isRestoring)
                         IconButton(
@@ -238,14 +266,14 @@ class _VersionHistoryScreenState extends State<VersionHistoryScreen> {
                             version['version'],
                           ),
                         ),
-                      
+
                       if (isRestoring)
                         const SizedBox(
                           width: 20,
                           height: 20,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         ),
-                      
+
                       if (isCurrentVersion)
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -254,7 +282,9 @@ class _VersionHistoryScreenState extends State<VersionHistoryScreen> {
                           ),
                           decoration: BoxDecoration(
                             color: AppColors.success.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
+                            borderRadius: BorderRadius.circular(
+                              AppDimensions.radiusSmall,
+                            ),
                           ),
                           child: const Text(
                             'حالي',
@@ -267,7 +297,7 @@ class _VersionHistoryScreenState extends State<VersionHistoryScreen> {
                         ),
                     ],
                   ),
-                  
+
                   if (version['change_summary'] != null) ...[
                     const SizedBox(height: AppDimensions.spacing8),
                     Text(
@@ -277,7 +307,7 @@ class _VersionHistoryScreenState extends State<VersionHistoryScreen> {
                       ),
                     ),
                   ],
-                  
+
                   if (version['created_by'] != null) ...[
                     const SizedBox(height: AppDimensions.spacing4),
                     Row(

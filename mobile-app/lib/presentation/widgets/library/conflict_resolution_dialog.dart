@@ -118,6 +118,7 @@ class ConflictResolutionDialog extends StatelessWidget {
             version: localItem.version?.toString() ?? '1',
             updatedAt: localItem.updatedAt,
             isLocal: true,
+            l10n: l10n,
           ),
 
           const SizedBox(height: AppDimensions.spacing12),
@@ -129,6 +130,7 @@ class ConflictResolutionDialog extends StatelessWidget {
             version: serverItem.version?.toString() ?? '1',
             updatedAt: serverItem.updatedAt,
             isLocal: false,
+            l10n: l10n,
           ),
         ],
       ),
@@ -141,13 +143,14 @@ class ConflictResolutionDialog extends StatelessWidget {
     required String version,
     required DateTime? updatedAt,
     required bool isLocal,
+    required LibraryLocalizations l10n,
   }) {
     final theme = Theme.of(context);
 
     return Row(
       children: [
         Icon(
-          isLocal ? SolarLinearIcons.device : SolarLinearIcons.cloud,
+          isLocal ? SolarLinearIcons.smartphone : SolarLinearIcons.cloud,
           size: AppDimensions.iconMedium,
           color: isLocal ? AppColors.primary : theme.colorScheme.secondary,
         ),
@@ -205,7 +208,7 @@ class ConflictResolutionDialog extends StatelessWidget {
               Navigator.pop(context);
               onKeepLocal();
             },
-            icon: const Icon(SolarLinearIcons.device),
+            icon: const Icon(SolarLinearIcons.smartphone),
             label: Text(l10n.keepLocalVersion),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,

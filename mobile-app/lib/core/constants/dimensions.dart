@@ -82,6 +82,14 @@ class AppDimensions {
   static const double avatarLarge = 48.0;
   static const double avatarXLarge = 64.0;
 
+  // ─────────────────────────────────────────────────────────────────
+  // Subscription Screen Dimensions
+  // ─────────────────────────────────────────────────────────────────
+  static const double statusIconSize = 52.0;
+  static const double circularProgressSize = 72.0;
+  static const double progressStrokeWidth = 6.0;
+  static const double subscriptionCardMinHeight = 180.0;
+
   // Card
   static const double cardElevation = 2.0;
   static const double cardBorderWidth = 1.0;
