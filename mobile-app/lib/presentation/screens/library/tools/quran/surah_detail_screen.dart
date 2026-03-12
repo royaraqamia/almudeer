@@ -503,6 +503,40 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
                                   ],
                                 ),
                               ),
+                            ] else if (quranProvider.showTafsir &&
+                                quranProvider.selectedTafsir == 'local' &&
+                                quranProvider.isTafsirLoadFailed) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.orange.withValues(alpha: 0.5),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.warning_amber_rounded,
+                                      color: Colors.orange,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'تعذر تحميل التفسير - تحقق من اتصال الإنترنت',
+                                        style: TextStyle(
+                                          fontFamily: 'IBM Plex Sans Arabic',
+                                          fontSize: 12,
+                                          color: theme.textTheme.bodyMedium?.color,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ],
                             const SizedBox(height: 12),
                             Divider(

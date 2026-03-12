@@ -327,7 +327,24 @@ class AthkarProgressUpdate(BaseModel):
         return v
 
 
-# ============ Preferences Routes ============
+class QuranProgressUpdate(BaseModel):
+    """Schema for updating Quran reading progress with validation"""
+    last_surah: int = Field(..., ge=1, le=114, description="Surah number (1-114)")
+    last_verse: int = Field(..., ge=1, description="Verse number (positive integer)")
+
+    @field_validator('last_verse')
+    @classmethod
+    def validate_verse(cls, v, info):
+        """Validate verse number doesn't exceed max verses for the surah"""
+        from constants.quran_data import SURAHS_VERSE_COUNT
+        data = info.data
+        if 'last_surah' in data:
+            surah = data['last_surah']
+            max_verses = SURAHS_VERSE_COUNT.get(surah, 286)
+            if v > max_verses:
+                raise ValueError(f'Verse {v} exceeds maximum {max_verses} for surah {surah}')
+        return v
+
 
 # ============ Preferences Routes ============
 
@@ -356,10 +373,10 @@ async def get_quran_progress(license: dict = Depends(get_license_from_header)):
 
 
 @router.patch("/quran/progress")
-@limiter.limit("30/minute")  # Rate limiting to prevent database spam
+@limiter.limit("30/minute")
 async def update_quran_progress(
     request: Request,
-    data: dict,
+    data: QuranProgressUpdate,
     license: dict = Depends(get_license_from_header)
 ):
     """
@@ -367,31 +384,28 @@ async def update_quran_progress(
 
     Expects JSON body with:
     - last_surah: integer (1-114)
-    - last_verse: integer (positive)
+    - last_verse: integer (positive, max varies by surah)
     """
     import json
-    from routes.sync import _validate_quran_progress
-
-    # Validate the progress data
-    validation_error = _validate_quran_progress(data)
-    if validation_error:
-        # Log validation failure for monitoring
-        logger.warning(
-            f"Quran progress validation failed for license {license['license_id']}: {validation_error}",
-            extra={"data": data, "license_id": license["license_id"]}
-        )
-        # Bilingual error message (Arabic/English)
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": validation_error,
-                "error_en": _translate_validation_error(validation_error)
-            }
-        )
-
+    
+    progress_data = data.model_dump()
+    
+    # Check current progress to avoid duplicate writes
+    prefs = await get_preferences(license["license_id"])
+    current_progress = prefs.get('quran_progress')
+    
+    if current_progress:
+        try:
+            current_data = json.loads(current_progress) if isinstance(current_progress, str) else current_progress
+            if (current_data.get('last_surah') == progress_data['last_surah'] and 
+                current_data.get('last_verse') == progress_data['last_verse']):
+                return {"success": True, "message": "تم حفظ تقدم القراءة", "unchanged": True}
+        except (json.JSONDecodeError, TypeError, KeyError):
+            pass  # Proceed with update if current data is invalid
+    
     await update_preferences(
         license["license_id"],
-        quran_progress=json.dumps(data)
+        quran_progress=json.dumps(progress_data)
     )
     return {"success": True, "message": "تم حفظ تقدم القراءة"}
 

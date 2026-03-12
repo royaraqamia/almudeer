@@ -157,4 +157,7 @@ class Endpoints {
 
   // Sync
   static const String syncBatch = '/api/v1/sync/batch';
+
+  // Calculator History
+  static const String calculatorHistory = '/api/calculator/history';
 }

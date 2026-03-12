@@ -315,7 +315,7 @@ async def save_fcm_token(
             error_str = str(e).lower()
             if any(msg in error_str for msg in ["duplicate", "unique", "already exists"]):
                 logger.warning(f"FCM: Collision detected for token {token[:20]}..., resolving via forced update")
-                
+
                 # Forced cleanup: Find the record that HAS the token and update it (or delete it if it's not the one we want)
                 row = await fetch_one(db, "SELECT id FROM fcm_tokens WHERE token = ?", [token])
                 if row:
@@ -325,9 +325,14 @@ async def save_fcm_token(
                         [license_id, platform, device_id, row["id"]]
                     )
                     await commit_db(db)
+                    logger.info(f"FCM: Token collision resolved, updated existing record {row['id']}")
                     return row["id"]
-            
-            # Log and re-raise other errors
+                
+                # If no row found (race condition - another request deleted it), return success anyway
+                logger.info(f"FCM: Token collision resolved (no existing record found)")
+                return 0
+
+            # Log and re-raise other errors (non-duplicate)
             logger.error(f"FCM Registration Critical Error: {e}")
             raise e
 

@@ -530,7 +530,7 @@ class AudioPlayerProvider extends ChangeNotifier {
 
       _handler!.mediaItem.add(
         MediaItem(
-          id: 'quran_${DateTime.now().millisecondsSinceEpoch}',
+          id: 'quran_$surahName',  // Consistent ID based on surah name
           title: surahName,
           album: 'القرآن الكريم',
           artist: 'تلاوة',

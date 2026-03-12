@@ -33,6 +33,7 @@ class QuranProvider extends ChangeNotifier {
   Map<String, String> _remoteTafsirCache = {};
   final Set<String> _pendingTafsirRequests = {}; // Track verses being fetched
   bool _tafsirLoaded = false;
+  bool _tafsirLoadFailed = false;  // Track if tafsir failed to load
 
   static const String _remoteTafsirKey = 'quran_remote_tafsir_cache';
   static const int _maxRemoteTafsirCacheSize = 200; // LRU cache limit to prevent storage bloat
@@ -46,6 +47,8 @@ class QuranProvider extends ChangeNotifier {
   String get selectedTafsir => _selectedTafsir;
   bool get isInitialized => _isInitialized;
   bool get isLoadingTafsir => _isLoadingTafsir;
+  bool get isTafsirAvailable => _tafsirLoaded && !_tafsirLoadFailed;
+  bool get isTafsirLoadFailed => _tafsirLoadFailed;
 
   /// Check if a specific verse's tafsir is being fetched
   bool isTafsirPending(int surah, int verse) {
@@ -135,7 +138,7 @@ class QuranProvider extends ChangeNotifier {
   }
 
   Future<void> loadTafsir() async {
-    if (_tafsirLoaded) return;
+    if (_tafsirLoaded || _tafsirLoadFailed) return;
     _isLoadingTafsir = true;
     notifyListeners();
 
@@ -153,14 +156,18 @@ class QuranProvider extends ChangeNotifier {
       // Parse JSON in a separate isolate to prevent UI jank
       _tafsirData = await compute(_parseTafsirJson, jsonString);
       
+      // Check if the loaded data is valid (not empty)
+      if (_tafsirData.isEmpty || !_tafsirData.containsKey('tafsir')) {
+        throw Exception('Invalid tafsir data format');
+      }
+      
       _tafsirLoaded = true;
       stopwatch.stop();
       debugPrint('Full Ibn Kathir tafsir loaded successfully in ${stopwatch.elapsedMilliseconds}ms');
     } catch (e) {
       debugPrint('Error loading full Ibn Kathir tafsir: $e');
-      // No fallback - the full version is the only supported format now
-      _tafsirLoaded = true; // Mark as loaded to prevent retry loops
-      _tafsirData = {}; // Empty data means tafsir unavailable
+      _tafsirLoadFailed = true;
+      _tafsirData = {};
     } finally {
       _isLoadingTafsir = false;
       notifyListeners();
@@ -206,9 +213,16 @@ class QuranProvider extends ChangeNotifier {
 
   /// Call this method outside of build phase to load tafsir data
   Future<void> ensureTafsirLoaded() async {
-    if (!_tafsirLoaded && !_isLoadingTafsir) {
+    if ((!_tafsirLoaded || _tafsirData.isEmpty) && !_isLoadingTafsir) {
       await loadTafsir();
     }
+  }
+
+  /// Retry loading tafsir if it previously failed
+  Future<void> retryLoadTafsir() async {
+    if (!_tafsirLoadFailed) return;
+    _tafsirLoadFailed = false;
+    await loadTafsir();
   }
 
   /// Call this method outside of build phase to fetch remote tafsir
@@ -320,12 +334,16 @@ class QuranProvider extends ChangeNotifier {
     }
   }
 
-  /// Maximum number of verses in any surah (Al-Baqarah)
-  static const int _maxVersesInSurah = 286;
+  /// Get maximum verses for a given surah (uses quran library)
+  int _getMaxVersesForSurah(int surah) {
+    return quran.getVerseCount(surah);
+  }
 
   /// Validate surah and verse numbers
   bool _isValidProgress(int surah, int verse) {
-    return surah >= 1 && surah <= 114 && verse >= 1 && verse <= _maxVersesInSurah;
+    if (surah < 1 || surah > 114) return false;
+    final maxVerses = _getMaxVersesForSurah(surah);
+    return verse >= 1 && verse <= maxVerses;
   }
 
   Future<void> saveLastRead(int surah, int verse) async {
@@ -374,7 +392,7 @@ class QuranProvider extends ChangeNotifier {
     if (!_isValidProgress(surah, verse)) {
       debugPrint('⚠️ Invalid Quran progress on dispose - possible data corruption:');
       debugPrint('   Surah: $surah (expected: 1-114)');
-      debugPrint('   Verse: $verse (expected: 1-$_maxVersesInSurah)');
+      debugPrint('   Verse: $verse (expected: 1-${_getMaxVersesForSurah(surah)})');
       debugPrint('   Action: Skipping save to prevent corruption');
       return;
     }

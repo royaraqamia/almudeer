@@ -3,6 +3,7 @@ Al-Mudeer - Email (Gmail) Routes
 Gmail OAuth 2.0 configuration and message fetching
 """
 
+import logging
 import os
 import html
 from datetime import datetime, timedelta
@@ -19,6 +20,8 @@ from models import (
 )
 from services import GmailOAuthService, GmailAPIService, EMAIL_PROVIDERS
 from dependencies import get_license_from_header
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/integrations/email", tags=["Email"])
 

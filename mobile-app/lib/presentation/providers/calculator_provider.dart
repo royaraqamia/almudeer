@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:math_expressions/math_expressions.dart';
 import '../../data/repositories/settings_repository.dart';
-import '../../data/models/user_preferences.dart';
 import '../../core/utils/logger.dart';
 
 /// Calculator provider with user-specific history sync and robust error handling.
@@ -191,7 +190,9 @@ class CalculatorProvider extends ChangeNotifier {
   /// Resets the calculator state (for logout or account switch)
   ///
   /// CRITICAL: Also clears backend history to prevent data leakage
-  void reset() async {
+  Future<void> reset() async {
+    final userId = _userId;
+    
     _expression = '';
     _result = '';
     _history = [];
@@ -201,8 +202,15 @@ class CalculatorProvider extends ChangeNotifier {
     _syncingUserId = null;
     notifyListeners();
 
-    // Clear from backend as well (fire and forget)
-    await _clearBackendHistory();
+    // Clear from backend if there was a user
+    if (userId != null && userId.isNotEmpty) {
+      try {
+        await _settingsRepository.clearCalculatorHistory();
+        logger.info('Calculator history cleared from backend');
+      } catch (e) {
+        debugPrint('Calculator: Failed to clear backend history during reset: $e');
+      }
+    }
   }
 
   void append(String value) {
@@ -304,6 +312,30 @@ class CalculatorProvider extends ChangeNotifier {
     return null; // Valid
   }
 
+  /// Validates percentage usage in expression
+  /// Returns error message if invalid, null if valid
+  String? _validatePercentage(String expr) {
+    // Check for consecutive % (e.g., 5%%)
+    final doublePercent = RegExp(r'%\s*%');
+    if (doublePercent.hasMatch(expr)) {
+      return 'صيغة غير صحيحة'; // Invalid format
+    }
+
+    // Check for % followed by another operator (e.g., 5% % + 3)
+    final percentFollowedByOp = RegExp(r'%\s*[+\-*/×÷^]');
+    if (percentFollowedByOp.hasMatch(expr)) {
+      return 'صيغة غير صحيحة'; // Invalid format
+    }
+
+    // Check for % at the end without operator before it (standalone %)
+    final trailingPercent = RegExp(r'[+\-*/×÷^]\s*%(?!\d)');
+    if (trailingPercent.hasMatch(expr)) {
+      return 'صيغة غير صحيحة'; // Invalid format
+    }
+
+    return null; // Valid
+  }
+
   Future<void> evaluate() async {
     if (_expression.isEmpty) return;
     if (isOperator(_expression[_expression.length - 1])) return;
@@ -320,6 +352,15 @@ class CalculatorProvider extends ChangeNotifier {
     final domainError = _validateScientificFunctions(_expression);
     if (domainError != null) {
       _result = domainError;
+      _expression = '';
+      notifyListeners();
+      return;
+    }
+
+    // Validate percentage usage
+    final percentError = _validatePercentage(_expression);
+    if (percentError != null) {
+      _result = percentError;
       _expression = '';
       notifyListeners();
       return;
@@ -387,7 +428,10 @@ class CalculatorProvider extends ChangeNotifier {
       }
 
       await _addToHistory('$_expression = $_result');
-      _expression = _result;
+      // Don't set error messages as new expression - only set valid numeric results
+      // If result is a valid number, allow chaining; otherwise clear
+      final isNumericResult = double.tryParse(_result) != null;
+      _expression = isNumericResult ? _result : '';
       _result = '';
       notifyListeners();
     } catch (e) {
@@ -420,6 +464,13 @@ class CalculatorProvider extends ChangeNotifier {
     // Skip preview for scientific functions with domain errors
     // (will show error on evaluate instead)
     if (_validateScientificFunctions(_expression) != null) {
+      _result = '';
+      return;
+    }
+
+    // Skip preview for invalid percentage usage
+    // (will show error on evaluate instead)
+    if (_validatePercentage(_expression) != null) {
       _result = '';
       return;
     }
@@ -584,51 +635,17 @@ class CalculatorProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // CRITICAL: Send full structured history with timestamps preserved
-      // Don't strip timestamps like the old code did!
-      final structuredHistory = _history
-          .map(
-            (e) => {
-              'entry': e['entry'] as String,
-              'timestamp': e['timestamp'] as String,
-            },
-          )
-          .toList();
-
-      // Use the new dedicated calculator history endpoint
-      // Fallback to preferences endpoint if needed
-      final prefs = await _settingsRepository.getLocalPreferences();
-      if (prefs != null) {
-        await _settingsRepository.updatePreferences(
-          prefs.copyWith(
-            calculatorHistory: structuredHistory
-                .map((e) => jsonEncode(e))
-                .toList(),
-          ),
-        );
-        debugPrint(
-          'Calculator: Synced ${structuredHistory.length} entries to backend (with existing prefs)',
-        );
-        _syncStatus = SyncStatus.synced;
-      } else {
-        // No existing preferences, create minimal update with just calculator history
-        await _settingsRepository.updatePreferences(
-          UserPreferences(
-            calculatorHistory: structuredHistory
-                .map((e) => jsonEncode(e))
-                .toList(),
-          ),
-        );
-        debugPrint(
-          'Calculator: Synced ${structuredHistory.length} entries to backend (new prefs)',
-        );
-        _syncStatus = SyncStatus.synced;
-      }
+      // Use the dedicated calculator history endpoint
+      await _settingsRepository.updateCalculatorHistory(_history);
+      debugPrint(
+        'Calculator: Synced ${_history.length} entries to backend',
+      );
 
       _lastSyncTime = DateTime.now();
+      _syncStatus = SyncStatus.synced;
       logger.info(
         'Calculator history synced successfully',
-        data: {'entries': structuredHistory.length},
+        data: {'entries': _history.length},
       );
     } catch (e) {
       debugPrint('Calculator sync to backend failed: $e');
@@ -668,7 +685,8 @@ class CalculatorProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final prefs = await _settingsRepository.getPreferences();
+      // Use dedicated calculator history endpoint
+      final backendHistory = await _settingsRepository.getCalculatorHistory();
 
       // CRITICAL: Check if userId changed during the async call
       if (originalUserId != _userId) {
@@ -684,46 +702,26 @@ class CalculatorProvider extends ChangeNotifier {
       }
 
       debugPrint(
-        'Calculator: Backend returned ${prefs.calculatorHistory.length} history entries',
+        'Calculator: Backend returned ${backendHistory.length} history entries',
       );
 
       // Only merge if backend has history
       // If backend is empty, keep local history (it might be new unsynced data)
-      if (prefs.calculatorHistory.isNotEmpty) {
+      if (backendHistory.isNotEmpty) {
         // CRITICAL: Preserve timestamps from backend
         // Merge: prefer backend as source of truth, but add any local-only entries
         final combined = <Map<String, dynamic>>[];
         final seenEntries = <String>{};
 
         // Add backend entries first (source of truth) - preserve timestamps!
-        for (final entryStr in prefs.calculatorHistory) {
-          // Entry might be JSON-encoded structured data or plain string
-          String entryContent;
-          String timestamp;
-
-          try {
-            final decoded = jsonDecode(entryStr);
-            if (decoded is Map<String, dynamic>) {
-              // Structured format with timestamp - preserve it!
-              entryContent = decoded['entry'] as String? ?? '';
-              timestamp =
-                  decoded['timestamp'] as String? ??
-                  DateTime.now().toIso8601String();
-            } else {
-              // Plain string
-              entryContent = entryStr;
-              timestamp = DateTime.now().toIso8601String();
-            }
-          } catch (e) {
-            // Invalid JSON, treat as plain string
-            entryContent = entryStr;
-            timestamp = DateTime.now().toIso8601String();
-          }
+        for (final entry in backendHistory) {
+          final entryContent = entry['entry'] as String? ?? '';
+          final timestamp = entry['timestamp'] as String? ?? DateTime.now().toIso8601String();
 
           if (entryContent.isNotEmpty && seenEntries.add(entryContent)) {
             combined.add({
               'entry': entryContent,
-              'timestamp': timestamp, // Preserve original timestamp!
+              'timestamp': timestamp,
             });
           }
         }
@@ -774,13 +772,8 @@ class CalculatorProvider extends ChangeNotifier {
     try {
       debugPrint('Calculator: Clearing backend history for userId: $_userId');
 
-      // Clear via preferences update
-      final prefs = await _settingsRepository.getLocalPreferences();
-      if (prefs != null) {
-        await _settingsRepository.updatePreferences(
-          prefs.copyWith(calculatorHistory: []),
-        );
-      }
+      // Use dedicated calculator history endpoint
+      await _settingsRepository.clearCalculatorHistory();
 
       logger.info('Calculator history cleared from backend');
     } catch (e) {

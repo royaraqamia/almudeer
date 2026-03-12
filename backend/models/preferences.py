@@ -4,11 +4,43 @@ Handles user settings, tone, language, and notification preferences.
 """
 
 import json
+import re
 from typing import Optional, List, Union
 from db_helper import get_db, execute_sql, fetch_one, commit_db, DB_TYPE
 from logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+def sanitize_calculator_entry(entry: dict) -> dict:
+    """
+    Sanitize a calculator history entry to prevent XSS/injection.
+    Each entry should have 'entry' and optionally 'timestamp' keys.
+    """
+    if not isinstance(entry, dict):
+        return {'entry': '', 'timestamp': ''}
+    
+    entry_text = entry.get('entry', '')
+    timestamp = entry.get('timestamp', '')
+    
+    # Validate entry is a string
+    if not isinstance(entry_text, str):
+        entry_text = str(entry_text) if entry_text else ''
+    
+    if not isinstance(timestamp, str):
+        timestamp = str(timestamp) if timestamp else ''
+    
+    # Strip HTML-like tags
+    entry_text = re.sub(r'<[^>]*>', '', entry_text)
+    # Remove control characters except newline/tab
+    entry_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', entry_text)
+    # Limit length to 500 characters
+    entry_text = entry_text[:500]
+    
+    return {
+        'entry': entry_text,
+        'timestamp': timestamp
+    }
 
 async def get_preferences(license_id: int) -> dict:
     """
@@ -133,11 +165,50 @@ async def update_preferences(license_id: int, **kwargs) -> bool:
         
     # Pre-process updates: Serialize lists to JSON
     for k, v in updates.items():
-        if k in ('preferred_languages', 'calculator_history'):
+        if k == 'calculator_history':
             if isinstance(v, list):
-                # For calculator_history, entries might be dicts with timestamps
+                # Sanitize each entry to prevent XSS/injection
+                sanitized_entries = []
+                for entry in v:
+                    if isinstance(entry, dict):
+                        sanitized = sanitize_calculator_entry(entry)
+                        sanitized_entries.append(sanitized)
+                    elif isinstance(entry, str):
+                        # Handle legacy string format
+                        sanitized_entries.append({
+                            'entry': entry[:500],  # Limit length
+                            'timestamp': ''
+                        })
+                # Limit to 50 entries max
+                sanitized_entries = sanitized_entries[:50]
+                updates[k] = json.dumps(sanitized_entries)
+                logger.info(f"Serialized and sanitized {k}: {len(sanitized_entries)} entries")
+            elif isinstance(v, str) and v.strip().startswith('['):
+                # Already JSON string - parse, sanitize, and re-serialize
+                try:
+                    parsed = json.loads(v)
+                    if isinstance(parsed, list):
+                        sanitized_entries = []
+                        for entry in parsed:
+                            if isinstance(entry, dict):
+                                sanitized = sanitize_calculator_entry(entry)
+                                sanitized_entries.append(sanitized)
+                            elif isinstance(entry, str):
+                                sanitized_entries.append({
+                                    'entry': entry[:500],
+                                    'timestamp': ''
+                                })
+                        sanitized_entries = sanitized_entries[:50]
+                        updates[k] = json.dumps(sanitized_entries)
+                        logger.info(f"Parsed, sanitized, and re-serialized {k}: {len(sanitized_entries)} entries")
+                    else:
+                        updates[k] = json.dumps([])
+                except (json.JSONDecodeError, TypeError):
+                    updates[k] = json.dumps([])
+                    logger.warning(f"Invalid JSON in {k}, resetting to empty")
+        elif k == 'preferred_languages':
+            if isinstance(v, list):
                 # For preferred_languages, entries are strings
-                # Either way, serialize to JSON
                 updates[k] = json.dumps(v)
                 logger.info(f"Serialized {k} list to JSON: {updates[k][:100]}...")
             elif isinstance(v, str) and v.strip().startswith('['):

@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from dependencies import get_license_from_header
 from logging_config import get_logger
 from services.idempotency_service import get_idempotency_service, initialize_idempotency_service
+from constants.quran_data import SURAHS_VERSE_COUNT, SURAHS_NAMES_ARABIC
 
 logger = get_logger(__name__)
 
@@ -70,8 +71,6 @@ def _validate_quran_progress(data: dict) -> Optional[str]:
     Returns None if valid, or an error message string if invalid.
     Error messages are in Arabic for consistency with API responses.
     """
-    from constants.quran_data import SURAHS_VERSE_COUNT, SURAHS_NAMES_ARABIC
-
     if not isinstance(data, dict):
         return "تنسيق البيانات غير صالح: يجب أن يكون كائن JSON"
 

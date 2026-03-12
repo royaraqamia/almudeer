@@ -2985,14 +2985,13 @@ async def upsert_conversation_state(
 
     # FIX P0-1: Use distributed lock with retry queue to prevent race conditions
     # Instead of skipping when lock is held, queue for retry to ensure updates aren't lost
-    # FIX: Add logger import
     from logging_config import get_logger
     logger = get_logger(__name__)
-    
+
     if use_lock:
         from services.distributed_lock import DistributedLock
         from utils.redis_pool import get_redis_client
-        
+
         lock_key = f"conversation_state:{license_id}:{sender_contact}"
         lock = DistributedLock(lock_id=license_id, lock_name=lock_key)
 
@@ -3004,25 +3003,43 @@ async def upsert_conversation_state(
                 redis = await get_redis_client()
                 if redis:
                     retry_key = f"conversation_state_retry:{license_id}"
-                    # Add to retry queue with sender_contact and timestamp
-                    await redis.lpush(
+                    retry_data = {
+                        "sender_contact": sender_contact,
+                        "sender_name": sender_name,
+                        "channel": channel,
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "use_lock": use_lock,
+                        "retry_count": 0  # Track retry attempts
+                    }
+                    # Add to retry queue with exponential backoff priority
+                    # Use RPUSH for FIFO processing (oldest retries first)
+                    await redis.rpush(
                         retry_key,
-                        json.dumps({
-                            "sender_contact": sender_contact,
-                            "sender_name": sender_name,
-                            "channel": channel,
-                            "timestamp": datetime.utcnow().isoformat(),
-                            "use_lock": use_lock
-                        })
+                        json.dumps(retry_data)
                     )
-                    # Keep queue bounded - remove old entries
-                    await redis.ltrim(retry_key, 0, 99)
-                    logger.debug(f"Queued conversation state update for retry: {sender_contact}")
+                    # Keep queue bounded - remove oldest entries if too large
+                    queue_length = await redis.llen(retry_key)
+                    if queue_length > 100:
+                        # Remove oldest entries to prevent unbounded growth
+                        await redis.ltrim(retry_key, -100, -1)
+                        logger.warning(f"Conversation state retry queue exceeded 100 items, trimmed oldest for license {license_id}")
+                    logger.debug(f"Queued conversation state update for retry: {sender_contact} (queue length: {queue_length + 1})")
+                else:
+                    # Redis unavailable - log warning and proceed without lock
+                    logger.warning(f"Redis unavailable for conversation state retry queue, proceeding without lock: {sender_contact}")
                 return
             # Proceed with lock held
         except Exception as e:
-            logger.error(f"Error acquiring conversation lock: {e}")
+            logger.error(f"Error acquiring conversation lock: {e}", exc_info=True)
             # Continue without lock to avoid blocking (degraded but functional)
+            # But track this for monitoring
+            try:
+                redis = await get_redis_client()
+                if redis:
+                    await redis.incr(f"conversation_lock_failures:{license_id}")
+                    await redis.expire(f"conversation_lock_failures:{license_id}", 3600)  # 1 hour TTL
+            except:
+                pass  # Don't fail if monitoring also fails
     
     async with get_db() as db:
         # 1. Get Stats and Aliases
@@ -3164,38 +3181,62 @@ async def process_conversation_state_retry_queue(license_id: int, max_batch_size
     """
     P0-1 FIX: Process queued conversation state updates from retry queue.
     Called periodically by background workers to ensure no updates are lost.
-    
+
     Args:
         license_id: The license ID to process retries for
         max_batch_size: Maximum number of retries to process in one batch
-        
+
     Returns:
         Number of retries processed
     """
     from utils.redis_pool import get_redis_client
-    
+
     redis = await get_redis_client()
     if not redis:
         return 0
-    
+
     retry_key = f"conversation_state_retry:{license_id}"
     processed = 0
-    
+    requeued = 0
+
     try:
         for _ in range(max_batch_size):
-            # Get next retry from queue
-            retry_data = await redis.rpop(retry_key)
+            # Get next retry from queue (FIFO - oldest first)
+            retry_data = await redis.lpop(retry_key)
             if not retry_data:
                 break
-            
+
             data = json.loads(retry_data)
             sender_contact = data.get("sender_contact")
             sender_name = data.get("sender_name")
             channel = data.get("channel")
-            
-            if sender_contact:
+            retry_count = data.get("retry_count", 0)
+
+            if not sender_contact:
+                logger.warning(f"Invalid retry data missing sender_contact: {data}")
+                continue
+
+            # Exponential backoff: skip if too soon based on retry count
+            # retry_count 0: wait 0s, 1: wait 2s, 2: wait 4s, 3: wait 8s, max 30s
+            if retry_count > 0:
+                backoff_seconds = min(2 ** retry_count, 30)
+                timestamp_str = data.get("timestamp")
+                if timestamp_str:
+                    try:
+                        original_time = datetime.fromisoformat(timestamp_str)
+                        elapsed = (datetime.utcnow() - original_time).total_seconds()
+                        if elapsed < backoff_seconds:
+                            # Not ready yet - put back at the end of queue
+                            data["retry_count"] = retry_count
+                            await redis.rpush(retry_key, json.dumps(data))
+                            requeued += 1
+                            continue
+                    except Exception as e:
+                        logger.warning(f"Failed to parse retry timestamp: {e}")
+
+            try:
                 # Retry the update without lock to prevent infinite loop
-                # (if lock fails again, it will be re-queued)
+                # (if lock fails again, it will be re-queued with incremented retry_count)
                 await upsert_conversation_state(
                     license_id,
                     sender_contact,
@@ -3204,11 +3245,23 @@ async def process_conversation_state_retry_queue(license_id: int, max_batch_size
                     use_lock=False  # Don't re-acquire lock during retry processing
                 )
                 processed += 1
-                logger.debug(f"Processed conversation state retry: {sender_contact}")
-    
+                logger.debug(f"Processed conversation state retry: {sender_contact} (attempt {retry_count + 1})")
+            except Exception as e:
+                # Re-queue on failure with incremented retry count
+                if retry_count < 5:  # Max 5 retries
+                    data["retry_count"] = retry_count + 1
+                    data["last_error"] = str(e)
+                    await redis.rpush(retry_key, json.dumps(data))
+                    logger.warning(f"Retry failed for {sender_contact}, re-queuing (attempt {retry_count + 2}): {e}")
+                else:
+                    logger.error(f"Max retries exceeded for conversation state update: {sender_contact}, dropping from queue")
+
     except Exception as e:
-        logger.error(f"Error processing conversation state retry queue: {e}")
-    
+        logger.error(f"Error processing conversation state retry queue: {e}", exc_info=True)
+
+    if requeued > 0:
+        logger.debug(f"Re-queued {requeued} items due to backoff")
+
     return processed
 
 
