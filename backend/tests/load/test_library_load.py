@@ -26,12 +26,10 @@ class TestLibraryConcurrentUploads:
     """Load tests for library upload endpoint"""
 
     @pytest.fixture
-    async def auth_headers(self):
+    async def auth_headers(self, seeded_license):
         """Get authentication headers for testing"""
-        # This would need a test user setup
-        # For now, skip if no auth available
-        pytest.skip("Requires test user setup")
-        yield {}
+        # Use the seeded license from conftest
+        return {"X-License-Key": seeded_license}
 
     @pytest.fixture
     def test_file_content(self):
@@ -39,8 +37,8 @@ class TestLibraryConcurrentUploads:
         return b"x" * FILE_SIZE
 
     async def _upload_file(
-        self, 
-        session: aiohttp.ClientSession, 
+        self,
+        session: aiohttp.ClientSession,
         file_content: bytes,
         auth_headers: dict,
         base_url: str

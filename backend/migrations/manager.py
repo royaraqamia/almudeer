@@ -290,15 +290,25 @@ async def ensure_qr_scan_logs_columns():
 
     async with get_db() as db:
         if DB_TYPE == "postgresql":
-            # PostgreSQL: Use IF NOT EXISTS to avoid errors
+            # PostgreSQL: First check if table exists
             try:
+                row = await db.fetchrow("""
+                    SELECT 1 FROM information_schema.tables 
+                    WHERE table_schema = 'public' AND table_name = 'qr_scan_logs'
+                """)
+
+                if not row:
+                    logger.debug("qr_scan_logs table does not exist yet, skipping column check")
+                    return
+
+                # Table exists, check/add columns
                 await execute_sql(db, "ALTER TABLE qr_scan_logs ADD COLUMN IF NOT EXISTS latitude REAL")
                 await execute_sql(db, "ALTER TABLE qr_scan_logs ADD COLUMN IF NOT EXISTS longitude REAL")
                 await execute_sql(db, "ALTER TABLE qr_scan_logs ADD COLUMN IF NOT EXISTS app_version TEXT")
-                
+
                 # Create index for location-based analytics
                 await execute_sql(db, "CREATE INDEX IF NOT EXISTS idx_qr_scan_logs_location ON qr_scan_logs(latitude, longitude)")
-                
+
                 await commit_db(db)
                 logger.info("GPS tracking columns verified in qr_scan_logs")
             except Exception as e:
@@ -308,17 +318,17 @@ async def ensure_qr_scan_logs_columns():
             try:
                 result = await execute_sql(db, "PRAGMA table_info(qr_scan_logs)")
                 columns = [row[1] for row in result] if result else []
-                
+
                 if "latitude" not in columns:
                     await execute_sql(db, "ALTER TABLE qr_scan_logs ADD COLUMN latitude REAL")
                 if "longitude" not in columns:
                     await execute_sql(db, "ALTER TABLE qr_scan_logs ADD COLUMN longitude REAL")
                 if "app_version" not in columns:
                     await execute_sql(db, "ALTER TABLE qr_scan_logs ADD COLUMN app_version TEXT")
-                
+
                 # Create index
                 await execute_sql(db, "CREATE INDEX IF NOT EXISTS idx_qr_scan_logs_location ON qr_scan_logs(latitude, longitude)")
-                
+
                 await commit_db(db)
                 logger.info("GPS tracking columns verified in qr_scan_logs (SQLite)")
             except Exception as e:
@@ -360,10 +370,10 @@ async def ensure_inbox_conversations_pk():
                         AND a.sender_contact = b.sender_contact 
                         AND a.ctid <> b.ctid
                     """)
-                    
+
                     # 2. Add PK
                     await execute_sql(db, """
-                        ALTER TABLE inbox_conversations 
+                        ALTER TABLE inbox_conversations
                         ADD PRIMARY KEY (license_key_id, sender_contact)
                     """)
                     await commit_db(db)
@@ -373,5 +383,66 @@ async def ensure_inbox_conversations_pk():
         else:
             # SQLite handles PK in CREATE TABLE IF NOT EXISTS in the migration script.
             # But we can verify it if we really wanted to. Usually not needed for SQLite as it was correct from start.
+            pass
+
+
+async def ensure_library_attachments_table():
+    """Ensure library_attachments table exists with correct schema."""
+    from db_helper import get_db, execute_sql, commit_db, DB_TYPE
+    from logging_config import get_logger
+
+    logger = get_logger(__name__)
+
+    async with get_db() as db:
+        if DB_TYPE == "postgresql":
+            # PostgreSQL: Check if table exists, create if not
+            try:
+                row = await db.fetchrow("""
+                    SELECT 1 FROM information_schema.tables 
+                    WHERE table_schema = 'public' AND table_name = 'library_attachments'
+                """)
+
+                if not row:
+                    # Table doesn't exist, create it
+                    from db_pool import ID_PK, TIMESTAMP_NOW
+                    await execute_sql(db, f"""
+                        CREATE TABLE IF NOT EXISTS library_attachments (
+                            id {ID_PK},
+                            library_item_id INTEGER NOT NULL,
+                            license_key_id INTEGER NOT NULL,
+                            file_path TEXT NOT NULL,
+                            filename TEXT NOT NULL,
+                            file_size INTEGER,
+                            mime_type TEXT,
+                            file_hash TEXT,
+                            created_at {TIMESTAMP_NOW},
+                            created_by TEXT,
+                            deleted_at TIMESTAMP,
+                            FOREIGN KEY (library_item_id) REFERENCES library_items(id) ON DELETE CASCADE,
+                            FOREIGN KEY (license_key_id) REFERENCES license_keys(id) ON DELETE CASCADE
+                        )
+                    """)
+
+                    # Create indexes
+                    await execute_sql(db, """
+                        CREATE INDEX IF NOT EXISTS idx_attachments_item_id
+                        ON library_attachments(library_item_id)
+                    """)
+                    await execute_sql(db, """
+                        CREATE INDEX IF NOT EXISTS idx_attachments_license
+                        ON library_attachments(license_key_id)
+                    """)
+                    await execute_sql(db, """
+                        CREATE INDEX IF NOT EXISTS idx_attachments_deleted
+                        ON library_attachments(deleted_at)
+                    """)
+                    await commit_db(db)
+                    logger.info("library_attachments table created")
+                else:
+                    logger.debug("library_attachments table already exists")
+            except Exception as e:
+                logger.warning(f"Error ensuring library_attachments table: {e}")
+        else:
+            # SQLite: Table creation is handled in init_enhanced_tables()
             pass
 

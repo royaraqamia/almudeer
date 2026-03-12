@@ -9,6 +9,13 @@ import pytest
 import asyncio
 from typing import AsyncGenerator, Generator
 
+# Register custom pytest marks
+def pytest_configure(config):
+    """Register custom marks to avoid warnings"""
+    config.addinivalue_line(
+        "markers", "loadtest: mark test as a load test (slow, requires special setup)"
+    )
+
 # Set test environment
 os.environ["TESTING"] = "1"
 os.environ["DB_TYPE"] = "sqlite"
@@ -161,6 +168,27 @@ async def db_session():
             )
         """)
         
+        # Customers table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS customers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                license_key_id INTEGER NOT NULL,
+                name TEXT,
+                contact TEXT UNIQUE NOT NULL,
+                phone TEXT,
+                email TEXT,
+                company TEXT,
+                notes TEXT,
+                tags TEXT,
+                last_contact_at TIMESTAMP,
+                is_vip BOOLEAN DEFAULT FALSE,
+                has_whatsapp BOOLEAN DEFAULT FALSE,
+                has_telegram BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
+            )
+        """)
+        
         # Initialize tasks table (needed for task sharing tests)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
@@ -172,6 +200,7 @@ async def db_session():
                 priority TEXT DEFAULT 'medium',
                 due_date TIMESTAMP,
                 completed_at TIMESTAMP,
+                is_completed BOOLEAN DEFAULT 0,
                 created_by TEXT,
                 assigned_to TEXT,
                 visibility TEXT DEFAULT 'private',

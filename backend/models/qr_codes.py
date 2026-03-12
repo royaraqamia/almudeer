@@ -8,7 +8,8 @@ from typing import Optional, List, Dict, Any
 import secrets
 import hashlib
 
-from db_helper import get_db, execute_sql, fetch_one, fetch_all
+from db_helper import get_db, execute_sql, fetch_one, fetch_all, DB_TYPE
+from db_pool import ID_PK, TIMESTAMP_NOW
 
 
 def _parse_datetime(dt_value) -> Optional[datetime]:
@@ -91,36 +92,36 @@ async def init_qr_tables():
     """Initialize QR code database tables"""
     async with get_db() as db:
         # QR Codes table
-        await execute_sql(db, """
+        await execute_sql(db, f"""
             CREATE TABLE IF NOT EXISTS qr_codes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {ID_PK},
                 license_key_id INTEGER NOT NULL,
                 code_hash TEXT UNIQUE NOT NULL,
                 code_data TEXT NOT NULL,
                 code_type TEXT NOT NULL DEFAULT 'custom',
                 purpose TEXT DEFAULT 'other',
-                
+
                 -- Security & Validation
                 is_active BOOLEAN DEFAULT TRUE,
                 is_used BOOLEAN DEFAULT FALSE,
                 max_uses INTEGER DEFAULT NULL,
                 use_count INTEGER DEFAULT 0,
-                
+
                 -- Expiration
                 expires_at TIMESTAMP,
-                
+
                 -- Metadata
                 title TEXT,
                 description TEXT,
                 metadata_json TEXT,
-                
+
                 -- Tracking
                 created_by INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at {TIMESTAMP_NOW},
+                updated_at {TIMESTAMP_NOW},
                 last_used_at TIMESTAMP,
                 deleted_at TIMESTAMP,
-                
+
                 -- Foreign Keys
                 FOREIGN KEY (license_key_id) REFERENCES license_keys(id),
                 FOREIGN KEY (created_by) REFERENCES users(id)
@@ -155,9 +156,9 @@ async def init_qr_tables():
         """)
 
         # QR Code Scan Logs table for analytics
-        await execute_sql(db, """
+        await execute_sql(db, f"""
             CREATE TABLE IF NOT EXISTS qr_scan_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {ID_PK},
                 qr_code_id INTEGER NOT NULL,
                 license_key_id INTEGER NOT NULL,
 
@@ -169,14 +170,14 @@ async def init_qr_tables():
                 device_info TEXT,
                 ip_address TEXT,
                 user_agent TEXT,
-                
+
                 -- Enhanced tracking (GPS and app version)
                 latitude REAL,
                 longitude REAL,
                 app_version TEXT,
 
                 -- Timestamps
-                scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                scanned_at {TIMESTAMP_NOW},
 
                 FOREIGN KEY (qr_code_id) REFERENCES qr_codes(id),
                 FOREIGN KEY (license_key_id) REFERENCES license_keys(id)

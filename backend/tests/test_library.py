@@ -11,8 +11,8 @@ import hashlib
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch, MagicMock
 
-# Test constants
-TEST_LICENSE_ID = 999
+# Test constants - Use license ID 1 which is seeded in conftest
+TEST_LICENSE_ID = 1
 TEST_USER_ID = "test_user@example.com"
 
 

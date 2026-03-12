@@ -816,3 +816,69 @@ async def get_library_statistics(license_id: int, days: int = 30) -> Dict[str, A
             "activity_summary": {row["action"]: row["count"] for row in activity},
             "period_days": days
         }
+
+
+# ============================================================================
+# Re-export functions from library.py for backward compatibility
+# ============================================================================
+from models.library import verify_share_permission  # noqa: F401
+
+
+async def update_share_permission(
+    item_id: int,
+    license_id: int,
+    shared_with_user_id: str,
+    new_permission: str,
+    updated_by: str,
+) -> dict:
+    """
+    Update share permission for a library item.
+    
+    P3-14: Allow share owners to update permissions.
+    
+    Args:
+        item_id: Library item ID
+        license_id: License key ID
+        shared_with_user_id: User ID to update permission for
+        new_permission: New permission level ('read', 'edit', 'admin')
+        updated_by: User ID performing the update
+        
+    Returns:
+        dict: Updated share record
+    """
+    from utils.share_utils import validate_share_permission
+    
+    # Validate permission
+    if new_permission not in ('read', 'edit', 'admin'):
+        raise ValueError("Invalid permission. Must be 'read', 'edit', or 'admin'")
+    
+    now = datetime.now(timezone.utc)
+    
+    async with get_db() as db:
+        # Update the share
+        await execute_sql(
+            db,
+            """
+            UPDATE library_shares
+            SET permission = ?, updated_at = ?
+            WHERE item_id = ? AND shared_with_user_id = ? AND license_key_id = ? AND deleted_at IS NULL
+            """,
+            [new_permission, now, item_id, shared_with_user_id, license_id]
+        )
+        await commit_db(db)
+        
+        # Invalidate cache
+        await _invalidate_shared_items_cache(license_id, shared_with_user_id)
+        
+        # Fetch updated share
+        row = await fetch_one(
+            db,
+            """
+            SELECT * FROM library_shares
+            WHERE item_id = ? AND shared_with_user_id = ? AND license_key_id = ? AND deleted_at IS NULL
+            """,
+            [item_id, shared_with_user_id, license_id]
+        )
+        
+        return dict(row) if row else None
+

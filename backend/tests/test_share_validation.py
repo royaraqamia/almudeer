@@ -91,18 +91,25 @@ async def test_license():
 async def test_task(test_license):
     """Create a test task"""
     from db_helper import get_db
-    
+
     task_id = 'test-task-001'
-    
+
     async with get_db() as db:
+        # Ensure is_completed column exists (migration)
+        try:
+            await db.execute("ALTER TABLE tasks ADD COLUMN is_completed BOOLEAN DEFAULT 0")
+            await db.commit()
+        except:
+            pass  # Column already exists
+        
         # Create task directly in DB to avoid complex create_task issues
         await db.execute("""
-            INSERT OR REPLACE INTO tasks 
+            INSERT OR REPLACE INTO tasks
             (id, license_key_id, title, description, is_completed, visibility, created_by, created_at)
             VALUES (?, ?, ?, ?, 0, 'shared', '1', CURRENT_TIMESTAMP)
         """, (task_id, test_license['license_id'], 'Test Task', 'Test description'))
         await db.commit()
-    
+
     return {
         'id': task_id,
         'license_key_id': test_license['license_id'],

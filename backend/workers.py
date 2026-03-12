@@ -13,7 +13,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 import asyncio
 
-from db_helper import get_db, execute_sql, fetch_all, commit_db
+from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db
 
 logger = logging.getLogger(__name__)
 
@@ -941,3 +941,58 @@ async def record_cache_metrics():
         logger.debug("Metrics service not available, skipping cache metrics recording")
     except Exception as e:
         logger.warning(f"Failed to record cache metrics: {e}", exc_info=True)
+
+
+async def cleanup_library_trash(days_old: int = 30) -> int:
+    """
+    Permanently delete soft-deleted library items older than specified days.
+    
+    Background job to clean up the trash bin.
+    
+    Args:
+        days_old: Number of days after soft-delete to permanently delete
+        
+    Returns:
+        int: Number of items deleted
+    """
+    try:
+        from datetime import datetime, timezone, timedelta
+        
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_old)
+        deleted_count = 0
+        
+        async with get_db() as db:
+            # Get items to delete
+            items_to_delete = await fetch_all(
+                db,
+                """
+                SELECT id, license_key_id FROM library_items
+                WHERE deleted_at IS NOT NULL AND deleted_at < ?
+                """,
+                [cutoff_date]
+            )
+            
+            # Delete each item
+            for item in items_to_delete:
+                await execute_sql(
+                    db,
+                    "DELETE FROM library_items WHERE id = ?",
+                    [item["id"]]
+                )
+                deleted_count += 1
+            
+            await commit_db(db)
+            
+            # Invalidate cache for affected licenses
+            license_ids = set(item["license_key_id"] for item in items_to_delete)
+            for license_id in license_ids:
+                from utils.cache_utils import _invalidate_storage_cache
+                await _invalidate_storage_cache(license_id)
+        
+        logger.info(f"Cleaned up {deleted_count} soft-deleted library items older than {days_old} days")
+        return deleted_count
+        
+    except Exception as e:
+        logger.error(f"Error cleaning up library trash: {e}", exc_info=True)
+        return 0
+

@@ -26,39 +26,51 @@ async def test_db():
     """Set up test database with test users"""
     # Create test users if they don't exist
     async with get_db() as db:
-        # Create test license
-        await execute_sql(
-            db,
-            """
-            INSERT OR IGNORE INTO license_keys (license_key, is_active, created_at)
-            VALUES ('TEST_SHARE_E2E_KEY', 1, ?)
-            """,
-            [datetime.now(timezone.utc)]
-        )
+        import hashlib
+        # Create test license using key_hash (the correct column)
+        test_key = 'TEST_SHARE_E2E_KEY'
+        key_hash = hashlib.sha256(test_key.encode()).hexdigest()
         
+        # Ensure license_key column exists (migration for backward compatibility)
+        try:
+            await db.execute("ALTER TABLE license_keys ADD COLUMN license_key TEXT")
+            await db.commit()
+        except:
+            pass  # Column already exists
+        
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO license_keys (key_hash, license_key, is_active, created_at)
+            VALUES (?, ?, 1, ?)
+            """,
+            [key_hash, test_key, datetime.now(timezone.utc)]
+        )
+        await db.commit()
+
         license_result = await fetch_one(
             db,
-            "SELECT id FROM license_keys WHERE license_key = ?",
-            ['TEST_SHARE_E2E_KEY']
+            "SELECT id FROM license_keys WHERE key_hash = ?",
+            [key_hash]
         )
         license_id = license_result['id'] if license_result else 1
-        
+
         # Create test users
         for email in ['owner@test.com', 'recipient@test.com']:
-            await execute_sql(
-                db,
+            await db.execute(
                 """
                 INSERT OR IGNORE INTO users (email, license_key_id, is_active, created_at)
                 VALUES (?, ?, 1, ?)
                 """,
                 [email, license_id, datetime.now(timezone.utc)]
             )
-        
+        await db.commit()
+
         yield {'license_id': license_id}
-        
+
         # Cleanup
-        await execute_sql(db, "DELETE FROM users WHERE email LIKE '%@test.com'")
-        await execute_sql(db, "DELETE FROM license_keys WHERE license_key = 'TEST_SHARE_E2E_KEY'")
+        await db.execute("DELETE FROM users WHERE email LIKE '%@test.com'")
+        await db.execute("DELETE FROM license_keys WHERE key_hash = ?", [key_hash])
+        await db.commit()
 
 
 @pytest.fixture

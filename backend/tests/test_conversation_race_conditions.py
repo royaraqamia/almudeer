@@ -19,27 +19,31 @@ class TestPresenceTrackingRaceConditions:
         Reproduces issue #2.1 from audit report.
         """
         from services.websocket_manager import ConnectionManager, RedisPubSubManager
-        
+
         manager = ConnectionManager()
-        
+
         # Mock Redis
         mock_redis = AsyncMock()
         mock_redis.incr = AsyncMock(side_effect=[1, 2, 3])  # 3 devices connecting
         mock_redis.expire = AsyncMock()
         mock_redis.set = AsyncMock(return_value=True)  # First device gets the lock
         mock_redis.delete = AsyncMock()
+
+        # Create proper async mock for pubsub
+        mock_pubsub = AsyncMock()
+        mock_pubsub.is_available = True
+        mock_pubsub._redis_client = mock_redis
+        mock_pubsub.initialize = AsyncMock()
         
-        manager._pubsub = MagicMock()
-        manager._pubsub.is_available = True
-        manager._pubsub._redis_client = mock_redis
-        
+        manager._pubsub = mock_pubsub
+
         # Mock WebSocket connections
         mock_ws_1 = AsyncMock()
         mock_ws_2 = AsyncMock()
         mock_ws_3 = AsyncMock()
-        
+
         license_id = 123
-        
+
         # Simulate simultaneous connections
         with patch("services.websocket_manager.broadcast_presence_update") as mock_broadcast:
             await asyncio.gather(
@@ -47,7 +51,7 @@ class TestPresenceTrackingRaceConditions:
                 manager.connect(mock_ws_2, license_id),
                 manager.connect(mock_ws_3, license_id),
             )
-            
+
             # Should only broadcast once (first device)
             assert mock_broadcast.call_count == 1
             mock_broadcast.assert_called_with(license_id, is_online=True)
@@ -58,24 +62,28 @@ class TestPresenceTrackingRaceConditions:
         Test that presence flag is properly cleaned up when last device disconnects.
         """
         from services.websocket_manager import ConnectionManager
-        
+
         manager = ConnectionManager()
         mock_redis = AsyncMock()
         mock_redis.decr = AsyncMock(return_value=0)  # Last device disconnecting
         mock_redis.delete = AsyncMock()
+
+        # Create proper async mock for pubsub
+        mock_pubsub = AsyncMock()
+        mock_pubsub.is_available = True
+        mock_pubsub._redis_client = mock_redis
+        mock_pubsub.initialize = AsyncMock()
         
-        manager._pubsub = MagicMock()
-        manager._pubsub.is_available = True
-        manager._pubsub._redis_client = mock_redis
-        
+        manager._pubsub = mock_pubsub
+
         mock_ws = AsyncMock()
         license_id = 123
-        
+
         manager._connections[license_id] = {mock_ws}
-        
+
         with patch("services.websocket_manager.broadcast_presence_update") as mock_broadcast:
             await manager.disconnect(mock_ws, license_id)
-            
+
             # Should delete the presence flag
             mock_redis.delete.assert_called()
             call_args = mock_redis.delete.call_args[0][0]
