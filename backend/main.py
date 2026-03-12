@@ -198,12 +198,13 @@ async def lifespan(app: FastAPI):
         
         # Ensure user_preferences columns exist (tone, business_name, etc.)
         try:
-            from migrations.manager import ensure_user_preferences_columns, ensure_inbox_conversations_pk
+            from migrations.manager import ensure_user_preferences_columns, ensure_inbox_conversations_pk, ensure_qr_scan_logs_columns
             await ensure_user_preferences_columns()
             await ensure_inbox_conversations_pk()
-            logger.info("User preferences and inbox_conversations PK verified")
+            await ensure_qr_scan_logs_columns()
+            logger.info("User preferences, inbox_conversations PK, and qr_scan_logs columns verified")
         except Exception as e:
-            logger.warning(f"Schema verification warning (preferences/PK): {e}")
+            logger.warning(f"Schema verification warning (preferences/PK/qr_scan_logs): {e}")
         
         # Ensure chat features schema exists (reactions, presence, voice)
         try:

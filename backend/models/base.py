@@ -343,6 +343,7 @@ async def init_enhanced_tables():
                 access_count INTEGER DEFAULT 0, -- For analytics (P3-15)
                 download_count INTEGER DEFAULT 0, -- For analytics (P3-15)
                 last_accessed_at TIMESTAMP, -- For analytics (P3-15)
+                created_by TEXT, -- User who created the item (P3-14 sharing)
                 created_at {TIMESTAMP_NOW},
                 updated_at {TIMESTAMP_NOW},
                 deleted_at TIMESTAMP,
@@ -394,6 +395,131 @@ async def init_enhanced_tables():
             await execute_sql(db, "ALTER TABLE library_items ADD COLUMN user_id TEXT")
         except:
             pass
+
+        # Library Item Versions (for versioning)
+        await execute_sql(db, f"""
+            CREATE TABLE IF NOT EXISTS library_item_versions (
+                id {ID_PK},
+                item_id INTEGER NOT NULL,
+                license_key_id INTEGER NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1,
+                title TEXT,
+                content TEXT,
+                created_at {TIMESTAMP_NOW},
+                created_by TEXT,
+                change_summary TEXT,
+                FOREIGN KEY (item_id) REFERENCES library_items(id) ON DELETE CASCADE,
+                FOREIGN KEY (license_key_id) REFERENCES license_keys(id) ON DELETE CASCADE
+            )
+        """)
+        
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_versions_item_id
+            ON library_item_versions(item_id)
+        """)
+        
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_versions_item_version
+            ON library_item_versions(item_id, version DESC)
+        """)
+        
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_versions_license
+            ON library_item_versions(license_key_id)
+        """)
+
+        # Library Shares (for sharing items)
+        await execute_sql(db, f"""
+            CREATE TABLE IF NOT EXISTS library_shares (
+                id {ID_PK},
+                item_id INTEGER NOT NULL,
+                license_key_id INTEGER NOT NULL,
+                shared_with_user_id TEXT NOT NULL,
+                permission TEXT NOT NULL DEFAULT 'read',
+                created_at {TIMESTAMP_NOW},
+                created_by TEXT,
+                expires_at TIMESTAMP,
+                deleted_at TIMESTAMP,
+                FOREIGN KEY (item_id) REFERENCES library_items(id) ON DELETE CASCADE,
+                FOREIGN KEY (license_key_id) REFERENCES license_keys(id) ON DELETE CASCADE,
+                UNIQUE(item_id, shared_with_user_id)
+            )
+        """)
+        
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_shares_item_id
+            ON library_shares(item_id)
+        """)
+        
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_shares_user_id
+            ON library_shares(shared_with_user_id)
+        """)
+        
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_shares_license
+            ON library_shares(license_key_id)
+        """)
+
+        # Library Attachments
+        await execute_sql(db, f"""
+            CREATE TABLE IF NOT EXISTS library_attachments (
+                id {ID_PK},
+                library_item_id INTEGER NOT NULL,
+                license_key_id INTEGER NOT NULL,
+                file_path TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                file_size INTEGER,
+                mime_type TEXT,
+                file_hash TEXT,
+                created_at {TIMESTAMP_NOW},
+                created_by TEXT,
+                FOREIGN KEY (library_item_id) REFERENCES library_items(id) ON DELETE CASCADE,
+                FOREIGN KEY (license_key_id) REFERENCES license_keys(id) ON DELETE CASCADE
+            )
+        """)
+        
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_attachments_item_id
+            ON library_attachments(library_item_id)
+        """)
+        
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_attachments_license
+            ON library_attachments(license_key_id)
+        """)
+
+        # Library Analytics
+        await execute_sql(db, f"""
+            CREATE TABLE IF NOT EXISTS library_analytics (
+                id {ID_PK},
+                item_id INTEGER NOT NULL,
+                license_key_id INTEGER NOT NULL,
+                user_id TEXT,
+                action TEXT NOT NULL,
+                timestamp {TIMESTAMP_NOW},
+                client_ip TEXT,
+                user_agent TEXT,
+                metadata TEXT,
+                FOREIGN KEY (item_id) REFERENCES library_items(id) ON DELETE CASCADE,
+                FOREIGN KEY (license_key_id) REFERENCES license_keys(id) ON DELETE CASCADE
+            )
+        """)
+        
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_analytics_item_id
+            ON library_analytics(item_id)
+        """)
+        
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_analytics_timestamp
+            ON library_analytics(timestamp DESC)
+        """)
+        
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_analytics_action
+            ON library_analytics(action)
+        """)
 
         # FIX: Library Download Audit Logs
         await execute_sql(db, f"""
@@ -624,6 +750,25 @@ async def init_customers_and_analytics():
         await execute_sql(db, """
             CREATE INDEX IF NOT EXISTS idx_notifications_license_created
             ON notifications(license_key_id, created_at)
+        """)
+
+        # Inbox Conversations (for chat optimization)
+        await execute_sql(db, f"""
+            CREATE TABLE IF NOT EXISTS inbox_conversations (
+                license_key_id INTEGER NOT NULL,
+                sender_contact TEXT NOT NULL,
+                sender_name TEXT,
+                channel TEXT,
+                last_message_id INTEGER,
+                last_message_body TEXT,
+                last_message_at TIMESTAMP,
+                status TEXT,
+                unread_count INTEGER DEFAULT 0,
+                message_count INTEGER DEFAULT 0,
+                updated_at {TIMESTAMP_NOW},
+                PRIMARY KEY (license_key_id, sender_contact),
+                FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
+            )
         """)
 
         await commit_db(db)

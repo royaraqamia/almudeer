@@ -82,6 +82,7 @@ async def db_session():
             CREATE TABLE IF NOT EXISTS license_keys (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 key_hash TEXT UNIQUE NOT NULL,
+                license_key TEXT,  -- For backward compatibility with some tests
                 license_key_encrypted TEXT,
                 full_name TEXT NOT NULL,
                 profile_image_url TEXT,
@@ -126,7 +127,7 @@ async def db_session():
                 updated_at TIMESTAMP
             )
         """)
-        
+
         await db.execute("""
             CREATE TABLE IF NOT EXISTS knowledge_documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -142,25 +143,83 @@ async def db_session():
                 deleted_at TIMESTAMP
             )
         """)
+        
+        # Users table for JWT authentication
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                name TEXT,
+                license_key_id INTEGER,
+                role TEXT DEFAULT 'user',
+                is_active BOOLEAN DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP,
+                FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
+            )
+        """)
+        
+        # Initialize tasks table (needed for task sharing tests)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                license_key_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                status TEXT DEFAULT 'pending',
+                priority TEXT DEFAULT 'medium',
+                due_date TIMESTAMP,
+                completed_at TIMESTAMP,
+                created_by TEXT,
+                assigned_to TEXT,
+                visibility TEXT DEFAULT 'private',
+                is_deleted BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
+            )
+        """)
+        
+        # Initialize task_shares table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS task_shares (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                license_key_id INTEGER NOT NULL,
+                shared_with_user_id TEXT NOT NULL,
+                permission TEXT NOT NULL DEFAULT 'read',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_by TEXT,
+                expires_at TIMESTAMP,
+                deleted_at TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+                FOREIGN KEY (license_key_id) REFERENCES license_keys(id) ON DELETE CASCADE,
+                UNIQUE(task_id, shared_with_user_id)
+            )
+        """)
+        
         await db.commit()
 
     # 2. Initialize Enhanced Tables (using model functions)
     # These functions manage their own DB connections/transactions
     await init_enhanced_tables()
     await init_customers_and_analytics()
-    
+
     # 3. Seed Data and Yield Session
     async with get_db() as db:
         # Seed test license key
         import hashlib
         test_key = "MUDEER-TEST-1234-5678"
         key_hash = hashlib.sha256(test_key.encode()).hexdigest()
-        
+
         await db.execute("""
             INSERT OR IGNORE INTO license_keys (key_hash, full_name, is_active)
             VALUES (?, ?, ?)
         """, (key_hash, "Test Company", 1))
-        
+
         await db.commit()
         yield db
 

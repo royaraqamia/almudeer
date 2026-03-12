@@ -281,13 +281,57 @@ async def ensure_user_preferences_columns():
                     logger.debug(f"Note: user_preferences.{col_name} check: {e}")
                 pass
     
+async def ensure_qr_scan_logs_columns():
+    """Ensure qr_scan_logs has GPS tracking columns (latitude, longitude, app_version)."""
+    from db_helper import get_db, execute_sql, commit_db, DB_TYPE
+    from logging_config import get_logger
+
+    logger = get_logger(__name__)
+
+    async with get_db() as db:
+        if DB_TYPE == "postgresql":
+            # PostgreSQL: Use IF NOT EXISTS to avoid errors
+            try:
+                await execute_sql(db, "ALTER TABLE qr_scan_logs ADD COLUMN IF NOT EXISTS latitude REAL")
+                await execute_sql(db, "ALTER TABLE qr_scan_logs ADD COLUMN IF NOT EXISTS longitude REAL")
+                await execute_sql(db, "ALTER TABLE qr_scan_logs ADD COLUMN IF NOT EXISTS app_version TEXT")
+                
+                # Create index for location-based analytics
+                await execute_sql(db, "CREATE INDEX IF NOT EXISTS idx_qr_scan_logs_location ON qr_scan_logs(latitude, longitude)")
+                
+                await commit_db(db)
+                logger.info("GPS tracking columns verified in qr_scan_logs")
+            except Exception as e:
+                logger.warning(f"Error ensuring qr_scan_logs columns: {e}")
+        else:
+            # SQLite: Check if columns exist
+            try:
+                result = await execute_sql(db, "PRAGMA table_info(qr_scan_logs)")
+                columns = [row[1] for row in result] if result else []
+                
+                if "latitude" not in columns:
+                    await execute_sql(db, "ALTER TABLE qr_scan_logs ADD COLUMN latitude REAL")
+                if "longitude" not in columns:
+                    await execute_sql(db, "ALTER TABLE qr_scan_logs ADD COLUMN longitude REAL")
+                if "app_version" not in columns:
+                    await execute_sql(db, "ALTER TABLE qr_scan_logs ADD COLUMN app_version TEXT")
+                
+                # Create index
+                await execute_sql(db, "CREATE INDEX IF NOT EXISTS idx_qr_scan_logs_location ON qr_scan_logs(latitude, longitude)")
+                
+                await commit_db(db)
+                logger.info("GPS tracking columns verified in qr_scan_logs (SQLite)")
+            except Exception as e:
+                logger.warning(f"Error ensuring qr_scan_logs columns (SQLite): {e}")
+
+
 async def ensure_inbox_conversations_pk():
     """Ensure inbox_conversations has a primary key on (license_key_id, sender_contact)."""
     from db_helper import get_db, execute_sql, commit_db, DB_TYPE
     from logging_config import get_logger
-    
+
     logger = get_logger(__name__)
-    
+
     async with get_db() as db:
         if DB_TYPE == "postgresql":
             try:

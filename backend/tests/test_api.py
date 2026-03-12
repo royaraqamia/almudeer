@@ -149,17 +149,21 @@ class TestModelsImport:
 @pytest.mark.asyncio
 class TestHealthEndpoint:
     """Test health check endpoints"""
-    
+
     async def test_root_endpoint(self):
         """Test root endpoint returns OK"""
         # Import here to avoid issues with event loop
         from main import app
-        
+
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with AsyncClient(transport=transport, base_url="http://test", follow_redirects=True) as client:
             response = await client.get("/")
             assert response.status_code == 200
-            data = response.json()
+            # Root redirects to APK download, so just check it's reachable
+            # The /health endpoint returns the status JSON
+            health_response = await client.get("/health")
+            assert health_response.status_code == 200
+            data = health_response.json()
             assert data.get("status") == "online"
 
 
