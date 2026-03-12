@@ -21,17 +21,18 @@ from models.task_shares import (
     get_shared_tasks,
     remove_share,
     _invalidate_shared_tasks_cache,
-    _cache_access_times,
-    _shared_tasks_cache,
-    _MAX_CACHE_SIZE,
+)
+from utils.cache_utils import (
+    get_shared_tasks_cache,
+    get_shared_items_cache,
+    _DEFAULT_MAX_CACHE_SIZE,
+    LRUCache,
 )
 from models.library_advanced import (
     share_item,
     get_shared_items,
     remove_share as remove_library_share,
     _invalidate_shared_items_cache,
-    _shared_items_cache,
-    _cache_access_times as lib_cache_access_times,
 )
 from models.tasks import create_task, get_task, _get_task_by_id_raw
 from models.library import add_library_item, get_library_item
@@ -42,17 +43,30 @@ from models.library import add_library_item, get_library_item
 # ============================================================================
 
 @pytest.fixture(autouse=True)
-def clear_caches():
+async def clear_caches():
     """Clear all share caches before and after each test"""
-    _shared_tasks_cache.clear()
-    _cache_access_times.clear()
-    _shared_items_cache.clear()
-    lib_cache_access_times.clear()
+    tasks_cache = get_shared_tasks_cache()
+    items_cache = get_shared_items_cache()
+    
+    # Clear internal cache structures
+    async with tasks_cache._lock:
+        tasks_cache._cache.clear()
+        tasks_cache._access_times.clear()
+    
+    async with items_cache._lock:
+        items_cache._cache.clear()
+        items_cache._access_times.clear()
+    
     yield
-    _shared_tasks_cache.clear()
-    _cache_access_times.clear()
-    _shared_items_cache.clear()
-    lib_cache_access_times.clear()
+    
+    # Clear again after test
+    async with tasks_cache._lock:
+        tasks_cache._cache.clear()
+        tasks_cache._access_times.clear()
+    
+    async with items_cache._lock:
+        items_cache._cache.clear()
+        items_cache._access_times.clear()
 
 
 @pytest.fixture(scope="function")
@@ -296,14 +310,17 @@ class TestCacheIntegrity:
     @pytest.mark.asyncio
     async def test_cache_invalidation_on_share(self, test_task, test_license):
         """Test cache is invalidated when share is created"""
+        tasks_cache = get_shared_tasks_cache()
+        
         # Pre-populate cache
         cache_key = f"{test_license['license_id']}|2|all"
-        _shared_tasks_cache[cache_key] = {
-            "data": [],
-            "timestamp": datetime.now(timezone.utc).timestamp()
-        }
-        _cache_access_times[cache_key] = datetime.now(timezone.utc).timestamp()
-        
+        async with tasks_cache._lock:
+            tasks_cache._cache[cache_key] = {
+                "data": [],
+                "timestamp": datetime.now(timezone.utc).timestamp()
+            }
+            tasks_cache._access_times[cache_key] = datetime.now(timezone.utc).timestamp()
+
         # Create share for user 2
         await share_task(
             task_id=test_task['id'],
@@ -312,14 +329,17 @@ class TestCacheIntegrity:
             permission="read",
             created_by="1"
         )
-        
+
         # Cache should be invalidated for user 2
-        assert cache_key not in _shared_tasks_cache
-        assert cache_key not in _cache_access_times
+        async with tasks_cache._lock:
+            assert cache_key not in tasks_cache._cache
+            assert cache_key not in tasks_cache._access_times
 
     @pytest.mark.asyncio
     async def test_cache_invalidation_on_remove(self, test_task, test_license):
         """Test cache is invalidated when share is removed"""
+        tasks_cache = get_shared_tasks_cache()
+        
         # Create share
         share_result = await share_task(
             task_id=test_task['id'],
@@ -328,12 +348,14 @@ class TestCacheIntegrity:
             permission="read",
             created_by="1"
         )
-        
+
         # Populate cache
         await get_shared_tasks(license_id=test_license['license_id'], user_id="2")
         cache_key = f"{test_license['license_id']}|2|all"
-        assert cache_key in _shared_tasks_cache
         
+        async with tasks_cache._lock:
+            assert cache_key in tasks_cache._cache
+
         # Remove share
         await remove_share(
             share_id=share_result['id'],
@@ -341,31 +363,28 @@ class TestCacheIntegrity:
             revoked_by="1",
             requested_by_user_id="1"
         )
-        
+
         # Cache should be invalidated
-        assert cache_key not in _shared_tasks_cache
-        assert cache_key not in _cache_access_times
+        async with tasks_cache._lock:
+            assert cache_key not in tasks_cache._cache
+            assert cache_key not in tasks_cache._access_times
 
     @pytest.mark.asyncio
     async def test_cache_no_memory_leak(self):
         """Test cache doesn't leak access times - FIX: properly test LRU eviction"""
-        # Fill cache beyond capacity
-        for i in range(_MAX_CACHE_SIZE + 50):
-            key = f"1|user{i}|all"
-            _shared_tasks_cache[key] = {
-                "data": [{"id": i}],
-                "timestamp": datetime.now(timezone.utc).timestamp()
-            }
-            # Simulate access time tracking
-            _cache_access_times[key] = datetime.now(timezone.utc).timestamp()
+        tasks_cache = get_shared_tasks_cache()
         
-        # After filling, manually trigger cache cleanup logic
-        # The cache should have evicted old entries via LRU
-        # Note: LRU eviction happens on _cache_shared_tasks, not on direct insertion
-        # So we test that the cache size is bounded
-        assert len(_shared_tasks_cache) == _MAX_CACHE_SIZE + 50
-        # The access times should match cache size (no orphaned entries)
-        assert len(_cache_access_times) == len(_shared_tasks_cache)
+        # Fill cache beyond capacity using the proper set method
+        for i in range(_DEFAULT_MAX_CACHE_SIZE + 50):
+            key = f"1|user{i}|all"
+            await tasks_cache.set(key, [{"id": i}])
+
+        # After filling, the cache should have evicted old entries via LRU
+        # The cache size should be bounded
+        async with tasks_cache._lock:
+            assert len(tasks_cache._cache) <= tasks_cache.max_size
+            # The access times should match cache size (no orphaned entries)
+            assert len(tasks_cache._access_times) == len(tasks_cache._cache)
 
 
 # ============================================================================

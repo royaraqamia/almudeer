@@ -13,10 +13,9 @@ from models.library_advanced import (
     share_item,
     get_shared_items,
     remove_share,
-    verify_share_permission,
     _invalidate_shared_items_cache
 )
-from models.library import get_library_item, add_library_item
+from models.library import get_library_item, add_library_item, verify_share_permission
 
 
 class TestLibrarySharing:

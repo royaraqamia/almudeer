@@ -11,7 +11,7 @@ from services.websocket_manager import broadcast_task_sync, broadcast_notificati
 from services.fcm_mobile_service import send_fcm_to_user
 from rate_limiting import limiter, RateLimits
 from pydantic import BaseModel, Field, validator
-from constants.tasks import MAX_FILE_SIZE
+from constants.tasks import MAX_FILE_SIZE, ANALYTICS_CACHE_MAX_ENTRIES, ANALYTICS_CACHE_TTL_SECONDS
 from db_helper import get_db, fetch_one
 
 # FIX LOG-001: Import structured logging with correlation ID support
@@ -1173,8 +1173,8 @@ class ThreadSafeLRUCache:
 
 # Global analytics cache instance
 _analytics_cache = ThreadSafeLRUCache(
-    max_size=_ANALYTICS_CACHE_MAX_ENTRIES,
-    default_ttl=_ANALYTICS_CACHE_TTL
+    max_size=ANALYTICS_CACHE_MAX_ENTRIES,
+    default_ttl=ANALYTICS_CACHE_TTL_SECONDS
 )
 
 @router.get("/analytics")
