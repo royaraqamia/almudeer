@@ -358,6 +358,7 @@ async def get_quran_progress(license: dict = Depends(get_license_from_header)):
 @router.patch("/quran/progress")
 @limiter.limit("30/minute")  # Rate limiting to prevent database spam
 async def update_quran_progress(
+    request: Request,
     data: dict,
     license: dict = Depends(get_license_from_header)
 ):
