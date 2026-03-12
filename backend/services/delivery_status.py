@@ -73,7 +73,7 @@ async def update_delivery_status(
             # Find the outbox message by platform_message_id
             row = await fetch_one(
                 db,
-                "SELECT id, license_key_id, inbox_message_id, delivery_status, recipient_email, recipient_id FROM outbox_messages WHERE platform_message_id = ?",
+                "SELECT id, license_key_id, inbox_message_id, delivery_status, recipient_id FROM outbox_messages WHERE platform_message_id = ?",
                 [platform_message_id]
             )
             
@@ -93,7 +93,7 @@ async def update_delivery_status(
                 if inbox_msg:
                     sender_contact = inbox_msg["sender_contact"]
             if not sender_contact:
-                sender_contact = row["recipient_email"] or row["recipient_id"]
+                sender_contact = row["recipient_id"]
 
             # Status progression: sent -> delivered -> read
             # or failed

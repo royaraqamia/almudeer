@@ -117,12 +117,6 @@ __all__ = [
     "init_models",
     "aiosqlite",
     "ROLES",
-    # Email
-    "save_email_config",
-    "get_email_config",
-    "get_email_oauth_tokens",
-    "update_email_config_settings",
-    "get_email_password",
     # Telegram
     "save_telegram_config",
     "get_telegram_config",

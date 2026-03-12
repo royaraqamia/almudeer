@@ -271,7 +271,6 @@ class Conversation {
       case 'telegram':
       case 'telegram_bot':
         return 'تيليجرام';
-// Email case removed
       case 'saved':
         return 'الرَّسائل المحفوظة';
       default:

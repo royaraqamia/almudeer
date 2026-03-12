@@ -492,11 +492,11 @@ class ConnectionManager:
                 # Find all pending Almudeer deliveries TO this user
                 # These are messages in OTHER users' outbox, sent TO this user
                 pending_messages = await fetch_all(db, """
-                    SELECT o.id, o.license_key_id, o.recipient_email, o.inbox_message_id
+                    SELECT o.id, o.license_key_id, o.inbox_message_id
                     FROM outbox_messages o
                     WHERE o.channel = 'almudeer'
                     AND o.delivery_status = 'sent'
-                    AND (o.recipient_email = $1 OR o.recipient_id = $1)
+                    AND o.recipient_id = $1
                     AND o.deleted_at IS NULL
                     LIMIT 100
                 """, [current_username])
@@ -834,10 +834,6 @@ async def broadcast_subscription_updated(license_id: int, update_data: Dict[str,
                     SELECT DISTINCT license_key_id FROM customers
                     WHERE (contact = ? OR contact = ? OR username = ? OR username = ?)
                     AND (
-                        -- Only Almudeer usernames, NOT WhatsApp/Telegram/Email contacts
-                        contact NOT LIKE '+%' 
-                        AND contact NOT LIKE '%@%'
-                        AND contact NOT LIKE 'tg:%'
                         AND contact NOT LIKE 'unknown_%'
                     )
                 """, [username, old_username, username, old_username])
@@ -845,9 +841,6 @@ async def broadcast_subscription_updated(license_id: int, update_data: Dict[str,
                 managers = await fetch_all(db, """
                     SELECT DISTINCT license_key_id FROM customers 
                     WHERE contact = ?
-                    AND contact NOT LIKE '+%' 
-                    AND contact NOT LIKE '%@%'
-                    AND contact NOT LIKE 'tg:%'
                     AND contact NOT LIKE 'unknown_%'
                 """, [username])
 
@@ -1005,7 +998,7 @@ async def _perform_broadcast_edit(
                     else:
                         logger.warning(f"[broadcast_message_edited] Could not find owner username for license {license_id}")
                 else:
-                    logger.info(f"[broadcast_message_edited] Recipient '{sender_contact}' is not an internal license user (external channel or email)")
+                    logger.info(f"[broadcast_message_edited] Recipient '{sender_contact}' is not an internal license user")
     except Exception as e:
         logger.warning(f"Failed to notify peer of message edit: {e}", exc_info=True)
 
@@ -1064,9 +1057,9 @@ async def broadcast_message_deleted(license_id: int, message_id: int, sender_con
         async with get_db() as db:
             # If sender_contact wasn't provided, try to find it
             if not sender_contact:
-                msg = await fetch_one(db, "SELECT channel, recipient_email, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
+                msg = await fetch_one(db, "SELECT channel, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
                 if msg:
-                   sender_contact = msg.get("recipient_email") or msg.get("recipient_id")
+                   sender_contact = msg.get("recipient_id")
                    payload["sender_contact"] = sender_contact
                 else:
                     # Try inbox_messages

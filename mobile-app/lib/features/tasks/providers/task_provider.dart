@@ -616,7 +616,7 @@ class TaskProvider extends ChangeNotifier {
   Future<void> loadCurrentUser() async {
     try {
       final userInfo = await _authRepository.getUserInfo();
-      // currentUserId used instead of currentUserEmail
+      // currentUserId used for identifying user
       _currentUserId = userInfo.licenseId
           ?.toString(); // Backend uses license_id as user_id (JWT sub claim)
       notifyListeners();

@@ -18,14 +18,12 @@ CREATE TABLE IF NOT EXISTS users (
     FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_license ON users(license_key_id);
 """
 
 USERS_TABLE_POSTGRESQL = """
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
-    email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     name VARCHAR(255),
     license_key_id INTEGER REFERENCES license_keys(id),
@@ -36,7 +34,6 @@ CREATE TABLE IF NOT EXISTS users (
     last_login TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_license ON users(license_key_id);
 """
 

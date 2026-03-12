@@ -236,9 +236,7 @@ class IntegrationError(Exception):
     pass
 
 
-class EmailConnectionError(IntegrationError):
-    """Email connection error"""
-    pass
+# EmailConnectionError removed
 
 
 class TelegramAPIError(IntegrationError):
@@ -257,7 +255,7 @@ def handle_integration_error(error: Exception, integration_type: str) -> Dict[st
     
     Args:
         error: The exception that occurred
-        integration_type: Type of integration (email, telegram, whatsapp)
+        integration_type: Type of integration (telegram, whatsapp)
         
     Returns:
         Dictionary with error details

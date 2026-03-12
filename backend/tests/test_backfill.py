@@ -36,7 +36,7 @@ async def test_schedule_reveals_spacing():
         
         count = await service.schedule_historical_messages(
             license_id=123,
-            channel="email",
+            channel="telegram",
             messages=messages
         )
         
@@ -83,12 +83,12 @@ async def test_should_trigger_backfill():
     with patch("services.backfill_service.get_backfill_queue_count") as mock_count:
         # Case 1: No existing items -> Should trigger
         mock_count.return_value = 0
-        should = await service.should_trigger_backfill(123, "email")
+        should = await service.should_trigger_backfill(123, "telegram")
         assert should is True
         
         # Case 2: Existing items -> Should NOT trigger
         mock_count.return_value = 5
-        should = await service.should_trigger_backfill(123, "email")
+        should = await service.should_trigger_backfill(123, "telegram")
         assert should is False
 
 @pytest.mark.asyncio
@@ -111,7 +111,7 @@ async def test_process_pending_reveals():
         mock_get.return_value = {
             "id": 10,
             "license_key_id": 123,
-            "channel": "email",
+            "channel": "telegram",
             "body": "test body",
             "sender_name": "Test User",
             "attachments": None
@@ -140,7 +140,7 @@ async def test_process_pending_reveals_with_attachments():
         mock_get.return_value = {
             "id": 11,
             "license_key_id": 123,
-            "channel": "email",
+            "channel": "telegram",
             "body": "test body",
             "attachments": json.dumps(atts)
         }

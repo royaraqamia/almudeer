@@ -39,7 +39,7 @@ class TestSecurityModule:
         result = sanitize_string(long_string, max_length=100)
         assert len(result) == 100
     
-    # Email tests removed
+    # Sanitization tests
     
     def test_sanitize_phone_valid(self):
         """Test valid phone sanitization"""
@@ -117,13 +117,11 @@ class TestModelsImport:
         """Test importing from models package"""
         from models import (
             init_enhanced_tables,
-        # email config test removed
             get_preferences,
             ROLES,
         )
         
         assert callable(init_enhanced_tables)
-        # email config test removed
         assert callable(get_preferences)
         assert isinstance(ROLES, dict)
         assert "owner" in ROLES

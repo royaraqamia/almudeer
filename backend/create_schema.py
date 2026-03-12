@@ -123,7 +123,6 @@ async def create_schema():
                 inbox_message_id INTEGER REFERENCES inbox_messages(id),
                 channel TEXT NOT NULL,
                 recipient_id TEXT,
-                recipient_email TEXT,
                 subject TEXT,
                 body TEXT NOT NULL,
                 attachments TEXT,

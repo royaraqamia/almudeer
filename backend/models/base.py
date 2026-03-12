@@ -35,51 +35,7 @@ async def init_enhanced_tables():
     """Initialize enhanced tables for Email & Telegram integration"""
     async with get_db() as db:
         
-        # Email Configuration per license
-        await execute_sql(db, f"""
-            CREATE TABLE IF NOT EXISTS email_configs (
-                id {ID_PK},
-                license_key_id INTEGER UNIQUE NOT NULL,
-                email_address TEXT NOT NULL,
-                imap_server TEXT NOT NULL,
-                imap_port INTEGER DEFAULT 993,
-                smtp_server TEXT NOT NULL,
-                smtp_port INTEGER DEFAULT 587,
-                -- OAuth 2.0 tokens
-                access_token_encrypted TEXT,
-                refresh_token_encrypted TEXT,
-                token_expires_at TIMESTAMP,
-                -- Legacy password field (deprecated, kept for migration)
-                password_encrypted TEXT,
-                is_active BOOLEAN DEFAULT TRUE,
-                check_interval_minutes INTEGER DEFAULT 5,
-                last_checked_at TIMESTAMP,
-                created_at {TIMESTAMP_NOW},
-                FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
-            )
-        """)
-        
-        # Add OAuth columns if they don't exist (migration for existing databases)
-        try:
-            await execute_sql(db, """
-                ALTER TABLE email_configs ADD COLUMN access_token_encrypted TEXT
-            """)
-        except:
-            pass  # Column already exists
-        
-        try:
-            await execute_sql(db, """
-                ALTER TABLE email_configs ADD COLUMN refresh_token_encrypted TEXT
-            """)
-        except:
-            pass  # Column already exists
-        
-        try:
-            await execute_sql(db, """
-                ALTER TABLE email_configs ADD COLUMN token_expires_at TIMESTAMP
-            """)
-        except:
-            pass  # Column already exists
+        # email_configs table removed
         
         # Telegram Bot Configuration per license
         await execute_sql(db, f"""
@@ -137,7 +93,6 @@ async def init_enhanced_tables():
                 license_key_id INTEGER NOT NULL,
                 channel TEXT NOT NULL,
                 recipient_id TEXT,
-                recipient_email TEXT,
                 subject TEXT,
                 body TEXT NOT NULL,
                 attachments TEXT,
@@ -329,7 +284,7 @@ async def init_enhanced_tables():
             CREATE TABLE IF NOT EXISTS library_items (
                 id {ID_PK},
                 license_key_id INTEGER NOT NULL,
-                user_id TEXT, -- The ID/email of the user who created this item
+                user_id TEXT, -- The ID of the user who created this item
                 customer_id INTEGER,
                 type TEXT NOT NULL, -- 'note', 'image', 'file', 'audio', 'video'
                 title TEXT,
@@ -713,7 +668,6 @@ async def init_customers_and_analytics():
                 name TEXT,
                 contact TEXT UNIQUE NOT NULL,
                 phone TEXT,
-                email TEXT,
                 company TEXT,
                 notes TEXT,
                 tags TEXT,

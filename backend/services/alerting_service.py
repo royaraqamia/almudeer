@@ -39,7 +39,7 @@ class AlertingService:
     Features:
     - Configurable thresholds per metric
     - Time-window based evaluation
-    - Multiple alert channels (log, webhook, email)
+    - Multiple alert channels (log, webhook)
     - Alert deduplication to prevent spam
     """
     

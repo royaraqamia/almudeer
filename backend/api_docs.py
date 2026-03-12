@@ -65,7 +65,7 @@ OPENAPI_TAGS = [
     },
     {
         "name": "Integrations",
-        "description": "Email, Telegram, and WhatsApp channel integrations",
+        "description": "Telegram and WhatsApp channel integrations",
     },
     {
         "name": "Inbox",
@@ -152,7 +152,7 @@ EXAMPLE_RESPONSES = {
                     "error_code": "VALIDATION_ERROR",
                     "message": "Invalid input data",
                     "message_ar": "بيانات غير صالحة",
-                    "details": {"field": "email"},
+                    "details": {"field": "phone"},
                 }
             }
         },

@@ -35,36 +35,6 @@ def sanitize_string(text: str, max_length: Optional[int] = None) -> str:
     return text.strip()
 
 
-def sanitize_email(email: str) -> Optional[str]:
-    """
-    Sanitize and validate email address.
-    
-    Args:
-        email: Email string to sanitize
-        
-    Returns:
-        Sanitized email or None if invalid
-    """
-    if not email:
-        return None
-    
-    # Basic email validation pattern
-    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    
-    # Sanitize
-    email = email.strip().lower()
-    
-    # Validate format
-    if not re.match(email_pattern, email):
-        return None
-    
-    # Additional length check
-    if len(email) > 254:  # RFC 5321 limit
-        return None
-    
-    return email
-
-
 def sanitize_phone(phone: str) -> Optional[str]:
     """
     Sanitize phone number (basic cleaning).

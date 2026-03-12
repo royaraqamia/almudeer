@@ -299,11 +299,7 @@ async def _send_via_almudeer(
             original_msg = await fetch_one(
                 db,
                 """
-                SELECT o.id, o.body, 
-                       CASE 
-                           WHEN o.recipient_email IS NOT NULL THEN o.recipient_email
-                           ELSE o.recipient_id
-                       END as original_recipient
+                SELECT o.id, o.body
                 FROM outbox_messages o
                 WHERE o.id = ?
                 """,

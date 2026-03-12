@@ -39,14 +39,13 @@ class TestAPIErrors:
     def test_validation_error(self):
         """Test ValidationError with field info"""
         error = ValidationError(
-            message="Invalid email format",
-            field="email",
+            message="Invalid name",
+            field="name",
         )
         
         assert error.status_code == 422
         assert error.error_code == "VALIDATION_ERROR"
-        assert error.details.get("field") == "email"
-        assert "غير صالحة" in error.message_ar
+        assert error.details.get("field") == "name"
     
     def test_not_found_error(self):
         """Test NotFoundError with resource info"""

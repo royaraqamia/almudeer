@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 
 # VAPID keys for Web Push
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY")
-VAPID_CLAIMS_EMAIL = os.getenv("VAPID_CLAIMS_EMAIL", "mailto:admin@almudeer.com")
+VAPID_CLAIMS_SUB = os.getenv("VAPID_CLAIMS_SUB", "https://almudeer.com")
 
 # Handle VAPID_PRIVATE_KEY - can be PEM format or raw base64url
 _raw_private_key = os.getenv("VAPID_PRIVATE_KEY", "")
@@ -202,7 +202,7 @@ async def send_push_notification(
             subscription_info=subscription_info,
             data=payload,
             vapid_private_key=VAPID_PRIVATE_KEY,
-            vapid_claims={"sub": VAPID_CLAIMS_EMAIL}
+            vapid_claims={"sub": VAPID_CLAIMS_SUB}
         )
         
         logger.info(f"Push notification sent: {title[:30]}...")

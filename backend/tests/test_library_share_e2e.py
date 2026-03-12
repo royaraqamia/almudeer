@@ -55,20 +55,20 @@ async def test_db():
         license_id = license_result['id'] if license_result else 1
 
         # Create test users
-        for email in ['owner@test.com', 'recipient@test.com']:
+        for name in ['owner_test', 'recipient_test']:
             await db.execute(
                 """
-                INSERT OR IGNORE INTO users (email, license_key_id, is_active, created_at)
-                VALUES (?, ?, 1, ?)
+                INSERT OR IGNORE INTO users (name, license_key_id, is_active, created_at, password_hash)
+                VALUES (?, ?, 1, ?, 'hashed_pw')
                 """,
-                [email, license_id, datetime.now(timezone.utc)]
+                [name, license_id, datetime.now(timezone.utc)]
             )
         await db.commit()
 
         yield {'license_id': license_id}
 
         # Cleanup
-        await db.execute("DELETE FROM users WHERE email LIKE '%@test.com'")
+        await db.execute("DELETE FROM users WHERE name LIKE '%_test'")
         await db.execute("DELETE FROM license_keys WHERE key_hash = ?", [key_hash])
         await db.commit()
 
@@ -79,7 +79,7 @@ async def test_item(test_db):
     item = await add_library_item(
         license_id=test_db['license_id'],
         item_type='note',
-        user_id='owner@test.com',
+        user_id='owner_test',
         title='Test Share Item',
         content='Test content for sharing'
     )
@@ -101,13 +101,13 @@ async def test_share_creates_notification(test_item, test_db):
     result = await share_item(
         item_id=test_item['id'],
         license_id=test_db['license_id'],
-        shared_with_user_id='recipient@test.com',
+        shared_with_user_id='recipient_test',
         permission='read',
-        created_by='owner@test.com'
+        created_by='owner_test'
     )
     
     assert result['item_id'] == test_item['id']
-    assert result['shared_with'] == 'recipient@test.com'
+    assert result['shared_with'] == 'recipient_test'
     assert result['permission'] == 'read'
     
     # Verify share was created in database
@@ -118,7 +118,7 @@ async def test_share_creates_notification(test_item, test_db):
             SELECT * FROM library_shares
             WHERE item_id = ? AND shared_with_user_id = ?
             """,
-            [test_item['id'], 'recipient@test.com']
+            [test_item['id'], 'recipient_test']
         )
         
         assert share is not None
@@ -131,7 +131,7 @@ async def test_share_creates_notification(test_item, test_db):
             """
             SELECT * FROM notifications
             WHERE license_key_id = ?
-            AND user_id = (SELECT id FROM users WHERE email = 'recipient@test.com')
+            AND user_id = (SELECT id FROM users WHERE name = 'recipient_test')
             AND notification_type = 'library_share'
             ORDER BY created_at DESC
             LIMIT 1
@@ -160,15 +160,15 @@ async def test_shared_item_appears_in_recipient_list(test_item, test_db):
     await share_item(
         item_id=test_item['id'],
         license_id=test_db['license_id'],
-        shared_with_user_id='recipient@test.com',
+        shared_with_user_id='recipient_test',
         permission='edit',
-        created_by='owner@test.com'
+        created_by='owner_test'
     )
     
     # Get shared items for recipient
     shared_items = await get_shared_items(
         license_id=test_db['license_id'],
-        user_id='recipient@test.com'
+        user_id='recipient_test'
     )
     
     assert len(shared_items) > 0
@@ -201,9 +201,9 @@ async def test_share_expiration(test_item, test_db):
     result = await share_item_advanced(
         item_id=test_item['id'],
         license_id=test_db['license_id'],
-        shared_with_user_id='recipient@test.com',
+        shared_with_user_id='recipient_test',
         permission='read',
-        created_by='owner@test.com',
+        created_by='owner_test',
         expires_in_days=1
     )
     
@@ -217,7 +217,7 @@ async def test_share_expiration(test_item, test_db):
     # Share should be accessible now
     shared_items = await get_shared_items(
         license_id=test_db['license_id'],
-        user_id='recipient@test.com'
+        user_id='recipient_test'
     )
     
     assert len([i for i in shared_items if i['id'] == test_item['id']]) == 1
@@ -226,16 +226,16 @@ async def test_share_expiration(test_item, test_db):
     expired_result = await share_item_advanced(
         item_id=test_item['id'] + 100,  # Different item ID to avoid conflict
         license_id=test_db['license_id'],
-        shared_with_user_id='recipient2@test.com',
+        shared_with_user_id='recipient2_test',
         permission='read',
-        created_by='owner@test.com',
+        created_by='owner_test',
         expires_in_days=-1  # Expired yesterday
     )
     
     # Expired shares should not appear in shared items
     shared_items = await get_shared_items(
         license_id=test_db['license_id'],
-        user_id='recipient2@test.com'
+        user_id='recipient2_test'
     )
     
     # Should not include expired shares
@@ -259,9 +259,9 @@ async def test_revoke_share_notification(test_item, test_db):
     share_result = await share_item(
         item_id=test_item['id'],
         license_id=test_db['license_id'],
-        shared_with_user_id='recipient@test.com',
+        shared_with_user_id='recipient_test',
         permission='read',
-        created_by='owner@test.com'
+        created_by='owner_test'
     )
     
     share_id = share_result.get('id') or share_result.get('share_id')
@@ -271,7 +271,7 @@ async def test_revoke_share_notification(test_item, test_db):
         share = await fetch_one(
             db,
             "SELECT id FROM library_shares WHERE item_id = ? AND shared_with_user_id = ?",
-            [test_item['id'], 'recipient@test.com']
+            [test_item['id'], 'recipient_test']
         )
         share_id = share['id']
     
@@ -279,7 +279,7 @@ async def test_revoke_share_notification(test_item, test_db):
     success = await remove_share(
         share_id=share_id,
         license_id=test_db['license_id'],
-        revoked_by='owner@test.com'
+        revoked_by='owner_test'
     )
     
     assert success is True
@@ -298,7 +298,7 @@ async def test_revoke_share_notification(test_item, test_db):
         # Verify share no longer appears in shared items
         shared_items = await get_shared_items(
             license_id=test_db['license_id'],
-            user_id='recipient@test.com'
+            user_id='recipient_test'
         )
         
         assert len([i for i in shared_items if i['id'] == test_item['id']]) == 0
@@ -317,9 +317,9 @@ async def test_self_share_prevention(test_item, test_db):
         await share_item(
             item_id=test_item['id'],
             license_id=test_db['license_id'],
-            shared_with_user_id='owner@test.com',
+            shared_with_user_id='owner_test',
             permission='read',
-            created_by='owner@test.com'
+            created_by='owner_test'
         )
     
     assert "Cannot share an item with yourself" in str(exc_info.value)
@@ -339,18 +339,18 @@ async def test_duplicate_share_update(test_item, test_db):
     await share_item(
         item_id=test_item['id'],
         license_id=test_db['license_id'],
-        shared_with_user_id='recipient@test.com',
+        shared_with_user_id='recipient_test',
         permission='read',
-        created_by='owner@test.com'
+        created_by='owner_test'
     )
     
     # Second share (update)
     await share_item(
         item_id=test_item['id'],
         license_id=test_db['license_id'],
-        shared_with_user_id='recipient@test.com',
+        shared_with_user_id='recipient_test',
         permission='admin',
-        created_by='owner@test.com'
+        created_by='owner_test'
     )
     
     # Verify only one share exists
@@ -361,7 +361,7 @@ async def test_duplicate_share_update(test_item, test_db):
             SELECT * FROM library_shares
             WHERE item_id = ? AND shared_with_user_id = ? AND deleted_at IS NULL
             """,
-            [test_item['id'], 'recipient@test.com']
+            [test_item['id'], 'recipient_test']
         )
         
         assert len(shares) == 1

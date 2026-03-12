@@ -105,7 +105,6 @@ class IntegrationAccount {
   }
 }
 
-// EmailConfig removed
 
 /// Telegram bot configuration model
 class TelegramConfig {

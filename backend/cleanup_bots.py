@@ -56,7 +56,7 @@ async def cleanup_bots():
 
         # 2. ALSO check customers table
         customer_rows = await fetch_all(db, """
-            SELECT id, name, phone, email
+            SELECT id, name, phone
             FROM customers
             WHERE
                 (lower(name) LIKE '%bot%' OR lower(name) LIKE '%api%')
@@ -71,7 +71,6 @@ async def cleanup_bots():
                     logger.info(f"Identified bot customer: {name} (ID: {row['id']})")
                     bot_customer_ids.append(row['id'])
                     if row['phone']: bot_contacts.add(row['phone'])
-                    if row['email']: bot_contacts.add(row['email'])
 
         if not bot_contacts and not bot_customer_ids:
             logger.info("No explicit bots found in phase 1, proceeding to pattern cleanup.")
@@ -80,7 +79,7 @@ async def cleanup_bots():
 
         # 3. DELETE ACTIONS
         
-        # 3a. Cleanup based on identified CONTACTS (email/phone)
+        # 3a. Cleanup based on identified CONTACTS (phone)
         for contact in bot_contacts:
             if not contact: continue
             
@@ -104,16 +103,16 @@ async def cleanup_bots():
             
             
             # Clean up purchases if any (optional but good for referential integrity if cascade isn't set)
-            await execute_sql(db, "DELETE FROM purchases WHERE customer_id IN (SELECT id FROM customers WHERE phone = ? OR email = ?)", [contact, contact])
+            await execute_sql(db, "DELETE FROM purchases WHERE customer_id IN (SELECT id FROM customers WHERE phone = ?)", [contact])
 
             # Delete related customer_messages (by customer) before deleting customer
             await execute_sql(db, """
                 DELETE FROM customer_messages 
-                WHERE customer_id IN (SELECT id FROM customers WHERE phone = ? OR email = ?)
+                WHERE customer_id IN (SELECT id FROM customers WHERE phone = ?)
             """, [contact, contact])
 
             # Delete customers by contact
-            await execute_sql(db, "DELETE FROM customers WHERE phone = ? OR email = ?", [contact, contact])
+            await execute_sql(db, "DELETE FROM customers WHERE phone = ?", [contact])
 
 
         # 3b. Cleanup based on identified CUSTOMER IDs (that might not have had contact info matched above)

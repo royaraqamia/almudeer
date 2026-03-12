@@ -10,7 +10,7 @@ from datetime import datetime
 
 class ShareItemRequest(BaseModel):
     """Request to share a library item with another user"""
-    shared_with_user_id: str = Field(..., description="Email or user ID of the recipient")
+    shared_with_user_id: str = Field(..., description="User ID of the recipient")
     permission: str = Field(default="read", description="Permission level: read, edit, admin")
     expires_in_days: Optional[int] = Field(None, description="Optional number of days until share expires")
 

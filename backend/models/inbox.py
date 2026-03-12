@@ -767,7 +767,7 @@ async def get_inbox_conversations(
                     (SELECT o.delivery_status 
                      FROM outbox_messages o 
                      WHERE o.license_key_id = ic.license_key_id 
-                     AND o.recipient_email = ic.sender_contact 
+                     AND o.recipient_id = ic.sender_contact 
                      AND o.id = ic.last_message_id
                      LIMIT 1)
                 ELSE ic.delivery_status
@@ -943,15 +943,15 @@ async def _get_sender_aliases(db, license_id: int, sender_contact: str) -> tuple
             LIMIT 200
         ) AS inbox_subq
         UNION ALL
-        SELECT sender_contact, sender_id FROM (
-            SELECT recipient_email as sender_contact, recipient_id as sender_id
+        SELECT NULL as sender_contact, sender_id FROM (
+            SELECT recipient_id as sender_id
             FROM outbox_messages
             WHERE license_key_id = ?
-            AND (recipient_email IN ({placeholders}) OR recipient_id IN ({placeholders}))
+            AND recipient_id IN ({placeholders})
             LIMIT 200
         ) AS outbox_subq
     """
-    params = [license_id] + check_ids + check_ids + [license_id] + check_ids + check_ids
+    params = [license_id] + check_ids + check_ids + [license_id] + check_ids
     aliases = await fetch_all(db, query, params)
 
     # 2. Add found aliases to sets
@@ -981,10 +981,10 @@ async def _get_sender_aliases(db, license_id: int, sender_contact: str) -> tuple
             SELECT sender_contact, sender_id FROM inbox_messages 
             WHERE license_key_id = ? AND (sender_contact IN ({placeholders_c}) OR sender_id IN ({placeholders_i}))
             UNION
-            SELECT recipient_email as sender_contact, recipient_id as sender_id FROM outbox_messages
-            WHERE license_key_id = ? AND (recipient_email IN ({placeholders_c}) OR recipient_id IN ({placeholders_i}))
+            SELECT NULL as sender_contact, recipient_id as sender_id FROM outbox_messages
+            WHERE license_key_id = ? AND recipient_id IN ({placeholders_i})
         """
-        params2 = [license_id] + pass2_contacts + pass2_ids + [license_id] + pass2_contacts + pass2_ids
+        params2 = [license_id] + pass2_contacts + pass2_ids + [license_id] + pass2_ids
         aliases2 = await fetch_all(db, query2, params2)
         for row in aliases2:
             if row.get("sender_contact"): all_contacts.add(row["sender_contact"])
@@ -1192,7 +1192,7 @@ async def get_conversation_messages_cursor(
         out_identifiers = []
         if all_contacts:
             contact_placeholders = ", ".join(["?" for _ in all_contacts])
-            out_identifiers.append(f"o.recipient_email IN ({contact_placeholders})")
+            # recipient_email condition removed
             outbox_params.extend(list(all_contacts))
 
         if all_ids:
@@ -1238,7 +1238,7 @@ async def get_conversation_messages_cursor(
             UNION ALL
 
             SELECT
-                id, channel, NULL as sender_name, recipient_email as sender_contact, recipient_id as sender_id,
+                id, channel, NULL as sender_name, recipient_id as sender_id,
                 subject, body,
                 attachments,
                 status,
@@ -1495,7 +1495,7 @@ async def fix_stale_inbox_status(license_id: int = None) -> int:
         OR EXISTS (
             SELECT 1 FROM outbox_messages o
             WHERE o.license_key_id = inbox_messages.license_key_id
-            AND (o.recipient_email = inbox_messages.sender_contact OR o.recipient_id = inbox_messages.sender_id)
+            AND o.recipient_id = inbox_messages.sender_id
             AND o.status IN ('approved', 'sent')
             AND o.created_at > inbox_messages.created_at
         )
@@ -1608,7 +1608,7 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
         # - Account B calls: mark_chat_read(license_id=B, sender_contact='account_a')
         # - We need to find outbox messages where:
         #   - license_key_id = A (messages sent BY Account A)
-        #   - recipient_email = 'account_b' (sent TO Account B, who is reading now)
+        #   - recipient_id = 'account_b'
         # - Then mark them as 'read' and broadcast to Account A (the sender)
         try:
             # Get current user's username (the person who is reading)
@@ -1632,7 +1632,7 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
                 out_params.extend(list(all_contacts))
 
             # AND messages sent TO us (current user)
-            out_conditions.append("recipient_email = ?")
+            # recipient_email condition removed
             out_params.append(current_username)
 
             out_where = " AND ".join(out_conditions)
@@ -1642,7 +1642,7 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
             outbox_messages = await fetch_all(
                 db,
                 f"""
-                    SELECT id, license_key_id, inbox_message_id, recipient_email, recipient_id
+                    SELECT id, license_key_id, inbox_message_id, recipient_id
                     FROM outbox_messages
                     WHERE ({out_where})
                     AND delivery_status NOT IN ('read', 'failed')
@@ -1783,13 +1783,13 @@ async def get_full_chat_history(
             inbox_params
         )
         
-        # Build params for outbox (uses recipient_email and recipient_id)
+        # Build params for outbox (uses recipient_id)
         out_conditions = []
         out_params = [license_id]
         
         if all_contacts:
             contact_placeholders = ", ".join(["?" for _ in all_contacts])
-            out_conditions.append(f"o.recipient_email IN ({contact_placeholders})")
+            # recipient_email condition removed
             out_params.extend(list(all_contacts))
         
         if all_ids:
@@ -1804,7 +1804,7 @@ async def get_full_chat_history(
             db,
             f"""
             SELECT
-                o.id, o.channel, o.recipient_email as sender_contact, o.recipient_id as sender_id,
+                o.id, o.channel, o.recipient_id as sender_id,
                 o.subject, o.body, o.attachments, o.status,
                 o.created_at, o.sent_at, o.edited_at,
                 o.delivery_status,
@@ -1868,7 +1868,6 @@ async def save_synced_outbox_message(
     channel: str,
     body: str,
     recipient_id: str = None,
-    recipient_email: str = None,
     recipient_name: str = None, # Optional, for UI
     subject: str = None,
     attachments: Optional[List[dict]] = None,
@@ -1892,7 +1891,7 @@ async def save_synced_outbox_message(
     # However, `inbox_messages` has `platform_message_id`. 
     # `outbox_messages` usually stores our own ID.
     # Let's check `models/inbox.py` columns again from `create_outbox_message`:
-    # recipient_id, recipient_email, subject, body, attachments, reply_to_platform_id
+    # recipient_id, subject, body, attachments, reply_to_platform_id
     
     # We risk duplicates if we don't have a way to deduce "we already have this".
     # For now, we can check if a message with same body + recipient + approx timestamp exists? 
@@ -1934,7 +1933,7 @@ async def save_synced_outbox_message(
         # Canonical Identity Lookup (Prevent Duplicates)
         # ---------------------------------------------------------
         # For outgoing, 'recipient' is the contact.
-        contact_val = recipient_email or recipient_id
+        contact_val = recipient_id
         if contact_val and license_id:
              existing_row = await fetch_one(
                 db,
@@ -1951,7 +1950,6 @@ async def save_synced_outbox_message(
                  # If we found a known contact for this ID, use it to ensure consistency
                  # This helps mapping recipient_id (12345) to recipient_email/phone (+971...)
                  canonical = existing_row['sender_contact']
-                 if recipient_email and recipient_email != canonical: recipient_email = canonical
                  if recipient_id and recipient_id != canonical: recipient_id = canonical
 
         # FIX P0-11: Check for duplicate using platform_message_id before inserting
@@ -1971,13 +1969,13 @@ async def save_synced_outbox_message(
             """
             INSERT INTO outbox_messages
                 (license_key_id, channel, recipient_id,
-                 recipient_email, subject, body, attachments,
+                 subject, body, attachments,
                  status, sent_at, created_at, is_forwarded, platform_message_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'sent', ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, 'sent', ?, ?, ?, ?)
             """,
             [
                 license_id, channel, recipient_id,
-                recipient_email, subject, body, attachments_json,
+                subject, body, attachments_json,
                 ts_value, ts_value, is_forwarded, platform_message_id
             ],
         )
@@ -1997,7 +1995,7 @@ async def save_synced_outbox_message(
         message_id = row["id"] if row else 0
         
         # Update conversation state
-        contact = recipient_email or recipient_id
+        contact = recipient_id
         if contact:
             await upsert_conversation_state(license_id, contact, recipient_name, channel)
             
@@ -2193,7 +2191,7 @@ async def soft_delete_outbox_message(message_id: int, license_id: int) -> dict:
         # Check if message exists and is owned by this license
         message = await fetch_one(
             db,
-            "SELECT id, deleted_at, recipient_email, recipient_id FROM outbox_messages WHERE id = ? AND license_key_id = ?",
+            "SELECT id, deleted_at, recipient_id FROM outbox_messages WHERE id = ? AND license_key_id = ?",
             [message_id, license_id]
         )
         
@@ -2202,7 +2200,7 @@ async def soft_delete_outbox_message(message_id: int, license_id: int) -> dict:
         
         if message.get("deleted_at"):
             # Already deleted, but let's re-run upsert to ensure state is clean
-            recipient = message.get("recipient_email") or message.get("recipient_id")
+            recipient = message.get("recipient_id")
             if recipient:
                  await upsert_conversation_state(license_id, recipient)
             return {
@@ -2390,14 +2388,14 @@ async def _soft_delete_conversation_impl(db, license_id: int, sender_contact: st
         contact_placeholders = ", ".join(["?" for _ in all_contacts])
         outbox_atts = await fetch_all(
             db,
-            f"SELECT attachments FROM outbox_messages WHERE license_key_id = ? AND (recipient_email IN ({contact_placeholders}) OR recipient_id IN ({contact_placeholders})) AND deleted_at IS NULL AND attachments IS NOT NULL",
-            [license_id] + list(all_contacts) + list(all_contacts)
+            f"SELECT attachments FROM outbox_messages WHERE license_key_id = ? AND recipient_id IN ({contact_placeholders}) AND deleted_at IS NULL AND attachments IS NOT NULL",
+            [license_id] + list(all_contacts)
         )
     else:
         outbox_atts = await fetch_all(
             db,
-            "SELECT attachments FROM outbox_messages WHERE license_key_id = ? AND (recipient_email = ? OR recipient_id = ?) AND deleted_at IS NULL AND attachments IS NOT NULL",
-            [license_id, sender_contact, sender_contact]
+            "SELECT attachments FROM outbox_messages WHERE license_key_id = ? AND recipient_id = ? AND deleted_at IS NULL AND attachments IS NOT NULL",
+            [license_id, sender_contact]
         )
     
     for row in outbox_atts:
@@ -2433,8 +2431,7 @@ async def _soft_delete_conversation_impl(db, license_id: int, sender_contact: st
 
     if all_contacts:
         contact_placeholders = ", ".join(["?" for _ in all_contacts])
-        out_conditions.append(f"recipient_email IN ({contact_placeholders})")
-        out_params.extend(list(all_contacts))
+        # recipient_email condition removed
 
     if all_ids:
         id_placeholders = ", ".join(["?" for _ in all_ids])
@@ -2583,14 +2580,13 @@ async def clear_conversation_messages(license_id: int, sender_contact: str) -> d
             
         in_where = " OR ".join(in_conditions) if in_conditions else "1=0"
 
-        # Params for outbox: recipient_email/id
+        # Params for outbox: recipient_id
         out_conditions = []
         out_params = [ts_value, license_id]
         
         if all_contacts:
             contact_placeholders = ", ".join(["?" for _ in all_contacts])
-            out_conditions.append(f"recipient_email IN ({contact_placeholders})")
-            out_params.extend(list(all_contacts))
+            # recipient_email condition removed
         
         if all_ids:
             id_placeholders = ", ".join(["?" for _ in all_ids])

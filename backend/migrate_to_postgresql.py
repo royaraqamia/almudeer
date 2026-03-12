@@ -70,7 +70,6 @@ async def create_postgresql_schema(conn: asyncpg.Connection):
             id SERIAL PRIMARY KEY,
             key_hash TEXT UNIQUE NOT NULL,
             full_name TEXT NOT NULL,
-            contact_email TEXT,
             is_active BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             expires_at TIMESTAMP,
@@ -158,7 +157,6 @@ async def create_postgresql_schema(conn: asyncpg.Connection):
             inbox_message_id INTEGER REFERENCES inbox_messages(id),
             channel TEXT NOT NULL,
             recipient_id TEXT,
-            recipient_email TEXT,
             subject TEXT,
             body TEXT NOT NULL,
             attachments TEXT,
@@ -226,14 +224,13 @@ async def import_data_to_postgresql(conn: asyncpg.Connection, data: Dict[str, Li
             
             await conn.execute("""
                 INSERT INTO license_keys 
-                (id, key_hash, full_name, contact_email, is_active, created_at, expires_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                (id, key_hash, full_name, is_active, created_at, expires_at)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT (id) DO NOTHING
             """, 
                 row.get('id'),
                 row.get('key_hash'),
                 row.get('full_name', row.get('company_name')),
-                row.get('contact_email'),
                 is_active,
                 created_at,
                 expires_at
@@ -269,14 +266,14 @@ async def import_data_to_postgresql(conn: asyncpg.Connection, data: Dict[str, Li
         for row in data['outbox_messages']:
             await conn.execute("""
                 INSERT INTO outbox_messages
-                (id, license_key_id, inbox_message_id, channel, recipient_id, recipient_email,
+                (id, license_key_id, inbox_message_id, channel, recipient_id,
                  subject, body, attachments, status, sent_at, error_message,
                  reply_to_platform_id, is_forwarded, deleted_at, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
                 ON CONFLICT (id) DO NOTHING
             """,
                 row.get('id'), row.get('license_key_id'), row.get('inbox_message_id'),
-                row.get('channel'), row.get('recipient_id'), row.get('recipient_email'),
+                row.get('channel'), row.get('recipient_id'),
                 row.get('subject'), row.get('body'), row.get('attachments'),
                 row.get('status'), row.get('sent_at'), row.get('error_message'),
                 row.get('reply_to_platform_id'), bool(row.get('is_forwarded', False)),

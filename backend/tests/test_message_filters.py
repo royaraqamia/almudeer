@@ -22,7 +22,7 @@ class TestFilterAutomatedMessages:
         """Test that noreply@ senders are blocked"""
         message = {
             "body": "Hello, just checking in.",
-            "sender_contact": "noreply@company.com",
+            "sender_contact": "+963912345678",
             "sender_name": "Company",
             "subject": "Hello"
         }
@@ -34,7 +34,7 @@ class TestFilterAutomatedMessages:
         """Test that newsletter@ senders are blocked"""
         message = {
             "body": "Some content here",
-            "sender_contact": "newsletter@example.com",
+            "sender_contact": "contact_id_123",
             "sender_name": "Example",
             "subject": "Updates"
         }
@@ -46,7 +46,7 @@ class TestFilterAutomatedMessages:
         """Test that marketing@ senders are blocked"""
         message = {
             "body": "Content",
-            "sender_contact": "marketing@store.com",
+            "sender_contact": "generic_contact",
             "sender_name": "Store",
             "subject": "Hello"
         }
@@ -58,7 +58,7 @@ class TestFilterAutomatedMessages:
         """Test that notifications@ senders are blocked"""
         message = {
             "body": "You have new activity",
-            "sender_contact": "notifications@app.com",
+            "sender_contact": "system_id",
             "sender_name": "App",
             "subject": "Activity"
         }
@@ -72,7 +72,7 @@ class TestFilterAutomatedMessages:
         """Test that OTP messages are blocked"""
         message = {
             "body": "Your verification code is 123456",
-            "sender_contact": "random@bank.com",
+            "sender_contact": "user_123",
             "sender_name": "Bank",
             "subject": "Security Code"
         }
@@ -84,7 +84,7 @@ class TestFilterAutomatedMessages:
         """Test that Arabic OTP messages are blocked"""
         message = {
             "body": "رمز التحقق الخاص بك هو 5678",
-            "sender_contact": "contact@service.com",
+            "sender_contact": "service_id",
             "sender_name": "Service",
             "subject": "كود التفعيل"
         }
@@ -98,7 +98,7 @@ class TestFilterAutomatedMessages:
         """Test that messages with unsubscribe are blocked"""
         message = {
             "body": "Great deals! Click here to unsubscribe if not interested.",
-            "sender_contact": "shop-team@shop.com",
+            "sender_contact": "external_id",
             "sender_name": "Shop",
             "subject": "Special Deals"
         }
@@ -110,7 +110,7 @@ class TestFilterAutomatedMessages:
         """Test that discount/sale messages are blocked"""
         message = {
             "body": "Flash sale! 50% off everything today only!",
-            "sender_contact": "store-team@store.com",
+            "sender_contact": "generic_user",
             "sender_name": "Store",
             "subject": "Sale"
         }
@@ -122,7 +122,7 @@ class TestFilterAutomatedMessages:
         """Test that Arabic marketing messages are blocked"""
         message = {
             "body": "عرض خاص لفترة محدودة! احصل على خصم حصري",
-            "sender_contact": "market-team@shop.sa",
+            "sender_contact": "admin_id",
             "sender_name": "متجر",
             "subject": "عرض اليوم"
         }
@@ -136,7 +136,7 @@ class TestFilterAutomatedMessages:
         """Test that order confirmations are blocked"""
         message = {
             "body": "Your order has been confirmed. Tracking number: 12345",
-            "sender_contact": "dispatch@shop.com",
+            "sender_contact": "user_contact",
             "sender_name": "Shop",
             "subject": "Order Confirmation"
         }
@@ -148,7 +148,7 @@ class TestFilterAutomatedMessages:
         """Test that do-not-reply messages are blocked"""
         message = {
             "body": "This is an automated message. Please do not reply.",
-            "sender_contact": "admin-bot@company.com",
+            "sender_contact": "external_user",
             "sender_name": "Company",
             "subject": "Notification"
         }
@@ -162,7 +162,7 @@ class TestFilterAutomatedMessages:
         """Test that password reset emails are blocked"""
         message = {
             "body": "Click here to reset your password.",
-            "sender_contact": "user-service@service.com",
+            "sender_contact": "support_id",
             "sender_name": "Service",
             "subject": "Password Reset"
         }
@@ -174,7 +174,7 @@ class TestFilterAutomatedMessages:
         """Test that new login notifications are blocked"""
         message = {
             "body": "We detected a new login to your account from a new device.",
-            "sender_contact": "login-alert@app.com",
+            "sender_contact": "alert_system",
             "sender_name": "App",
             "subject": "New Login Detected"
         }
@@ -188,7 +188,7 @@ class TestFilterAutomatedMessages:
         """Test that security alerts are blocked"""
         message = {
             "body": "Security alert: We detected suspicious activity on your account.",
-            "sender_contact": "secure@bank.com",
+            "sender_contact": "security_system",
             "sender_name": "Bank",
             "subject": "Security Alert"
         }
@@ -200,7 +200,7 @@ class TestFilterAutomatedMessages:
         """Test that fraud alerts are blocked"""
         message = {
             "body": "Fraud alert: Unauthorized access attempt blocked.",
-            "sender_contact": "fraud-check@provider.com",
+            "sender_contact": "generic_contact",
             "sender_name": "Provider",
             "subject": "Fraud Alert"
         }
@@ -214,7 +214,7 @@ class TestFilterAutomatedMessages:
         """Test that newsletters are blocked"""
         message = {
             "body": "This week's newsletter: Top stories and news roundup",
-            "sender_contact": "weekly-brief@publication.com",
+            "sender_contact": "news_id",
             "sender_name": "Publication",
             "subject": "Weekly Newsletter"
         }
@@ -226,7 +226,7 @@ class TestFilterAutomatedMessages:
         """Test that digest emails are blocked"""
         message = {
             "body": "Your weekly digest: Here's what you missed",
-            "sender_contact": "summary@platform.com",
+            "sender_contact": "digest_id",
             "sender_name": "Platform",
             "subject": "Weekly Digest"
         }
@@ -240,7 +240,7 @@ class TestFilterAutomatedMessages:
         """Test that customer inquiries are allowed"""
         message = {
             "body": "مرحباً، أريد الاستفسار عن منتجاتكم وأسعارها",
-            "sender_contact": "customer@example.com",
+            "sender_contact": "customer_id",
             "sender_name": "أحمد محمد",
             "subject": "استفسار"
         }
@@ -252,7 +252,7 @@ class TestFilterAutomatedMessages:
         """Test that support requests are allowed"""
         message = {
             "body": "Hi, I'm having an issue with my order and need assistance.",
-            "sender_contact": "john.doe@example.com",
+            "sender_contact": "contact_id",
             "sender_name": "John Doe",
             "subject": "Need Help"
         }
@@ -264,7 +264,7 @@ class TestFilterAutomatedMessages:
         """Test that business inquiries are allowed"""
         message = {
             "body": "I'm interested in your services for our company. Can we schedule a call?",
-            "sender_contact": "manager@business.com",
+            "sender_contact": "mgr_id",
             "sender_name": "Jane Smith",
             "subject": "Business Inquiry"
         }
@@ -334,7 +334,7 @@ class TestFilterManager:
         
         message = {
             "body": "السلام عليكم، أريد معرفة المزيد عن خدماتكم",
-            "sender_contact": "real.customer@example.com",
+            "sender_contact": "verified_contact",
             "sender_name": "عميل حقيقي",
             "subject": "استفسار عن الخدمات"
         }

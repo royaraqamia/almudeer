@@ -26,7 +26,6 @@ Instead, please report them via:
    - Click "Report a vulnerability"
    - Provide details about the vulnerability
 
-// Email reporting removed
 
 ### What to Include
 
