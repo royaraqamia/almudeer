@@ -9,7 +9,7 @@ Enhanced with Redis pub/sub for horizontal scaling across multiple workers.
 import asyncio
 import json
 import os
-from typing import Dict, Set, Optional, Any
+from typing import Dict, Set, Optional, Any, List
 from datetime import datetime
 from dataclasses import dataclass, asdict
 from utils.json_utils import json_dumps

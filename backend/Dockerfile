@@ -1,7 +1,7 @@
 # Production Dockerfile for Al-Mudeer Backend
 # Optimized for Railway deployment with SSL support
 
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
