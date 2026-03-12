@@ -1237,7 +1237,7 @@ async def get_conversation_messages_cursor(
             UNION ALL
 
             SELECT
-                id, channel, NULL as sender_name, recipient_id as sender_id,
+                id, channel, NULL as sender_name, NULL as sender_contact, recipient_id as sender_id,
                 subject, body,
                 attachments,
                 status,
@@ -1784,16 +1784,17 @@ async def get_full_chat_history(
         # Build params for outbox (uses recipient_id)
         out_conditions = []
         out_params = [license_id]
-        
+
         if all_contacts:
             contact_placeholders = ", ".join(["?" for _ in all_contacts])
+            out_conditions.append(f"o.recipient_id IN ({contact_placeholders})")
             out_params.extend(list(all_contacts))
-        
+
         if all_ids:
             id_placeholders = ", ".join(["?" for _ in all_ids])
             out_conditions.append(f"o.recipient_id IN ({id_placeholders})")
             out_params.extend(list(all_ids))
-        
+
         out_where = " OR ".join(out_conditions) if out_conditions else "1=0"
         out_params.append(limit)
         
