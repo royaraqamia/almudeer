@@ -71,19 +71,17 @@ class TestSystemRoutes:
     async def test_list_integration_accounts(self, mock_license_dependency):
         from routes.system_routes import list_integration_accounts
         
-        with patch("routes.system_routes.get_email_config", new_callable=AsyncMock) as mock_email, \
-             patch("routes.system_routes.get_telegram_config", new_callable=AsyncMock) as mock_tg, \
+        with patch("routes.system_routes.get_telegram_config", new_callable=AsyncMock) as mock_tg, \
              patch("routes.system_routes.get_telegram_phone_session", new_callable=AsyncMock), \
              patch("routes.system_routes.get_whatsapp_config", new_callable=AsyncMock):
              
-            mock_email.return_value = {"email_address": "test@example.com", "is_active": True}
-            mock_tg.return_value = None
-            
+            mock_tg.return_value = {"bot_username": "test_bot", "is_active": True}
+             
             response = await list_integration_accounts({"license_id": 1})
             
             accounts = response["accounts"]
             assert len(accounts) >= 1
-            assert accounts[0].id == "email"
-            assert accounts[0].display_name == "test@example.com"
+            assert accounts[0].id == "telegram"
+            assert accounts[0].display_name == "test_bot"
 
 

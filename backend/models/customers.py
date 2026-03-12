@@ -45,7 +45,7 @@ async def get_or_create_customer(
             return {"id": None}
     
     async with get_db() as db:
-        # Check existing by phone/email
+        # Check existing by phone
         row = None
         if phone:
             row = await fetch_one(db, """

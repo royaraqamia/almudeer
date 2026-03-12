@@ -115,7 +115,7 @@ def _get_access_token() -> Optional[str]:
         # Log the identity we are using
         try:
             if hasattr(credentials, 'service_account_email'):
-                logger.info(f"FCM Auth: Using service account identification: {credentials.service_account_email}")
+                logger.info(f"FCM Auth: Using service account identification: {getattr(credentials, 'service_account_email', 'unknown')}")
             if hasattr(credentials, 'project_id'):
                 logger.info(f"FCM Auth: Using project_id from credentials: {credentials.project_id}")
                 if credentials.project_id != FCM_PROJECT_ID:
@@ -487,8 +487,7 @@ async def _send_fcm_v1(
                         info = json_module.loads(GOOGLE_APPLICATION_CREDENTIALS)
                         creds = service_account.Credentials.from_service_account_info(info)
                     
-                    if creds and hasattr(creds, 'service_account_email'):
-                        logger.error(f"FCM v1 AUTH ERROR ({response.status_code}): Using account '{creds.service_account_email}'. This account lacks 'cloudmessaging.messages.create' permission.")
+                        logger.error(f"FCM v1 AUTH ERROR ({response.status_code}): Using account identity (Check IAM permissions).")
                     else:
                         logger.error(f"FCM v1 AUTH ERROR ({response.status_code}): Could not determine local service account identity.")
                 except Exception as e:

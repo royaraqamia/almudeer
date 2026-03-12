@@ -78,10 +78,10 @@ class LoginProtection:
 
     def check_lockout(self, identifier: str) -> Tuple[bool, Optional[int]]:
         """
-        Check if an identifier (email or IP) is locked out.
+        Check if an identifier (username or IP) is locked out.
 
         Args:
-            identifier: Email address or IP address
+            identifier: Username or IP address
 
         Returns:
             Tuple of (is_locked, seconds_remaining)
@@ -121,7 +121,7 @@ class LoginProtection:
         Record a failed login attempt.
 
         Args:
-            identifier: Email address or IP address
+            identifier: Username or IP address
 
         Returns:
             Tuple of (attempt_count, is_now_locked)
@@ -183,7 +183,7 @@ class LoginProtection:
         Clear failed attempts after successful login.
 
         Args:
-            identifier: Email address or IP address
+            identifier: Username or IP address
         """
         try:
             if self._redis_client:

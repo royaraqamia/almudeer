@@ -542,7 +542,7 @@ async def list_task_shares(task_id: str, license_id: int, requested_by_user_id: 
         rows = await fetch_all(
             db,
             """
-            SELECT ts.*, u.name as shared_with_name, u.email as shared_with_email
+            SELECT ts.*, u.name as shared_with_name, u.name as shared_with_username
             FROM task_shares ts
             LEFT JOIN users u ON ts.shared_with_user_id = u.user_id
             WHERE ts.task_id = ? AND ts.license_key_id = ? AND ts.deleted_at IS NULL

@@ -53,7 +53,7 @@ class SecurityLogger:
         
         Args:
             event_type: Type of security event
-            identifier: User identifier (email, license key, etc.)
+            identifier: User identifier (username, license key, etc.)
             ip_address: Client IP address
             details: Additional event details
             severity: Log level (INFO, WARNING, ERROR, CRITICAL)
@@ -94,8 +94,8 @@ class SecurityLogger:
         if not identifier:
             return None
         
-        if "@" in identifier:
-            # Email: show first 2 chars + domain
+        if identifier and "@" in identifier:
+            # Mask identifier with @ (like old emails or system IDs)
             parts = identifier.split("@")
             if len(parts[0]) > 2:
                 return f"{parts[0][:2]}***@{parts[1]}"

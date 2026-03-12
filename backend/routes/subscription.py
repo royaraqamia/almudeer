@@ -5,7 +5,7 @@ Easy subscription key generation and management for clients
 
 import os
 from fastapi import APIRouter, HTTPException, Depends, Header, UploadFile, File
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -400,7 +400,7 @@ async def update_subscription(
             
             # If username changed, update customers table to maintain consistency
             # IMPORTANT: Only update customers that reference THIS license's username
-            # Do NOT update WhatsApp/Telegram/Email contacts (they have different contact formats)
+            # Do NOT update WhatsApp/Telegram contacts (they have different contact formats)
             if old_username and update.username and old_username != update.username:
                 try:
                     # Update customers.contact and customers.username where they reference the old username
@@ -412,7 +412,7 @@ async def update_subscription(
                             WHERE license_key_id = $2 
                             AND (contact = $3 OR username = $3)
                             AND (
-                                -- Only update if contact looks like a username (not phone, email, or ID)
+                                -- Only update if contact looks like a username (not phone or ID)
                                 contact NOT LIKE '+%' 
                                 AND contact NOT LIKE '%@%'
                                 AND contact NOT LIKE 'tg:%'
@@ -662,7 +662,6 @@ async def delete_subscription(
                     try:
                         await execute_sql(db, "DELETE FROM usage_logs WHERE license_key_id = $1", [license_id])
                         await execute_sql(db, "DELETE FROM crm_entries WHERE license_key_id = $1", [license_id])
-                        await execute_sql(db, "DELETE FROM email_configs WHERE license_key_id = $1", [license_id])
                         await execute_sql(db, "DELETE FROM telegram_configs WHERE license_key_id = $1", [license_id])
                     except Exception as e:
                         logger.warning(f"Note: Could not delete some dependent records for subscription {license_id}: {e}")
@@ -691,7 +690,6 @@ async def delete_subscription(
                 try:
                     await execute_sql(db, "DELETE FROM usage_logs WHERE license_key_id = ?", [license_id])
                     await execute_sql(db, "DELETE FROM crm_entries WHERE license_key_id = ?", [license_id])
-                    await execute_sql(db, "DELETE FROM email_configs WHERE license_key_id = ?", [license_id])
                     await execute_sql(db, "DELETE FROM telegram_configs WHERE license_key_id = ?", [license_id])
                 except Exception as e:
                     logger.warning(f"Note: Could not delete some dependent records for subscription {license_id}: {e}")

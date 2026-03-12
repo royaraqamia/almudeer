@@ -11,7 +11,7 @@ from .notifications import router as notifications_router
 from .library import router as library_router
 from .auth import router as auth_router
 
-# Subscription router is imported directly in main.py to avoid circular imports            # email_configs table removed
+# Subscription router is imported directly in main.py to avoid circular imports
 # from .subscription import router as subscription_router
 
 __all__ = [

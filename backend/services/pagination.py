@@ -178,9 +178,9 @@ async def paginate_customers(license_id: int,
     query_params = [license_id]
 
     if search:
-        conditions.append("(name LIKE ? OR email LIKE ? OR phone LIKE ?)")
+        conditions.append("(name LIKE ? OR phone LIKE ?)")
         search_pattern = f"%{search}%"
-        query_params.extend([search_pattern, search_pattern, search_pattern])
+        query_params.extend([search_pattern, search_pattern])
 
     where_clause = " AND ".join(conditions)
     total = await get_total_count("customers", where_clause, tuple(query_params))

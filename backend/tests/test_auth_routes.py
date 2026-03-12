@@ -28,7 +28,7 @@ class TestAuthModels:
             access_token="eyJ...",
             refresh_token="refresh_token_here",
             expires_in=3600,
-            user={"email": "user@example.com", "role": "admin"}
+            user={"username": "user_test", "role": "admin"}
         )
         
         assert resp.token_type == "bearer"
@@ -158,7 +158,7 @@ class TestJWTTokenFunctions:
         
         # Create token (returns tuple: token_str, jti, expiry)
         token, jti, expiry = create_access_token({
-            "sub": "test@example.com",
+            "sub": "test_user",
             "license_id": 1,
             "role": "admin"
         })
@@ -169,14 +169,14 @@ class TestJWTTokenFunctions:
         payload = verify_token(token, TokenType.ACCESS)
         
         assert payload is not None
-        assert payload["sub"] == "test@example.com"
+        assert payload["sub"] == "test_user"
         assert payload["license_id"] == 1
     
     def test_refresh_token_has_jti(self):
         """Test refresh token contains JTI for revocation"""
         from services.jwt_auth import create_refresh_token, verify_token, TokenType
         
-        token, jti = create_refresh_token({"sub": "user@test.com"})
+        token, jti = create_refresh_token({"sub": "user_test"})
         payload = verify_token(token, TokenType.REFRESH)
         
         assert "jti" in payload

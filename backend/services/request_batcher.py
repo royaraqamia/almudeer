@@ -56,7 +56,7 @@ class RequestBatcher:
 
     async def add_request(self,
                           message: str,
-                          message_type: str = "email",
+                          message_type: str = "notification",
                           sender_name: str = None,
                           license_id: int = None) -> Dict[str, Any]:
         """

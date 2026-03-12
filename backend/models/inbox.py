@@ -1192,7 +1192,6 @@ async def get_conversation_messages_cursor(
         out_identifiers = []
         if all_contacts:
             contact_placeholders = ", ".join(["?" for _ in all_contacts])
-            # recipient_email condition removed
             outbox_params.extend(list(all_contacts))
 
         if all_ids:
@@ -1632,7 +1631,6 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
                 out_params.extend(list(all_contacts))
 
             # AND messages sent TO us (current user)
-            # recipient_email condition removed
             out_params.append(current_username)
 
             out_where = " AND ".join(out_conditions)
@@ -1789,7 +1787,6 @@ async def get_full_chat_history(
         
         if all_contacts:
             contact_placeholders = ", ".join(["?" for _ in all_contacts])
-            # recipient_email condition removed
             out_params.extend(list(all_contacts))
         
         if all_ids:
@@ -2155,7 +2152,7 @@ async def edit_outbox_message(
 
         # Update conversation if this was the last message
         # Do this before commit to ensure atomicity within the same transaction
-        recipient = message.get("recipient_email") or message.get("recipient_id")
+        recipient = message.get("recipient_id")
         if recipient:
             await upsert_conversation_state(license_id, recipient)
 
@@ -2222,7 +2219,7 @@ async def soft_delete_outbox_message(message_id: int, license_id: int) -> dict:
         await commit_db(db)
         
         # Update conversation
-        recipient = message.get("recipient_email") or message.get("recipient_id")
+        recipient = message.get("recipient_id")
         if recipient:
              await upsert_conversation_state(license_id, recipient)
         
@@ -2425,13 +2422,12 @@ async def _soft_delete_conversation_impl(db, license_id: int, sender_contact: st
 
     in_where = " OR ".join(in_conditions) if in_conditions else "1=0"
 
-    # Params for outbox: recipient_email/id
+    # Params for outbox: recipient_id
     out_conditions = []
     out_params = [ts_value, license_id]
 
     if all_contacts:
         contact_placeholders = ", ".join(["?" for _ in all_contacts])
-        # recipient_email condition removed
 
     if all_ids:
         id_placeholders = ", ".join(["?" for _ in all_ids])
@@ -2586,7 +2582,6 @@ async def clear_conversation_messages(license_id: int, sender_contact: str) -> d
         
         if all_contacts:
             contact_placeholders = ", ".join(["?" for _ in all_contacts])
-            # recipient_email condition removed
         
         if all_ids:
             id_placeholders = ", ".join(["?" for _ in all_ids])
@@ -2736,8 +2731,8 @@ async def search_messages(
                             'outbox' as source_table,
                             id,
                             body,
-                            COALESCE(recipient_email, recipient_id) as sender_name,
-                            COALESCE(recipient_email, recipient_id) as sender_contact,
+                            recipient_id as sender_name,
+                            recipient_id as sender_contact,
                             created_at as timestamp,
                             NULL as subject,
                             1 as is_read,
@@ -2745,7 +2740,7 @@ async def search_messages(
                         FROM outbox_messages
                         WHERE search_vector @@ websearch_to_tsquery('english', $1)
                           AND license_key_id = $2
-                          AND COALESCE(recipient_email, recipient_id) = $3
+                          AND recipient_id = $3
                     )
                     SELECT *, count(*) OVER() as full_count
                     FROM search_results
@@ -2777,8 +2772,8 @@ async def search_messages(
                             'outbox' as source_table,
                             id,
                             body,
-                            COALESCE(recipient_email, recipient_id) as sender_name,
-                            COALESCE(recipient_email, recipient_id) as sender_contact,
+                            recipient_id as sender_name,
+                            recipient_id as sender_contact,
                             created_at as timestamp,
                             NULL as subject,
                             1 as is_read,
@@ -2804,7 +2799,7 @@ async def search_messages(
                         AND (
                             (m.source_table = 'inbox' AND i.sender_contact = ?)
                             OR
-                            (m.source_table = 'outbox' AND COALESCE(o.recipient_email, o.recipient_id) = ?)
+                            (m.source_table = 'outbox' AND o.recipient_id = ?)
                         )
                     """
                 else:
@@ -2819,7 +2814,7 @@ async def search_messages(
                         m.sender_name,
                         CASE
                             WHEN m.source_table = 'inbox' THEN i.sender_contact
-                            ELSE COALESCE(o.recipient_email, o.recipient_id)
+                            ELSE o.recipient_id
                         END as sender_contact,
                         CASE
                             WHEN m.source_table = 'inbox' THEN i.received_at
@@ -2945,7 +2940,7 @@ async def upsert_conversation_state(
                     contact_placeholders = ", ".join(["?" for _ in all_contacts])
                     outbox_check = await fetch_one(
                         db,
-                        f"SELECT 1 FROM outbox_messages WHERE license_key_id = ? AND (recipient_email IN ({contact_placeholders}) OR recipient_id IN ({contact_placeholders})) AND deleted_at IS NULL LIMIT 1",
+                        f"SELECT 1 FROM outbox_messages WHERE license_key_id = ? AND recipient_id IN ({contact_placeholders}) AND deleted_at IS NULL LIMIT 1",
                         [license_id] + list(all_contacts) + list(all_contacts)
                     )
                     has_messages = outbox_check is not None
@@ -3054,7 +3049,7 @@ async def upsert_conversation_state(
         out_params = [license_id]
         out_filt = []
         if all_contacts:
-            out_filt.append(f"recipient_email IN ({', '.join(['?' for _ in all_contacts])})")
+            out_filt.append(f"o.recipient_id IN ({', '.join(['?' for _ in all_contacts])})")
             out_params.extend(all_contacts)
         if all_ids:
             out_filt.append(f"recipient_id IN ({', '.join(['?' for _ in all_ids])})")
@@ -3533,13 +3528,13 @@ async def search_messages_in_conversation(
         outbox_query = """
             SELECT 
                 id, body, 
-                COALESCE(recipient_email, recipient_id) as sender_name,
-                COALESCE(recipient_email, recipient_id) as sender_contact,
+                recipient_id as sender_name,
+                recipient_id as sender_contact,
                 created_at, channel, attachments,
                 'outgoing' as direction
             FROM outbox_messages
             WHERE license_key_id = ? 
-              AND (recipient_email = ? OR recipient_id = ?)
+              AND recipient_id = ?
               AND deleted_at IS NULL
               AND body LIKE ?
             ORDER BY created_at DESC

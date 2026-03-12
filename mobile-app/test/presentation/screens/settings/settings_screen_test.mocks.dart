@@ -346,7 +346,6 @@ class MockSettingsProvider extends _i1.Mock implements _i2.SettingsProvider {
           )
           as _i4.Future<bool>);
 
-
   @override
   void notifyListeners() => super.noSuchMethod(
     Invocation.method(#notifyListeners, []),

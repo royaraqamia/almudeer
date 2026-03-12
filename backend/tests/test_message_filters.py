@@ -1,6 +1,6 @@
 """
 Al-Mudeer Message Filter Tests
-Unit tests for message filtering, especially automated email detection
+Unit tests for message filtering, especially automated contact detection
 """
 
 import pytest
@@ -159,7 +159,7 @@ class TestFilterAutomatedMessages:
     # ============ ACCOUNT NOTIFICATIONS ============
     
     def test_blocks_password_reset(self):
-        """Test that password reset emails are blocked"""
+        """Test that account security alerts are blocked"""
         message = {
             "body": "Click here to reset your password.",
             "sender_contact": "support_id",
@@ -223,7 +223,7 @@ class TestFilterAutomatedMessages:
         assert "Newsletter" in reason
 
     def test_blocks_digest(self):
-        """Test that digest emails are blocked"""
+        """Test that digest notifications are blocked"""
         message = {
             "body": "Your weekly digest: Here's what you missed",
             "sender_contact": "digest_id",

@@ -302,7 +302,7 @@ async def check_storage_quotas() -> List[dict]:
             licenses = await fetch_all(
                 db,
                 """
-                SELECT id, key_hash, full_name, contact_email, user_id
+                SELECT id, key_hash, full_name, user_id
                 FROM license_keys
                 WHERE is_active = 1
                 """

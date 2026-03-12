@@ -38,7 +38,7 @@ async def migrate():
         # Efficient loading for specific conversation
         await execute_sql(db, """
             CREATE INDEX IF NOT EXISTS idx_outbox_messages_lookup 
-            ON outbox_messages(license_key_id, recipient_email, status)
+            ON outbox_messages(license_key_id, recipient_id, status)
         """)
         
         # Efficient cursor-based pagination

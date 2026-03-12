@@ -26,13 +26,11 @@ CREATE INDEX IF NOT EXISTS idx_crm_sender ON crm_entries(sender_contact);
 CREATE INDEX IF NOT EXISTS idx_usage_license_date ON usage_logs(license_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_usage_action ON usage_logs(action_type);
 
--- Telegram/Email integrations
-CREATE INDEX IF NOT EXISTS idx_email_license ON email_integrations(license_key_id);
+-- Telegram integrations
 CREATE INDEX IF NOT EXISTS idx_telegram_license ON telegram_integrations(license_key_id);
 
 -- Customers table
 CREATE INDEX IF NOT EXISTS idx_customers_license ON customers(license_key_id);
-CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email);
 CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
 
 -- Notifications
@@ -59,13 +57,11 @@ CREATE INDEX IF NOT EXISTS idx_crm_sender ON crm_entries(sender_contact);
 -- Usage tracking with date-based partitioning support
 CREATE INDEX IF NOT EXISTS idx_usage_license_date ON usage_logs(license_id, created_at DESC);
 
--- Telegram/Email integrations
-CREATE INDEX IF NOT EXISTS idx_email_license ON email_integrations(license_key_id);
+-- Telegram integrations
 CREATE INDEX IF NOT EXISTS idx_telegram_license ON telegram_integrations(license_key_id);
 
 -- Customers table
 CREATE INDEX IF NOT EXISTS idx_customers_license ON customers(license_key_id);
-CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email);
 
 -- Notifications with partial index for unread
 CREATE INDEX IF NOT EXISTS idx_notifications_unread ON user_notifications(license_key_id) WHERE is_read = FALSE;

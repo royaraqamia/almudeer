@@ -1,6 +1,6 @@
 """
 Database migration script to remove auto-reply related columns.
-Drops 'auto_reply_enabled' from email_configs, telegram_configs, whatsapp_configs, telegram_phone_sessions.
+Drops 'auto_reply_enabled' from telegram_configs, whatsapp_configs, telegram_phone_sessions.
 Drops 'auto_reply_delay_seconds' from user_preferences.
 """
 
@@ -22,17 +22,7 @@ async def migrate():
     
     async with get_db() as db:
         try:
-            # 1. remove columns from email_configs
-            print("Removing 'auto_reply_enabled' from email_configs...")
-            if DB_TYPE == "postgresql":
-                await execute_sql(db, "ALTER TABLE email_configs DROP COLUMN IF EXISTS auto_reply_enabled")
-            else:
-                try:
-                    await execute_sql(db, "ALTER TABLE email_configs DROP COLUMN auto_reply_enabled")
-                except Exception as e:
-                    print(f"Note: Could not drop column from email_configs (might be legacy SQLite): {e}")
-
-            # 2. remove columns from telegram_configs
+            # 1. remove columns from telegram_configs
             print("Removing 'auto_reply_enabled' from telegram_configs...")
             if DB_TYPE == "postgresql":
                 await execute_sql(db, "ALTER TABLE telegram_configs DROP COLUMN IF EXISTS auto_reply_enabled")
@@ -42,7 +32,7 @@ async def migrate():
                 except Exception as e:
                     print(f"Note: Could not drop column from telegram_configs: {e}")
 
-            # 3. remove columns from whatsapp_configs
+            # 2. remove columns from whatsapp_configs
             print("Removing 'auto_reply_enabled' from whatsapp_configs...")
             if DB_TYPE == "postgresql":
                 await execute_sql(db, "ALTER TABLE whatsapp_configs DROP COLUMN IF EXISTS auto_reply_enabled")
@@ -52,7 +42,7 @@ async def migrate():
                 except Exception as e:
                     print(f"Note: Could not drop column from whatsapp_configs: {e}")
 
-            # 4. remove columns from telegram_phone_sessions
+            # 3. remove columns from telegram_phone_sessions
             print("Removing 'auto_reply_enabled' from telegram_phone_sessions...")
             if DB_TYPE == "postgresql":
                 await execute_sql(db, "ALTER TABLE telegram_phone_sessions DROP COLUMN IF EXISTS auto_reply_enabled")
@@ -62,7 +52,7 @@ async def migrate():
                 except Exception as e:
                     print(f"Note: Could not drop column from telegram_phone_sessions: {e}")
 
-            # 5. remove columns from user_preferences
+            # 4. remove columns from user_preferences
             print("Removing 'auto_reply_delay_seconds' from user_preferences...")
             if DB_TYPE == "postgresql":
                 await execute_sql(db, "ALTER TABLE user_preferences DROP COLUMN IF EXISTS auto_reply_delay_seconds")

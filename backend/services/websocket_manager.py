@@ -350,9 +350,9 @@ class ConnectionManager:
                     # Check if username is missing
                     license_row = await fetch_one(db, "SELECT username FROM license_keys WHERE id = ?", [license_id])
                     if license_row and not license_row.get("username"):
-                        user_row = await fetch_one(db, "SELECT email FROM users WHERE license_key_id = ? ORDER BY id ASC LIMIT 1", [license_id])
-                        if user_row and user_row.get("email"):
-                            await execute_sql(db, "UPDATE license_keys SET username = ? WHERE id = ?", (user_row["email"], license_id))
+                        user_row = await fetch_one(db, "SELECT name FROM users WHERE license_key_id = ? ORDER BY id ASC LIMIT 1", [license_id])
+                        if user_row and user_row.get("name"):
+                            await execute_sql(db, "UPDATE license_keys SET username = ? WHERE id = ?", (user_row["name"], license_id))
 
                     await execute_sql(db, "UPDATE license_keys SET last_seen_at = ? WHERE id = ?", (now, license_id))
                     await commit_db(db)
@@ -922,11 +922,11 @@ async def _perform_broadcast_edit(
 
     # Fetch message details first to populate payload correctly
     async with get_db() as db:
-        msg = await fetch_one(db, "SELECT channel, recipient_email, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
+        msg = await fetch_one(db, "SELECT channel, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
 
         # Resolve sender_contact if not provided
         if not sender_contact and msg:
-            sender_contact = msg.get("recipient_email") or msg.get("recipient_id")
+            sender_contact = msg.get("recipient_id")
 
     # payload for sync - includes recipient_contact for proper conversation identification
     payload = {

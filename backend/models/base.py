@@ -32,7 +32,7 @@ ROLES = {
 
 
 async def init_enhanced_tables():
-    """Initialize enhanced tables for Email & Telegram integration"""
+    """Initialize enhanced tables for Messaging integration"""
     async with get_db() as db:
         
         # email_configs table removed
@@ -599,7 +599,7 @@ async def init_customers_and_analytics():
             CREATE TABLE IF NOT EXISTS team_members (
                 id {ID_PK},
                 license_key_id INTEGER NOT NULL,
-                email TEXT NOT NULL,
+                username TEXT NOT NULL,
                 name TEXT NOT NULL,
                 password_hash TEXT,
                 role TEXT NOT NULL DEFAULT 'agent',
@@ -610,7 +610,7 @@ async def init_customers_and_analytics():
                 invited_by INTEGER,
                 FOREIGN KEY (license_key_id) REFERENCES license_keys(id),
                 FOREIGN KEY (invited_by) REFERENCES team_members(id),
-                UNIQUE(license_key_id, email)
+                UNIQUE(license_key_id, username)
             )
         """)
 

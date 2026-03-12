@@ -24,7 +24,7 @@ from models import (
     create_notification,
 )
 # from services.voice_service import ... (Removed)
-from security import sanitize_email, sanitize_phone, sanitize_string
+from security import sanitize_phone, sanitize_string
 from dependencies import get_license_from_header, get_optional_license_from_header
 from db_helper import get_db, fetch_all
 from rate_limiting import limiter
@@ -39,7 +39,7 @@ router = APIRouter(prefix="/api", tags=["Features"])
 class CustomerUpdate(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
-    email: Optional[str] = None
+    # email field removed
     company: Optional[str] = None
     notes: Optional[str] = None
     tags: Optional[str] = None
@@ -52,7 +52,7 @@ class CustomerUpdate(BaseModel):
 class CustomerCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     phone: Optional[str] = None
-    email: Optional[str] = None
+    # email field removed
     company: Optional[str] = None
     notes: Optional[str] = None
     has_whatsapp: bool = False
@@ -72,7 +72,7 @@ async def add_customer(
         license["license_id"],
         name=sanitize_string(data.name, max_length=200),
         phone=sanitize_phone(data.phone) if data.phone else None,
-        email=sanitize_email(data.email) if data.email else None,
+        # email=sanitize_email(data.email) if data.email else None,
         username=sanitize_string(data.username, max_length=100) if data.username else None,
         has_whatsapp=data.has_whatsapp,
         has_telegram=data.has_telegram,
@@ -127,12 +127,6 @@ async def update_customer_detail(
     """Update customer details"""
     # Sanitize and normalize incoming data without changing the response shape
     raw_data = data.dict(exclude_unset=True)
-
-    if "email" in raw_data:
-        sanitized_email = sanitize_email(raw_data["email"])
-        if not sanitized_email and raw_data["email"]:
-            raise HTTPException(status_code=400, detail="البريد الإلكتروني غير صالح")
-        raw_data["email"] = sanitized_email
 
     if "phone" in raw_data:
         sanitized_phone = sanitize_phone(raw_data["phone"])

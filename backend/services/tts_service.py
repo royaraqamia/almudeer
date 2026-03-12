@@ -41,9 +41,11 @@ async def generate_speech(text: str) -> bytes:
         
         # Create JWT token for authentication
         now = int(time.time())
+        # Use identity from credentials for the issuer and subject
+        identity = creds.get("client_email") or creds.get("identity")
         payload = {
-            "iss": creds["client_email"],
-            "sub": creds["client_email"],
+            "iss": identity,
+            "sub": identity,
             "aud": "https://texttospeech.googleapis.com/",
             "iat": now,
             "exp": now + 3600,  # 1 hour expiry

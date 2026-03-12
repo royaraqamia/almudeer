@@ -95,6 +95,36 @@ class MockSettingsRepository extends _i1.Mock
             ),
           )
           as _i5.Future<_i3.UserPreferences>);
+
+  @override
+  _i5.Future<List<Map<String, dynamic>>> getCalculatorHistory() =>
+      (super.noSuchMethod(
+            Invocation.method(#getCalculatorHistory, []),
+            returnValue: _i5.Future<List<Map<String, dynamic>>>.value(
+              <Map<String, dynamic>>[],
+            ),
+          )
+          as _i5.Future<List<Map<String, dynamic>>>);
+
+  @override
+  _i5.Future<void> updateCalculatorHistory(
+    List<Map<String, dynamic>>? history,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#updateCalculatorHistory, [history]),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<void> clearCalculatorHistory() =>
+      (super.noSuchMethod(
+            Invocation.method(#clearCalculatorHistory, []),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
 }
 
 /// A class which mocks [KnowledgeRepository].
