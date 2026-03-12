@@ -15,15 +15,13 @@ APP_DESCRIPTION_AR = "منصة ذكاء اصطناعي لإدارة التواص
 # ============ Channel Types ============
 
 class Channels:
-    EMAIL = "email"
     TELEGRAM_BOT = "telegram_bot"
     TELEGRAM_PHONE = "telegram_phone"
     WHATSAPP = "whatsapp"
 
-    ALL = [EMAIL, TELEGRAM_BOT, TELEGRAM_PHONE, WHATSAPP]
+    ALL = [TELEGRAM_BOT, TELEGRAM_PHONE, WHATSAPP]
 
     DISPLAY_NAMES = {
-        EMAIL: "البريد الإلكتروني",
         TELEGRAM_BOT: "روبوت تيليجرام",
         TELEGRAM_PHONE: "رقم تيليجرام",
         WHATSAPP: "واتساب",

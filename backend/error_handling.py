@@ -236,7 +236,7 @@ class IntegrationError(Exception):
     pass
 
 
-# EmailConnectionError removed
+# IdentifierConnectionError removed
 
 
 class TelegramAPIError(IntegrationError):

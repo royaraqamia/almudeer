@@ -50,7 +50,7 @@ except ImportError:
 
 # Test configuration
 TEST_LICENSE_KEY = os.getenv("TEST_LICENSE_KEY", "TEST-KEY-1234")
-TEST_USER_EMAIL = os.getenv("TEST_USER_EMAIL", "test@example.com")
+TEST_USER_ID = os.getenv("TEST_USER_ID", "test_user_66")
 
 
 # ============================================================================

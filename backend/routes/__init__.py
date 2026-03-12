@@ -1,7 +1,7 @@
 """Al-Mudeer Routes Package"""
 
 from .system_routes import router as system_router
-# email_router removed
+# identifier_router removed
 from .telegram_routes import router as telegram_router
 from .chat_routes import router as chat_router
 from .features import router as features_router

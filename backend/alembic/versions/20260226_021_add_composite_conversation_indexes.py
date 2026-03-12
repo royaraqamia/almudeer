@@ -27,10 +27,10 @@ def upgrade():
     """)
 
     # P3-14 FIX: Composite index for outbox message loading
-    # Optimizes: SELECT * FROM outbox_messages WHERE license_key_id = ? AND recipient_email = ? ORDER BY created_at DESC
+    # Optimizes: SELECT * FROM outbox_messages WHERE license_key_id = ? AND recipient_contact = ? ORDER BY created_at DESC
     op.execute("""
         CREATE INDEX IF NOT EXISTS idx_outbox_messages_license_recipient_created
-        ON outbox_messages(license_key_id, recipient_email, created_at)
+        ON outbox_messages(license_key_id, recipient_contact, created_at)
     """)
 
     # P3-14 FIX: Composite index for conversation state updates

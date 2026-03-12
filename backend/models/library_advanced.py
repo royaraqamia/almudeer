@@ -231,7 +231,7 @@ async def share_item(
     Args:
         item_id: Library item ID to share
         license_id: License key ID
-        shared_with_user_id: Email or user ID of recipient
+        shared_with_user_id: Contact or user ID of recipient
         permission: Permission level ('read', 'edit', 'admin')
         created_by: User ID of the sharer
         expires_in_days: Optional number of days until share expires

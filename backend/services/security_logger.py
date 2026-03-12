@@ -95,7 +95,7 @@ class SecurityLogger:
             return None
         
         if identifier and "@" in identifier:
-            # Mask identifier with @ (like old emails or system IDs)
+            # Mask identifier with @ (like old contacts or system IDs)
             parts = identifier.split("@")
             if len(parts[0]) > 2:
                 return f"{parts[0][:2]}***@{parts[1]}"

@@ -395,7 +395,7 @@ This runbook provides step-by-step procedures for responding to common library-r
 | On-Call Engineer | PagerDuty | 24/7 |
 | Team Lead | Slack: @team-lead | Business hours |
 | VP Engineering | Slack: @vp-eng | Emergency only |
-| Database Admin | Email: dba@almudeer.com | Business hours |
+| Database Admin | Contact: dba@almudeer.com | Business hours |
 
 ---
 

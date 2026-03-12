@@ -19,7 +19,7 @@ async def test_edit_message_almudeer_no_time_limit():
         "body": "Original body",
         "original_body": None,
         "edit_count": 0,
-        "recipient_email": "test@example.com",
+        "recipient_contact": "test@example.com",
         "recipient_id": None,
         "deleted_at": None  # Not deleted
     }
@@ -64,7 +64,7 @@ async def test_edit_message_stores_edited_by():
         "body": "Original body",
         "original_body": None,
         "edit_count": 0,
-        "recipient_email": "test@example.com",
+        "recipient_contact": "test@example.com",
         "recipient_id": None,
         "deleted_at": None
     }
@@ -136,7 +136,7 @@ async def test_edit_message_external_channel_restricted():
         "body": "Original body",
         "original_body": None,
         "edit_count": 0,
-        "recipient_email": "test@example.com",
+        "recipient_contact": "test@example.com",
         "recipient_id": None
     }
 

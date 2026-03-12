@@ -27,7 +27,7 @@ async def apply_pg_indexes():
             # Outbox Messages
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_outbox_license_status ON outbox_messages(license_key_id, status)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_outbox_recipient_id ON outbox_messages(recipient_id)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_outbox_recipient_email ON outbox_messages(recipient_email)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_outbox_recipient_contact ON outbox_messages(recipient_email)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_outbox_inbox_link ON outbox_messages(inbox_message_id)")
             print("SUCCESS: PostgreSQL indexes applied!")
         finally:

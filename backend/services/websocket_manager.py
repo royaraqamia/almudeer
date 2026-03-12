@@ -827,7 +827,7 @@ async def broadcast_subscription_updated(license_id: int, update_data: Dict[str,
             old_username = update_data.get("old_username")
 
             # Find all licenses who have this user in their 'customers' table
-            # IMPORTANT: Only find customers where contact IS a username (not phone/email/ID)
+            # IMPORTANT: Only find customers where contact IS a username (not phone/identifier/ID)
             # This ensures we only broadcast for Almudeer-to-Almudeer connections
             if old_username:
                 managers = await fetch_all(db, """

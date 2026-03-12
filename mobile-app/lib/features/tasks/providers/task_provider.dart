@@ -1133,7 +1133,7 @@ class TaskProvider extends ChangeNotifier {
     _pendingToggles.clear();
 
     // Clear current user data
-    // currentUserEmail removed
+    // currentUserIdentifier removed
     _currentUserId = null;
 
     super.dispose();

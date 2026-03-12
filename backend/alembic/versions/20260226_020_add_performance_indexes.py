@@ -65,7 +65,7 @@ def upgrade():
     # P1-3: Index for outbox recipient lookups
     op.execute("""
         CREATE INDEX IF NOT EXISTS idx_outbox_messages_recipient_id_lookup
-        ON outbox_messages(license_key_id, recipient_id, recipient_email)
+        ON outbox_messages(license_key_id, recipient_id, recipient_contact)
     """)
 
     # P2-1: Index for read receipts synchronization

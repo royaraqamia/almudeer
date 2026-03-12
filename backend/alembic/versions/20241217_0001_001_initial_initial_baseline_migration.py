@@ -121,7 +121,7 @@ def upgrade() -> None:
             license_key_id INTEGER NOT NULL,
             channel TEXT NOT NULL,
             recipient_id TEXT,
-            recipient_email TEXT,
+            recipient_contact TEXT,
             subject TEXT,
             body TEXT NOT NULL,
             status TEXT DEFAULT 'pending',

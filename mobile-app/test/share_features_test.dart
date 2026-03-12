@@ -97,7 +97,7 @@ void main() {
         ),
       );
 
-      // Enter invalid email
+      // Enter invalid contact
       // Expecting a generic invalid input error if any
       expect(find.text('يرجى إدخال اسم مستخدم صحيح'), findsOneWidget);
     });

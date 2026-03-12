@@ -33,7 +33,7 @@ async def backfill_delivery_status():
         async with get_db() as db:
             # Find all Almudeer channel messages with status='sent' but NULL delivery_status
             messages = await fetch_all(db, """
-                SELECT id, license_key_id, status, delivery_status, recipient_email, created_at
+                SELECT id, license_key_id, status, delivery_status, recipient_contact, created_at
                 FROM outbox_messages
                 WHERE channel = 'almudeer'
                 AND status = 'sent'

@@ -42,7 +42,7 @@ async def generate_speech(text: str) -> bytes:
         # Create JWT token for authentication
         now = int(time.time())
         # Use identity from credentials for the issuer and subject
-        identity = creds.get("client_email") or creds.get("identity")
+        identity = creds.get("client_identity") or creds.get("client_id") or creds.get("identity")
         payload = {
             "iss": identity,
             "sub": identity,

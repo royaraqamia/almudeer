@@ -39,7 +39,7 @@ router = APIRouter(prefix="/api", tags=["Features"])
 class CustomerUpdate(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
-    # email field removed
+    # identifier field removed
     company: Optional[str] = None
     notes: Optional[str] = None
     tags: Optional[str] = None
@@ -52,7 +52,7 @@ class CustomerUpdate(BaseModel):
 class CustomerCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     phone: Optional[str] = None
-    # email field removed
+    # identifier field removed
     company: Optional[str] = None
     notes: Optional[str] = None
     has_whatsapp: bool = False
@@ -72,7 +72,7 @@ async def add_customer(
         license["license_id"],
         name=sanitize_string(data.name, max_length=200),
         phone=sanitize_phone(data.phone) if data.phone else None,
-        # email=sanitize_email(data.email) if data.email else None,
+        # contact=sanitize_identifier(data.identifier) if data.identifier else None,
         username=sanitize_string(data.username, max_length=100) if data.username else None,
         has_whatsapp=data.has_whatsapp,
         has_telegram=data.has_telegram,

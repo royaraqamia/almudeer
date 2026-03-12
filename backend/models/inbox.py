@@ -1893,7 +1893,7 @@ async def save_synced_outbox_message(
     # We risk duplicates if we don't have a way to deduce "we already have this".
     # For now, we can check if a message with same body + recipient + approx timestamp exists? 
     # Or just Insert. Telegram listener runs live, so it shouldn't duplicate unless restarted and getting old updates.
-    # Email fetching logic usually handles deduping by ID, but we need to store ID somewhere.
+    # Contact fetching logic usually handles deduping by ID, but we need to store ID somewhere.
     # If we don't have a column, we can't fully prevent duplicates on re-fetch without external state.
     # PROPOSAL: Use `reply_to_platform_id` column to store the message ID? No, that's for threading.
     # Use `inbox_message_id`? No.
@@ -1945,7 +1945,7 @@ async def save_synced_outbox_message(
             )
              if existing_row and existing_row['sender_contact']:
                  # If we found a known contact for this ID, use it to ensure consistency
-                 # This helps mapping recipient_id (12345) to recipient_email/phone (+971...)
+                 # This helps mapping recipient_id (12345) to recipient_contact/phone (+971...)
                  canonical = existing_row['sender_contact']
                  if recipient_id and recipient_id != canonical: recipient_id = canonical
 
@@ -2949,7 +2949,7 @@ async def upsert_conversation_state(
                     id_placeholders = ", ".join(["?" for _ in all_ids])
                     outbox_check = await fetch_one(
                         db,
-                        f"SELECT 1 FROM outbox_messages WHERE license_key_id = ? AND (recipient_email IN ({id_placeholders}) OR recipient_id IN ({id_placeholders})) AND deleted_at IS NULL LIMIT 1",
+                        f"SELECT 1 FROM outbox_messages WHERE license_key_id = ? AND (recipient_contact IN ({id_placeholders}) OR recipient_id IN ({id_placeholders})) AND deleted_at IS NULL LIMIT 1",
                         [license_id] + list(all_ids) + list(all_ids)
                     )
                     has_messages = outbox_check is not None

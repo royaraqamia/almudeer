@@ -35,7 +35,7 @@ async def init_enhanced_tables():
     """Initialize enhanced tables for Messaging integration"""
     async with get_db() as db:
         
-        # email_configs table removed
+        # identity_configs table removed
         
         # Telegram Bot Configuration per license
         await execute_sql(db, f"""

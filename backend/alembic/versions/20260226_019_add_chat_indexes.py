@@ -28,7 +28,7 @@ def upgrade():
     # Index for outbox_messages recipient lookup
     op.execute("""
         CREATE INDEX IF NOT EXISTS idx_outbox_messages_recipient_lookup 
-        ON outbox_messages(license_key_id, recipient_email, recipient_id)
+        ON outbox_messages(license_key_id, recipient_contact, recipient_id)
     """)
     
     # Index for conversation state lookups

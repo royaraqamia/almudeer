@@ -67,7 +67,7 @@ async def main():
         channel="whatsapp",
         body="مرحبا بك في نظام المدير الذكي",
         recipient_id="john_doe_id",
-        recipient_email="123456789",
+        recipient_contact="123456789",
         attachments=None
     )
     # Approve it to make it searchable? 
