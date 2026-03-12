@@ -40,19 +40,15 @@ class BrowserBookmarkService {
 
   Future<void> deleteBookmark(int index) async {
     if (!_box.isOpen) await init();
-    
-    final list = _box.values.toList();
-    final reversedList = list.reversed.toList();
-    
-    if (index < 0 || index >= reversedList.length) return;
 
-    final entry = reversedList[index];
-    // Find the actual index in the original (non-reversed) list
-    final actualIndex = list.indexWhere((e) => e.url == entry.url);
-    
-    if (actualIndex != -1) {
-      await _box.deleteAt(actualIndex);
-    }
+    // getBookmarks() returns reversed list, so index 0 is the newest (last in box)
+    // Box stores in insertion order, so we need to convert reversed index to box index
+    final bookmarks = _box.values.toList();
+    final reversedIndex = bookmarks.length - 1 - index;
+
+    if (reversedIndex < 0 || reversedIndex >= bookmarks.length) return;
+
+    await _box.deleteAt(reversedIndex);
   }
 
   Future<void> restoreBookmark(BrowserBookmark bookmark) async {

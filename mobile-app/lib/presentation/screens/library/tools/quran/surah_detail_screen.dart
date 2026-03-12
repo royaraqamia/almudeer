@@ -354,6 +354,10 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
 
                       // Fetch remote tafsir lazily (outside build phase) - only once per verse
                       final verseKey = '${widget.surahNumber}:$verseNumber';
+                      final isTafsirPending = quranProvider.isTafsirPending(
+                        widget.surahNumber,
+                        verseNumber,
+                      );
                       if (tafsirText.isEmpty &&
                           quranProvider.selectedTafsir != 'local' &&
                           !_requestedTafsirVerses.contains(verseKey)) {
@@ -406,31 +410,47 @@ class _SurahDetailScreenState extends State<SurahDetailScreen> {
                               ),
                             ),
                             const SizedBox(height: 12),
-                            // Share button
+                            // Share button with loading indicator
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                IconButton(
-                                  icon: const Icon(
-                                    SolarLinearIcons.share,
-                                    size: 20,
-                                  ),
-                                  onPressed: () {
-                                    final text =
-                                        '${quran.getVerse(widget.surahNumber, verseNumber, verseEndSymbol: true)}\n\n'
-                                        '[سورة ${quran.getSurahNameArabic(widget.surahNumber)}: $verseNumber]';
-                                    Clipboard.setData(
-                                      ClipboardData(text: text),
-                                    );
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('تم نسخ الآية'),
+                                Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(
+                                        SolarLinearIcons.share,
+                                        size: 20,
                                       ),
-                                    );
-                                  },
-                                  constraints: const BoxConstraints(),
-                                  padding: const EdgeInsets.all(8),
-                                  tooltip: 'مشاركة الآية',
+                                      onPressed: () {
+                                        final text =
+                                            '${quran.getVerse(widget.surahNumber, verseNumber, verseEndSymbol: true)}\n\n'
+                                            '[سورة ${quran.getSurahNameArabic(widget.surahNumber)}: $verseNumber]';
+                                        Clipboard.setData(
+                                          ClipboardData(text: text),
+                                        );
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('تم نسخ الآية'),
+                                          ),
+                                        );
+                                      },
+                                      constraints: const BoxConstraints(),
+                                      padding: const EdgeInsets.all(8),
+                                      tooltip: 'مشاركة الآية',
+                                    ),
+                                    if (isTafsirPending)
+                                      const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation<Color>(
+                                            AppColors.primary,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ],
                             ),

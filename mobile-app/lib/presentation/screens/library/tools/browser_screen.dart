@@ -92,11 +92,18 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   @override
   void dispose() {
-    // Dispose all tabs to prevent memory leaks
+    // Dispose all tabs to prevent memory leaks (also clears snapshots)
     for (var tab in _tabs) {
       tab.dispose();
     }
     _tabs.clear();
+
+    // Clear reader controller JavaScript channels
+    try {
+      _readerController.removeJavaScriptChannel('ImageLongPressChannel');
+    } catch (_) {
+      // Channel may not exist, ignore
+    }
 
     _urlController.dispose();
     _searchTextController.dispose();
@@ -116,6 +123,10 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
       // Clear reader controller cache
       await _readerController.clearCache();
+
+      // Clear recent history URLs set to prevent false duplicate detection
+      _recentHistoryUrls.clear();
+      _lastHistoryAdd = null;
 
       debugPrint('[Browser] Browsing data cleared successfully');
     } catch (e) {
@@ -637,10 +648,18 @@ class _BrowserScreenState extends State<BrowserScreen> {
       // Parse JSON with proper error handling
       final Map<String, dynamic> data;
       try {
-        data = jsonDecode(jsonString);
+        final decoded = jsonDecode(jsonString);
+        // Validate that decoded result is a Map (not List or primitive)
+        if (decoded is! Map<String, dynamic>) {
+          throw Exception('Invalid reader mode content format (expected Map)');
+        }
+        data = decoded;
       } on FormatException catch (e) {
         debugPrint('Reader mode JSON parse error: $e');
         throw Exception('Failed to parse reader mode content');
+      } on Exception catch (e) {
+        debugPrint('Reader mode content validation error: $e');
+        rethrow;
       }
 
       final title = data['title']?.toString() ?? 'Untitled';

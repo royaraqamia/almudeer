@@ -81,6 +81,10 @@ def _validate_quran_progress(data: dict) -> Optional[str]:
     # Validate surah number (1-114)
     if last_surah is None:
         return "البيانات غير مكتملة: رقم السورة مطلوب"
+    
+    # Reject floats explicitly to prevent silent truncation (e.g., 1.9 -> 1)
+    if isinstance(last_surah, float):
+        return "رقم السورة غير صالح: يجب أن يكون رقماً صحيحاً وليس عشرياً"
     if not isinstance(last_surah, int):
         try:
             last_surah = int(last_surah)
@@ -93,6 +97,10 @@ def _validate_quran_progress(data: dict) -> Optional[str]:
     # Validate verse number (must be positive)
     if last_verse is None:
         return "البيانات غير مكتملة: رقم الآية مطلوب"
+    
+    # Reject floats explicitly to prevent silent truncation
+    if isinstance(last_verse, float):
+        return "رقم الآية غير صالح: يجب أن يكون رقماً صحيحاً وليس عشرياً"
     if not isinstance(last_verse, int):
         try:
             last_verse = int(last_verse)

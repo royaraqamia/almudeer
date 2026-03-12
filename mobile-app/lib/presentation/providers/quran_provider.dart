@@ -31,8 +31,9 @@ class QuranProvider extends ChangeNotifier {
   Timer? _debounceTimer;
   Map<String, dynamic> _tafsirData = {};
   Map<String, String> _remoteTafsirCache = {};
+  final Set<String> _pendingTafsirRequests = {}; // Track verses being fetched
   bool _tafsirLoaded = false;
-  
+
   static const String _remoteTafsirKey = 'quran_remote_tafsir_cache';
   static const int _maxRemoteTafsirCacheSize = 200; // LRU cache limit to prevent storage bloat
 
@@ -45,6 +46,12 @@ class QuranProvider extends ChangeNotifier {
   String get selectedTafsir => _selectedTafsir;
   bool get isInitialized => _isInitialized;
   bool get isLoadingTafsir => _isLoadingTafsir;
+
+  /// Check if a specific verse's tafsir is being fetched
+  bool isTafsirPending(int surah, int verse) {
+    final cacheKey = '$surah:$verse';
+    return _pendingTafsirRequests.contains(cacheKey);
+  }
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
@@ -78,8 +85,10 @@ class QuranProvider extends ChangeNotifier {
       final response = await _syncService.getQuranProgress();
       if (response != null && response['progress'] != null) {
         final progress = response['progress'];
-        final serverSurah = progress['last_surah'] as int?;
-        final serverVerse = progress['last_verse'] as int?;
+        
+        // CRITICAL: Safe type coercion - handle both int and String values
+        final serverSurah = _safeParseInt(progress['last_surah']);
+        final serverVerse = _safeParseInt(progress['last_verse']);
 
         // CRITICAL: Ensure both values are non-null before comparison
         if (serverSurah != null && serverVerse != null) {
@@ -107,6 +116,22 @@ class QuranProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error fetching server quran progress: $e');
     }
+  }
+
+  /// Safely parse int from various types (int, String, double)
+  /// Returns null if parsing fails or value is invalid
+  int? _safeParseInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value);
+    if (value is double) {
+      // Reject non-integer doubles (e.g., 1.9) but accept integer doubles (e.g., 1.0)
+      if (value == value.toInt()) {
+        return value.toInt();
+      }
+      return null;
+    }
+    return null;
   }
 
   Future<void> loadTafsir() async {
@@ -205,9 +230,20 @@ class QuranProvider extends ChangeNotifier {
   /// HTTP request timeout duration
   static const Duration _httpTimeout = Duration(seconds: 10);
 
-  Future<void> _fetchRemoteTafsir(int surah, int verse) async {
+  /// Maximum retry attempts for failed tafsir requests
+  static const int _maxTafsirRetries = 2;
+
+  /// Base delay for exponential backoff (milliseconds)
+  static const int _tafsirRetryBaseDelayMs = 500;
+
+  Future<void> _fetchRemoteTafsir(int surah, int verse, {int retryCount = 0}) async {
     final cacheKey = '$surah:$verse';
     if (_remoteTafsirCache.containsKey(cacheKey)) return;
+    if (_pendingTafsirRequests.contains(cacheKey)) return; // Already fetching
+
+    // Mark as pending
+    _pendingTafsirRequests.add(cacheKey);
+    notifyListeners();
 
     try {
       final url = '$_quranApiBaseUrl/quran/tafsirs/$_defaultTafsirId?verse_key=$surah:$verse';
@@ -219,11 +255,19 @@ class QuranProvider extends ChangeNotifier {
         debugPrint('Tafsir API rate limited (429) for $surah:$verse');
         return;
       } else if (response.statusCode >= 500) {
-        // Server error - log but don't crash
+        // Server error - retry with exponential backoff
         debugPrint('Tafsir API server error (${response.statusCode}) for $surah:$verse');
+        
+        if (retryCount < _maxTafsirRetries) {
+          final delayMs = _tafsirRetryBaseDelayMs * (1 << retryCount); // Exponential backoff
+          final jitter = DateTime.now().millisecondsSinceEpoch % 200;
+          debugPrint('Retrying tafsir fetch in ${delayMs + jitter}ms (attempt ${retryCount + 1}/$_maxTafsirRetries)');
+          await Future.delayed(Duration(milliseconds: delayMs + jitter));
+          await _fetchRemoteTafsir(surah, verse, retryCount: retryCount + 1);
+        }
         return;
       } else if (response.statusCode >= 400) {
-        // Client error (4xx) - likely invalid request
+        // Client error (4xx) - likely invalid request, don't retry
         debugPrint('Tafsir API client error (${response.statusCode}) for $surah:$verse: ${response.body}');
         return;
       }
@@ -258,8 +302,21 @@ class QuranProvider extends ChangeNotifier {
       }
     } on TimeoutException {
       debugPrint('Timeout fetching remote tafsir ($surah:$verse)');
+      
+      // Retry on timeout with exponential backoff
+      if (retryCount < _maxTafsirRetries) {
+        final delayMs = _tafsirRetryBaseDelayMs * (1 << retryCount);
+        final jitter = DateTime.now().millisecondsSinceEpoch % 200;
+        debugPrint('Retrying tafsir fetch after timeout in ${delayMs + jitter}ms (attempt ${retryCount + 1}/$_maxTafsirRetries)');
+        await Future.delayed(Duration(milliseconds: delayMs + jitter));
+        await _fetchRemoteTafsir(surah, verse, retryCount: retryCount + 1);
+      }
     } catch (e) {
       debugPrint('Error fetching remote tafsir ($surah:$verse): $e');
+    } finally {
+      // Always remove from pending
+      _pendingTafsirRequests.remove(cacheKey);
+      notifyListeners();
     }
   }
 
@@ -297,7 +354,12 @@ class QuranProvider extends ChangeNotifier {
     await prefs.setInt(_lastVerseKey, verse);
 
     if (_syncService != null) {
-      await _syncService.queueQuranProgress(surah, verse);
+      try {
+        await _syncService.queueQuranProgress(surah, verse);
+      } catch (e) {
+        // Log but don't fail - sync will retry later
+        debugPrint('Failed to queue Quran progress for sync: $e');
+      }
     }
   }
 
@@ -305,13 +367,24 @@ class QuranProvider extends ChangeNotifier {
   Future<void> saveLastReadImmediate() async {
     if (_lastSurah == null || _lastVerse == null) return;
 
-    // Validate before saving
-    if (!_isValidProgress(_lastSurah!, _lastVerse!)) {
-      debugPrint('Invalid Quran progress on dispose: surah=$_lastSurah, verse=$_lastVerse');
+    final surah = _lastSurah!;
+    final verse = _lastVerse!;
+
+    // Validate before saving with detailed logging for debugging
+    if (!_isValidProgress(surah, verse)) {
+      debugPrint('⚠️ Invalid Quran progress on dispose - possible data corruption:');
+      debugPrint('   Surah: $surah (expected: 1-114)');
+      debugPrint('   Verse: $verse (expected: 1-$_maxVersesInSurah)');
+      debugPrint('   Action: Skipping save to prevent corruption');
       return;
     }
 
-    await _saveToPrefs(_lastSurah!, _lastVerse!);
+    try {
+      await _saveToPrefs(surah, verse);
+      debugPrint('✓ Saved Quran progress: Surah $surah, Verse $verse');
+    } catch (e) {
+      debugPrint('❌ Error saving Quran progress on dispose: $e');
+    }
   }
 
   Future<void> setFontSize(double size) async {

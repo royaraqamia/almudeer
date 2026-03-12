@@ -32,9 +32,15 @@ class BrowserHistoryService {
     if (!_box.isOpen) await init();
 
     try {
+      // Rebuild index first to ensure we have fresh data
+      // This prevents race conditions when multiple entries are added rapidly
+      _rebuildIndex();
+
       // Remove existing entry for this URL if present
       if (_urlIndex.containsKey(url)) {
         await _box.deleteAt(_urlIndex[url]!);
+        // Rebuild index after deletion to ensure consistency
+        _rebuildIndex();
       }
 
       // Add new entry
@@ -42,7 +48,7 @@ class BrowserHistoryService {
         BrowserHistoryEntry(url: url, title: title, timestamp: DateTime.now()),
       );
 
-      // Always rebuild index after mutations to ensure consistency
+      // Rebuild index after addition
       _rebuildIndex();
 
       // Enforce max history limit

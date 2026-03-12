@@ -356,6 +356,7 @@ async def get_quran_progress(license: dict = Depends(get_license_from_header)):
 
 
 @router.patch("/quran/progress")
+@limiter.limit("30/minute")  # Rate limiting to prevent database spam
 async def update_quran_progress(
     data: dict,
     license: dict = Depends(get_license_from_header)
@@ -397,14 +398,16 @@ async def update_quran_progress(
 def _translate_validation_error(arabic_error: str) -> str:
     """Translate common validation errors to English for API responses."""
     import re
-    
+
     translations = {
         "تنسيق البيانات غير صالح: يجب أن يكون كائن JSON": "Invalid data format: must be a JSON object",
         "البيانات غير مكتملة: رقم السورة مطلوب": "Incomplete data: surah number is required",
         "البيانات غير مكتملة: رقم الآية مطلوب": "Incomplete data: verse number is required",
         "رقم السورة غير صالح: يجب أن يكون رقماً صحيحاً": "Invalid surah number: must be an integer",
         "رقم السورة غير صالح: يجب أن يكون بين 1 و 114": "Invalid surah number: must be between 1 and 114",
+        "رقم السورة غير صالح: يجب أن يكون رقماً صحيحاً وليس عشرياً": "Invalid surah number: must be an integer, not a decimal",
         "رقم الآية غير صالح: يجب أن يكون رقماً صحيحاً": "Invalid verse number: must be an integer",
+        "رقم الآية غير صالح: يجب أن يكون رقماً صحيحاً وليس عشرياً": "Invalid verse number: must be an integer, not a decimal",
         "رقم الآية غير صالح: يجب أن يكون رقماً موجباً": "Invalid verse number: must be a positive number",
         "رقم الآية غير صالح": "Invalid verse number:",
     }
@@ -416,14 +419,16 @@ def _translate_validation_error(arabic_error: str) -> str:
     # Check for partial match using regex patterns for dynamic errors
     patterns = [
         (r"رقم السورة غير صالح.*بين 1 و 114.*إدخال (\d+)", r"Invalid surah number: must be between 1 and 114, got \1"),
+        (r"رقم السورة غير صالح.*رقماً صحيحاً وليس عشرياً", "Invalid surah number: must be an integer, not a decimal"),
         (r"رقم السورة غير صالح.*رقماً صحيحاً", "Invalid surah number: must be an integer"),
+        (r"رقم الآية غير صالح.*رقماً صحيحاً وليس عشرياً", "Invalid verse number: must be an integer, not a decimal"),
         (r"رقم الآية غير صالح.*رقماً صحيحاً", "Invalid verse number: must be an integer"),
         (r"رقم الآية غير صالح.*رقماً موجباً.*إدخال (-?\d+)", r"Invalid verse number: must be positive, got \1"),
         (r"رقم الآية غير صالح.*لها (\d+) آيات.*إدخال (\d+)", r"Invalid verse number: surah has only \1 verses, got \2"),
         (r"رقم السورة غير صالح", "Invalid surah number: must be between 1 and 114"),
         (r"رقم الآية غير صالح", "Invalid verse number: invalid value"),
     ]
-    
+
     for pattern, replacement in patterns:
         match = re.search(pattern, arabic_error)
         if match:

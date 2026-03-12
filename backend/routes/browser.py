@@ -107,7 +107,12 @@ class CircuitBreaker:
             state.failures += 1
             state.last_failure_time = time.time()
 
-            if state.failures >= self.failure_threshold:
+            # If failure occurs during half-open state, reset to open immediately
+            if state.state == "half-open":
+                state.state = "open"
+                state.success_count = 0
+                logger.warning(f"Circuit breaker re-OPENED for {host} (recovery failed)")
+            elif state.failures >= self.failure_threshold:
                 state.state = "open"
                 logger.warning(f"Circuit breaker OPENED for {host} (failures: {state.failures})")
 
@@ -205,19 +210,23 @@ _cache_lock = asyncio.Lock()
 
 async def _clean_preview_cache():
     """Clean old cache entries based on TTL (thread-safe)"""
-    async with _cache_lock:
-        now = datetime.now()
-        expired_keys = [
-            k for k, v in _preview_cache.items()
-            if (now - v['timestamp']) > _cache_ttl
-        ]
-        for key in expired_keys:
-            _preview_cache.pop(key, None)
+    try:
+        async with asyncio.timeout(5.0):  # 5 second timeout to prevent blocking
+            async with _cache_lock:
+                now = datetime.now()
+                expired_keys = [
+                    k for k, v in _preview_cache.items()
+                    if (now - v['timestamp']) > _cache_ttl
+                ]
+                for key in expired_keys:
+                    _preview_cache.pop(key, None)
 
-        # Enforce hard size limit with LRU eviction
-        while len(_preview_cache) > _CACHE_MAX_SIZE:
-            # Remove oldest (first) item - LRU eviction
-            _preview_cache.popitem(last=False)
+                # Enforce hard size limit with LRU eviction
+                while len(_preview_cache) > _CACHE_MAX_SIZE:
+                    # Remove oldest (first) item - LRU eviction
+                    _preview_cache.popitem(last=False)
+    except asyncio.TimeoutError:
+        logger.warning("Cache cleanup timed out - skipping until next run")
 
 
 async def _get_cached_preview(url: str) -> Optional[dict]:
@@ -237,11 +246,13 @@ async def _get_cached_preview(url: str) -> Optional[dict]:
 async def _set_cached_preview(url: str, data: dict):
     """Set cached preview with LRU eviction (thread-safe)"""
     async with _cache_lock:
-        # If exists, remove first to update LRU order
+        # If URL already exists, remove it first to update LRU order
         if url in _preview_cache:
             _preview_cache.pop(url)
+        # Enforce hard size limit with LRU eviction BEFORE adding new entry
+        # This prevents cache from exceeding _CACHE_MAX_SIZE
         elif len(_preview_cache) >= _CACHE_MAX_SIZE:
-            # Evict oldest (first) item
+            # Evict oldest (first) item - LRU eviction
             _preview_cache.popitem(last=False)
 
         _preview_cache[url] = {
@@ -406,6 +417,11 @@ class ScrapeRequest(BaseModel):
         if not v or not v.strip():
             raise ValueError('URL cannot be empty')
 
+        # URL length validation to prevent DoS attacks
+        # Most browsers limit URLs to 2048 characters
+        if len(v) > 2048:
+            raise ValueError('URL too long (max 2048 characters)')
+
         # Add scheme if missing
         if not v.startswith(('http://', 'https://')):
             v = 'https://' + v
@@ -476,6 +492,11 @@ class LinkPreviewRequest(BaseModel):
         if not v or not v.strip():
             raise ValueError('URL cannot be empty')
 
+        # URL length validation to prevent DoS attacks
+        # Most browsers limit URLs to 2048 characters
+        if len(v) > 2048:
+            raise ValueError('URL too long (max 2048 characters)')
+
         if not v.startswith(('http://', 'https://')):
             v = 'https://' + v
 
@@ -484,21 +505,21 @@ class LinkPreviewRequest(BaseModel):
             parsed = urlparse(v)
             if not parsed.scheme or not parsed.netloc:
                 raise ValueError('Invalid URL format')
-            
+
             # Check hostname for security issues
             host = parsed.netloc.lower()
             if ":" in host:
                 host = host.split(":")[0]
-            
+
             # Check blocked patterns
             for pattern in BLOCKED_URL_PATTERNS:
                 if host == pattern or host.endswith(f".{pattern}"):
                     raise ValueError(f'URL pattern blocked: {pattern}')
-            
+
             # Homograph Attack Detection
             if _detect_homograph_attack(host):
                 raise ValueError('Potential homograph attack detected (mixed scripts or confusable characters)')
-                
+
         except Exception as e:
             if isinstance(e, ValueError):
                 raise

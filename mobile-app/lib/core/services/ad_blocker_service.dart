@@ -17,6 +17,7 @@ class AdBlockerService {
 
   final Set<String> _blockedHosts = {};
   bool _isInitialized = false;
+  Completer<void>? _initCompleter;
 
   Set<String> get blockedHosts => _blockedHosts;
   // AdBlocker is ALWAYS enabled - no option to disable
@@ -120,38 +121,48 @@ class AdBlockerService {
   ];
 
   Future<void> init() async {
+    // Return existing initialization future if already in progress
+    if (_initCompleter != null) return _initCompleter!.future;
     if (_isInitialized) return;
 
-    // Always load built-in blocking patterns
-    for (final pattern in _builtinBlockedPatterns) {
-      _blockedHosts.add(pattern.toLowerCase());
-    }
+    _initCompleter = Completer<void>();
 
     try {
-      final box = await Hive.openBox('adblock_cache');
-      final cachedHosts = box.get(_cacheKey) as String?;
-      final lastUpdate = box.get(_timestampKey) as int?;
-
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final oneWeek = 7 * 24 * 60 * 60 * 1000;
-
-      if (cachedHosts != null &&
-          lastUpdate != null &&
-          (now - lastUpdate) < oneWeek) {
-        final List<dynamic> hosts = jsonDecode(cachedHosts);
-        _blockedHosts.addAll(hosts.cast<String>());
-        debugPrint(
-          '[AdBlocker] Loaded ${_blockedHosts.length} hosts from cache',
-        );
-      } else {
-        // Fetch in background, don't block initialization
-        unawaited(_fetchHostsFile());
+      // Always load built-in blocking patterns
+      for (final pattern in _builtinBlockedPatterns) {
+        _blockedHosts.add(pattern.toLowerCase());
       }
-    } catch (e) {
-      debugPrint('[AdBlocker] Init error: $e');
-    }
 
-    _isInitialized = true;
+      try {
+        final box = await Hive.openBox('adblock_cache');
+        final cachedHosts = box.get(_cacheKey) as String?;
+        final lastUpdate = box.get(_timestampKey) as int?;
+
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final oneWeek = 7 * 24 * 60 * 60 * 1000;
+
+        if (cachedHosts != null &&
+            lastUpdate != null &&
+            (now - lastUpdate) < oneWeek) {
+          final List<dynamic> hosts = jsonDecode(cachedHosts);
+          _blockedHosts.addAll(hosts.cast<String>());
+          debugPrint(
+            '[AdBlocker] Loaded ${_blockedHosts.length} hosts from cache',
+          );
+        } else {
+          // Fetch in background, don't block initialization
+          unawaited(_fetchHostsFile());
+        }
+      } catch (e) {
+        debugPrint('[AdBlocker] Init error: $e');
+      }
+
+      _isInitialized = true;
+      _initCompleter!.complete();
+    } catch (e) {
+      _initCompleter!.completeError(e);
+      rethrow;
+    }
   }
 
   Future<void> _fetchHostsFile() async {

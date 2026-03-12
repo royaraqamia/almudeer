@@ -247,9 +247,18 @@ class BrowserDownloadManager {
     final pending = _pendingQueue.removeFirst();
     debugPrint('[DownloadManager] Processing queued download: ${pending.url}');
 
-    // Decrement count first since startDownload will increment it
-    _activeDownloadCount--;
-    await startDownload(pending.url, fileName: pending.fileName);
+    try {
+      // Decrement count first since startDownload will increment it
+      _activeDownloadCount--;
+      await startDownload(pending.url, fileName: pending.fileName);
+    } catch (e) {
+      // If startDownload fails after incrementing, decrement to correct the count
+      _activeDownloadCount--;
+      debugPrint('[DownloadManager] Queued download failed: $e');
+      // Try processing next queued download
+      await _processNextQueuedDownload();
+      rethrow;
+    }
   }
 
   Future<void> pauseDownload(String id) async {
