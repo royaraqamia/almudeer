@@ -1192,6 +1192,7 @@ async def get_conversation_messages_cursor(
         out_identifiers = []
         if all_contacts:
             contact_placeholders = ", ".join(["?" for _ in all_contacts])
+            out_identifiers.append(f"o.recipient_id IN ({contact_placeholders})")
             outbox_params.extend(list(all_contacts))
 
         if all_ids:
