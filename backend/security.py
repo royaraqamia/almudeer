@@ -17,6 +17,9 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.backends import default_backend
 import base64
 
+# Import validators for re-export
+from validators import validate_license_key_format
+
 # Get encryption key from environment
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 if not ENCRYPTION_KEY:
@@ -228,6 +231,70 @@ def sanitize_string(text: str, max_length: Optional[int] = None, allow_html: boo
         text = text[:max_length]
     
     return text.strip()
+
+
+def sanitize_phone(phone: str) -> Optional[str]:
+    """
+    Sanitize phone number (basic cleaning).
+
+    Args:
+        phone: Phone number string
+
+    Returns:
+        Sanitized phone number or None
+    """
+    if not phone:
+        return None
+
+    # Remove all non-digit characters except + at start
+    phone = phone.strip()
+    if phone.startswith('+'):
+        cleaned = '+' + re.sub(r'\D', '', phone[1:])
+    else:
+        cleaned = re.sub(r'\D', '', phone)
+
+    # Basic length validation (5-15 digits is reasonable)
+    if len(cleaned.replace('+', '')) < 5 or len(cleaned.replace('+', '')) > 15:
+        return None
+
+    return cleaned
+
+
+def sanitize_message(message: str, max_length: int = 10000) -> str:
+    """
+    Sanitize message content.
+
+    Args:
+        message: Message string
+        max_length: Maximum length (default 10000)
+
+    Returns:
+        Sanitized message
+    """
+    if not message:
+        return ""
+
+    # Remove null bytes
+    message = message.replace('\x00', '')
+
+    # Truncate if needed
+    if len(message) > max_length:
+        message = message[:max_length]
+
+    return message.strip()
+
+
+def generate_secure_token(length: int = 32) -> str:
+    """
+    Generate a cryptographically secure random token.
+
+    Args:
+        length: Number of random bytes (default 32, produces 64 hex chars)
+
+    Returns:
+        Hex-encoded secure token string
+    """
+    return secrets.token_hex(length)
 
 
 # Export all sanitization functions for backward compatibility
