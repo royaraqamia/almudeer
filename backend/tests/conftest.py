@@ -232,12 +232,14 @@ async def db_session():
         
         await db.commit()
 
-    # 2. Initialize Enhanced Tables (using model functions)
+    # 2. Initialize customers and analytics tables FIRST (needed for foreign keys)
+    await init_customers_and_analytics()
+    
+    # 3. Initialize Enhanced Tables (using model functions)
     # These functions manage their own DB connections/transactions
     await init_enhanced_tables()
-    await init_customers_and_analytics()
 
-    # 3. Ensure library_items has created_by column (migration for tests)
+    # 4. Ensure library_items has created_by column (migration for tests)
     async with get_db() as db:
         try:
             await db.execute("ALTER TABLE library_items ADD COLUMN created_by TEXT")

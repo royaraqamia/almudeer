@@ -84,11 +84,15 @@ async def share_task(
     created_by: Optional[str] = None
 ) -> dict:
     """Share a task with another user
-    
+
     SEC-001 FIX: Properly prevents self-sharing by checking against task owner.
     AUTH-001 FIX: Uses shared utility for username resolution.
     """
     now = datetime.now(timezone.utc)
+    
+    # SQLite compatibility: convert datetime to ISO format string
+    if DB_TYPE == "sqlite":
+        now = now.isoformat()
 
     # Validate permission level
     if not validate_share_permission(permission):
@@ -370,7 +374,7 @@ async def get_shared_tasks(
         result = [dict(row) for row in rows]
 
         # FIX BUG-002: Cache with shorter TTL for time-bucketed keys
-        await cache.set(cache_key, result, ttl_seconds=7200)  # 2 hours TTL
+        await cache.set(cache_key, result)
         logger.debug(f"Cached shared tasks: {cache_key}")
 
         return result
@@ -389,6 +393,10 @@ async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str]
         requested_by_user_id: User ID making the request (for permission check)
     """
     now = datetime.now(timezone.utc)
+    
+    # SQLite compatibility: convert datetime to ISO format string
+    if DB_TYPE == "sqlite":
+        now = now.isoformat()
 
     async with get_db() as db:
         # Get share info before deleting
@@ -553,6 +561,10 @@ async def update_share_permission(
 ) -> bool:
     """Update share permission"""
     now = datetime.now(timezone.utc)
+    
+    # SQLite compatibility: convert datetime to ISO format string
+    if DB_TYPE == "sqlite":
+        now = now.isoformat()
 
     async with get_db() as db:
         # Get share to find the user

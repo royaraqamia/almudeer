@@ -530,17 +530,17 @@ async def create_task(license_id: int, task_data: dict) -> dict:
             # FIX: Use database-agnostic clock skew tolerance with configurable value
             # PostgreSQL: EXTRACT(EPOCH FROM ...) returns seconds
             # SQLite: strftime('%s', ...) returns seconds as string
-            clock_skew_condition = f"""
-                        -- If timestamps are very close (< {clock_skew_seconds}s), prefer the one with more recent client timestamp
-                        ABS(EXTRACT(EPOCH FROM (excluded.updated_at - tasks.updated_at))) < {clock_skew_seconds}
-                        AND excluded.updated_at >= tasks.updated_at
-                    """
             if DB_TYPE == "sqlite":
                 clock_skew_condition = f"""
-                        -- SQLite: Use strftime for timestamp difference in seconds
-                        ABS(strftime('%s', excluded.updated_at) - strftime('%s', tasks.updated_at)) < {clock_skew_seconds}
-                        AND excluded.updated_at >= tasks.updated_at
-                    """
+                    ABS(strftime('%s', excluded.updated_at) - strftime('%s', tasks.updated_at)) < {clock_skew_seconds}
+                    AND excluded.updated_at >= tasks.updated_at
+                """
+            else:
+                # PostgreSQL
+                clock_skew_condition = f"""
+                    ABS(EXTRACT(EPOCH FROM (excluded.updated_at - tasks.updated_at))) < {clock_skew_seconds}
+                    AND excluded.updated_at >= tasks.updated_at
+                """
 
             await execute_sql(db, f"""
                 INSERT INTO tasks (
@@ -568,12 +568,9 @@ async def create_task(license_id: int, task_data: dict) -> dict:
                     updated_at = excluded.updated_at,
                     synced_at = CURRENT_TIMESTAMP
                 WHERE tasks.license_key_id = ? AND (
-                    -- FIX BUG-004: Enhanced LWW with tolerance for clock skew (5 second window)
                     tasks.updated_at IS NULL
                     OR excluded.updated_at > tasks.updated_at
-                    OR (
-                        {clock_skew_condition}
-                )
+                    OR ({clock_skew_condition})
             """, (
                 task_data['id'],
                 license_id,
