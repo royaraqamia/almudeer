@@ -66,10 +66,10 @@ async def normalize_sender_contact(conn, license_id: int, sender_id: str, all_co
     # Update outbox messages (recipient_id matches sender_id)
     updated_outbox = await conn.execute("""
         UPDATE outbox_messages 
-        SET recipient_email = $1
+        SET recipient_id = $1
         WHERE license_key_id = $2 
         AND recipient_id = $3
-        AND recipient_email != $1
+        AND recipient_id != $1
     """, canonical_contact, license_id, sender_id)
     
     # Refresh the conversation cache - recalculate from source

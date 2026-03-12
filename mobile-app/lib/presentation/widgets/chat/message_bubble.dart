@@ -548,8 +548,7 @@ class _MessageBubbleState extends State<MessageBubble> {
                                           ),
                                     ),
                                   ],
-                                  if (isOutgoing &&
-                                      widget.message.channel != 'gmail') ...[
+                                  if (isOutgoing) ...[
                                     const SizedBox(width: 6),
                                     _buildDeliveryStatus(theme, isOutgoing),
                                   ],

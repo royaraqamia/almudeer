@@ -9,16 +9,13 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from models import (
-    get_email_config,
     get_telegram_config,
     get_telegram_phone_session,
     get_whatsapp_config,
-    update_email_config_settings,
     update_telegram_config_settings,
     update_telegram_phone_session_settings,
     update_whatsapp_config_settings,
 )
-from services import GmailOAuthService
 from workers import get_worker_status
 from dependencies import get_license_from_header
 from db_helper import get_db, execute_sql, commit_db
@@ -33,7 +30,6 @@ class IntegrationAccount(BaseModel):
     details: Optional[str] = None
 
 class WorkerStatusResponse(BaseModel):
-    email_polling: dict
     telegram_polling: dict
 
 @router.get("/debug")
@@ -43,32 +39,20 @@ def debug_integrations():
 @router.get("/workers/status", response_model=WorkerStatusResponse)
 async def worker_status_v1():
     """Operational status of background workers"""
-    return get_worker_status()
+    status = get_worker_status()
+    return status
 
 # Specialized endpoint with license dependency (v2)
 @router.get("/workers/status/detail")
 async def worker_status_v2(license: dict = Depends(get_license_from_header)):
     """Detailed worker status for a specific license"""
-    return {"workers": get_worker_status()}
+    return {"workers": status}
 
 @router.get("/accounts")
 async def list_integration_accounts(license: dict = Depends(get_license_from_header)):
     """Unified view of all connected channels/accounts"""
     license_id = license["license_id"]
     accounts: List[IntegrationAccount] = []
-
-    # Email
-    email_cfg = await get_email_config(license_id, include_inactive=False)
-    if email_cfg and isinstance(email_cfg, dict):
-        accounts.append(
-            IntegrationAccount(
-                id="email",
-                channel_type="email",
-                display_name=str(email_cfg.get("email_address") or "Gmail"),
-                is_active=bool(email_cfg.get("is_active")),
-                details="Gmail OAuth"
-            )
-        )
 
     # Telegram bot
     telegram_cfg = await get_telegram_config(license_id, include_inactive=False)
@@ -126,17 +110,7 @@ async def create_integration_account(
     if not channel_type:
         raise HTTPException(status_code=400, detail="channel_type مطلوب")
     
-    if channel_type == "email":
-        oauth_service = GmailOAuthService()
-        state = GmailOAuthService.encode_state(license_id)
-        auth_url = oauth_service.get_authorization_url(state)
-        return {
-            "success": True,
-            "action": "oauth_redirect",
-            "authorization_url": auth_url,
-            "message": "يرجى فتح هذا الرابط وتسجيل الدخول بحساب Google الخاص بك"
-        }
-    elif channel_type == "telegram_bot":
+    if channel_type == "telegram_bot":
         bot_token = request.get("bot_token")
         if not bot_token:
             raise HTTPException(status_code=400, detail="bot_token مطلوب لربط Telegram Bot")
@@ -195,21 +169,7 @@ async def delete_integration_account(
     """Delete/disconnect an integration account"""
     license_id = license["license_id"]
     
-    if account_id == "email":
-        email_cfg = await get_email_config(license_id)
-        if email_cfg:
-            async with get_db() as db:
-                await execute_sql(
-                    db,
-                    "DELETE FROM email_configs WHERE license_key_id = ?",
-                    [license_id]
-                )
-                await commit_db(db)
-            return {"success": True, "message": "تم إلغاء تفعيل حساب البريد الإلكتروني"}
-        else:
-            raise HTTPException(status_code=404, detail="لا يوجد حساب بريد إلكتروني مرتبط")
-    
-    elif account_id == "telegram_bot":
+    if account_id == "telegram_bot":
         telegram_cfg = await get_telegram_config(license_id)
         if telegram_cfg:
             async with get_db() as db:
@@ -261,4 +221,3 @@ async def update_integration_account(
     # Unified update logic for activation/deactivation if needed
     # For now, we only support deletion in delete endpoint, but this could be used for toggling
     return {"success": True, "message": "تم تحديث الإعدادات"}
-

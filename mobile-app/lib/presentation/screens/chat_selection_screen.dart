@@ -59,7 +59,7 @@ class _ChatSelectionScreenState extends State<ChatSelectionScreen> {
       id: -1 * customer.id,
       channel: 'almudeer',
       senderName: customer.name ?? customer.displayName,
-      senderContact: customer.phone ?? customer.email ?? '',
+      senderContact: customer.phone ?? '',
       senderId: customer.id.toString(),
       body: '',
       status: 'new',

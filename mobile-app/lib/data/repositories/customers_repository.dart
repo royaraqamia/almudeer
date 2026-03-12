@@ -212,12 +212,10 @@ class CustomersRepository {
   /// Find customer by contact info
   Future<Map<String, dynamic>?> findCustomerByContact({
     String? phone,
-    String? email,
     String? username,
   }) async {
     return await _localDataSource.getCustomerByContact(
       phone: phone,
-      email: email,
       username: username,
     );
   }
@@ -226,17 +224,15 @@ class CustomersRepository {
   Future<Map<String, dynamic>> addCustomer(Map<String, dynamic> data) async {
     final phone = data['phone']?.toString();
 
-    // Check for duplicate phone/email locally first (Optimized)
-    if ((phone != null && phone.isNotEmpty) ||
-        (data['email']?.toString().isNotEmpty ?? false)) {
+    // Check for duplicate phone locally first (Optimized)
+    if (phone != null && phone.isNotEmpty) {
       final exists = await _localDataSource.existsByContact(
         phone: phone,
-        email: data['email']?.toString(),
       );
 
       if (exists) {
         debugPrint(
-          '[CustomersRepo] Duplicate customer detected: $phone / ${data['email']}',
+          '[CustomersRepo] Duplicate customer detected: $phone',
         );
         return {
           'success': true,
@@ -387,10 +383,8 @@ class CustomersRepository {
         if (existing != null) {
           final name = existing['name'] ?? 'Unknown';
           final phone = existing['phone'];
-          final email = existing['email'];
 
-          if ((phone != null && phone.isNotEmpty) ||
-              (email != null && email.isNotEmpty)) {
+          if (phone != null && phone.isNotEmpty) {
             debugPrint(
               '[CustomersRepo] Delete failed (404), attempting to re-sync ID for $name...',
             );
@@ -398,7 +392,7 @@ class CustomersRepository {
               // Try to find the correct ID on the server
               final syncResult = await _apiClient.post(
                 Endpoints.customers,
-                body: {'name': name, 'phone': phone, 'email': email},
+                body: {'name': name, 'phone': phone},
               );
 
               final serverId = syncResult['customer']?['id'];

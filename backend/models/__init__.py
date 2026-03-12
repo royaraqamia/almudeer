@@ -19,14 +19,6 @@ from .base import (
     ROLES,
 )
 
-# Email configuration
-from .email_config import (
-    save_email_config,
-    get_email_config,
-    get_email_oauth_tokens,
-    update_email_config_settings,
-    get_email_password,
-)
 
 # Telegram configuration
 from .telegram_config import (

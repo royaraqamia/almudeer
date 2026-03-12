@@ -70,31 +70,6 @@ def require_valid_phone(phone: str, field_name: str = "phone") -> str:
         )
     return cleaned
 
-
-# ============ Email Validation ============
-
-EMAIL_REGEX = re.compile(
-    r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-)
-
-
-def validate_email(email: str) -> bool:
-    """Validate email format"""
-    return bool(EMAIL_REGEX.match(email.strip().lower()))
-
-
-def require_valid_email(email: str, field_name: str = "email") -> str:
-    """Validate email and raise ValidationError if invalid"""
-    email = email.strip().lower()
-    if not validate_email(email):
-        raise ValidationError(
-            message=f"Invalid email format",
-            field=field_name,
-            message_ar="البريد الإلكتروني غير صالح"
-        )
-    return email
-
-
 # ============ Text Validation ============
 
 def validate_text_length(

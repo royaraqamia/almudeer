@@ -36,16 +36,12 @@ from models import (
     get_pending_outbox,
     get_pending_outbox,
     mark_outbox_sent,
-    mark_outbox_failed,
-    get_email_oauth_tokens,
     get_whatsapp_config,
     get_telegram_config,
     get_telegram_phone_session_data,
 )
 from services.message_sender import send_outbox_message
 from services import (
-    GmailOAuthService,
-    GmailAPIService,
     TelegramService,
     TelegramPhoneService,
 )
@@ -434,7 +430,6 @@ async def send_chat_message(
         channel=channel,
         body=body,
         recipient_id=recipient_id,
-        recipient_email=sender_contact,
         attachments=processed_attachments or None,
         reply_to_platform_id=reply_to_platform_id,
         reply_to_body_preview=reply_to_body_preview,
@@ -483,7 +478,6 @@ async def approve_chat_message(
             channel=message["channel"],
             body=body,
             recipient_id=message.get("sender_id"),
-            recipient_email=message.get("sender_contact"),
             reply_to_platform_id=approval.reply_to_platform_id or message.get("channel_message_id"),
             reply_to_body_preview=approval.reply_to_body_preview,
             reply_to_id=approval.reply_to_id or message_id,

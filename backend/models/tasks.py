@@ -612,8 +612,15 @@ async def update_task(license_id: int, task_id: str, task_data: dict) -> Optiona
 
     import json
 
+    # Whitelist of allowed columns for update
+    allowed_columns = {
+        'title', 'description', 'is_completed', 'due_date', 'priority', 'color', 
+        'sub_tasks', 'alarm_enabled', 'alarm_time', 'recurrence', 'category', 
+        'order_index', 'assigned_to', 'attachments', 'visibility', 'is_deleted'
+    }
+
     for key, val in task_data.items():
-        if val is not None and key not in ['id', 'license_key_id', 'updated_at']:
+        if key in allowed_columns:
             if key == 'sub_tasks' and isinstance(val, list):
                 val = json.dumps(val)
             # FIX: Convert Pydantic models to dicts before JSON serialization

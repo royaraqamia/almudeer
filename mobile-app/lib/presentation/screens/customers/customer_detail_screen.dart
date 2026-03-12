@@ -31,7 +31,6 @@ const _kLastSeenAtKey = 'last_seen_at';
 const _kUsernameKey = 'username';
 const _kNameKey = 'name';
 const _kPhoneKey = 'phone';
-const _kEmailKey = 'email';
 const _kIdKey = 'id';
 const _kProfilePicUrlKey = 'profile_pic_url';
 const _kImageKey = 'image';
@@ -60,7 +59,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
   // Controllers for editing
   late TextEditingController _nameController;
   late TextEditingController _phoneController;
-  late TextEditingController _emailController;
   late TextEditingController _usernameController;
   VoidCallback? _usernameLookupListener;
   bool _usernameListenerInitialized = false;
@@ -122,13 +120,12 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
       final customerId = _customer[_kIdKey] as int?;
       final customerUsername = _customer[_kUsernameKey]?.toString();
       final customerPhone = _customer[_kPhoneKey]?.toString();
-      final customerEmail = _customer[_kEmailKey]?.toString();
 
       final customersProvider = context.read<CustomersProvider>();
       return customerId != null
           ? !customersProvider.customers.any((c) => c.id == customerId)
           : customersProvider.getCustomerByContact(
-              customerUsername ?? customerPhone ?? customerEmail,
+              customerUsername ?? customerPhone,
             ) == null;
     } catch (e, stackTrace) {
       if (kDebugMode) {
@@ -156,7 +153,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
 
     _nameController = TextEditingController();
     _phoneController = TextEditingController();
-    _emailController = TextEditingController();
     _usernameController = TextEditingController();
 
     _setupUsernameLookupListener();
@@ -257,7 +253,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     
     _nameController.dispose();
     _phoneController.dispose();
-    _emailController.dispose();
     _usernameController.dispose();
     _animController.stop();
     _animController.dispose();
@@ -298,7 +293,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
   String get _displayName {
     return _customer[_kNameKey] ??
         _customer[_kPhoneKey] ??
-        _customer[_kEmailKey] ??
         'شخص';
   }
 
@@ -362,12 +356,10 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
 
     _nameController.text = _customer[_kNameKey] ?? '';
     _phoneController.text = _customer[_kPhoneKey] ?? '';
-    _emailController.text = _customer[_kEmailKey] ?? '';
     _usernameController.text = _customer[_kUsernameKey] ?? '';
 
     final String initialName = _customer[_kNameKey] ?? '';
     final String initialPhone = _customer[_kPhoneKey] ?? '';
-    final String initialEmail = _customer[_kEmailKey] ?? '';
     final String initialUsername = _customer[_kUsernameKey] ?? '';
 
     // Calculate operation type ONCE at modal open time to prevent race conditions
@@ -383,7 +375,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
             if (wasNewContact) return _nameController.text.trim().isNotEmpty;
             return _nameController.text.trim() != initialName ||
                 _phoneController.text.trim() != initialPhone ||
-                _emailController.text.trim() != initialEmail ||
                 _usernameController.text.trim() != initialUsername;
           }
 
@@ -502,11 +493,10 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                 SolarLinearIcons.phone,
                 onChanged: (_) => setModalState(() {}),
               ),
-              const SizedBox(height: AppDimensions.spacing16),
               _buildTextField(
-                _emailController,
-                'البريد الإلكتروني (اختياري)',
-                SolarLinearIcons.letter,
+                _phoneController,
+                'رقم الهاتف (اختياري)',
+                SolarLinearIcons.phone,
                 onChanged: (_) => setModalState(() {}),
               ),
               const SizedBox(height: AppDimensions.spacing16),
@@ -560,12 +550,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
       return;
     }
 
-    final emailValidation = Validators.validateEmail(_emailController.text.trim());
-    if (!emailValidation.isValid) {
-      AnimatedToast.error(context, emailValidation.errorMessage ?? 'البريد الإلكتروني غير صالح');
-      return;
-    }
-
     final phoneValidation = Validators.validatePhone(_phoneController.text.trim());
     if (!phoneValidation.isValid) {
       AnimatedToast.error(context, phoneValidation.errorMessage ?? 'رقم الهاتف غير صالح');
@@ -587,9 +571,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
         _kPhoneKey: _phoneController.text.trim().isEmpty
             ? null
             : Validators.sanitizePhone(_phoneController.text.trim()),
-        _kEmailKey: _emailController.text.trim().isEmpty
-            ? null
-            : Validators.sanitizeEmail(_emailController.text.trim()),
         _kUsernameKey: _usernameController.text.trim().isEmpty
             ? null
             : Validators.sanitizeUsername(_usernameController.text.trim()),

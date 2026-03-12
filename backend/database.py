@@ -112,31 +112,9 @@ async def init_database():
                     await execute_sql(db, "ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP")
                 except Exception: pass
             
-            # Find all license_keys with NULL username
-            missing = await fetch_all(db, """
-                SELECT lk.id, u.email 
-                FROM license_keys lk
-                JOIN users u ON u.license_key_id = lk.id 
-                WHERE lk.username IS NULL
-                ORDER BY u.id ASC
-            """, [])
-            
-            if missing:
-                logger.info(f"Backfilling username for {len(missing)} license keys")
-                for row in missing:
-                    email = row.get("email")
-                    license_id = row["id"]
-                    if email:
-                        try:
-                            await execute_sql(db, "UPDATE license_keys SET username = ? WHERE id = ? AND username IS NULL", (email, license_id))
-                            logger.info(f"  Backfilled username='{email}' for license_key id={license_id}")
-                        except Exception as e:
-                            logger.warning(f"  Failed to backfill username for license_key id={license_id}: {e}")
-                await commit_db(db)
-                logger.info("Username backfill migration complete")
     except Exception as e:
         from logging_config import get_logger
-        get_logger(__name__).warning(f"Username backfill migration skipped or failed: {e}")
+        get_logger(__name__).warning(f"Metadata migration skipped or failed: {e}")
     
     return
 
@@ -151,7 +129,6 @@ async def _init_sqlite_tables(db):
             license_key_encrypted TEXT,
             full_name TEXT NOT NULL,
             profile_image_url TEXT,
-            contact_email TEXT,
             username TEXT UNIQUE,
             is_active BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -162,7 +139,6 @@ async def _init_sqlite_tables(db):
             is_trial BOOLEAN DEFAULT FALSE,
             referral_count INTEGER DEFAULT 0,
             phone TEXT,
-            email TEXT,
             token_version INTEGER DEFAULT 1,
             FOREIGN KEY (referred_by_id) REFERENCES license_keys(id)
         )
@@ -195,7 +171,6 @@ async def _init_sqlite_tables(db):
             name TEXT,
             contact TEXT UNIQUE NOT NULL,
             phone TEXT,
-            email TEXT,
             type TEXT DEFAULT 'Regular',
             total_spend REAL DEFAULT 0.0,
             notes TEXT,
@@ -371,7 +346,6 @@ async def _init_postgresql_tables(conn):
             license_key_encrypted TEXT,
             full_name VARCHAR(255) NOT NULL,
             profile_image_url TEXT,
-            contact_email VARCHAR(255),
             username VARCHAR(255) UNIQUE,
             is_active BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT NOW(),
@@ -382,7 +356,6 @@ async def _init_postgresql_tables(conn):
             referral_count INTEGER DEFAULT 0,
             last_seen_at TIMESTAMP,
             phone VARCHAR(255),
-            email VARCHAR(255),
             token_version INTEGER DEFAULT 1
         )
     """))
@@ -414,7 +387,6 @@ async def _init_postgresql_tables(conn):
             name VARCHAR(255),
             contact VARCHAR(255) UNIQUE NOT NULL,
             phone VARCHAR(255),
-            email VARCHAR(255),
             type VARCHAR(50) DEFAULT 'Regular',
             total_spend REAL DEFAULT 0.0,
             notes TEXT,

@@ -8,7 +8,6 @@ void main() {
         'id': 1,
         'phone': '+966501234567',
         'name': 'أحمد محمد',
-        'email': 'ahmed@example.com',
         'company': 'Tech Corp',
         'last_contact_at': '2024-01-15T10:30:00Z',
         'created_at': '2024-01-01T08:00:00Z',
@@ -22,7 +21,6 @@ void main() {
       expect(customer.id, 1);
       expect(customer.phone, '+966501234567');
       expect(customer.name, 'أحمد محمد');
-      expect(customer.email, 'ahmed@example.com');
       expect(customer.isVip, isTrue);
       expect(customer.tagsList, containsAll(['vip', 'active']));
     });

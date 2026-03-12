@@ -137,7 +137,7 @@ def generate_csv(data: dict, data_type: str) -> str:
     output.write('\ufeff')
     
     if data_type == "customers":
-        fieldnames = ["id", "name", "phone", "email", "company", "is_vip", "created_at"]
+        fieldnames = ["id", "name", "phone", "company", "is_vip", "created_at"]
         writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
         writer.writeheader()
         for customer in data.get("customers", []):

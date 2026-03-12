@@ -5,7 +5,6 @@ Persistent background service that listens to Redis outbox_trigger channel
 and processes approved outbox messages for all channels:
 - WhatsApp
 - Telegram (Bot & Phone)
-- Gmail
 - Almudeer (internal)
 """
 

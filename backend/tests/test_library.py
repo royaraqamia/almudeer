@@ -241,7 +241,7 @@ class TestLibraryModels:
     @pytest.mark.asyncio
     async def test_get_library_items_search(self):
         """Test search functionality"""
-        from models.library import get_library_items
+        from models.library import get_library_items, add_library_item
         
         # Create test items with specific titles
         await add_library_item(

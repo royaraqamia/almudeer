@@ -1,16 +1,11 @@
 /// Input validation utilities for form fields
 ///
-/// Provides validation for email, phone, username, and other common fields.
+/// Provides validation for phone, username, and other common fields.
 library;
 
 /// Regular expression patterns for validation
 class _Patterns {
   _Patterns._();
-
-  /// Email validation pattern (RFC 5322 simplified)
-  static final RegExp email = RegExp(
-    r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
-  );
 
   /// Phone number pattern (international format, digits, +, -, spaces, parentheses)
   static final RegExp phone = RegExp(r'^[\d\s\-\+\(\)]{8,20}$');
@@ -38,20 +33,6 @@ class ValidationResult {
 /// Input validation utilities
 class Validators {
   Validators._();
-
-  /// Validate email format
-  static ValidationResult validateEmail(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return const ValidationResult.valid(); // Optional field
-    }
-
-    final trimmed = value.trim().toLowerCase();
-    if (!_Patterns.email.hasMatch(trimmed)) {
-      return const ValidationResult.invalid('البريد الإلكتروني غير صالح');
-    }
-
-    return const ValidationResult.valid();
-  }
 
   /// Validate phone number format
   static ValidationResult validatePhone(String? value) {
@@ -130,10 +111,5 @@ class Validators {
   /// Sanitize phone number (keep only digits, +, -)
   static String sanitizePhone(String phone) {
     return phone.replaceAll(RegExp(r'[^\d+\-]'), '');
-  }
-
-  /// Sanitize email (trim and lowercase)
-  static String sanitizeEmail(String email) {
-    return email.trim().toLowerCase();
   }
 }

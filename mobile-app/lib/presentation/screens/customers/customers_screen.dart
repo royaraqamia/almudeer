@@ -258,7 +258,6 @@ class _CustomersViewState extends State<_CustomersView>
 
     final nameController = TextEditingController();
     final phoneController = TextEditingController();
-    final emailController = TextEditingController();
     final usernameController = TextEditingController();
     VoidCallback? usernameLookupListener;
 
@@ -384,14 +383,6 @@ class _CustomersViewState extends State<_CustomersView>
                 keyboardType: TextInputType.phone,
                 onChanged: (_) => setModalState(() {}),
               ),
-              const SizedBox(height: 16),
-              AppTextField(
-                controller: emailController,
-                hintText: 'البريد الإلكتروني (اختياري)',
-                prefixIcon: const Icon(SolarLinearIcons.letter),
-                keyboardType: TextInputType.emailAddress,
-                onChanged: (_) => setModalState(() {}),
-              ),
               const SizedBox(height: 32),
               AppGradientButton(
                 onPressed: !canAdd
@@ -407,9 +398,6 @@ class _CustomersViewState extends State<_CustomersView>
                           'name': nameController.text,
                           'phone': phoneController.text.isNotEmpty
                               ? phoneController.text
-                              : null,
-                          'email': emailController.text.isNotEmpty
-                              ? emailController.text
                               : null,
                           'username': usernameController.text.isNotEmpty
                               ? usernameController.text
@@ -453,7 +441,6 @@ class _CustomersViewState extends State<_CustomersView>
     usernameController.removeListener(usernameLookupListener);
     nameController.dispose();
     phoneController.dispose();
-    emailController.dispose();
     usernameController.dispose();
   }
 

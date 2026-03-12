@@ -19,7 +19,7 @@ import '../../../providers/customers_provider.dart';
 /// Features:
 /// - Long-press selection mode with haptic feedback
 /// - Typing indicator with animated dots
-/// - Channel-specific branding (WhatsApp, Telegram, Email, Almudeer)
+/// - Channel-specific branding (WhatsApp, Telegram, Almudeer)
 /// - Hijri calendar date formatting
 /// - Full accessibility support (Semantics, 44px touch targets, focus indicators)
 class InboxConversationTile extends StatefulWidget {
@@ -90,8 +90,6 @@ class _InboxConversationTileState extends State<InboxConversationTile>
       case 'telegram':
       case 'telegram_bot':
         return AppColors.telegramBlue;
-      case 'email':
-        return AppColors.emailRed;
       case 'almudeer':
       case 'saved':
         return AppColors.primary;
@@ -107,8 +105,6 @@ class _InboxConversationTileState extends State<InboxConversationTile>
       case 'telegram':
       case 'telegram_bot':
         return SolarLinearIcons.plain;
-      case 'email':
-        return SolarLinearIcons.letter;
       case 'almudeer':
         return SolarBoldIcons.chatLine;
       case 'saved':

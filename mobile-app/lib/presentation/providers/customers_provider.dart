@@ -49,27 +49,24 @@ class CustomersProvider extends ChangeNotifier {
     return _customers.where((c) {
       final name = c.name?.toLowerCase() ?? '';
       final phone = c.phone?.toLowerCase() ?? '';
-      final email = c.email?.toLowerCase() ?? '';
       final company = c.company?.toLowerCase() ?? '';
       final username = c.username?.toLowerCase() ?? '';
       final contact = c.contact.toLowerCase();
       return name.contains(query) ||
           phone.contains(query) ||
-          email.contains(query) ||
           company.contains(query) ||
           username.contains(query) ||
           contact.contains(query);
     }).toList();
   }
 
-  /// Find a customer by contact (phone, email, or username)
+  /// Find a customer by contact (phone or username)
   Customer? getCustomerByContact(String? contact) {
     if (contact == null || contact.isEmpty) return null;
     try {
       return _customers.firstWhere(
         (c) =>
             c.phone == contact ||
-            c.email == contact ||
             c.username == contact ||
             c.contact == contact,
       );
@@ -409,11 +406,6 @@ class CustomersProvider extends ChangeNotifier {
         '',
       );
     }
-    if (sanitizedData['email'] != null) {
-      sanitizedData['email'] = (sanitizedData['email'] as String)
-          .trim()
-          .toLowerCase();
-    }
     if (sanitizedData['username'] != null) {
       sanitizedData['username'] = (sanitizedData['username'] as String)
           .trim()
@@ -474,7 +466,6 @@ class CustomersProvider extends ChangeNotifier {
       _customers[index] = _customers[index].copyWith(
         name: updatedData['name'],
         phone: updatedData['phone'],
-        email: updatedData['email'],
         username: updatedData['username'],
         isAlmudeerUser:
             updatedData['is_almudeer_user'] == true ||
@@ -494,12 +485,10 @@ class CustomersProvider extends ChangeNotifier {
   /// Find customer by contact info
   Future<Customer?> findCustomer({
     String? phone,
-    String? email,
     String? username,
   }) async {
     final result = await _repository.findCustomerByContact(
       phone: phone,
-      email: email,
       username: username,
     );
 

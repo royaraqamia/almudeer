@@ -240,7 +240,7 @@ class TestFilterAutomatedMessages:
         """Test that customer inquiries are allowed"""
         message = {
             "body": "مرحباً، أريد الاستفسار عن منتجاتكم وأسعارها",
-            "sender_contact": "customer@gmail.com",
+            "sender_contact": "customer@example.com",
             "sender_name": "أحمد محمد",
             "subject": "استفسار"
         }
@@ -252,7 +252,7 @@ class TestFilterAutomatedMessages:
         """Test that support requests are allowed"""
         message = {
             "body": "Hi, I'm having an issue with my order and need assistance.",
-            "sender_contact": "john.doe@gmail.com",
+            "sender_contact": "john.doe@example.com",
             "sender_name": "John Doe",
             "subject": "Need Help"
         }
@@ -334,7 +334,7 @@ class TestFilterManager:
         
         message = {
             "body": "السلام عليكم، أريد معرفة المزيد عن خدماتكم",
-            "sender_contact": "real.customer@gmail.com",
+            "sender_contact": "real.customer@example.com",
             "sender_name": "عميل حقيقي",
             "subject": "استفسار عن الخدمات"
         }

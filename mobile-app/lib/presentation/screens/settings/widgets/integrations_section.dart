@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
-import 'package:flutter_custom_tabs/flutter_custom_tabs.dart' as custom_tabs;
 import 'package:provider/provider.dart';
 import '../../../../core/constants/colors.dart';
 import '../../../providers/settings_provider.dart';
@@ -13,7 +12,6 @@ import '../../../../core/widgets/app_gradient_button.dart';
 import 'integrations/integration_card.dart';
 import 'integrations/channel_settings_form.dart';
 import 'integrations/telegram_setup_form.dart';
-import 'integrations/email_setup_form.dart';
 
 class IntegrationsSection extends StatefulWidget {
   const IntegrationsSection({super.key});
@@ -31,7 +29,6 @@ class _IntegrationsSectionState extends State<IntegrationsSection>
   final TextEditingController _telegramTokenController =
       TextEditingController();
 
-  bool _waitingForEmailOAuth = false;
 
   @override
   void initState() {
@@ -49,13 +46,6 @@ class _IntegrationsSectionState extends State<IntegrationsSection>
     super.dispose();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _waitingForEmailOAuth) {
-      _waitingForEmailOAuth = false;
-      context.read<SettingsProvider>().loadIntegrations();
-    }
-  }
 
   List<Map<String, dynamic>> _getAllChannels(List<dynamic> integrations) {
     final supported = [
@@ -72,13 +62,6 @@ class _IntegrationsSectionState extends State<IntegrationsSection>
         'desc': 'ربط حسابك الشخصي برقم الهاتف',
         'icon': SolarLinearIcons.plain,
         'color': AppColors.telegramBlue,
-      },
-      {
-        'type': 'email',
-        'name': 'البريد الإلكتروني',
-        'desc': 'ربط حساب Gmail الخاص بك',
-        'icon': SolarLinearIcons.letter,
-        'color': AppColors.emailRed,
       },
     ];
 
@@ -168,29 +151,6 @@ class _IntegrationsSectionState extends State<IntegrationsSection>
         final token = _telegramTokenController.text.trim();
         if (token.isEmpty) throw Exception('يرجى إدخال توكن البوت');
         success = await settingsProvider.saveTelegramConfig(token);
-      } else if (type == 'email') {
-        final authUrl = await settingsProvider.fetchGmailAuthUrl();
-        if (authUrl != null) {
-          _waitingForEmailOAuth = true;
-          await custom_tabs.launchUrl(
-            Uri.parse(authUrl),
-            customTabsOptions: custom_tabs.CustomTabsOptions(
-              colorSchemes: custom_tabs.CustomTabsColorSchemes.defaults(
-                toolbarColor: AppColors.primary,
-              ),
-              showTitle: true,
-              urlBarHidingEnabled: true,
-            ),
-            safariVCOptions: const custom_tabs.SafariViewControllerOptions(
-              preferredBarTintColor: AppColors.primary,
-              preferredControlTintColor: Colors.white,
-              barCollapsingEnabled: true,
-              dismissButtonStyle:
-                  custom_tabs.SafariViewControllerDismissButtonStyle.close,
-            ),
-          );
-          return;
-        }
       }
 
       if (success && mounted) {
@@ -287,8 +247,6 @@ class _IntegrationsSectionState extends State<IntegrationsSection>
           tokenController: _telegramTokenController,
           onSave: () => _saveSetup(type),
         );
-      case 'email':
-        return EmailSetupForm(onSave: () => _saveSetup(type));
       case 'telegram_phone':
         return Padding(
           padding: const EdgeInsets.all(16),

@@ -17,6 +17,7 @@ Fixes applied:
 import os
 import logging
 import asyncio
+from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from functools import lru_cache
@@ -106,13 +107,20 @@ MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", 20 * 1024 * 1024))  # 20MB
 
 # Issue #2: Application-level lock for SQLite storage operations
 # Prevents race conditions in concurrent uploads
-_storage_locks: Dict[int, asyncio.Lock] = {}
+# Bug #14 FIX: Use OrderedDict with LRU eviction to prevent unbounded growth
+_storage_locks: OrderedDict = OrderedDict()
+_STORAGE_LOCKS_MAX = 1000
 
 
 async def _get_storage_lock(license_id: int) -> asyncio.Lock:
     """Get or create a lock for a specific license to prevent race conditions."""
-    if license_id not in _storage_locks:
-        _storage_locks[license_id] = asyncio.Lock()
+    if license_id in _storage_locks:
+        _storage_locks.move_to_end(license_id)
+        return _storage_locks[license_id]
+    # Evict oldest if at capacity
+    while len(_storage_locks) >= _STORAGE_LOCKS_MAX:
+        _storage_locks.popitem(last=False)
+    _storage_locks[license_id] = asyncio.Lock()
     return _storage_locks[license_id]
 
 
@@ -200,15 +208,16 @@ async def get_library_items(
             params = [sanitized_term, license_id]
         else:
             # SQLite uses FTS5 with prefix match
-            fts_search = f"'{sanitized_term}*'"
+            # Bug #1 FIX: Use parameterised MATCH to prevent FTS injection
+            fts_term = f"{sanitized_term}*"
             query = f"""
                 SELECT {columns} FROM library_items
                 INNER JOIN library_items_fts ON library_items.id = library_items_fts.rowid
-                WHERE library_items_fts MATCH {fts_search}
+                WHERE library_items_fts MATCH ?
                 AND (library_items.license_key_id = ? OR library_items.license_key_id = 0)
                 AND library_items.deleted_at IS NULL
             """
-            params = [license_id]
+            params = [fts_term, license_id]
 
         if customer_id is not None:
             query += " AND customer_id = ?"
@@ -270,7 +279,8 @@ async def get_library_items(
                             AND library_items_fts MATCH ?
                         """
                         now = datetime.now(timezone.utc)
-                        shared_params = [user_id, license_id, now, f"'{sanitized_term}*'" ]
+                        # Bug #12 FIX: Remove surrounding quotes — bind params don't need them
+                        shared_params = [user_id, license_id, now, f"{sanitized_term}*"]
 
                     # Add type/category filters to shared query
                     if category:
@@ -377,7 +387,8 @@ async def get_library_items(
 
                     # Sort by created_at desc and apply pagination
                     sorted_items = sorted(all_items.values(), key=lambda x: x.get('created_at', ''), reverse=True)
-                    return sorted_items
+                    # Bug #5 FIX: Apply limit slice (was missing, could return 2*limit items)
+                    return sorted_items[:limit]
                 except Exception as e:
                     logger.warning(f"Failed to fetch shared items: {e}")
                     return owned_items
@@ -390,18 +401,36 @@ async def get_library_item(license_id: int, item_id: int, user_id: Optional[str]
     Get a specific library item (including global).
     
     Issue #30: Fetches all columns including content for detail view.
+    Bug #3 FIX: When user_id is provided and no owned item is found,
+    falls back to checking share permissions so shared items are accessible.
     """
     columns = ", ".join(FULL_COLUMNS)
     query = f"SELECT {columns} FROM library_items WHERE id = ? AND (license_key_id = ? OR license_key_id = 0) AND deleted_at IS NULL"
     params = [item_id, license_id]
 
-    if user_id:
-        query += " AND user_id = ?"
-        params.append(user_id)
-
     async with get_db() as db:
-        row = await fetch_one(db, query, params)
-        return dict(row) if row else None
+        if user_id:
+            # First try: check if user owns the item
+            owned_query = query + " AND user_id = ?"
+            owned_params = params + [user_id]
+            row = await fetch_one(db, owned_query, owned_params)
+            if row:
+                return dict(row)
+
+            # Fallback: check if user has share permission
+            row = await fetch_one(db, query, params)
+            if row:
+                has_permission = await verify_share_permission(
+                    db, item_id, user_id, license_id, "read"
+                )
+                if has_permission:
+                    result = dict(row)
+                    result['_is_shared'] = True
+                    return result
+            return None
+        else:
+            row = await fetch_one(db, query, params)
+            return dict(row) if row else None
 
 
 async def add_library_item(
@@ -477,27 +506,43 @@ async def _add_library_item_internal(
         # PostgreSQL-compatible timestamp handling
         ts_value = now  # Both SQLite and PostgreSQL accept timezone-aware datetime
 
-        await execute_sql(
-            db,
-            """
-            INSERT INTO library_items
-            (license_key_id, user_id, customer_id, type, title, content, file_path, file_size, mime_type, file_hash, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [license_id, user_id, customer_id, item_type, title, content, file_path, file_size, mime_type, file_hash, ts_value, ts_value]
-        )
-        await commit_db(db)
+        # Bug #2 FIX: Use RETURNING (PostgreSQL) or lastrowid (SQLite) to get
+        # the inserted row's ID, avoiding race with concurrent inserts.
+        if DB_TYPE == "postgresql":
+            row = await fetch_one(
+                db,
+                """
+                INSERT INTO library_items
+                (license_key_id, user_id, customer_id, type, title, content, file_path, file_size, mime_type, file_hash, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING *
+                """,
+                [license_id, user_id, customer_id, item_type, title, content, file_path, file_size, mime_type, file_hash, ts_value, ts_value]
+            )
+            await commit_db(db)
+            await _invalidate_storage_cache(license_id)
+            return dict(row)
+        else:
+            cursor = await execute_sql(
+                db,
+                """
+                INSERT INTO library_items
+                (license_key_id, user_id, customer_id, type, title, content, file_path, file_size, mime_type, file_hash, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [license_id, user_id, customer_id, item_type, title, content, file_path, file_size, mime_type, file_hash, ts_value, ts_value]
+            )
+            await commit_db(db)
+            await _invalidate_storage_cache(license_id)
 
-        # Invalidate storage cache
-        await _invalidate_storage_cache(license_id)
-
-        # Fetch the created item
-        row = await fetch_one(
-            db,
-            "SELECT * FROM library_items WHERE license_key_id = ? ORDER BY id DESC LIMIT 1",
-            [license_id]
-        )
-        return dict(row)
+            # Fetch the created item by its actual rowid
+            inserted_id = cursor.lastrowid
+            row = await fetch_one(
+                db,
+                "SELECT * FROM library_items WHERE id = ?",
+                [inserted_id]
+            )
+            return dict(row)
 
 
 async def update_library_item(

@@ -185,7 +185,7 @@ async def list_subscriptions(
         
         from db_helper import get_db, fetch_all
         async with get_db() as db:
-            query = "SELECT id, full_name, contact_email, username, is_active, created_at, expires_at, last_request_date, is_trial, referral_code, referral_count, profile_image_url FROM license_keys"
+            query = "SELECT id, full_name, username, is_active, created_at, expires_at, last_request_date, is_trial, referral_code, referral_count, profile_image_url FROM license_keys"
             params = []
             
             if active_only:

@@ -399,7 +399,7 @@ async def share_item(
                         'priority': 'normal'
                     })
                 except Exception as retry_error:
-                    logger.warning(f"Failed to queue notification for retry: {retry_error}")
+                    logger.error(f"DEAD_LETTER: Failed to queue notification for retry: {retry_error}", exc_info=True)
 
         # Broadcast WebSocket event to recipient for instant UI update
         try:
@@ -540,30 +540,19 @@ async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str]
         if not share:
             return False
 
-        # PERMISSION CHECK: Only owner or admin can revoke shares
+        # PERMISSION CHECK: Owner, admin, or the recipient themselves can revoke
+        # Bug #8 FIX: Recipients can always "leave" a share (revoke their own access)
         if requested_by_user_id:
             item_owner_id = share.get('item_owner')
             is_owner = requested_by_user_id == item_owner_id
+            is_recipient = requested_by_user_id == share.get('shared_with_user_id')
             
-            if not is_owner:
-                # Check if requester has admin permission on this share
-                if requested_by_user_id == share.get('shared_with_user_id'):
-                    # User is trying to revoke their own share - check if admin
-                    share_permission = share.get('permission', 'read')
-                    effective_permission = get_effective_permission(share_permission, False)
-                    
-                    if not can_perform_action(ResourceAction.MANAGE_SHARES, effective_permission):
-                        logger.warning(
-                            f"User {requested_by_user_id} denied permission to revoke share {share_id}. "
-                            f"Permission level: {effective_permission}"
-                        )
-                        return False
-                else:
-                    # User is trying to revoke someone else's share - must be owner
-                    logger.warning(
-                        f"User {requested_by_user_id} denied permission to revoke share {share_id}. Not the item owner."
-                    )
-                    return False
+            if not is_owner and not is_recipient:
+                # User is trying to revoke someone else's share - must be owner
+                logger.warning(
+                    f"User {requested_by_user_id} denied permission to revoke share {share_id}. Not the item owner."
+                )
+                return False
 
         # Soft delete
         await execute_sql(
@@ -659,7 +648,7 @@ async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str]
                         'priority': 'normal'
                     })
                 except Exception as retry_error:
-                    logger.warning(f"Failed to queue revoked share notification for retry: {retry_error}")
+                    logger.error(f"DEAD_LETTER: Failed to queue revoked share notification for retry: {retry_error}", exc_info=True)
 
         return True
 

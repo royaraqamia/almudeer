@@ -36,7 +36,6 @@ async def test_send_message_with_captions():
                 "license_key_id": 1,
                 "body": body,
                 "recipient_id": "12345",
-                "recipient_email": "test@example.com",
                 "attachments": att_str,
                 "inbox_message_id": 100,
                 "sender_name": "Source",
@@ -86,29 +85,6 @@ async def test_send_message_with_captions():
             else:
                 print(f"FAILURE: Caption mismatch: {kwargs.get('caption')}")
 
-        # Test Case 3: Email with Multiple Attachments
-        print("\nTest 3: Email with Multiple Attachments")
-        atts = [
-            {"filename": "file1.txt", "base64": base64.b64encode(b"data1").decode()},
-            {"filename": "file2.jpg", "base64": base64.b64encode(b"data2").decode()}
-        ]
-        setup_message("email", body="See attached files", attachments=atts)
-        
-        with patch("services.gmail_api_service.GmailAPIService") as MockGS, \
-             patch("models.email_config.get_email_oauth_tokens", new_callable=AsyncMock) as mock_tokens, \
-             patch("services.gmail_oauth_service.GmailOAuthService") as MockOAuth:
-            mock_tokens.return_value = {"access_token": "at"}
-            gs_instance = MockGS.return_value
-            gs_instance.send_message = AsyncMock(return_value={"id": "gmail_id"})
-            
-            await poller._send_message(outbox_id=1, license_id=1, channel="email")
-            
-            gs_instance.send_message.assert_called_once()
-            args, kwargs = gs_instance.send_message.call_args
-            if len(kwargs.get("attachments", [])) == 2:
-                print("SUCCESS: Email sent with 2 attachments.")
-            else:
-                print(f"FAILURE: Attachment count mismatch: {len(kwargs.get('attachments', []))}")
 
     print("\nVerification completed.")
 
@@ -141,7 +117,7 @@ async def test_internal_channels():
         # Test Case 5: Almudeer Internal Delivery
         print("\nTest 5: Almudeer Internal Delivery")
         mock_fetch_all.return_value = [{
-            "id": 11, "license_key_id": 1, "body": "Hello Peer", "recipient_email": "peer_user",
+            "id": 11, "license_key_id": 1, "body": "Hello Peer", "recipient_id": "peer_user",
             "attachments": None, "inbox_message_id": 102, "sender_contact": "me", "sender_name": "Me", "sender_id": "me",
             "platform_message_id": None
         }]

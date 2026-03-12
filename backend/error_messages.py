@@ -242,13 +242,6 @@ class IntegrationErrors:
         http_status=500
     )
     
-    EMAIL_FAILED = ErrorMessage(
-        message_en="Email integration error",
-        message_ar="خطأ في تكامل البريد الإلكتروني",
-        error_code="INTEGRATION_EMAIL_FAILED",
-        http_status=500
-    )
-    
     SERVICE_UNAVAILABLE = ErrorMessage(
         message_en="Service temporarily unavailable",
         message_ar="الخدمة غير متاحة مؤقتاً",

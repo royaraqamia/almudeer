@@ -29,11 +29,8 @@ async def create_schema():
             CREATE TABLE IF NOT EXISTS license_keys (
                 id SERIAL PRIMARY KEY,
                 key_hash TEXT UNIQUE NOT NULL,
-                full_name TEXT NOT NULL,
-                contact_email TEXT,
                 is_active BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                expires_at TIMESTAMP,
                 expires_at TIMESTAMP
             )
         """)

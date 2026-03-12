@@ -505,8 +505,8 @@ async def upload_file(
     # Reset file pointer for saving (in case magic was used)
     try:
         file.file.seek(0)
-    except:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to seek file pointer to 0: {e}")
 
     # FIX #3: Wrap entire upload operation in explicit transaction with rollback
     # This ensures atomic operation - either both file and DB record succeed, or neither
@@ -611,8 +611,7 @@ async def get_shared_with_me(
             detail={
                 "code": "UNAUTHORIZED",
                 "message_ar": "يجب تسجيل الدخول",
-                "message_en": "Authentication required",
-                "_debug_deploy_time": now_utc
+                "message_en": "Authentication required"
             }
         )
 
@@ -770,6 +769,19 @@ async def bulk_delete(
         return {"success": True, "deleted_count": 0, "deleted_ids": [], "failed_ids": []}
 
     try:
+        # Bug #7 FIX: Fetch file paths for items being deleted and cleanup physical files
+        async with get_db() as db:
+            valid_ids_str = ",".join(str(id) for id in valid_ids)
+            query = f"SELECT file_path FROM library_items WHERE id IN ({valid_ids_str}) AND license_key_id = ?"
+            rows = await fetch_all(db, query, [license["license_id"]])
+            file_paths = [row.get("file_path") for row in rows if row.get("file_path")]
+            
+            for path in file_paths:
+                try:
+                    file_storage.delete_file(path)
+                except Exception as e:
+                    logger.error(f"Failed to delete physical file {path} during bulk delete: {e}")
+
         # Issue #7: Pass user_id for ownership validation
         # P0-4: Now returns dict with detailed results
         result = await bulk_delete_items(license["license_id"], valid_ids, user_id=user_id)
@@ -1166,9 +1178,9 @@ async def restore_item(
             """
             UPDATE library_items 
             SET deleted_at = NULL, updated_at = ?
-            WHERE id = ? AND license_key_id = ?
+            WHERE id = ? 
             """,
-            [now, item_id, license["license_id"]]
+            [now, item_id]
         )
         await commit_db(db)
         
@@ -1376,8 +1388,8 @@ async def share_library_item(
             }
         )
 
-    # Verify user is the owner (user_id)
-    if item.get("user_id") != user_id:
+    # Verify user is the owner (created_by)
+    if item.get("created_by") != user_id:
         raise HTTPException(
             status_code=403,
             detail={
@@ -1861,6 +1873,10 @@ async def update_share_permission(
             [permission_data.permission, now, share_id, license["license_id"]]
         )
         await commit_db(db)
+        
+        # Bug #6 FIX: Invalidate shared items cache
+        from models.library_advanced import _invalidate_shared_items_cache
+        await _invalidate_shared_items_cache(license["license_id"], share.get("shared_with_user_id"))
     
     return {
         "success": True,
@@ -1905,11 +1921,24 @@ async def get_library_analytics_summary(
             days=days
         )
         
+        from db_helper import DB_TYPE
+        
+        if DB_TYPE == 'sqlite':
+            date_filter = "datetime('now', ?)"
+            date_param = f'-{days} days'
+            date_select = "DATE(created_at)"
+            date_group = "DATE(created_at)"
+        else:
+            date_filter = "NOW() - CAST(? AS INTERVAL)"
+            date_param = f'{days} days'
+            date_select = "DATE(created_at)" # PostgreSQL also supports DATE()
+            date_group = "DATE(created_at)"
+            
         async with get_db() as db:
             # Get share-specific metrics
             share_stats = await fetch_all(
                 db,
-                """
+                f"""
                 SELECT 
                     COUNT(*) as total_shares,
                     COUNT(DISTINCT item_id) as shared_items,
@@ -1917,40 +1946,40 @@ async def get_library_analytics_summary(
                     AVG(CASE WHEN deleted_at IS NULL THEN 1 ELSE 0 END) * 100 as active_share_percentage
                 FROM library_shares
                 WHERE license_key_id = ?
-                AND created_at >= datetime('now', ?)
+                AND created_at >= {date_filter}
                 """,
-                [license["license_id"], f'-{days} days']
+                [license["license_id"], date_param]
             )
             
             # Get most shared items
             most_shared = await fetch_all(
                 db,
-                """
+                f"""
                 SELECT li.id, li.title, li.type, COUNT(ls.id) as share_count
                 FROM library_items li
                 INNER JOIN library_shares ls ON li.id = ls.item_id
                 WHERE li.license_key_id = ?
-                AND ls.created_at >= datetime('now', ?)
+                AND ls.created_at >= {date_filter}
                 AND li.deleted_at IS NULL
                 GROUP BY li.id, li.title, li.type
                 ORDER BY share_count DESC
                 LIMIT 10
                 """,
-                [license["license_id"], f'-{days} days']
+                [license["license_id"], date_param]
             )
             
             # Get sharing activity over time
             activity_trend = await fetch_all(
                 db,
-                """
-                SELECT DATE(created_at) as date, COUNT(*) as share_count
+                f"""
+                SELECT {date_select} as date, COUNT(*) as share_count
                 FROM library_shares
                 WHERE license_key_id = ?
-                AND created_at >= datetime('now', ?)
-                GROUP BY DATE(created_at)
+                AND created_at >= {date_filter}
+                GROUP BY {date_group}
                 ORDER BY date DESC
                 """,
-                [license["license_id"], f'-{days} days']
+                [license["license_id"], date_param]
             )
         
         return {

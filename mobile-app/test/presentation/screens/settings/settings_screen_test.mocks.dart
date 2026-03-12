@@ -346,13 +346,6 @@ class MockSettingsProvider extends _i1.Mock implements _i2.SettingsProvider {
           )
           as _i4.Future<bool>);
 
-  @override
-  _i4.Future<String?> fetchGmailAuthUrl() =>
-      (super.noSuchMethod(
-            Invocation.method(#fetchGmailAuthUrl, []),
-            returnValue: _i4.Future<String?>.value(),
-          )
-          as _i4.Future<String?>);
 
   @override
   void notifyListeners() => super.noSuchMethod(

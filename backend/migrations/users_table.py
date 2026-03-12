@@ -7,7 +7,6 @@ Creates users table for JWT authentication
 USERS_TABLE_SQLITE = """
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     name TEXT,
     license_key_id INTEGER,

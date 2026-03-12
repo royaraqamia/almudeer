@@ -30,6 +30,10 @@ class TaskProvider extends ChangeNotifier {
   DateTime? _lastSyncFailureTime;
   String? _lastSyncFailureReason;
 
+  // FIX MOBILE-004: Revision tracker for cache invalidation
+  // This allows us to know when ANY task has changed, even if the total count remains the same
+  int _tasksRevisionTracker = 0;
+
   // Retry state
   int _retryCount = 0;
   static const int _maxRetries = 3;
@@ -234,8 +238,7 @@ class TaskProvider extends ChangeNotifier {
 
     if (taskId == null || userId == null || userName == null) return;
 
-    // Check if it's us (approximate check using email as id for now)
-    if (userId == _currentUserEmail) return;
+    if (userId == _currentUserId) return;
 
     if (!_taskTypingUsers.containsKey(taskId)) {
       _taskTypingUsers[taskId] = {};
@@ -282,7 +285,6 @@ class TaskProvider extends ChangeNotifier {
 
   List<TaskModel> _tasks = [];
   List<Map<String, dynamic>> _collaborators = [];
-  String? _currentUserEmail;
   String? _currentUserId; // Backend user_id (from JWT)
   bool _isLoading = false;
   TaskFilter _filter = TaskFilter.today;
@@ -298,7 +300,6 @@ class TaskProvider extends ChangeNotifier {
 
   List<TaskModel> get tasks => _tasks;
   List<Map<String, dynamic>> get collaborators => _collaborators;
-  String? get currentUserEmail => _currentUserEmail;
   String? get currentUserId => _currentUserId; // Backend user_id
   bool get isLoading => _isLoading;
   TaskFilter get filter => _filter;
@@ -311,6 +312,7 @@ class TaskProvider extends ChangeNotifier {
   String? _cachedSearchQuery;
   int? _cachedTasksHash;
   DateTime? _cacheTimestamp;
+  int? _cachedRevisionTracker; // Added for cache invalidation
   // PERF-001 FIX: Increased cache validity from 100ms to 300ms for better performance
   static const Duration _cacheValidity = Duration(milliseconds: 300);
 
@@ -331,7 +333,8 @@ class TaskProvider extends ChangeNotifier {
         now.difference(_cacheTimestamp!) < _cacheValidity &&
         _cachedFilter == _filter &&
         _cachedSearchQuery == _searchQuery &&
-        _cachedTasksHash == _tasks.length;
+        _cachedTasksHash == _tasks.length &&
+        _cachedRevisionTracker == _tasksRevisionTracker;
 
     if (cacheValid) {
       return _cachedFilteredTasks!;
@@ -341,13 +344,15 @@ class TaskProvider extends ChangeNotifier {
     final needsRecompute =
         _cachedFilter != _filter ||
         _cachedSearchQuery != _searchQuery ||
-        _cachedTasksHash != _tasks.length;
+        _cachedTasksHash != _tasks.length ||
+        _cachedRevisionTracker != _tasksRevisionTracker;
 
     if (needsRecompute) {
       _cachedFilteredTasks = _computeFilteredTasks();
       _cachedFilter = _filter;
       _cachedSearchQuery = _searchQuery;
       _cachedTasksHash = _tasks.length;
+      _cachedRevisionTracker = _tasksRevisionTracker;
       _cacheTimestamp = now;
     }
 
@@ -476,6 +481,7 @@ class TaskProvider extends ChangeNotifier {
 
       // Optimistic removal
       _tasks.removeWhere((t) => _selectedIds.contains(t.id));
+      _tasksRevisionTracker++; // Invalidates cache
       clearSelection();
 
       // Perform deletion
@@ -548,6 +554,7 @@ class TaskProvider extends ChangeNotifier {
 
       _tasks = allTasks;
       _sortTasks();
+      _tasksRevisionTracker++; // Invalidates cache
       _isLoading = false;
 
       if (allTasks.length < _pageSize) {
@@ -593,6 +600,7 @@ class TaskProvider extends ChangeNotifier {
       } else {
         _tasks.addAll(additionalTasks);
         _sortTasks();
+        _tasksRevisionTracker++; // Invalidates cache
         if (additionalTasks.length < _pageSize) {
           _hasMore = false;
         }
@@ -608,8 +616,7 @@ class TaskProvider extends ChangeNotifier {
   Future<void> loadCurrentUser() async {
     try {
       final userInfo = await _authRepository.getUserInfo();
-      _currentUserEmail =
-          userInfo.username ?? userInfo.licenseKey?.substring(0, 20);
+      // currentUserId used instead of currentUserEmail
       _currentUserId = userInfo.licenseId
           ?.toString(); // Backend uses license_id as user_id (JWT sub claim)
       notifyListeners();
@@ -664,6 +671,7 @@ class TaskProvider extends ChangeNotifier {
     // Optimistic UI: Add to local list immediately
     _tasks.insert(0, newTask);
     _sortTasks();
+    _tasksRevisionTracker++; // Invalidates cache
     notifyListeners();
 
     try {
@@ -677,6 +685,7 @@ class TaskProvider extends ChangeNotifier {
       debugPrint('Error adding task: $e');
       // Rollback on failure
       _tasks.removeWhere((t) => t.id == newTask.id);
+      _tasksRevisionTracker++; // Invalidates cache
       _setError('فشل إضافة المهمة. يرجى المحاولة مرة أخرى');
       notifyListeners();
     }
@@ -724,6 +733,7 @@ class TaskProvider extends ChangeNotifier {
     if (index != -1) {
       _tasks[index] = updatedTask;
       _sortTasks();
+      _tasksRevisionTracker++; // Invalidates cache
       notifyListeners();
     }
 
@@ -763,6 +773,7 @@ class TaskProvider extends ChangeNotifier {
     }
 
     _tasks.removeWhere((t) => t.id == id);
+    _tasksRevisionTracker++; // Invalidates cache
     notifyListeners();
 
     try {
@@ -817,6 +828,7 @@ class TaskProvider extends ChangeNotifier {
     final updatedTask = task.copyWith(isDeleted: false, isSynced: false);
     _tasks.add(updatedTask);
     _sortTasks();
+    _tasksRevisionTracker++; // Invalidates cache
     notifyListeners();
 
     try {
@@ -952,6 +964,7 @@ class TaskProvider extends ChangeNotifier {
     }
 
     _sortTasks();
+    _tasksRevisionTracker++; // Invalidates cache
     notifyListeners();
 
     // Persist only the moved task
@@ -1120,7 +1133,7 @@ class TaskProvider extends ChangeNotifier {
     _pendingToggles.clear();
 
     // Clear current user data
-    _currentUserEmail = null;
+    // currentUserEmail removed
     _currentUserId = null;
 
     super.dispose();

@@ -771,16 +771,6 @@ class SettingsProvider extends ChangeNotifier {
     }
   }
 
-  /// Fetch Gmail Auth URL
-  Future<String?> fetchGmailAuthUrl() async {
-    try {
-      return await _integrationsRepository.fetchGmailAuthUrl();
-    } catch (e) {
-      _errorMessage = e.toString();
-      notifyListeners();
-      return null;
-    }
-  }
 
   @override
   void notifyListeners() {

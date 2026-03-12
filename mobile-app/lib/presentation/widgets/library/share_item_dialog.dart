@@ -117,7 +117,6 @@ class _ShareFormState extends State<_ShareForm> {
               .map(
                 (share) => {
                   'username':
-                      share['shared_with_email'] ??
                       share['shared_with_user_id'] ??
                       '',
                   'displayName': share['shared_with_name'] ?? 'Unknown',

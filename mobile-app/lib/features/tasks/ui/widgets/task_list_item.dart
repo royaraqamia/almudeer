@@ -575,7 +575,7 @@ class _TaskListItemState extends State<TaskListItem>
 
   Widget _buildAssignmentInfo(BuildContext context) {
     final provider = context.watch<TaskProvider>();
-    final currentUser = provider.currentUserEmail;
+    final currentUser = provider.currentUserId;
 
     if (widget.task.assignedTo == null && widget.task.createdBy == null) {
       return const SizedBox.shrink();
@@ -588,24 +588,24 @@ class _TaskListItemState extends State<TaskListItem>
     if (widget.task.assignedTo != null &&
         widget.task.assignedTo != currentUser) {
       final collab = provider.collaborators.firstWhere(
-        (c) => c['email'] == widget.task.assignedTo,
+        (c) => c['id'].toString() == widget.task.assignedTo,
         orElse: () => {
-          'email': widget.task.assignedTo,
+          'id': widget.task.assignedTo,
           'name': widget.task.assignedTo,
         },
       );
-      displayLabel = 'مسندة إلى: ${collab['name'] ?? collab['email']}';
+      displayLabel = 'مسندة إلى: ${collab['name'] ?? collab['id']}';
     } else if (widget.task.assignedTo == currentUser &&
         widget.task.createdBy != null &&
         widget.task.createdBy != currentUser) {
       final collab = provider.collaborators.firstWhere(
-        (c) => c['email'] == widget.task.createdBy,
+        (c) => c['id'].toString() == widget.task.createdBy,
         orElse: () => {
-          'email': widget.task.createdBy,
+          'id': widget.task.createdBy,
           'name': widget.task.createdBy,
         },
       );
-      displayLabel = 'بواسطة: ${collab['name'] ?? collab['email']}';
+      displayLabel = 'بواسطة: ${collab['name'] ?? collab['id']}';
       icon = SolarLinearIcons.userHandUp;
       color = AppColors.accent;
     }

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/utils/url_launcher_utils.dart';
-import 'package:solar_icon_pack/solar_icon_pack.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:solar_icon_pack/solar_icon_pack.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/dimensions.dart';
 import '../../widgets/common_widgets.dart';
@@ -26,11 +26,9 @@ class CustomerContactCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final phone = customer['phone'] as String?;
-    final email = customer['email'] as String?;
     final username = customer['username'] as String?;
-    final hasValidPhone = phone != null && _isValidPhoneNumber(phone);
 
-    if (phone == null && email == null && username == null) {
+    if (phone == null && username == null) {
       return PremiumCard(
         child: Center(
           child: Padding(
@@ -62,7 +60,7 @@ class CustomerContactCard extends StatelessWidget {
               onCopy: () =>
                   _copyToClipboard(context, username, 'مُعرِّف المُدير'),
             ),
-          if (username != null && (phone != null || email != null))
+          if (username != null && phone != null)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Divider(
@@ -81,28 +79,8 @@ class CustomerContactCard extends StatelessWidget {
               onTap: () => _launchUri(context, 'tel:$phone'),
               onCopy: () => _copyToClipboard(context, phone, 'رقم الهاتف'),
             ),
-          if (phone != null && email != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Divider(
-                color: theme.dividerColor.withValues(alpha: 0.5),
-                height: 1,
-              ),
-            ),
-          if (email != null)
-            _buildPremiumContactRow(
-              context,
-              theme,
-              icon: SolarLinearIcons.letter,
-              iconColor: AppColors.primary,
-              value: email,
-              label: 'البريد الإلكتروني',
-              onTap: () => _launchUri(context, 'mailto:$email'),
-              onCopy: () =>
-                  _copyToClipboard(context, email, 'البريد الإلكتروني'),
-            ),
 
-          if (hasValidPhone) ...[
+          if (phone != null) ...[
             if (customer['has_whatsapp'] == true ||
                 customer['has_whatsapp'] == 1 ||
                 _isValidPhoneNumber(phone)) ...[

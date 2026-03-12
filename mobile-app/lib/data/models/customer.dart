@@ -3,7 +3,6 @@ class Customer {
   final int id;
   final String? name;
   final String? phone;
-  final String? email;
   final String? company;
   final String? notes;
   final String? tags;
@@ -18,14 +17,12 @@ class Customer {
   final String? syncStatus;
   final String? profilePicUrl;
 
-  /// Helper to get a unique contact identifier (username preferred, then phone, then email)
-  String get contact => username ?? phone ?? email ?? '';
+  String get contact => username ?? phone ?? '';
 
   Customer({
     required this.id,
     this.name,
     this.phone,
-    this.email,
     this.company,
     this.notes,
     this.tags,
@@ -64,7 +61,6 @@ class Customer {
       id: (json['id'] ?? json['remote_id'] ?? json['local_id']) as int,
       name: json['name'] as String?,
       phone: json['phone'] as String?,
-      email: json['email'] as String?,
       company: json['company'] as String?,
       notes: json['notes'] as String?,
       tags: json['tags'] as String?,
@@ -99,7 +95,6 @@ class Customer {
       'id': id,
       'name': name,
       'phone': phone,
-      'email': email,
       'company': company,
       'notes': notes,
       'tags': tags,
@@ -122,7 +117,6 @@ class Customer {
     int? id,
     String? name,
     String? phone,
-    String? email,
     String? company,
     String? notes,
     String? tags,
@@ -140,7 +134,6 @@ class Customer {
       id: id ?? this.id,
       name: name ?? this.name,
       phone: phone ?? this.phone,
-      email: email ?? this.email,
       company: company ?? this.company,
       notes: notes ?? this.notes,
       tags: tags ?? this.tags,
@@ -160,7 +153,6 @@ class Customer {
   String get displayName {
     if (name != null && name!.isNotEmpty) return name!;
     if (phone != null && phone!.isNotEmpty) return phone!;
-    if (email != null && email!.isNotEmpty) return email!;
     return 'شخص #$id';
   }
 

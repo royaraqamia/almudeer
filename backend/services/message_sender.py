@@ -4,7 +4,6 @@ Al-Mudeer - Message Sender Service
 Unified service for sending messages through all supported channels:
 - WhatsApp
 - Telegram (Bot & Phone)
-- Gmail
 - Almudeer (internal)
 
 This module extracts the sending logic from chat_routes.py to avoid
@@ -54,7 +53,6 @@ async def send_outbox_message(outbox_id: int, license_id: int) -> Dict[str, Any]
         channel = message["channel"]
         body = message["body"] or ""
         recipient_id = message.get("recipient_id")
-        recipient_email = message.get("recipient_email")
         subject = message.get("subject")
         attachments = message.get("attachments")
         reply_to_platform_id = message.get("reply_to_platform_id")
@@ -73,7 +71,7 @@ async def send_outbox_message(outbox_id: int, license_id: int) -> Dict[str, Any]
         # Send based on channel
         if channel == "whatsapp":
             result = await _send_via_whatsapp(
-                license_id, outbox_id, body, recipient_id, recipient_email, reply_to_platform_id
+                license_id, outbox_id, body, recipient_id, reply_to_platform_id
             )
             
         elif channel in ("telegram_bot", "telegram"):
@@ -87,27 +85,17 @@ async def send_outbox_message(outbox_id: int, license_id: int) -> Dict[str, Any]
                 session_string = await get_telegram_phone_session_data(license_id)
                 if session_string:
                     result = await _send_via_telegram_phone(
-                        license_id, outbox_id, body, recipient_id, recipient_email, reply_to_platform_id
+                        license_id, outbox_id, body, recipient_id, reply_to_platform_id
                     )
                 else:
                     result = await _send_via_telegram_bot(
-                        license_id, outbox_id, body, recipient_id, recipient_email, reply_to_platform_id
+                        license_id, outbox_id, body, recipient_id, reply_to_platform_id
                     )
             else:
                 # Explicit "telegram_bot" channel
                 result = await _send_via_telegram_bot(
-                    license_id, outbox_id, body, recipient_id, recipient_email, reply_to_platform_id
+                    license_id, outbox_id, body, recipient_id, reply_to_platform_id
                 )
-            
-        elif channel == "telegram_phone":
-            result = await _send_via_telegram_phone(
-                license_id, outbox_id, body, recipient_id, recipient_email, reply_to_platform_id
-            )
-            
-        elif channel == "gmail":
-            result = await _send_via_gmail(
-                license_id, outbox_id, body, subject, recipient_email, reply_to_platform_id, attachments
-            )
             
         elif channel == "saved":
             # Saved Messages (self-chat) - just mark as sent
@@ -118,7 +106,7 @@ async def send_outbox_message(outbox_id: int, license_id: int) -> Dict[str, Any]
         elif channel == "almudeer":
             # Almudeer internal message - deliver to recipient's inbox
             result = await _send_via_almudeer(
-                license_id, outbox_id, body, recipient_id, recipient_email, 
+                license_id, outbox_id, body, recipient_id,
                 reply_to_platform_id, attachments
             )
             
@@ -150,7 +138,6 @@ async def _send_via_whatsapp(
     outbox_id: int,
     body: str,
     recipient_id: Optional[str],
-    recipient_email: Optional[str],
     reply_to_platform_id: Optional[str]
 ) -> Dict[str, Any]:
     """Send message via WhatsApp."""
@@ -166,7 +153,7 @@ async def _send_via_whatsapp(
     )
     
     # WhatsApp uses phone number as recipient_id
-    to_number = recipient_id or recipient_email
+    to_number = recipient_id
     result = await service.send_message(
         to=to_number,
         message=body,
@@ -180,7 +167,6 @@ async def _send_via_telegram_bot(
     outbox_id: int,
     body: str,
     recipient_id: Optional[str],
-    recipient_email: Optional[str],
     reply_to_platform_id: Optional[str]
 ) -> Dict[str, Any]:
     """Send message via Telegram Bot."""
@@ -194,7 +180,7 @@ async def _send_via_telegram_bot(
     service = TelegramService(bot_token=config["bot_token"])
     
     # Telegram bot sends to chat_id
-    chat_id = recipient_id or recipient_email
+    chat_id = recipient_id
     result = await service.send_message(
         chat_id=chat_id,
         text=body,
@@ -208,7 +194,6 @@ async def _send_via_telegram_phone(
     outbox_id: int,
     body: str,
     recipient_id: Optional[str],
-    recipient_email: Optional[str],
     reply_to_platform_id: Optional[str]
 ) -> Dict[str, Any]:
     """Send message via Telegram Phone."""
@@ -223,7 +208,7 @@ async def _send_via_telegram_phone(
     service = TelegramPhoneService()
     
     # Telegram phone uses recipient_id (user/chat ID)
-    recipient = recipient_id or recipient_email
+    recipient = recipient_id
     result = await service.send_message(
         session_string=session_string,
         recipient_id=recipient,
@@ -233,41 +218,6 @@ async def _send_via_telegram_phone(
     return {"success": True, "message_id": str(result.get("id", ""))}
 
 
-async def _send_via_gmail(
-    license_id: int,
-    outbox_id: int,
-    body: str,
-    subject: Optional[str],
-    recipient_email: Optional[str],
-    reply_to_platform_id: Optional[str],
-    attachments: Optional[List[Dict]]
-) -> Dict[str, Any]:
-    """Send message via Gmail."""
-    from services.gmail_api_service import GmailAPIService
-    from models.email_config import get_email_oauth_tokens
-    
-    token_data = await get_email_oauth_tokens(license_id, "gmail")
-    if not token_data or not token_data.get("access_token"):
-        raise ValueError("Gmail not configured")
-    
-    service = GmailAPIService(
-        access_token=token_data["access_token"],
-        refresh_token=token_data.get("refresh_token")
-    )
-    
-    # Gmail sends to email address
-    to_email = recipient_email
-    if not to_email:
-        raise ValueError("No recipient email for Gmail message")
-    
-    result = await service.send_message(
-        to_email=to_email,
-        subject=subject or "(no subject)",
-        body=body,
-        reply_to_message_id=reply_to_platform_id,
-        attachments=attachments
-    )
-    return {"success": True, "message_id": result.get("id")}
 
 
 async def _send_via_almudeer(
@@ -275,7 +225,6 @@ async def _send_via_almudeer(
     outbox_id: int,
     body: str,
     recipient_id: Optional[str],
-    recipient_email: Optional[str],
     reply_to_platform_id: Optional[str],
     attachments: Optional[List[Dict]]
 ) -> Dict[str, Any]:
@@ -313,7 +262,7 @@ async def _send_via_almudeer(
             raise ValueError(f"Sender license {license_id} not found")
         
         # Find recipient license by username
-        recipient_username = recipient_email or recipient_id
+        recipient_username = recipient_id
         if not recipient_username:
             raise ValueError("No recipient specified for Almudeer message")
         

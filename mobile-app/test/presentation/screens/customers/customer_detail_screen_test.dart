@@ -26,7 +26,6 @@ void main() {
       'username': 'testuser',
       'name': 'Test User',
       'phone': '+966501234567',
-      'email': 'test@example.com',
       'profile_pic_url': null,
       'image': null,
       'is_almudeer_user': true,
@@ -157,7 +156,6 @@ void main() {
           'username': null,
           'name': null,
           'phone': null,
-          'email': null,
           'is_almudeer_user': false,
           'is_online': false,
         };

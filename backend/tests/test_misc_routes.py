@@ -76,7 +76,7 @@ class TestSystemRoutes:
              patch("routes.system_routes.get_telegram_phone_session", new_callable=AsyncMock), \
              patch("routes.system_routes.get_whatsapp_config", new_callable=AsyncMock):
              
-            mock_email.return_value = {"email_address": "test@gmail.com", "is_active": True}
+            mock_email.return_value = {"email_address": "test@example.com", "is_active": True}
             mock_tg.return_value = None
             
             response = await list_integration_accounts({"license_id": 1})
@@ -84,6 +84,6 @@ class TestSystemRoutes:
             accounts = response["accounts"]
             assert len(accounts) >= 1
             assert accounts[0].id == "email"
-            assert accounts[0].display_name == "test@gmail.com"
+            assert accounts[0].display_name == "test@example.com"
 
 

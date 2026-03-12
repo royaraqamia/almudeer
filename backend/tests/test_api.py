@@ -39,22 +39,7 @@ class TestSecurityModule:
         result = sanitize_string(long_string, max_length=100)
         assert len(result) == 100
     
-    def test_sanitize_email_valid(self):
-        """Test valid email validation"""
-        from security import sanitize_email
-        
-        assert sanitize_email("test@example.com") == "test@example.com"
-        assert sanitize_email("USER@EXAMPLE.COM") == "user@example.com"
-        assert sanitize_email("  user@example.com  ") == "user@example.com"
-    
-    def test_sanitize_email_invalid(self):
-        """Test invalid email rejection"""
-        from security import sanitize_email
-        
-        assert sanitize_email("") is None
-        assert sanitize_email("notanemail") is None
-        assert sanitize_email("missing@domain") is None
-        assert sanitize_email("@example.com") is None
+    # Email tests removed
     
     def test_sanitize_phone_valid(self):
         """Test valid phone sanitization"""
@@ -132,13 +117,13 @@ class TestModelsImport:
         """Test importing from models package"""
         from models import (
             init_enhanced_tables,
-            save_email_config,
+        # email config test removed
             get_preferences,
             ROLES,
         )
         
         assert callable(init_enhanced_tables)
-        assert callable(save_email_config)
+        # email config test removed
         assert callable(get_preferences)
         assert isinstance(ROLES, dict)
         assert "owner" in ROLES

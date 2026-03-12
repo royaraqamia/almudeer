@@ -18,7 +18,7 @@ class TestJWTAuth:
         """Test access token creation"""
         from services.jwt_auth import create_access_token, verify_token, TokenType
         
-        data = {"sub": "user@test.com", "license_id": 1}
+        data = {"sub": "user_test", "license_id": 1}
         # access_token used to return just the token, now returns (token, jti, expiry)
         token, jti, expiry = create_access_token(data)
         
@@ -30,7 +30,7 @@ class TestJWTAuth:
         payload = verify_token(token, TokenType.ACCESS)
         
         assert payload is not None
-        assert payload["sub"] == "user@test.com"
+        assert payload["sub"] == "user_test"
         assert payload["type"] == "access"
     
     def test_create_refresh_token(self):
@@ -38,7 +38,7 @@ class TestJWTAuth:
         from services.jwt_auth import create_refresh_token, verify_token, TokenType
 
         # Refresh token returns (token, jti) tuple
-        token, jti = create_refresh_token({"sub": "user@test.com"})
+        token, jti = create_refresh_token({"sub": "user_test"})
         payload = verify_token(token, TokenType.REFRESH)
 
         assert payload is not None
@@ -50,7 +50,7 @@ class TestJWTAuth:
         """Test creating token pair"""
         from services.jwt_auth import create_token_pair
         
-        tokens = await create_token_pair("user@test.com", license_id=1, role="admin")
+        tokens = await create_token_pair("user_test", license_id=1, role="admin")
         
         assert "access_token" in tokens
         assert "refresh_token" in tokens
@@ -181,19 +181,7 @@ class TestSecurity:
         assert "<script>" not in result
         assert "alert" not in result or "&" in result
     
-    def test_sanitize_email_valid(self):
-        """Test valid email sanitization"""
-        from security import sanitize_email
-        
-        result = sanitize_email("test@example.com")
-        assert result == "test@example.com"
-    
-    def test_sanitize_email_invalid(self):
-        """Test invalid email returns None"""
-        from security import sanitize_email
-        
-        result = sanitize_email("not-an-email")
-        assert result is None
+    # Email sanitization tests removed
     
     def test_sanitize_phone(self):
         """Test phone sanitization"""

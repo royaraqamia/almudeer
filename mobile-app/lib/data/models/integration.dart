@@ -1,10 +1,49 @@
+enum IntegrationChannel {
+  whatsapp,
+  telegram,
+  telegramBot,
+  almudeer,
+  unknown;
+
+  static IntegrationChannel fromString(String? value) {
+    switch (value?.toLowerCase()) {
+      case 'whatsapp':
+        return IntegrationChannel.whatsapp;
+      case 'telegram':
+      case 'telegram_phone':
+        return IntegrationChannel.telegram;
+      case 'telegram_bot':
+        return IntegrationChannel.telegramBot;
+      case 'almudeer':
+        return IntegrationChannel.almudeer;
+      default:
+        return IntegrationChannel.unknown;
+    }
+  }
+
+  String get value {
+    switch (this) {
+      case IntegrationChannel.whatsapp:
+        return 'whatsapp';
+      case IntegrationChannel.telegram:
+        return 'telegram';
+      case IntegrationChannel.telegramBot:
+        return 'telegram_bot';
+      case IntegrationChannel.almudeer:
+        return 'almudeer';
+      default:
+        return 'unknown';
+    }
+  }
+}
+
 /// Integration account model
 class IntegrationAccount {
-  final String id;
-  final String channelType;
+  final int id;
+  final IntegrationChannel channelType;
   final String displayName;
   final bool isActive;
-  final String? details;
+  final Map<String, dynamic>? details;
 
   IntegrationAccount({
     required this.id,
@@ -16,18 +55,18 @@ class IntegrationAccount {
 
   factory IntegrationAccount.fromJson(Map<String, dynamic> json) {
     return IntegrationAccount(
-      id: json['id'] as String? ?? '',
-      channelType: json['channel_type'] as String? ?? '',
-      displayName: json['display_name'] as String? ?? '',
+      id: json['id'] as int? ?? 0,
+      channelType: IntegrationChannel.fromString(json['channel_type'] as String?),
+      displayName: json['display_name'] as String? ?? 'Integration',
       isActive: json['is_active'] as bool? ?? false,
-      details: json['details'] as String?,
+      details: json['details'] as Map<String, dynamic>?,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'channel_type': channelType,
+      'channel_type': channelType.value,
       'display_name': displayName,
       'is_active': isActive,
       'details': details,
@@ -36,112 +75,37 @@ class IntegrationAccount {
 
   /// Get channel display name in Arabic
   String get channelDisplayName {
-    switch (channelType.toLowerCase()) {
-      case 'whatsapp':
+    switch (channelType) {
+      case IntegrationChannel.whatsapp:
         return 'واتساب للأعمال';
-      case 'telegram_bot':
+      case IntegrationChannel.telegramBot:
         return 'بوت تيليجرام';
-      case 'telegram_phone':
+      case IntegrationChannel.telegram:
         return 'تيليجرام (حساب شخصي)';
-      case 'email':
-        return 'البريد الإلكتروني';
-      default:
-        return channelType;
+      case IntegrationChannel.almudeer:
+        return 'المدير';
+      case IntegrationChannel.unknown:
+        return 'غير معروف';
     }
   }
 
   /// Get channel icon name
   String get channelIconName {
-    switch (channelType.toLowerCase()) {
-      case 'whatsapp':
+    switch (channelType) {
+      case IntegrationChannel.whatsapp:
         return 'whatsapp';
-      case 'telegram_bot':
-      case 'telegram_phone':
+      case IntegrationChannel.telegramBot:
+      case IntegrationChannel.telegram:
         return 'telegram';
-      case 'email':
-        return 'email';
+      case IntegrationChannel.almudeer:
+        return 'almudeer';
       default:
         return 'integration';
     }
   }
 }
 
-/// Email configuration model
-class EmailConfig {
-  final int id;
-  final String emailAddress;
-  final String imapServer;
-  final String smtpServer;
-  final int imapPort;
-  final int smtpPort;
-  final bool isActive;
-  final int checkIntervalMinutes;
-  final String? lastCheckedAt;
-
-  EmailConfig({
-    required this.id,
-    required this.emailAddress,
-    required this.imapServer,
-    required this.smtpServer,
-    required this.imapPort,
-    required this.smtpPort,
-    required this.isActive,
-    required this.checkIntervalMinutes,
-    this.lastCheckedAt,
-  });
-
-  factory EmailConfig.fromJson(Map<String, dynamic> json) {
-    return EmailConfig(
-      id: json['id'] as int,
-      emailAddress: json['email_address'] as String? ?? '',
-      imapServer: json['imap_server'] as String? ?? '',
-      smtpServer: json['smtp_server'] as String? ?? '',
-      imapPort: json['imap_port'] as int? ?? 993,
-      smtpPort: json['smtp_port'] as int? ?? 587,
-      isActive: json['is_active'] as bool? ?? false,
-      checkIntervalMinutes: json['check_interval_minutes'] as int? ?? 5,
-      lastCheckedAt: json['last_checked_at'] as String?,
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'email_address': emailAddress,
-      'imap_server': imapServer,
-      'smtp_server': smtpServer,
-      'imap_port': imapPort,
-      'smtp_port': smtpPort,
-      'is_active': isActive,
-      'check_interval_minutes': checkIntervalMinutes,
-      'last_checked_at': lastCheckedAt,
-    };
-  }
-
-  EmailConfig copyWith({
-    int? id,
-    String? emailAddress,
-    String? imapServer,
-    String? smtpServer,
-    int? imapPort,
-    int? smtpPort,
-    bool? isActive,
-    int? checkIntervalMinutes,
-    String? lastCheckedAt,
-  }) {
-    return EmailConfig(
-      id: id ?? this.id,
-      emailAddress: emailAddress ?? this.emailAddress,
-      imapServer: imapServer ?? this.imapServer,
-      smtpServer: smtpServer ?? this.smtpServer,
-      imapPort: imapPort ?? this.imapPort,
-      smtpPort: smtpPort ?? this.smtpPort,
-      isActive: isActive ?? this.isActive,
-      checkIntervalMinutes: checkIntervalMinutes ?? this.checkIntervalMinutes,
-      lastCheckedAt: lastCheckedAt ?? this.lastCheckedAt,
-    );
-  }
-}
+// EmailConfig removed
 
 /// Telegram bot configuration model
 class TelegramConfig {

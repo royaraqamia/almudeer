@@ -109,7 +109,6 @@ class _TaskShareFormState extends State<_TaskShareForm> {
             .map(
               (share) => {
                 'username':
-                    share['shared_with_email'] ??
                     share['shared_with_user_id'] ??
                     '',
                 'displayName': share['shared_with_name'] ?? 'Unknown',

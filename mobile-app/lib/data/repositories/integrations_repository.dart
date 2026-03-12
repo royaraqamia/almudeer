@@ -35,12 +35,6 @@ class IntegrationsRepository {
     }
   }
 
-  /// Get Email configuration
-  Future<Map<String, dynamic>> getEmailConfig() async {
-    final response = await _apiClient.get(Endpoints.emailConfig);
-    return response;
-  }
-
   /// Get Telegram configuration
   Future<Map<String, dynamic>> getTelegramConfig() async {
     final response = await _apiClient.get(Endpoints.telegramConfig);
@@ -120,12 +114,4 @@ class IntegrationsRepository {
     await _apiClient.delete(endpoint);
   }
 
-  /// Fetch Email OAuth URL from backend
-  Future<String> fetchGmailAuthUrl() async {
-    final response = await _apiClient.get(Endpoints.emailOAuthUrl);
-    if (response['authorization_url'] != null) {
-      return response['authorization_url'];
-    }
-    throw Exception('Failed to get authorization URL');
-  }
 }

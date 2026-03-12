@@ -161,9 +161,6 @@ class _ImportContactsScreenState extends State<ImportContactsScreen> {
             final customerData = {
               'name': contact.displayName,
               'phone': phone,
-              'email': contact.emails.isNotEmpty
-                  ? contact.emails.first.address
-                  : null,
               'company': contact.organizations.isNotEmpty
                   ? contact.organizations.first.company
                   : null,

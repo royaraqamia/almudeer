@@ -3,7 +3,6 @@ class User {
   final int id;
   final String? username;
   final String? name;
-  final String? email;
   final String? image;
   final bool isActive;
   final String? createdAt;
@@ -15,7 +14,6 @@ class User {
     required this.id,
     this.username,
     this.name,
-    this.email,
     this.image,
     this.isActive = true,
     this.createdAt,
@@ -24,18 +22,17 @@ class User {
     this.isVip,
   });
 
-  /// Get display name (username, name, or email)
-  String get displayName => username ?? name ?? email ?? 'Unknown User';
+  /// Get display name (username or name)
+  String get displayName => username ?? name ?? 'Unknown User';
 
-  /// Get contact identifier (username preferred, then email)
-  String get contact => username ?? email ?? '';
+  /// Get contact identifier (username preferred)
+  String get contact => username ?? '';
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
       id: json['id'] as int,
       username: json['username'] as String?,
       name: json['name'] as String?,
-      email: json['email'] as String?,
       image: (json['image'] ?? json['profile_image_url']) as String?,
       isActive: json['is_active'] is int
           ? (json['is_active'] as int) == 1
@@ -52,7 +49,6 @@ class User {
       'id': id,
       'username': username,
       'name': name,
-      'email': email,
       'image': image,
       'is_active': isActive,
       'created_at': createdAt,
@@ -72,5 +68,5 @@ class User {
 
   @override
   String toString() =>
-      'User(id: $id, username: $username, name: $name, email: $email)';
+      'User(id: $id, username: $username, name: $name)';
 }

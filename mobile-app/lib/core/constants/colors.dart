@@ -23,7 +23,7 @@ class AppColors {
   // ─────────────────────────────────────────────────────────────────
   static const Color primary = Color(0xFF2563EB);
   static const Color primaryLight = Color(0xFF3B82F6);
-  
+
   // Apple HIG: Desaturated for dark mode (was #1D4ED8 - too saturated)
   // Lighter, less saturated to reduce visual vibration in dark mode
   static const Color primaryDark = Color(0xFF6EA8FF);
@@ -31,7 +31,9 @@ class AppColors {
   // Active state background for navigation (dark theme optimized)
   // Lighter alpha for subtle pill, brighter hue for dark mode visibility
   static const Color activeStateLight = Color(0xFF2563EB); // Same as primary
-  static const Color activeStateDark = Color(0xFF3B82F6);  // Brighter for dark theme
+  static const Color activeStateDark = Color(
+    0xFF3B82F6,
+  ); // Brighter for dark theme
 
   // Active state muted variants (for pill backgrounds with alpha)
   static const Color activeStateLightMuted = Color(0x1A2563EB); // 10% alpha
@@ -39,7 +41,9 @@ class AppColors {
 
   // Brand gradient stops (optimized for icon contrast)
   static const Color brandGradientStart = Color(0xFF2563EB);
-  static const Color brandGradientEnd = Color(0xFF1636A8); // Darkened for better icon contrast
+  static const Color brandGradientEnd = Color(
+    0xFF1636A8,
+  ); // Darkened for better icon contrast
 
   // Error gradient stops
   static const List<Color> errorGradient = [
@@ -65,24 +69,24 @@ class AppColors {
   // ─────────────────────────────────────────────────────────────────
   // Hover & Focus State Colors (Tablet/Desktop Support)
   // ─────────────────────────────────────────────────────────────────
-  static const Color hoverLight = Color(0x0A0F172A);    // 4% black
-  static const Color hoverDark = Color(0x1AFFFFFF);     // 10% white
-  static const Color focusLight = Color(0x142563EB);    // 8% primary
-  static const Color focusDark = Color(0x1F3B82F6);     // 12% primaryLight
+  static const Color hoverLight = Color(0x0A0F172A); // 4% black
+  static const Color hoverDark = Color(0x1AFFFFFF); // 10% white
+  static const Color focusLight = Color(0x142563EB); // 8% primary
+  static const Color focusDark = Color(0x1F3B82F6); // 12% primaryLight
 
   // ─────────────────────────────────────────────────────────────────
   // Overlay & Scrim Colors
   // ─────────────────────────────────────────────────────────────────
-  static const Color scrimLight = Color(0x80000000);    // 50% black
-  static const Color scrimDark = Color(0x80000000);     // 50% black
-  static const Color overlayLight = Color(0x0A0F172A);  // 4% black
-  static const Color overlayDark = Color(0x14FFFFFF);   // 8% white
+  static const Color scrimLight = Color(0x80000000); // 50% black
+  static const Color scrimDark = Color(0x80000000); // 50% black
+  static const Color overlayLight = Color(0x0A0F172A); // 4% black
+  static const Color overlayDark = Color(0x14FFFFFF); // 8% white
 
   // ─────────────────────────────────────────────────────────────────
   // Focus Ring Colors (Accessible Input States)
   // ─────────────────────────────────────────────────────────────────
-  static const Color focusRingLight = Color(0x402563EB);  // 25% primary
-  static const Color focusRingDark = Color(0x403B82F6);   // 25% primaryLight
+  static const Color focusRingLight = Color(0x402563EB); // 25% primary
+  static const Color focusRingDark = Color(0x403B82F6); // 25% primaryLight
 
   // ─────────────────────────────────────────────────────────────────
   // Background Colors (Light Theme)
@@ -106,9 +110,11 @@ class AppColors {
   // Apple HIG: Lighter surfaces indicate higher elevation
   // ─────────────────────────────────────────────────────────────────
   static const Color backgroundDark = Color(0xFF0F2E42);
-  static const Color surfaceDark = Color(0xFF163A52);   // Lighter for hierarchy
-  static const Color cardDark = Color(0xFF1B4461);       // Even lighter for cards
-  static const Color surfaceCardDark = Color(0xFF1B4461); // Match card for consistency
+  static const Color surfaceDark = Color(0xFF163A52); // Lighter for hierarchy
+  static const Color cardDark = Color(0xFF1B4461); // Even lighter for cards
+  static const Color surfaceCardDark = Color(
+    0xFF1B4461,
+  ); // Match card for consistency
 
   // Apple HIG Semantic Names (Dark Mode - iOS compatibility)
   static const Color systemBackgroundDark = Color(0xFF0F2E42);
@@ -128,8 +134,12 @@ class AppColors {
   // WCAG 2.1 AA Compliant: All ratios meet 4.5:1 minimum
   // ─────────────────────────────────────────────────────────────────
   static const Color textPrimaryLight = Color(0xFF0F172A);
-  static const Color textSecondaryLight = Color(0xFF475569); // Darkened from 64748B for better contrast (5.8:1)
-  static const Color textTertiaryLight = Color(0xFF64748B);  // Fixed from 94A3B8 (was 2.8:1, now 4.6:1)
+  static const Color textSecondaryLight = Color(
+    0xFF475569,
+  ); // Darkened from 64748B for better contrast (5.8:1)
+  static const Color textTertiaryLight = Color(
+    0xFF64748B,
+  ); // Fixed from 94A3B8 (was 2.8:1, now 4.6:1)
   static const Color textDisabledLight = Color(0xFFCBD5E1);
 
   // ─────────────────────────────────────────────────────────────────
@@ -137,8 +147,12 @@ class AppColors {
   // WCAG 2.1 AA Compliant: All ratios meet 4.5:1 minimum
   // ─────────────────────────────────────────────────────────────────
   static const Color textPrimaryDark = Color(0xFFF8FAFC);
-  static const Color textSecondaryDark = Color(0xFFCBD5E1); // Lightened from 94A3B8 for better contrast
-  static const Color textTertiaryDark = Color(0xFFA1B0C4);  // Lightened from 94A3B8 for better contrast on surfaceDark (5.2:1)
+  static const Color textSecondaryDark = Color(
+    0xFFCBD5E1,
+  ); // Lightened from 94A3B8 for better contrast
+  static const Color textTertiaryDark = Color(
+    0xFFA1B0C4,
+  ); // Lightened from 94A3B8 for better contrast on surfaceDark (5.2:1)
   static const Color textDisabledDark = Color(0xFF64748B);
 
   // Border Colors
@@ -156,9 +170,9 @@ class AppColors {
   static const Color infoLight = Color(0xFFDBEAFE);
 
   // Additional Semantic States (Light Mode)
-  static const Color pending = Color(0xFFF59E0B);       // Amber for pending states
-  static const Color draft = Color(0xFF6B7280);         // Gray for drafts
-  static const Color archived = Color(0xFF94A3B8);      // Slate for archived
+  static const Color pending = Color(0xFFF59E0B); // Amber for pending states
+  static const Color draft = Color(0xFF6B7280); // Gray for drafts
+  static const Color archived = Color(0xFF94A3B8); // Slate for archived
 
   // Semantic Colors (Dark Mode) - Enhanced visibility
   static const Color successDark = Color(0xFF4ADE80);
@@ -183,9 +197,9 @@ class AppColors {
   static const Color whatsappBlueTick = Color(0xFF53BDEB);
 
   // Notification Badge Colors
-  static const Color badgeNew = Color(0xFFEF4444);      // Red for new items
-  static const Color badgeUnread = Color(0xFF3B82F6);   // Blue for unread
-  static const Color badgeUpdate = Color(0xFFF59E0B);   // Amber for updates
+  static const Color badgeNew = Color(0xFFEF4444); // Red for new items
+  static const Color badgeUnread = Color(0xFF3B82F6); // Blue for unread
+  static const Color badgeUpdate = Color(0xFFF59E0B); // Amber for updates
 
   // Shimmer/Skeleton Loading Colors
   static const Color shimmerBaseLight = Color(0xFFE2E8F0);
@@ -201,10 +215,6 @@ class AppColors {
   static const Color telegramIncomingLight = Color(0xFFFFFFFF);
   static const Color telegramIncomingDark = Color(0xFF182533);
   static const Color telegramCheck = Color(0xFF4AC959);
-
-  // Email Colors
-  static const Color emailRed = Color(0xFFEA4335);
-  static const Color emailBlue = Color(0xFF4285F4);
 
   // Intent Colors
   static const Map<String, Color> intentColors = {
@@ -261,8 +271,8 @@ class AppColors {
   static const Color chartDark5 = Color(0xFFF472B6);
 
   // Elevation Shadow Colors (Brand-colored for premium feel)
-  static const Color shadowPrimaryLight = Color(0x142563EB);  // 8% primary
-  static const Color shadowPrimaryDark = Color(0x1F000000);   // 12% black
+  static const Color shadowPrimaryLight = Color(0x142563EB); // 8% primary
+  static const Color shadowPrimaryDark = Color(0x1F000000); // 12% black
 
   // Avatar Gradient Colors (Optimized for both themes)
   static const List<Color> avatarGradientLight = [
@@ -281,26 +291,26 @@ class AppColors {
 
   // Task Category Colors
   static const Map<String, Color> taskCategoryColors = {
-    'عمل': Color(0xFF2563EB),      // work - blue
-    'شخصي': Color(0xFF10B981),     // personal - emerald
-    'تسوق': Color(0xFFF59E0B),      // shopping - amber
-    'عاجل': Color(0xFFEF4444),      // urgent - red
-    'أخرى': Color(0xFF6B7280),     // other - gray
-    'دراسة': Color(0xFF8B5CF6),     // study - violet
-    'صحة': Color(0xFFEC4899),      // health - pink
-    'مالية': Color(0xFF14B8A6),     // finance - teal
+    'عمل': Color(0xFF2563EB), // work - blue
+    'شخصي': Color(0xFF10B981), // personal - emerald
+    'تسوق': Color(0xFFF59E0B), // shopping - amber
+    'عاجل': Color(0xFFEF4444), // urgent - red
+    'أخرى': Color(0xFF6B7280), // other - gray
+    'دراسة': Color(0xFF8B5CF6), // study - violet
+    'صحة': Color(0xFFEC4899), // health - pink
+    'مالية': Color(0xFF14B8A6), // finance - teal
   };
 
   // Task Category Icons
   static const Map<String, int> taskCategoryIconCodes = {
-    'عمل': 0xE5D2,      // work - briefcase
-    'شخصي': 0xE7FD,    // personal - person
-    'تسوق': 0xE8CB,    // shopping - cart
-    'عاجل': 0xE153,    // urgent - warning
-    'أخرى': 0xE5D3,    // other - more_horiz
-    'دراسة': 0xE80C,   // study - school
-    'صحة': 0xE3F3,     // health - favorite
-    'مالية': 0xE850,   // finance - account_balance
+    'عمل': 0xE5D2, // work - briefcase
+    'شخصي': 0xE7FD, // personal - person
+    'تسوق': 0xE8CB, // shopping - cart
+    'عاجل': 0xE153, // urgent - warning
+    'أخرى': 0xE5D3, // other - more_horiz
+    'دراسة': 0xE80C, // study - school
+    'صحة': 0xE3F3, // health - favorite
+    'مالية': 0xE850, // finance - account_balance
   };
 
   // Background Gradient Colors (Light Theme)

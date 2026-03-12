@@ -32,7 +32,7 @@ async def cleanup_bots():
             contact = row["sender_contact"]
             name = row["sender_name"]
             
-            # Additional safety check: Don't delete if it looks like a regular email that just happens to have "bot" (e.g. abbot@gmail.com)
+            # Additional safety check: Don't delete if it looks like a regular address that just happens to have "bot" (e.g. abbot@example.com)
             # But "api" is pretty suspicious.
             
             is_bot = False

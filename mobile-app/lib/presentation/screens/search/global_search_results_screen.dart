@@ -221,13 +221,11 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
         _searchCustomers = allCustomers.where((c) {
           final name = c.name?.toLowerCase() ?? '';
           final phone = c.phone?.toLowerCase() ?? '';
-          final email = c.email?.toLowerCase() ?? '';
           final company = c.company?.toLowerCase() ?? '';
           final username = c.username?.toLowerCase() ?? '';
           final q = query.toLowerCase();
           return name.contains(q) ||
               phone.contains(q) ||
-              email.contains(q) ||
               company.contains(q) ||
               username.contains(q);
         }).toList();
@@ -272,9 +270,6 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
       if (customer.phone != null && customer.phone!.isNotEmpty) {
         customerContacts.add(customer.phone!);
       }
-      if (customer.email != null && customer.email!.isNotEmpty) {
-        customerContacts.add(customer.email!);
-      }
       if (customer.username != null && customer.username!.isNotEmpty) {
         customerContacts.add(customer.username!);
       }
@@ -283,9 +278,6 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
     return users.where((user) {
       if (user.isCustomer) return false;
       if (user.username != null && customerContacts.contains(user.username)) {
-        return false;
-      }
-      if (user.email != null && customerContacts.contains(user.email)) {
         return false;
       }
       return true;
@@ -724,7 +716,6 @@ class _GlobalSearchResultsScreenState extends State<GlobalSearchResultsScreen> {
             'id': user.id,
             'name': user.name,
             'username': user.username,
-            'email': user.email,
             'image': user.image,
             'is_almudeer_user': true,
           },

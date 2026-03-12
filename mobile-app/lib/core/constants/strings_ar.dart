@@ -77,7 +77,6 @@ class AppStrings {
   // Channel Names
   static const String channelWhatsApp = 'واتساب';
   static const String channelTelegram = 'تيليجرام';
-  static const String channelEmail = 'البريد الإلكتروني';
 
   // Customers Screen
   static const String customersTitle = 'النَّاس';
@@ -99,7 +98,6 @@ class AppStrings {
   static const String addIntegration = 'إضافة ربط جديد';
   static const String whatsappBusiness = 'واتساب للأعمال';
   static const String telegramBot = 'بوت تيليجرام';
-  static const String gmailIntegration = 'Gmail';
   static const String connected = 'متصل';
   static const String disconnected = 'غير متصل';
   static const String disconnect = 'قطع الاتصال';

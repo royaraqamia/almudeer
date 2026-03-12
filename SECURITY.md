@@ -26,8 +26,7 @@ Instead, please report them via:
    - Click "Report a vulnerability"
    - Provide details about the vulnerability
 
-2. **Email** (alternative):
-   - Send an email to the repository maintainer with details about the vulnerability
+// Email reporting removed
 
 ### What to Include
 

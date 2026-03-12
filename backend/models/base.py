@@ -35,7 +35,7 @@ async def init_enhanced_tables():
     """Initialize enhanced tables for Email & Telegram integration"""
     async with get_db() as db:
         
-        # Email Configuration per license (OAuth 2.0 for Gmail)
+        # Email Configuration per license
         await execute_sql(db, f"""
             CREATE TABLE IF NOT EXISTS email_configs (
                 id {ID_PK},
@@ -45,7 +45,7 @@ async def init_enhanced_tables():
                 imap_port INTEGER DEFAULT 993,
                 smtp_server TEXT NOT NULL,
                 smtp_port INTEGER DEFAULT 587,
-                -- OAuth 2.0 tokens (for Gmail)
+                -- OAuth 2.0 tokens
                 access_token_encrypted TEXT,
                 refresh_token_encrypted TEXT,
                 token_expires_at TIMESTAMP,

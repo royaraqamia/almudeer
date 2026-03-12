@@ -21,7 +21,7 @@ async def search_users(
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Search for Almudeer users by username, name, or email.
+    Search for Almudeer users by username or name.
     Only returns users that exist in the license_keys table.
 
     Args:
@@ -48,7 +48,7 @@ async def search_users(
     
     async with get_db() as db:
         # Search in license_keys table for Almudeer users
-        # Search by username, full_name, or contact_email
+        # Search by username or full_name
         rows = await fetch_all(
             db,
             """
@@ -56,7 +56,6 @@ async def search_users(
                 id,
                 username,
                 full_name as name,
-                contact_email as email,
                 profile_image_url as image,
                 is_active,
                 created_at,
@@ -65,7 +64,6 @@ async def search_users(
             WHERE (
                 username LIKE ?
                 OR full_name LIKE ?
-                OR contact_email LIKE ?
             )
             AND is_active IS TRUE
             ORDER BY
@@ -94,7 +92,6 @@ async def search_users(
                 c.id,
                 c.username,
                 c.name,
-                c.email,
                 NULL as image,
                 c.is_vip,
                 c.created_at,
@@ -105,7 +102,6 @@ async def search_users(
             AND (
                 c.username LIKE ?
                 OR c.name LIKE ?
-                OR c.email LIKE ?
             )
             ORDER BY
                 CASE
@@ -168,7 +164,6 @@ async def get_current_user_profile(
                 id,
                 username,
                 full_name as name,
-                contact_email as email,
                 profile_image_url as image,
                 is_active,
                 created_at,
@@ -214,7 +209,6 @@ async def get_user_by_username(
                 id,
                 username,
                 full_name as name,
-                contact_email as email,
                 profile_image_url as image,
                 is_active,
                 created_at,

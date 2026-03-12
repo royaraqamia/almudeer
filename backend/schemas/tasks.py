@@ -76,6 +76,8 @@ class TaskUpdate(BaseModel):
     attachments: Optional[List[Attachment]] = None
     visibility: Optional[str] = None
     removed_attachments: Optional[List[str]] = None  # FIX: Add support for removing attachments
+    priority: Optional[str] = None
+    is_deleted: Optional[bool] = None
 
 class TaskResponse(TaskBase):
     id: str

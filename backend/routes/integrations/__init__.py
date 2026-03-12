@@ -15,7 +15,6 @@ router = APIRouter(prefix="/api/integrations", tags=["Integrations"])
 
 # Re-export schemas for convenience
 from .schemas import (
-    EmailConfigRequest,
     TelegramConfigRequest,
     TelegramPhoneStartRequest,
     TelegramPhoneVerifyRequest,
@@ -28,7 +27,6 @@ from .schemas import (
 
 __all__ = [
     "router",
-    "EmailConfigRequest",
     "TelegramConfigRequest", 
     "TelegramPhoneStartRequest",
     "TelegramPhoneVerifyRequest",

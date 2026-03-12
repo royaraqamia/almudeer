@@ -27,7 +27,6 @@ class LicenseKeyResponse(BaseModel):
 class LicenseKeyCreate(BaseModel):
     """Request to create a new license key (admin only)"""
     full_name: str = Field(..., description="الاسم الكامل")
-    contact_email: Optional[str] = Field(None, description="البريد الإلكتروني")
     days_valid: int = Field(365, description="مدة الصلاحية بالأيام")
 
 
@@ -36,7 +35,7 @@ class LicenseKeyCreate(BaseModel):
 class MessageInput(BaseModel):
     """Input for message processing"""
     message: str = Field(..., description="نص الرسالة", min_length=10)
-    message_type: Optional[str] = Field(None, description="نوع الرسالة: email, whatsapp, general")
+    message_type: Optional[str] = Field(None, description="نوع الرسالة: whatsapp, general")
     sender_name: Optional[str] = Field(None, description="اسم المرسل")
     sender_contact: Optional[str] = Field(None, description="بيانات التواصل")
 

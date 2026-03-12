@@ -100,7 +100,7 @@ async def test_edit_message_external_channels_restricted():
     license_id = 1
     message_id = 101
 
-    for channel in ['telegram', 'whatsapp', 'gmail']:
+    for channel in ['telegram', 'whatsapp']:
         message = {
             "id": message_id,
             "license_key_id": license_id,

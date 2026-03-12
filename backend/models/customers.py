@@ -26,7 +26,6 @@ async def get_or_create_customer(
     license_id: int,
     name: str = None,
     phone: str = None,
-    email: str = None,
     username: str = None,
     has_whatsapp: bool = False,
     has_telegram: bool = False,
@@ -53,17 +52,12 @@ async def get_or_create_customer(
                 SELECT *, (EXISTS (SELECT 1 FROM license_keys l WHERE l.username = customers.username AND customers.username IS NOT NULL)) as is_almudeer_user
                 FROM customers WHERE license_key_id = ? AND phone = ?
             """, [license_id, phone])
-        if not row and email:
-            row = await fetch_one(db, """
-                SELECT *, (EXISTS (SELECT 1 FROM license_keys l WHERE l.username = customers.username AND customers.username IS NOT NULL)) as is_almudeer_user
-                FROM customers WHERE license_key_id = ? AND email = ?
-            """, [license_id, email])
         
         if row:
             return dict(row)
         
         # Create new customer
-        contact_val = phone or email
+        contact_val = phone
         if not contact_val:
             from datetime import datetime
             contact_val = f"unknown_{license_id}_{int(datetime.now().timestamp())}"
@@ -72,12 +66,12 @@ async def get_or_create_customer(
             # PostgreSQL: use RETURNING to get ID atomicly
             try:
                 sql = """
-                    INSERT INTO customers (license_key_id, contact, name, username, phone, email, has_whatsapp, has_telegram)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO customers (license_key_id, contact, name, username, phone, has_whatsapp, has_telegram)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     RETURNING id
                 """
                 # adapt_sql_for_db might need to be careful with RETURNING, but execute_sql handles it
-                res = await fetch_one(db, sql, [license_id, contact_val, name, username, phone, email, has_whatsapp, has_telegram])
+                res = await fetch_one(db, sql, [license_id, contact_val, name, username, phone, has_whatsapp, has_telegram])
                 inserted_id = res["id"] if res else None
             except Exception as e:
                 # Handle potential conflicts or errors
@@ -88,10 +82,10 @@ async def get_or_create_customer(
             res = await execute_sql(
                 db,
                 """
-                INSERT INTO customers (license_key_id, contact, name, username, phone, email, has_whatsapp, has_telegram)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO customers (license_key_id, contact, name, username, phone, has_whatsapp, has_telegram)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                [license_id, contact_val, name, username, phone, email, has_whatsapp, has_telegram]
+                [license_id, contact_val, name, username, phone, has_whatsapp, has_telegram]
             )
             await commit_db(db)
             inserted_id = res.lastrowid
@@ -110,7 +104,6 @@ async def get_or_create_customer(
             "name": name,
             "username": username,
             "phone": phone,
-            "email": email,
             "contact": contact_val,
             "is_vip": False,
             "has_whatsapp": has_whatsapp,
@@ -180,7 +173,7 @@ async def update_customer(
     **kwargs
 ) -> bool:
     """Update customer details"""
-    allowed_fields = ['name', 'username', 'phone', 'email', 'company', 'notes', 'tags', 'is_vip', 'profile_pic_url', 'has_whatsapp', 'has_telegram']
+    allowed_fields = ['name', 'username', 'phone', 'company', 'notes', 'tags', 'is_vip', 'profile_pic_url', 'has_whatsapp', 'has_telegram']
     updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
     
     if not updates:

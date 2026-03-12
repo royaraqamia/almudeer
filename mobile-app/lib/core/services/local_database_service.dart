@@ -56,10 +56,8 @@ class LocalDatabaseService {
       CREATE TABLE customers (
         local_id INTEGER PRIMARY KEY AUTOINCREMENT,
         remote_id INTEGER UNIQUE,
-        name TEXT NOT NULL,
         phone TEXT,
-        email TEXT,
-        last_contact_at TEXT,
+        username TEXT,
         profile_pic_url TEXT,
         is_vip INTEGER DEFAULT 0,
         has_whatsapp INTEGER DEFAULT 0,

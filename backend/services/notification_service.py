@@ -187,7 +187,6 @@ _COOLDOWN_SECONDS = 30  # Max 1 notification per 30 seconds per chat
 
 class NotificationChannel(Enum):
     IN_APP = "in_app"
-    EMAIL = "email"
     SLACK = "slack"
     DISCORD = "discord"
     WEBHOOK = "webhook"
@@ -970,7 +969,7 @@ async def process_message_notifications(
 
     # Skip notifications for chat channels (only allow system alerts)
     # System alerts use send_notification() directly, not this function
-    CHAT_CHANNELS = {"whatsapp", "telegram", "telegram_bot", "telegram_phone", "gmail", "email"}
+    CHAT_CHANNELS = {"whatsapp", "telegram", "telegram_bot", "telegram_phone"}
     message_channel = message_data.get("channel", "").lower()
     if message_channel in CHAT_CHANNELS:
         logger.info(f"Notification Service: Skipping notification for chat channel '{message_channel}' (disabled)")

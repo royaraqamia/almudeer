@@ -18,7 +18,7 @@ class TestNotificationClasses:
         from services.notification_service import NotificationChannel
         
         assert NotificationChannel.IN_APP.value == "in_app"
-        assert NotificationChannel.EMAIL.value == "email"
+        # EMAIL channel removed
         assert NotificationChannel.SLACK.value == "slack"
         assert NotificationChannel.DISCORD.value == "discord"
         assert NotificationChannel.WEBHOOK.value == "webhook"

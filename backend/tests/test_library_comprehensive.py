@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch, MagicMock
 
 
-TEST_LICENSE_ID = 999
+TEST_LICENSE_ID = 1
 TEST_USER_ID = "test_user@example.com"
 
 

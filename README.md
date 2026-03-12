@@ -1,13 +1,13 @@
 # Al-Mudeer (المدير)
 
-**Al-Mudeer** is a comprehensive B2B communication platform designed for the Syrian and Arab market. It provides a unified solution for managing business communications across multiple channels including email, Telegram, and WhatsApp, with integrated CRM, analytics, and team management capabilities.
+**Al-Mudeer** is a comprehensive B2B communication platform designed for the Syrian and Arab market. It provides a unified solution for managing business communications across Telegram and WhatsApp, with integrated CRM, analytics, and team management capabilities.
 
 ## 🌟 Features
 
 ### Backend (FastAPI)
 - **Unified Inbox**: Manage all communication channels from a single interface
 - **CRM Integration**: Customer profiles and relationship management
-- **Multi-channel Support**: Email (Gmail OAuth 2.0), Telegram, WhatsApp
+- **Multi-channel Support**: Telegram, WhatsApp
 - **Analytics & Reporting**: Business intelligence and usage metrics
 - **Team Management**: Role-based permissions and team collaboration
 - **Smart Notifications**: Real-time alerts via FCM and Web Push (VAPID)
@@ -285,7 +285,7 @@ dart format .
 - **Security**: python-jose, bcrypt, cryptography
 - **Validation**: Pydantic 2.5.3
 - **Rate Limiting**: SlowAPI
-- **Messaging**: Telethon (Telegram), Google Gmail API
+- **Messaging**: Telethon (Telegram), WhatsApp Cloud API
 
 ### Mobile App
 - **Framework**: Flutter 3.10.1+

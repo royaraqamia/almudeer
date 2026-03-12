@@ -33,6 +33,7 @@ class LibraryItem {
   final int? totalBytes;
   // P3-14: Sharing support
   final String? userId;
+  final String? createdBy; // Bug #9 FIX: Deserialize created_by
   final bool isShared;
   final String? sharedWith;
   final String? sharePermission;
@@ -66,6 +67,7 @@ class LibraryItem {
     this.downloadedBytes,
     this.totalBytes,
     this.userId,
+    this.createdBy,
     this.isShared = false,
     this.sharedWith,
     this.sharePermission,
@@ -111,6 +113,7 @@ class LibraryItem {
       localPath: json['local_path'],
       // P3-14: Sharing fields from API
       userId: json['user_id'],
+      createdBy: json['created_by'],
       isShared: json['is_shared'] == 1 || (json['is_shared'] == true),
       sharedWith: json['shared_with'],
       // Backend consistently returns 'share_permission' for all endpoints
@@ -156,6 +159,7 @@ class LibraryItem {
       'local_path': localPath,
       // P3-14: Sharing fields
       'user_id': userId,
+      'created_by': createdBy,
       'is_shared': isShared ? 1 : 0,
       'shared_with': sharedWith,
       'share_permission': sharePermission,
@@ -208,6 +212,7 @@ class LibraryItem {
     int? totalBytes,
     String? originalFilePath,
     String? userId,
+    String? createdBy,
     bool? isShared,
     String? sharedWith,
     String? sharePermission,
@@ -240,6 +245,7 @@ class LibraryItem {
       totalBytes: totalBytes ?? this.totalBytes,
       originalFilePath: originalFilePath ?? this.originalFilePath,
       userId: userId ?? this.userId,
+      createdBy: createdBy ?? this.createdBy,
       isShared: isShared ?? this.isShared,
       sharedWith: sharedWith ?? this.sharedWith,
       sharePermission: sharePermission ?? this.sharePermission,

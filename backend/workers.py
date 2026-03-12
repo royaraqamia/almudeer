@@ -24,11 +24,6 @@ logger = logging.getLogger(__name__)
 
 # Global status tracking for background workers
 _worker_status = {
-    "email_polling": {
-        "status": "running",
-        "last_check": None,
-        "items_processed": 0
-    },
     "telegram_polling": {
         "status": "running",
         "last_check": None,
@@ -42,7 +37,7 @@ def get_worker_status():
     Get the current status of background workers.
 
     Returns:
-        dict: Status of email and telegram polling workers
+        dict: Status of background workers
     """
     return _worker_status
 
@@ -52,7 +47,7 @@ def update_worker_status(worker_type: str, status: dict):
     Update the status of a specific worker.
 
     Args:
-        worker_type: Type of worker ('email_polling' or 'telegram_polling')
+        worker_type: Type of worker (e.g. 'telegram_polling')
         status: Status dictionary to update
     """
     if worker_type in _worker_status:

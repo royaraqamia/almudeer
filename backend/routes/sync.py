@@ -236,8 +236,7 @@ async def _process_operation(op: SyncOperation, license_id: int, background_task
                 license_id=license_id,
                 channel=message["channel"],
                 body=body,
-                recipient_id=message.get("sender_id"),
-                recipient_email=message.get("sender_contact")
+                recipient_id=message.get("sender_id")
             )
             await approve_outbox_message(outbox_id, body)
             await update_inbox_status(message_id, "approved")
@@ -291,7 +290,6 @@ async def _process_operation(op: SyncOperation, license_id: int, background_task
                 channel=channel,
                 body=body,
                 recipient_id=recipient_id,
-                recipient_email=sender_contact,
                 attachments=None
             )
             
@@ -325,13 +323,11 @@ async def _process_operation(op: SyncOperation, license_id: int, background_task
         elif op.type == "add_customer":
             name = op.payload.get("name")
             phone = op.payload.get("phone")
-            email = op.payload.get("email")
             
             from models.customers import get_or_create_customer
             customer = await get_or_create_customer(
                 license_id=license_id,
                 phone=phone,
-                email=email,
                 name=name
             )
             return SyncResult(

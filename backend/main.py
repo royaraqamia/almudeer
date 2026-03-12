@@ -68,13 +68,9 @@ from models import (
     get_recent_conversation,
 )
 from models.tasks import init_tasks_table
-# Debug logging for imports
-import logging
-logger = logging.getLogger("startup")
 try:
     from routes import (
         system_router,
-        email_router,
         telegram_router,
         chat_router,
         features_router,
@@ -83,7 +79,6 @@ try:
         notifications_router,
         library_router,
         auth_router,
-        tasks,
         global_assets
     )
     from routes.tasks import router as tasks_router
@@ -94,7 +89,6 @@ try:
     from routes.transfers import router as transfers_router
     from routes.qr_codes import router as qr_codes_router
     from routes.users import router as users_router
-    # Reactions router removed
     logger.info("Successfully imported modular routes")
 except ImportError as e:
     logger.error(f"Failed to import routes: {e}")
@@ -495,7 +489,6 @@ app.add_middleware(
 # Include modular routes
 logger.info("Including modular routers")
 app.include_router(system_router)
-app.include_router(email_router)
 app.include_router(telegram_router)
 app.include_router(chat_router)
 app.include_router(features_router)
@@ -606,7 +599,6 @@ async def list_all_routes(x_admin_key: str = Header(None, alias="X-Admin-Key")):
 from fastapi import APIRouter
 v1_router = APIRouter(prefix="/api/v1")
 v1_router.include_router(system_router)
-v1_router.include_router(email_router)
 v1_router.include_router(telegram_router)
 v1_router.include_router(chat_router)
 v1_router.include_router(features_router)
@@ -682,7 +674,6 @@ async def create_license(data: LicenseKeyCreate, _: None = Depends(verify_admin)
     logger.info(f"Creating license for user: {data.full_name}")
     key = await generate_license_key(
         full_name=data.full_name,
-        contact_email=data.contact_email,
         days_valid=data.days_valid
     )
     logger.info(f"License created: {key[:20]}...")

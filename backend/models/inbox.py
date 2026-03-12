@@ -422,7 +422,6 @@ async def create_outbox_message(
     channel: str,
     body: str,
     recipient_id: str = None,
-    recipient_email: str = None,
     subject: str = None,
     attachments: Optional[List[dict]] = None,
     reply_to_platform_id: Optional[str] = None,
@@ -444,14 +443,14 @@ async def create_outbox_message(
             """
             INSERT INTO outbox_messages
                 (inbox_message_id, license_key_id, channel, recipient_id,
-                 recipient_email, subject, body, attachments,
+                 subject, body, attachments,
                  reply_to_platform_id, reply_to_body_preview, reply_to_id,
                  reply_to_sender_name, is_forwarded)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 inbox_message_id, license_id, channel, recipient_id,
-                recipient_email, subject, body, attachments_json,
+                subject, body, attachments_json,
                 reply_to_platform_id, reply_to_body_preview, reply_to_id,
                 reply_to_sender_name, is_forwarded
             ],
@@ -535,9 +534,9 @@ async def approve_outbox_message(message_id: int, edited_body: str = None):
                     sender_contact = inbox_msg["sender_contact"]
             else:
                 # Fresh outgoing message, use recipient info as the conversation key
-                outbox_msg = await fetch_one(db, "SELECT recipient_email, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
+                outbox_msg = await fetch_one(db, "SELECT recipient_id FROM outbox_messages WHERE id = ?", [message_id])
                 if outbox_msg:
-                    sender_contact = outbox_msg["recipient_email"] or outbox_msg["recipient_id"]
+                    sender_contact = outbox_msg["recipient_id"]
 
             if sender_contact:
                 await upsert_conversation_state(message_row["license_key_id"], sender_contact)
@@ -562,7 +561,7 @@ async def approve_outbox_message(message_id: int, edited_body: str = None):
                         "id": msg_data["id"],
                         "outbox_id": msg_data["id"],
                         "channel": msg_data["channel"],
-                        "sender_contact": msg_data.get("recipient_email") or msg_data.get("recipient_id"),
+                        "sender_contact": msg_data.get("recipient_id"),
                         "sender_name": None,
                         "body": msg_data["body"],
                         "status": "pending",  # Use "pending" instead of "sending"
@@ -607,9 +606,9 @@ async def mark_outbox_failed(message_id: int, error_message: str = None):
                     sender_contact = inbox_msg["sender_contact"]
             else:
                 # Fresh outgoing message, use recipient info as the conversation key
-                outbox_msg = await fetch_one(db, "SELECT recipient_email, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
+                outbox_msg = await fetch_one(db, "SELECT recipient_id FROM outbox_messages WHERE id = ?", [message_id])
                 if outbox_msg:
-                    sender_contact = outbox_msg["recipient_email"] or outbox_msg["recipient_id"]
+                    sender_contact = outbox_msg["recipient_id"]
             
             if sender_contact:
                 await upsert_conversation_state(message_row["license_key_id"], sender_contact)
@@ -685,9 +684,9 @@ async def mark_outbox_sent(message_id: int, platform_message_id: str = None):
                     sender_contact = inbox_msg["sender_contact"]
             else:
                 # Fresh outgoing message, use recipient info as the conversation key
-                outbox_msg = await fetch_one(db, "SELECT recipient_email, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
+                outbox_msg = await fetch_one(db, "SELECT recipient_id FROM outbox_messages WHERE id = ?", [message_id])
                 if outbox_msg:
-                    sender_contact = outbox_msg["recipient_email"] or outbox_msg["recipient_id"]
+                    sender_contact = outbox_msg["recipient_id"]
 
             if sender_contact:
                 await upsert_conversation_state(message_row["license_key_id"], sender_contact)
@@ -704,9 +703,9 @@ async def mark_outbox_sent(message_id: int, platform_message_id: str = None):
                     if inbox_msg:
                         sender_contact = inbox_msg["sender_contact"]
                 else:
-                    outbox_msg = await fetch_one(db, "SELECT recipient_email, recipient_id FROM outbox_messages WHERE id = ?", [message_id])
+                    outbox_msg = await fetch_one(db, "SELECT recipient_id FROM outbox_messages WHERE id = ?", [message_id])
                     if outbox_msg:
-                        sender_contact = outbox_msg["recipient_email"] or outbox_msg["recipient_id"]
+                        sender_contact = outbox_msg["recipient_id"]
 
                 await broadcast_message_status_update(lic_id, {
                     "outbox_id": message_id,
@@ -1898,7 +1897,7 @@ async def save_synced_outbox_message(
     # We risk duplicates if we don't have a way to deduce "we already have this".
     # For now, we can check if a message with same body + recipient + approx timestamp exists? 
     # Or just Insert. Telegram listener runs live, so it shouldn't duplicate unless restarted and getting old updates.
-    # Gmail fetching logic usually handles deduping by ID, but we need to store ID somewhere.
+    # Email fetching logic usually handles deduping by ID, but we need to store ID somewhere.
     # If we don't have a column, we can't fully prevent duplicates on re-fetch without external state.
     # PROPOSAL: Use `reply_to_platform_id` column to store the message ID? No, that's for threading.
     # Use `inbox_message_id`? No.

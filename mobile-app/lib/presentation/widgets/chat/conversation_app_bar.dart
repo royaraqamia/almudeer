@@ -158,7 +158,7 @@ class _ConversationAppBarState extends State<ConversationAppBar> {
       MaterialPageRoute(
         builder: (context) => ChatSelectionScreen(
           excludeChannels: hasTaskOrNote
-              ? ['whatsapp', 'telegram', 'telegram_bot', 'email']
+              ? ['whatsapp', 'telegram', 'telegram_bot']
               : null,
         ),
       ),
@@ -388,9 +388,6 @@ class _ConversationAppBarState extends State<ConversationAppBar> {
                                         widget.conversation.channel.toLowerCase() ==
                                             'telegram_bot'
                                   ? SolarLinearIcons.plain
-                                  : widget.conversation.channel.toLowerCase() ==
-                                        'email'
-                                  ? SolarLinearIcons.letter
                                   : SolarLinearIcons.chatRoundDots,
                               size: 12,
                               color: widget.channelColor,
@@ -528,7 +525,6 @@ class _ConversationAppBarState extends State<ConversationAppBar> {
 
     // 1. Determine contact lookup parameters based on channel
     String? phone;
-    String? email;
     String? username;
 
     final channel = widget.conversation.channel.toLowerCase();
@@ -544,8 +540,6 @@ class _ConversationAppBarState extends State<ConversationAppBar> {
       } else {
         phone = contact;
       }
-    } else if (channel == 'email') {
-      email = contact;
     } else if (channel == 'almudeer') {
       username = contact;
     }
@@ -553,7 +547,6 @@ class _ConversationAppBarState extends State<ConversationAppBar> {
     // 2. Lookup customer
     final customer = await customersProvider.findCustomer(
       phone: phone,
-      email: email,
       username: username,
     );
 
@@ -565,7 +558,6 @@ class _ConversationAppBarState extends State<ConversationAppBar> {
             'id': null,
             'name': widget.conversation.senderName,
             'phone': phone,
-            'email': email,
             'username': username,
             'is_almudeer_user': channel == 'almudeer',
             'avatar_url': widget.conversation.avatarUrl,

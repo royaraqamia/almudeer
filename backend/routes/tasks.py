@@ -62,7 +62,7 @@ async def list_collaborators(
     license_id = user["license_id"]
     from db_helper import get_db, fetch_all
     async with get_db() as db:
-        rows = await fetch_all(db, "SELECT email, name, role FROM users WHERE license_key_id = ?", (license_id,))
+        rows = await fetch_all(db, "SELECT name, role FROM users WHERE license_key_id = ?", (license_id,))
         return [dict(row) for row in rows]
 
 @router.get(
@@ -352,9 +352,9 @@ async def update_existing_task(
     update_data = {}
     if task_json:
         try:
-            update_data = json.loads(task_json)
-            # Validate with TaskUpdate schema
-            TaskUpdate(**update_data)
+            parsed_data = json.loads(task_json)
+            # Validate with TaskUpdate schema and only get explicitly set fields
+            update_data = TaskUpdate(**parsed_data).model_dump(exclude_unset=True)
             
             # SECURITY: Sanitize text inputs
             from utils.sanitization import sanitize_title, sanitize_description, validate_category
@@ -1487,6 +1487,12 @@ async def bulk_share_tasks(
                     'task_id': task_id,
                     'error': 'Task not found or no permission',
                     'error_ar': 'المهمة غير موجودة أو لا تملك صلاحية الوصول إليها'
+                })
+                collaborators = [c for c in collaborators if c.get('user_id') != user_id]
+                validation_errors.append({
+                    'task_id': task_id,
+                    'error': 'Not the task owner',
+                    'error_ar': 'لست مالك هذه المهمة'
                 })
                 continue
 

@@ -29,7 +29,6 @@ CREATE TABLE outbox_messages (
     channel TEXT,
     body TEXT,
     recipient_id TEXT,
-    recipient_email TEXT,
     status TEXT
 )
 """)
@@ -37,8 +36,8 @@ CREATE TABLE outbox_messages (
 # Insert Mock Data
 # 1. Fresh Message (initiated from mobile)
 cursor.execute("""
-INSERT INTO outbox_messages (id, license_key_id, inbox_message_id, channel, body, recipient_id, recipient_email, status)
-VALUES (101, 1, NULL, 'whatsapp', 'Hello from mobile!', NULL, '+123456789', 'approved')
+INSERT INTO outbox_messages (id, license_key_id, inbox_message_id, channel, body, recipient_id, status)
+VALUES (101, 1, NULL, 'whatsapp', 'Hello from mobile!', '+123456789', 'approved')
 """)
 
 # 2. Reply (initiated from mobile)
@@ -47,8 +46,8 @@ INSERT INTO inbox_messages (id, sender_name, body, sender_contact, sender_id, li
 VALUES (501, 'Test User', 'Incoming msg', '+123456789', '555', 1)
 """)
 cursor.execute("""
-INSERT INTO outbox_messages (id, license_key_id, inbox_message_id, channel, body, recipient_id, recipient_email, status)
-VALUES (102, 1, 501, 'whatsapp', 'Reply from mobile!', '555', '+123456789', 'approved')
+INSERT INTO outbox_messages (id, license_key_id, inbox_message_id, channel, body, recipient_id, status)
+VALUES (102, 1, 501, 'whatsapp', 'Reply from mobile!', '555', 'approved')
 """)
 
 conn.commit()
@@ -77,7 +76,7 @@ print("\n[Case 1] Fresh Message (NULL inbox_message_id)")
 row1 = test_retrieval(101, 1)
 if row1:
     print(f"Success: Retrieved row for {row1['id']}")
-    recipient = row1['recipient_id'] or row1['recipient_email'] or row1['sender_id']
+    recipient = row1['recipient_id'] or row1['sender_id']
     print(f"Resolved Recipient: {recipient} (Expected: +123456789)")
     if recipient == '+123456789':
         print("RESULT: PASS")
@@ -89,7 +88,7 @@ print("\n[Case 2] Reply (Linked inbox_message_id)")
 row2 = test_retrieval(102, 1)
 if row2:
     print(f"Success: Retrieved row for {row2['id']}")
-    recipient = row2['recipient_id'] or row2['recipient_email'] or row2['sender_id']
+    recipient = row2['recipient_id'] or row2['sender_id']
     print(f"Resolved Recipient: {recipient} (Expected: 555)")
     if recipient == '555':
         print("RESULT: PASS")

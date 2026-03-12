@@ -479,7 +479,7 @@ class InboxProvider extends ChangeNotifier {
 
   /// Handle customer updated event - migrates conversations when username/profile changes
   /// IMPORTANT: Only affects Almudeer channel conversations (internal users)
-  /// WhatsApp/Telegram/Email contacts are NOT affected by profile changes
+  /// WhatsApp/Telegram contacts are NOT affected by profile changes
   void _handleCustomerUpdatedEvent(Map<String, dynamic> data) {
     final senderContact = data['sender_contact'] as String?;
     final oldSenderContact = data['old_sender_contact'] as String?;
@@ -504,7 +504,7 @@ class InboxProvider extends ChangeNotifier {
     }
 
     // CRITICAL: Only update Almudeer channel conversations
-    // WhatsApp/Telegram/Email contacts should NOT be affected by admin profile changes
+    // WhatsApp/Telegram contacts should NOT be affected by admin profile changes
     if (index != -1) {
       final conversation = _conversations[index];
 

@@ -43,13 +43,6 @@ class Endpoints {
   // Integrations
   static const String integrationAccounts = '/api/integrations/accounts';
 
-  // Email Integration
-  static const String emailConfig = '/api/integrations/email/config';
-  static const String emailProviders = '/api/integrations/email/providers';
-  static const String emailOAuthUrl = '/api/integrations/email/oauth/authorize';
-  static const String emailOAuthCallback =
-      '/api/integrations/email/oauth/callback';
-  static const String emailTest = '/api/integrations/email/test';
 
   // Telegram Integration
   static const String telegramConfig = '/api/integrations/telegram/config';

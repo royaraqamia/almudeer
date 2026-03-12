@@ -51,14 +51,6 @@ void main() {
       // Check cache (implicitly via implementation)
     });
 
-    test('getConfig calls specific endpoints', () async {
-      when(
-        mockApiClient.get(Endpoints.emailConfig),
-      ).thenAnswer((_) async => {'enabled': true});
-
-      final result = await repository.getEmailConfig();
-      expect(result['enabled'], true);
-    });
 
     test('saveTelegramConfig calls post', () async {
       when(

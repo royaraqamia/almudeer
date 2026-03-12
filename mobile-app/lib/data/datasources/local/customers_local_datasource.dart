@@ -22,7 +22,6 @@ class CustomersLocalDataSource {
       'remote_id': remoteId,
       if (customer.containsKey('name')) 'name': customer['name'],
       if (customer.containsKey('phone')) 'phone': customer['phone'],
-      if (customer.containsKey('email')) 'email': customer['email'],
       if (customer.containsKey('last_contact_at'))
         'last_contact_at': customer['last_contact_at'],
       if (customer.containsKey('profile_pic_url') ||
@@ -86,31 +85,14 @@ class CustomersLocalDataSource {
       return;
     }
 
-    // 2. SELF-HEALING: Try matching by phone/email if remote_id didn't match
+    // 2. SELF-HEALING: Try matching by phone/username if remote_id didn't match
     // This repairs records that were saved with the wrong ID (e.g. local ID instead of server ID)
     final phone = customer['phone'];
-    final email = customer['email'];
-
-    if ((phone != null && phone.isNotEmpty) ||
-        (email != null && email.isNotEmpty)) {
-      String whereClause = '';
-      final List<dynamic> whereArgs = [];
-
-      if (phone != null && phone.isNotEmpty) {
-        whereClause = 'phone = ?';
-        whereArgs.add(phone);
-      }
-
-      if (email != null && email.isNotEmpty) {
-        if (whereClause.isNotEmpty) whereClause += ' OR ';
-        whereClause += 'email = ?';
-        whereArgs.add(email);
-      }
-
+    if (phone != null && phone.isNotEmpty) {
       final existingByContact = await db.query(
         'customers',
-        where: whereClause,
-        whereArgs: whereArgs,
+        where: 'phone = ?',
+        whereArgs: [phone],
       );
 
       if (existingByContact.isNotEmpty) {
@@ -162,7 +144,6 @@ class CustomersLocalDataSource {
         'remote_id': remoteId,
         'name': customer['name'],
         'phone': customer['phone'],
-        'email': customer['email'],
         'last_contact_at': customer['last_contact_at'],
         'profile_pic_url': customer['profile_pic_url'] ?? customer['image'],
         'is_vip': (customer['is_vip'] == true || customer['is_vip'] == 1)
@@ -232,7 +213,6 @@ class CustomersLocalDataSource {
     return await db.insert('customers', {
       'name': data['name'],
       'phone': data['phone'],
-      'email': data['email'],
       'has_whatsapp': (data['has_whatsapp'] == true) ? 1 : 0,
       'has_telegram': (data['has_telegram'] == true) ? 1 : 0,
       'username': data['username'],
@@ -354,32 +334,18 @@ class CustomersLocalDataSource {
     return maps;
   }
 
-  /// Check if a customer exists by phone or email (Optimized for speed)
-  Future<bool> existsByContact({String? phone, String? email}) async {
-    if ((phone == null || phone.isEmpty) && (email == null || email.isEmpty)) {
+  /// Check if a customer exists by phone or username (Optimized for speed)
+  Future<bool> existsByContact({String? phone}) async {
+    if (phone == null || phone.isEmpty) {
       return false;
     }
 
     final db = await _db;
-    String whereClause = '';
-    final List<dynamic> whereArgs = [];
-
-    if (phone != null && phone.isNotEmpty) {
-      whereClause = 'phone = ?';
-      whereArgs.add(phone);
-    }
-
-    if (email != null && email.isNotEmpty) {
-      if (whereClause.isNotEmpty) whereClause += ' OR ';
-      whereClause += 'email = ?';
-      whereArgs.add(email);
-    }
-
     final result = await db.query(
       'customers',
       columns: ['local_id'],
-      where: whereClause,
-      whereArgs: whereArgs,
+      where: 'phone = ?',
+      whereArgs: [phone],
       limit: 1,
     );
 
@@ -415,14 +381,12 @@ class CustomersLocalDataSource {
     return null;
   }
 
-  /// Look up a customer by phone, email, or username
+  /// Look up a customer by phone or username
   Future<Map<String, dynamic>?> getCustomerByContact({
     String? phone,
-    String? email,
     String? username,
   }) async {
     if ((phone == null || phone.isEmpty) &&
-        (email == null || email.isEmpty) &&
         (username == null || username.isEmpty)) {
       return null;
     }
@@ -434,12 +398,6 @@ class CustomersLocalDataSource {
     if (phone != null && phone.isNotEmpty) {
       whereClause = 'phone = ?';
       whereArgs.add(phone);
-    }
-
-    if (email != null && email.isNotEmpty) {
-      if (whereClause.isNotEmpty) whereClause += ' OR ';
-      whereClause += 'email = ?';
-      whereArgs.add(email);
     }
 
     if (username != null && username.isNotEmpty) {

@@ -100,7 +100,7 @@ class RateLimitError(APIError):
 
 
 class ExternalServiceError(APIError):
-    """External service (Telegram, Gmail, etc.) error"""
+    """External service (Telegram, WhatsApp, etc.) error"""
     def __init__(self, service: str, message: str, message_ar: Optional[str] = None):
         super().__init__(
             message=f"{service} error: {message}",

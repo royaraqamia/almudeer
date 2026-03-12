@@ -20,8 +20,6 @@ class EmptyConversationState extends StatelessWidget {
       case 'telegram':
       case 'telegram_bot':
         return SolarLinearIcons.plain;
-      case 'email':
-        return SolarLinearIcons.letter;
       case 'saved':
         return SolarLinearIcons.bookmark;
       default:
