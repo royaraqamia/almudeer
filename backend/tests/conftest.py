@@ -257,6 +257,24 @@ async def db_session():
             VALUES (?, ?, ?)
         """, (key_hash, "Test Company", 1))
 
+        # Seed test users for sharing tests
+        test_users = [
+            ('user1@example.com', 'User One'),
+            ('user2@example.com', 'User Two'),
+            ('owner@example.com', 'Owner User'),
+            ('reader@example.com', 'Reader User'),
+            ('editor@example.com', 'Editor User'),
+            ('admin@example.com', 'Admin User'),
+            ('shared@example.com', 'Shared User'),
+            ('recipient@test.com', 'Recipient Test'),
+            ('owner@test.com', 'Owner Test'),
+        ]
+        for email, name in test_users:
+            await db.execute("""
+                INSERT OR IGNORE INTO users (email, name, license_key_id, is_active, role)
+                VALUES (?, ?, 1, 1, 'user')
+            """, (email, name))
+
         await db.commit()
         yield db
 

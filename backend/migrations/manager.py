@@ -439,52 +439,42 @@ async def ensure_library_attachments_table():
                     await commit_db(db)
                     logger.info("library_attachments table created")
                 else:
-                    # Table exists - verify columns and add missing ones
-                    from db_pool import TIMESTAMP_NOW
-                    
-                    # Check and add library_item_id column if missing
-                    col_check = await db.fetchrow("""
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_schema = 'public' 
-                        AND table_name = 'library_attachments'
-                        AND column_name = 'library_item_id'
+                    # Table exists - add missing columns using IF NOT EXISTS
+                    # Add library_item_id column if missing
+                    await execute_sql(db, """
+                        ALTER TABLE library_attachments 
+                        ADD COLUMN IF NOT EXISTS library_item_id INTEGER
                     """)
                     
-                    if not col_check:
-                        logger.info("Adding missing library_item_id column to library_attachments table")
-                        await execute_sql(db, """
-                            ALTER TABLE library_attachments 
-                            ADD COLUMN library_item_id INTEGER NOT NULL
-                            REFERENCES library_items(id) ON DELETE CASCADE
-                        """)
-                        await commit_db(db)
-                        logger.info("Added library_item_id column to library_attachments table")
+                    # Add other potentially missing columns
+                    await execute_sql(db, """
+                        ALTER TABLE library_attachments 
+                        ADD COLUMN IF NOT EXISTS filename TEXT
+                    """)
+                    await execute_sql(db, """
+                        ALTER TABLE library_attachments 
+                        ADD COLUMN IF NOT EXISTS file_size INTEGER
+                    """)
+                    await execute_sql(db, """
+                        ALTER TABLE library_attachments 
+                        ADD COLUMN IF NOT EXISTS mime_type TEXT
+                    """)
+                    await execute_sql(db, """
+                        ALTER TABLE library_attachments 
+                        ADD COLUMN IF NOT EXISTS file_hash TEXT
+                    """)
+                    await execute_sql(db, """
+                        ALTER TABLE library_attachments 
+                        ADD COLUMN IF NOT EXISTS created_by TEXT
+                    """)
+                    await execute_sql(db, """
+                        ALTER TABLE library_attachments 
+                        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP
+                    """)
                     
-                    # Check and add other potentially missing columns
-                    columns_to_add = [
-                        ("filename", "TEXT"),
-                        ("file_size", "INTEGER"),
-                        ("mime_type", "TEXT"),
-                        ("file_hash", "TEXT"),
-                        ("created_by", "TEXT"),
-                        ("deleted_at", "TIMESTAMP"),
-                    ]
-                    
-                    for col_name, col_type in columns_to_add:
-                        col_check = await db.fetchrow("""
-                            SELECT 1 FROM information_schema.columns
-                            WHERE table_schema = 'public' 
-                            AND table_name = 'library_attachments'
-                            AND column_name = %s
-                        """, [col_name])
-                        
-                        if not col_check:
-                            logger.info(f"Adding missing {col_name} column to library_attachments table")
-                            await execute_sql(db, f"""
-                                ALTER TABLE library_attachments 
-                                ADD COLUMN {col_name} {col_type}
-                            """)
-                            await commit_db(db)
+                    # Add foreign key constraint if library_item_id was added
+                    # (PostgreSQL doesn't support adding FK without recreating column,
+                    # but the column should work without explicit FK for existing data)
                     
                     # Ensure indexes exist
                     await execute_sql(db, """

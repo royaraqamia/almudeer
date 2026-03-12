@@ -996,3 +996,57 @@ async def cleanup_library_trash(days_old: int = 30) -> int:
         logger.error(f"Error cleaning up library trash: {e}", exc_info=True)
         return 0
 
+
+async def mark_outbox_sent(outbox_id: int) -> None:
+    """
+    Mark an outbox message as sent.
+    
+    Args:
+        outbox_id: The ID of the outbox message
+    """
+    try:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        
+        async with get_db() as db:
+            await execute_sql(
+                db,
+                """
+                UPDATE outbox_messages
+                SET status = 'sent', sent_at = ?, delivery_status = 'delivered'
+                WHERE id = ?
+                """,
+                [now, outbox_id]
+            )
+            await commit_db(db)
+            
+        logger.debug(f"Marked outbox message {outbox_id} as sent")
+    except Exception as e:
+        logger.error(f"Error marking outbox message as sent: {e}", exc_info=True)
+
+
+async def mark_outbox_failed(outbox_id: int, error_message: str) -> None:
+    """
+    Mark an outbox message as failed.
+    
+    Args:
+        outbox_id: The ID of the outbox message
+        error_message: The error message describing the failure
+    """
+    try:
+        async with get_db() as db:
+            await execute_sql(
+                db,
+                """
+                UPDATE outbox_messages
+                SET status = 'failed', error_message = ?
+                WHERE id = ?
+                """,
+                [error_message, outbox_id]
+            )
+            await commit_db(db)
+            
+        logger.debug(f"Marked outbox message {outbox_id} as failed: {error_message}")
+    except Exception as e:
+        logger.error(f"Error marking outbox message as failed: {e}", exc_info=True)
+

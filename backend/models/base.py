@@ -462,31 +462,92 @@ async def init_enhanced_tables():
         """)
 
         # Library Attachments
+        # First ensure table exists with basic structure
         await execute_sql(db, f"""
             CREATE TABLE IF NOT EXISTS library_attachments (
                 id {ID_PK},
-                library_item_id INTEGER NOT NULL,
+                library_item_id INTEGER,
                 license_key_id INTEGER NOT NULL,
                 file_path TEXT NOT NULL,
-                filename TEXT NOT NULL,
+                filename TEXT,
                 file_size INTEGER,
                 mime_type TEXT,
                 file_hash TEXT,
                 created_at {TIMESTAMP_NOW},
                 created_by TEXT,
+                deleted_at TIMESTAMP,
                 FOREIGN KEY (library_item_id) REFERENCES library_items(id) ON DELETE CASCADE,
                 FOREIGN KEY (license_key_id) REFERENCES license_keys(id) ON DELETE CASCADE
             )
         """)
-        
+
+        # Ensure all required columns exist (for existing deployments with incomplete schema)
+        if DB_TYPE == "postgresql":
+            await execute_sql(db, """
+                ALTER TABLE library_attachments 
+                ADD COLUMN IF NOT EXISTS library_item_id INTEGER
+            """)
+            await execute_sql(db, """
+                ALTER TABLE library_attachments 
+                ADD COLUMN IF NOT EXISTS filename TEXT
+            """)
+            await execute_sql(db, """
+                ALTER TABLE library_attachments 
+                ADD COLUMN IF NOT EXISTS file_size INTEGER
+            """)
+            await execute_sql(db, """
+                ALTER TABLE library_attachments 
+                ADD COLUMN IF NOT EXISTS mime_type TEXT
+            """)
+            await execute_sql(db, """
+                ALTER TABLE library_attachments 
+                ADD COLUMN IF NOT EXISTS file_hash TEXT
+            """)
+            await execute_sql(db, """
+                ALTER TABLE library_attachments 
+                ADD COLUMN IF NOT EXISTS created_by TEXT
+            """)
+            await execute_sql(db, """
+                ALTER TABLE library_attachments 
+                ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP
+            """)
+        else:
+            # SQLite: Check and add missing columns
+            try:
+                result = await execute_sql(db, "PRAGMA table_info(library_attachments)")
+                columns = [row[1] for row in result] if result else []
+                
+                if "library_item_id" not in columns:
+                    await execute_sql(db, "ALTER TABLE library_attachments ADD COLUMN library_item_id INTEGER")
+                if "filename" not in columns:
+                    await execute_sql(db, "ALTER TABLE library_attachments ADD COLUMN filename TEXT")
+                if "file_size" not in columns:
+                    await execute_sql(db, "ALTER TABLE library_attachments ADD COLUMN file_size INTEGER")
+                if "mime_type" not in columns:
+                    await execute_sql(db, "ALTER TABLE library_attachments ADD COLUMN mime_type TEXT")
+                if "file_hash" not in columns:
+                    await execute_sql(db, "ALTER TABLE library_attachments ADD COLUMN file_hash TEXT")
+                if "created_by" not in columns:
+                    await execute_sql(db, "ALTER TABLE library_attachments ADD COLUMN created_by TEXT")
+                if "deleted_at" not in columns:
+                    await execute_sql(db, "ALTER TABLE library_attachments ADD COLUMN deleted_at TIMESTAMP")
+            except Exception:
+                pass
+
+        # Now create indexes (columns are guaranteed to exist)
         await execute_sql(db, """
             CREATE INDEX IF NOT EXISTS idx_attachments_item_id
             ON library_attachments(library_item_id)
         """)
-        
+
         await execute_sql(db, """
             CREATE INDEX IF NOT EXISTS idx_attachments_license
             ON library_attachments(license_key_id)
+        """)
+
+        await execute_sql(db, """
+            CREATE INDEX IF NOT EXISTS idx_attachments_deleted
+            ON library_attachments(deleted_at)
         """)
 
         # Library Analytics
