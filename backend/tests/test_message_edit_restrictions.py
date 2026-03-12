@@ -167,7 +167,7 @@ async def test_edit_message_deleted_not_allowed():
         "body": "Original body",
         "original_body": None,
         "edit_count": 0,
-        "recipient_email": "test@example.com",
+        "recipient_contact": "test@example.com",
         "recipient_id": None,
         "deleted_at": datetime.now(timezone.utc)  # Message is deleted
     }

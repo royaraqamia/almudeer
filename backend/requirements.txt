@@ -70,7 +70,8 @@ ruff==0.1.9
 # Telethon Optimization
 # cryptg (Removed for stability)
 
-
+# Firebase Cloud Messaging (FCM) v1 API
+google-auth>=2.25.0
 
 # Text-to-Speech (Google Cloud TTS via Service Account)
 PyJWT>=2.8.0
