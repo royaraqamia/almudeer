@@ -263,26 +263,82 @@ class LibraryMetricsService:
         item_type: str,
         file_size: int,
         duration: float,
-        success: bool
+        success: bool,
+        failure_reason: Optional[str] = None
     ):
-        """Track download"""
-        status = 'success' if success else 'failed'
+        """
+        Track download with failure reason tracking.
         
+        P10 FIX: Added failure_reason parameter to track why downloads fail.
+        
+        Args:
+            license_id: License key ID
+            item_type: Type of item (note, image, file, audio, video)
+            file_size: Size of file in bytes
+            duration: Download duration in seconds
+            success: Whether download succeeded
+            failure_reason: Reason for failure (network_error, file_not_found, permission_denied, etc.)
+        """
+        status = 'success' if success else 'failed'
+
         self._safe_increment(LIBRARY_DOWNLOADS_TOTAL, {
             'license_id': str(license_id),
-            'item_type': item_type
+            'item_type': item_type,
+            'status': status
         })
-        
-        if file_size > 0:
+
+        if success and file_size > 0:
             self._safe_increment(LIBRARY_DOWNLOAD_BYTES_TOTAL, {
                 'license_id': str(license_id),
                 'item_type': item_type
             })
-        
+
         self._safe_observe(LIBRARY_OPERATION_DURATION, duration, {
             'license_id': str(license_id),
             'operation': 'download'
         })
+
+        # P10 FIX: Track download failures with reason
+        if not success:
+            error_type = failure_reason or 'download_failure'
+            self._safe_increment(LIBRARY_ERRORS_TOTAL, {
+                'license_id': str(license_id),
+                'error_type': error_type,
+                'operation': 'download'
+            })
+            logger.warning(
+                f"Download failed: license={license_id}, type={item_type}, "
+                f"reason={failure_reason}"
+            )
+
+    async def track_download_failure(
+        self,
+        license_id: int,
+        item_id: int,
+        item_type: str,
+        failure_reason: str,
+        error_details: Optional[Dict] = None
+    ):
+        """
+        P10 FIX: Detailed download failure tracking.
+        
+        Args:
+            license_id: License key ID
+            item_id: Library item ID that failed to download
+            item_type: Type of item
+            failure_reason: Categorized failure reason
+            error_details: Additional error context
+        """
+        self._safe_increment(LIBRARY_ERRORS_TOTAL, {
+            'license_id': str(license_id),
+            'error_type': f'download_{failure_reason}',
+            'operation': 'download'
+        })
+        
+        logger.warning(
+            f"Download failure: license={license_id}, item={item_id}, "
+            f"type={item_type}, reason={failure_reason}, details={error_details}"
+        )
 
     # ========================================================================
     # Error Metrics

@@ -29,6 +29,11 @@ _CACHE_METRICS_ENABLED = os.getenv("CACHE_METRICS_ENABLED", "true").lower() == "
 _PREFIX_INVALIDATION_COOLDOWN_SECONDS = 1
 _last_prefix_invalidation: dict = {}  # Track last invalidation time per prefix
 
+# FIX #1: Global lock for cache invalidation to prevent race conditions
+# This ensures atomic cache invalidation across concurrent operations
+_cache_invalidation_locks: Dict[str, asyncio.Lock] = {}
+_global_cache_lock = asyncio.Lock()  # For creating per-key locks safely
+
 
 class LRUCache:
     """
@@ -152,23 +157,47 @@ class LRUCache:
         """
         Invalidate multiple cache entries in a single batch.
         More efficient than calling invalidate() multiple times.
-        
+
+        FIX #1: Uses per-key locks to prevent race conditions during concurrent invalidations.
+
         Args:
             keys: List of cache keys to invalidate
         """
         if not keys:
             return
-            
-        async with self._lock:
-            count = 0
+
+        # FIX #1: Acquire global lock to safely get/create per-key locks
+        async with _global_cache_lock:
+            locks = []
             for key in keys:
-                if self._cache.pop(key, None) is not None:
-                    self._access_times.pop(key, None)
-                    count += 1
-            self._invalidations += count
-            
-            if count > 0:
-                logger.debug(f"[{self.name}] Cache invalidated {count} entries in batch")
+                if key not in _cache_invalidation_locks:
+                    _cache_invalidation_locks[key] = asyncio.Lock()
+                locks.append(_cache_invalidation_locks[key])
+
+        # FIX #1: Acquire all locks to ensure atomic invalidation
+        # This prevents race conditions where one operation invalidates
+        # while another is setting the same keys
+        acquired_locks = []
+        try:
+            for lock in locks:
+                await lock.acquire()
+                acquired_locks.append(lock)
+
+            # Now perform the actual invalidation atomically
+            async with self._lock:
+                count = 0
+                for key in keys:
+                    if self._cache.pop(key, None) is not None:
+                        self._access_times.pop(key, None)
+                        count += 1
+                self._invalidations += count
+
+                if count > 0:
+                    logger.debug(f"[{self.name}] Cache invalidated {count} entries in batch")
+        finally:
+            # FIX #1: Always release all acquired locks
+            for lock in acquired_locks:
+                lock.release()
 
     async def invalidate_prefix(self, prefix: str):
         """
@@ -273,11 +302,36 @@ def get_shared_items_cache() -> LRUCache:
     return _shared_items_cache
 
 
-def reset_caches():
+async def reset_caches():
     """Reset all caches (useful for testing)."""
-    global _shared_tasks_cache, _shared_items_cache
+    global _shared_tasks_cache, _shared_items_cache, _cache_invalidation_locks
     _shared_tasks_cache = None
     _shared_items_cache = None
+    _cache_invalidation_locks.clear()
+
+
+async def cleanup_stale_locks(max_age_seconds: int = 300):
+    """
+    FIX #1: Cleanup stale cache invalidation locks to prevent memory leaks.
+    
+    This should be called periodically (e.g., every 5 minutes) to remove
+    locks that are no longer in use.
+    
+    Args:
+        max_age_seconds: Maximum age of locks to keep (default 5 minutes)
+    """
+    import time
+    async with _global_cache_lock:
+        # Simple cleanup: remove locks that haven't been used recently
+        # In practice, we could track last access time, but for now
+        # we just limit the total number of locks
+        if len(_cache_invalidation_locks) > 1000:
+            # Keep only the first 500 locks (oldest ones)
+            keys_to_keep = list(_cache_invalidation_locks.keys())[:500]
+            _cache_invalidation_locks.clear()
+            for key in keys_to_keep:
+                _cache_invalidation_locks[key] = asyncio.Lock()
+            logger.debug(f"Cleaned up stale cache invalidation locks")
 
 
 async def broadcast_safe(coro: Awaitable, description: str):

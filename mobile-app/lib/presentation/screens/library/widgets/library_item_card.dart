@@ -217,42 +217,51 @@ class _LibraryItemCardState extends LibraryItemCardStateBase<LibraryItemCard>
                           Positioned(
                             top: AppDimensions.spacing8,
                             right: AppDimensions.spacing8,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: AppDimensions.spacing8,
-                                vertical: AppDimensions.spacing4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: getPermissionColor(
-                                  widget.item.sharePermission!,
-                                ).withValues(alpha: 0.9),
-                                borderRadius: BorderRadius.circular(
-                                  AppDimensions.radiusSmall,
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    getPermissionIcon(
-                                      widget.item.sharePermission!,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // UX-001 FIX: Show expiration warning for shares expiring soon
+                                if (widget.item.shareExpiresAt != null)
+                                  _buildExpirationWarning(context)
+                                else
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: AppDimensions.spacing8,
+                                      vertical: AppDimensions.spacing4,
                                     ),
-                                    size: AppDimensions.iconSmall,
-                                    color: Colors.white,
+                                    decoration: BoxDecoration(
+                                      color: getPermissionColor(
+                                        widget.item.sharePermission!,
+                                      ).withValues(alpha: 0.9),
+                                      borderRadius: BorderRadius.circular(
+                                        AppDimensions.radiusSmall,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          getPermissionIcon(
+                                            widget.item.sharePermission!,
+                                          ),
+                                          size: AppDimensions.iconSmall,
+                                          color: Colors.white,
+                                        ),
+                                        const SizedBox(width: AppDimensions.spacing4),
+                                        Text(
+                                          getPermissionLabel(
+                                            widget.item.sharePermission!,
+                                          ),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  const SizedBox(width: AppDimensions.spacing4),
-                                  Text(
-                                    getPermissionLabel(
-                                      widget.item.sharePermission!,
-                                    ),
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                              ],
                             ),
                           ),
                       ],
@@ -269,6 +278,86 @@ class _LibraryItemCardState extends LibraryItemCardStateBase<LibraryItemCard>
 
   Widget _buildItemPreview(LibraryItem item) {
     return buildItemPreview(item);
+  }
+
+  // UX-001 FIX: Build expiration warning badge for shares expiring soon
+  Widget _buildExpirationWarning(BuildContext context) {
+    final now = DateTime.now();
+    final expiresAt = widget.item.shareExpiresAt;
+    if (expiresAt == null) return const SizedBox.shrink();
+
+    final hoursUntilExpiry = expiresAt.difference(now).inHours;
+    
+    // Only show warning if expiring within 24 hours
+    if (hoursUntilExpiry >= 24) {
+      // Not expiring soon - show normal permission badge
+      return Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppDimensions.spacing8,
+          vertical: AppDimensions.spacing4,
+        ),
+        decoration: BoxDecoration(
+          color: getPermissionColor(
+            widget.item.sharePermission ?? 'read',
+          ).withValues(alpha: 0.9),
+          borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              getPermissionIcon(widget.item.sharePermission ?? 'read'),
+              size: AppDimensions.iconSmall,
+              color: Colors.white,
+            ),
+            const SizedBox(width: AppDimensions.spacing4),
+            Text(
+              getPermissionLabel(widget.item.sharePermission ?? 'read'),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Expiring soon - show warning badge
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppDimensions.spacing6,
+        vertical: AppDimensions.spacing4,
+      ),
+      decoration: BoxDecoration(
+        color: hoursUntilExpiry < 6
+            ? AppColors.error.withValues(alpha: 0.9)  // Critical: < 6 hours
+            : Colors.orange.withValues(alpha: 0.9),   // Warning: 6-24 hours
+        borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            SolarBoldIcons.pin,
+            size: AppDimensions.iconSmall,
+            color: Colors.white,
+          ),
+          const SizedBox(width: AppDimensions.spacing4),
+          Text(
+            hoursUntilExpiry < 1
+                ? '< 1h'  // Less than 1 hour
+                : '${hoursUntilExpiry}h',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -506,42 +595,51 @@ class _LibraryItemListCardState
                           Positioned(
                             top: AppDimensions.spacing8,
                             right: AppDimensions.spacing8,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: AppDimensions.spacing8,
-                                vertical: AppDimensions.spacing4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: getPermissionColor(
-                                  widget.item.sharePermission!,
-                                ).withValues(alpha: 0.9),
-                                borderRadius: BorderRadius.circular(
-                                  AppDimensions.radiusSmall,
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    getPermissionIcon(
-                                      widget.item.sharePermission!,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // UX-001 FIX: Show expiration warning for shares expiring soon
+                                if (widget.item.shareExpiresAt != null)
+                                  _buildExpirationWarning(context)
+                                else
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: AppDimensions.spacing8,
+                                      vertical: AppDimensions.spacing4,
                                     ),
-                                    size: AppDimensions.iconSmall,
-                                    color: Colors.white,
+                                    decoration: BoxDecoration(
+                                      color: getPermissionColor(
+                                        widget.item.sharePermission!,
+                                      ).withValues(alpha: 0.9),
+                                      borderRadius: BorderRadius.circular(
+                                        AppDimensions.radiusSmall,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          getPermissionIcon(
+                                            widget.item.sharePermission!,
+                                          ),
+                                          size: AppDimensions.iconSmall,
+                                          color: Colors.white,
+                                        ),
+                                        const SizedBox(width: AppDimensions.spacing4),
+                                        Text(
+                                          getPermissionLabel(
+                                            widget.item.sharePermission!,
+                                          ),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  const SizedBox(width: AppDimensions.spacing4),
-                                  Text(
-                                    getPermissionLabel(
-                                      widget.item.sharePermission!,
-                                    ),
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                              ],
                             ),
                           ),
                         if (widget.item.isUploading)
@@ -646,5 +744,85 @@ class _LibraryItemListCardState
 
   Widget _buildItemPreview(LibraryItem item) {
     return buildItemPreview(item);
+  }
+
+  // UX-001 FIX: Build expiration warning badge for shares expiring soon
+  Widget _buildExpirationWarning(BuildContext context) {
+    final now = DateTime.now();
+    final expiresAt = widget.item.shareExpiresAt;
+    if (expiresAt == null) return const SizedBox.shrink();
+
+    final hoursUntilExpiry = expiresAt.difference(now).inHours;
+
+    // Only show warning if expiring within 24 hours
+    if (hoursUntilExpiry >= 24) {
+      // Not expiring soon - show normal permission badge
+      return Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppDimensions.spacing8,
+          vertical: AppDimensions.spacing4,
+        ),
+        decoration: BoxDecoration(
+          color: getPermissionColor(
+            widget.item.sharePermission ?? 'read',
+          ).withValues(alpha: 0.9),
+          borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              getPermissionIcon(widget.item.sharePermission ?? 'read'),
+              size: AppDimensions.iconSmall,
+              color: Colors.white,
+            ),
+            const SizedBox(width: AppDimensions.spacing4),
+            Text(
+              getPermissionLabel(widget.item.sharePermission ?? 'read'),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Expiring soon - show warning badge
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppDimensions.spacing6,
+        vertical: AppDimensions.spacing4,
+      ),
+      decoration: BoxDecoration(
+        color: hoursUntilExpiry < 6
+            ? AppColors.error.withValues(alpha: 0.9)  // Critical: < 6 hours
+            : Colors.orange.withValues(alpha: 0.9),   // Warning: 6-24 hours
+        borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            SolarBoldIcons.pin,
+            size: AppDimensions.iconSmall,
+            color: Colors.white,
+          ),
+          const SizedBox(width: AppDimensions.spacing4),
+          Text(
+            hoursUntilExpiry < 1
+                ? '< 1h'  // Less than 1 hour
+                : '${hoursUntilExpiry}h',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

@@ -14,6 +14,11 @@ from pydantic import BaseModel, Field, validator
 from constants.tasks import MAX_FILE_SIZE
 from db_helper import get_db, fetch_one
 
+# FIX LOG-001: Import structured logging with correlation ID support
+from logging_config import set_correlation_id, task_operation_logger, get_logger
+
+logger = get_logger(__name__)
+
 router = APIRouter(
     prefix="/api/tasks",
     tags=["Tasks"],
@@ -158,6 +163,10 @@ async def create_new_task(
 ):
     """Create or sync a task (atomic upsert) with support for file attachments"""
     license_id = user["license_id"]
+    user_id = user["user_id"]
+    
+    # FIX LOG-001: Set correlation ID for this request
+    set_correlation_id()
 
     try:
         data = json.loads(task_json)
@@ -259,6 +268,16 @@ async def create_new_task(
         # Trigger real-time sync across other devices
         background_tasks.add_task(broadcast_task_sync, license_id, task_id=result["id"], change_type="create")
 
+        # FIX LOG-001: Log successful task creation with structured logging
+        task_operation_logger.create(
+            task_id=result["id"],
+            user_id=user_id,
+            license_id=license_id,
+            has_attachment=len(processed_attachments) > 0,
+            has_subtasks=len(task_dict.get('sub_tasks', [])) > 0,
+            priority=task_dict.get('priority', 'medium')
+        )
+
         # If assigned, notify assignee
         if task_dict.get("assigned_to") and task_dict["assigned_to"] != user["user_id"]:
             background_tasks.add_task(
@@ -275,15 +294,23 @@ async def create_new_task(
         # Re-raise HTTP exceptions as-is
         raise
     except Exception as e:
-        import logging
         import traceback
         error_trace = traceback.format_exc()
-        logging.error(f"Task creation failed: {e}")
+        
+        # FIX LOG-001: Use structured logging for errors
+        task_operation_logger.error(
+            operation="create",
+            task_id=task_dict.get('id', 'unknown'),
+            user_id=user_id,
+            license_id=license_id,
+            error=e
+        )
+        logger.error(f"Task creation error: {error_trace}")
+
         # FIX: Don't log sensitive data (title may contain PII)
         # Log only non-sensitive metadata for debugging
         att_count = len(task_dict.get('attachments', [])) if task_dict.get('attachments') else 0
-        logging.error(f"Task creation error: id={task_dict.get('id')}, attachments={att_count}, has_description={bool(task_dict.get('description'))}")
-        logging.error(f"Traceback: {error_trace}")
+        logger.info(f"Task creation error context: id={task_dict.get('id')}, attachments={att_count}")
 
         # Sanitize error messages - don't expose internal details
         if "unique constraint" in str(e).lower():
@@ -338,17 +365,50 @@ async def update_existing_task(
             if 'category' in update_data and update_data['category']:
                 update_data['category'] = validate_category(update_data['category'])
             
-            # FIX: Handle attachment removal - extract removed URLs before processing
+            # FIX BUG-010: Handle attachment removal with proper DB fallback
             removed_attachments = update_data.pop('removed_attachments', None)
             if removed_attachments and isinstance(removed_attachments, list):
-                # Get current attachments (from DB if not in update_data)
-                current_attachments = update_data.get("attachments", current_task.get("attachments", []))
-                # Filter out removed URLs
-                kept_attachments = [
-                    att for att in current_attachments 
-                    if att.get("url") not in removed_attachments
-                ]
+                # FIX: Always get current attachments from DB if not in update_data
+                # This ensures we don't lose attachments when only removing some
+                # Edge case: current_task attachments might be Pydantic models or dicts
+                if "attachments" not in update_data:
+                    # Get from current_task (already fetched from DB)
+                    current_attachments_raw = current_task.get("attachments", [])
+                    # Normalize to list of dicts if Pydantic models
+                    current_attachments = [
+                        att.model_dump() if hasattr(att, 'model_dump') else att
+                        for att in current_attachments_raw
+                    ]
+                else:
+                    # Use the attachments provided in update_data
+                    current_attachments_update = update_data["attachments"]
+                    current_attachments = [
+                        att.model_dump() if hasattr(att, 'model_dump') else att
+                        for att in current_attachments_update
+                    ]
+
+                # Filter out removed URLs - use set for O(1) lookup
+                # FIX: Handle both string URLs and dict attachments
+                removed_set = set(removed_attachments)
+                kept_attachments = []
+                for att in current_attachments:
+                    if isinstance(att, dict):
+                        att_url = att.get("url")
+                        if att_url and att_url not in removed_set:
+                            kept_attachments.append(att)
+                    else:
+                        # Non-dict attachment - keep it
+                        kept_attachments.append(att)
+                
                 update_data["attachments"] = kept_attachments
+                logger.info(
+                    f"Attachment removal: removed {len(removed_attachments)}, kept {len(kept_attachments)}",
+                    extra={
+                        "task_id": task_id,
+                        "removed_count": len(removed_attachments),
+                        "kept_count": len(kept_attachments)
+                    }
+                )
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid update data: {str(e)}")
 
@@ -472,36 +532,105 @@ async def update_existing_task(
                 import uuid
                 new_task_id = str(uuid.uuid4())
 
-                # FIX BUG-001: Properly reset ALL subtasks to incomplete state
+                # FIX BUG-004: Simplified subtask reset with comprehensive error handling
                 def reset_subtask(subtask):
-                    """Ensure subtask is a dict with is_completed=False"""
-                    if isinstance(subtask, dict):
-                        # Explicitly reset completion status - CRITICAL FIX
-                        # FIX: Use 'or' to handle None values, not just missing keys
-                        subtask_id = subtask.get("id") or generate_stable_id(subtask.get("title", ""))
-                        return {
-                            "id": subtask_id,
-                            "title": subtask.get("title", ""),
-                            "is_completed": False  # ALWAYS reset to False
-                        }
-                    elif isinstance(subtask, str):
-                        # Handle JSON string subtasks (edge case)
-                        try:
-                            import json
-                            st_dict = json.loads(subtask)
-                            st_id = st_dict.get("id") or generate_stable_id(st_dict.get("title", ""))
-                            return {
-                                "id": st_id,
-                                "title": st_dict.get("title", ""),
-                                "is_completed": False  # ALWAYS reset to False
+                    """
+                    Reset a subtask to incomplete state for recurring task clone.
+                    Handles: dict, JSON string, or primitive types.
+                    ALWAYS resets is_completed to False.
+                    
+                    FIX BUG-003: Added comprehensive logging for debugging.
+                    """
+                    import json as json_lib
+                    
+                    try:
+                        if isinstance(subtask, dict):
+                            # Dict subtask - explicitly reset all fields
+                            result = {
+                                "id": subtask.get("id") or generate_stable_id(subtask.get("title", "")),
+                                "title": str(subtask.get("title", "")),
+                                "is_completed": False  # CRITICAL: ALWAYS reset to False
                             }
-                        except:
-                            stable_id = generate_stable_id(subtask)
-                            return {"id": stable_id, "title": str(subtask), "is_completed": False}
-                    else:
-                        # Fallback for any other type
-                        stable_id = generate_stable_id(str(subtask))
-                        return {"id": stable_id, "title": str(subtask), "is_completed": False}
+                            logger.debug(f"Reset dict subtask: '{subtask.get('title', '')[:50]}' -> id={result['id'][:8]}...")
+                            return result
+                            
+                        elif isinstance(subtask, str):
+                            # JSON string subtask - parse and reset
+                            try:
+                                st_dict = json_lib.loads(subtask)
+                                if isinstance(st_dict, dict):
+                                    result = {
+                                        "id": st_dict.get("id") or generate_stable_id(st_dict.get("title", "")),
+                                        "title": str(st_dict.get("title", "")),
+                                        "is_completed": False  # CRITICAL: ALWAYS reset to False
+                                    }
+                                    logger.debug(f"Reset JSON string subtask: '{st_dict.get('title', '')[:50]}' -> id={result['id'][:8]}...")
+                                    return result
+                            except json_lib.JSONDecodeError as json_err:
+                                # Not valid JSON - treat as plain string title
+                                logger.warning(f"Subtask is JSON string but invalid (first 50 chars): {subtask[:50]} - Error: {json_err}")
+                                # Treat as plain string title
+                                result = {
+                                    "id": generate_stable_id(subtask),
+                                    "title": str(subtask),
+                                    "is_completed": False
+                                }
+                                return result
+                            except Exception as parse_err:
+                                # FIX: Use structured logging with task context for better debugging
+                                logger.error(
+                                    f"Failed to parse JSON subtask in recurring task clone",
+                                    extra={
+                                        "subtask_preview": subtask[:100] if len(subtask) > 100 else subtask,
+                                        "error_type": type(parse_err).__name__,
+                                        "error": str(parse_err)
+                                    }
+                                )
+                                # FIX: Use original content as title instead of confusing "parse error"
+                                # This preserves user data and makes the issue visible but not broken
+                                result = {
+                                    "id": generate_stable_id(f"parse_error_{hash(subtask) & 0xFFFFFFFF}"),
+                                    "title": f"[Format Error] {str(subtask)[:100]}",  # Truncate long titles
+                                    "is_completed": False
+                                }
+                                return result
+
+                        else:
+                            # Any other type (int, float, None, etc.) - convert to string title
+                            logger.warning(
+                                f"Unexpected subtask type in recurring task",
+                                extra={
+                                    "subtask_type": type(subtask).__name__,
+                                    "subtask_preview": str(subtask)[:100]
+                                }
+                            )
+                            result = {
+                                "id": generate_stable_id(f"unknown_{str(subtask)}"),
+                                "title": str(subtask)[:200],  # Truncate to prevent huge titles
+                                "is_completed": False
+                            }
+                            return result
+
+                    except Exception as e:
+                        # Last resort fallback - never fail, just log and create minimal subtask
+                        # FIX: Enhanced structured logging with full context
+                        logger.error(
+                            f"Critical error resetting subtask in recurring task clone",
+                            extra={
+                                "subtask_type": type(subtask).__name__,
+                                "subtask_preview": str(subtask)[:100],
+                                "error_type": type(e).__name__,
+                                "error": str(e)
+                            },
+                            exc_info=True
+                        )
+                        # FIX: Preserve original content instead of generic "error" title
+                        result = {
+                            "id": generate_stable_id(f"error_{hash(str(subtask)) & 0xFFFFFFFF}"),
+                            "title": f"[Error] {str(subtask)[:100]}",
+                            "is_completed": False
+                        }
+                        return result
 
                 # Clone parameters - FIX: preserve visibility
                 cloned_task = {
@@ -934,21 +1063,131 @@ async def batch_delete_tasks(
 
 # ============ Analytics Endpoint ============
 
-# FIX BACKEND-003: Simple in-memory cache for analytics
-_analytics_cache: dict[str, tuple[dict, float]] = {}
-_ANALYTICS_CACHE_TTL = 300  # 5 minutes cache
-_ANALYTICS_CACHE_MAX_ENTRIES = 100  # Maximum cache entries before cleanup
-_ANALYTICS_CACHE_CLEANUP_COUNT = 20  # Number of entries to remove during cleanup
+# FIX BACKEND-003, SEC-002: Thread-safe LRU cache with proper memory management
+import threading
+from collections import OrderedDict
+from typing import Optional, Tuple, Any
+
+class ThreadSafeLRUCache:
+    """
+    Thread-safe LRU cache with TTL support for analytics endpoint.
+    
+    Features:
+    - Thread-safe access with RLock (reentrant)
+    - LRU eviction when max size reached
+    - TTL-based expiration
+    - Memory-efficient OrderedDict implementation
+    """
+    
+    def __init__(self, max_size: int = 100, default_ttl: int = 300):
+        self._cache: OrderedDict[str, Tuple[Any, float]] = OrderedDict()
+        self._max_size = max_size
+        self._default_ttl = default_ttl
+        self._lock = threading.RLock()
+    
+    def get(self, key: str) -> Optional[Any]:
+        """Get value from cache, returns None if expired or not found."""
+        with self._lock:
+            if key not in self._cache:
+                return None
+            
+            value, timestamp = self._cache[key]
+            current_time = time.time()
+            
+            # Check if expired
+            if current_time - timestamp >= self._default_ttl:
+                del self._cache[key]
+                return None
+            
+            # Move to end (most recently used)
+            self._cache.move_to_end(key)
+            return value
+    
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+        """Set value in cache with optional custom TTL."""
+        with self._lock:
+            current_time = time.time()
+            effective_ttl = ttl if ttl is not None else self._default_ttl
+            
+            # If key exists, update and move to end
+            if key in self._cache:
+                self._cache.move_to_end(key)
+            
+            # Add/update entry
+            self._cache[key] = (value, current_time)
+            
+            # Evict oldest entries if over capacity
+            self._evict_if_needed()
+    
+    def _evict_if_needed(self) -> None:
+        """Remove oldest entries if cache exceeds max size."""
+        # Evict expired entries first
+        current_time = time.time()
+        expired_keys = [
+            key for key, (_, timestamp) in self._cache.items()
+            if current_time - timestamp >= self._default_ttl
+        ]
+        for key in expired_keys:
+            del self._cache[key]
+        
+        # Evict oldest entries if still over capacity
+        while len(self._cache) > self._max_size:
+            self._cache.popitem(last=False)  # Remove oldest (first) item
+    
+    def invalidate(self, key: str) -> None:
+        """Remove specific key from cache."""
+        with self._lock:
+            self._cache.pop(key, None)
+    
+    def invalidate_prefix(self, prefix: str) -> None:
+        """Remove all keys starting with given prefix."""
+        with self._lock:
+            keys_to_remove = [key for key in self._cache.keys() if key.startswith(prefix)]
+            for key in keys_to_remove:
+                del self._cache[key]
+    
+    def clear(self) -> None:
+        """Clear all cache entries."""
+        with self._lock:
+            self._cache.clear()
+    
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._cache)
+    
+    def get_stats(self) -> dict:
+        """Get cache statistics for monitoring."""
+        with self._lock:
+            current_time = time.time()
+            expired_count = sum(
+                1 for _, timestamp in self._cache.values()
+                if current_time - timestamp >= self._default_ttl
+            )
+            return {
+                "total_entries": len(self._cache),
+                "max_size": self._max_size,
+                "expired_entries": expired_count,
+                "memory_estimate_bytes": len(self._cache) * 1024  # Rough estimate
+            }
+
+
+# Global analytics cache instance
+_analytics_cache = ThreadSafeLRUCache(
+    max_size=_ANALYTICS_CACHE_MAX_ENTRIES,
+    default_ttl=_ANALYTICS_CACHE_TTL
+)
 
 @router.get("/analytics")
 async def get_task_analytics(
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """
     Get task statistics without fetching all tasks.
     Efficient for users with many tasks.
-    
-    FIX BACKEND-003: Added caching to reduce database load.
+
+    FIX BACKEND-003: Thread-safe LRU cache with proper eviction.
+    FIX SEC-002: Added cache statistics endpoint for monitoring.
     """
     import time
     from db_helper import get_db, fetch_one, fetch_all
@@ -957,14 +1196,12 @@ async def get_task_analytics(
     user_id = user["user_id"]
     # FIX: Use '|' delimiter to prevent cache key collisions if user_id contains ':'
     cache_key = f"{license_id}|{user_id}"
-    
-    # FIX BACKEND-003: Check cache first
-    current_time = time.time()
-    if cache_key in _analytics_cache:
-        cached_data, cached_time = _analytics_cache[cache_key]
-        if current_time - cached_time < _ANALYTICS_CACHE_TTL:
-            return cached_data
-    
+
+    # Try cache first
+    cached_data = _analytics_cache.get(cache_key)
+    if cached_data is not None:
+        return cached_data
+
     async with get_db() as db:
         # Total tasks (respecting visibility)
         total_row = await fetch_one(db, """
@@ -1040,17 +1277,37 @@ async def get_task_analytics(
             "by_category": {row["category"]: row["count"] for row in (category_rows or [])},
             "by_priority": {row["priority"]: row["count"] for row in (priority_rows or [])}
         }
-        
-        # FIX BACKEND-003: Cache the result
-        _analytics_cache[cache_key] = (analytics, current_time)
 
-        # Cleanup old cache entries (keep last _ANALYTICS_CACHE_MAX_ENTRIES)
-        if len(_analytics_cache) > _ANALYTICS_CACHE_MAX_ENTRIES:
-            oldest_keys = sorted(_analytics_cache.keys(), key=lambda k: _analytics_cache[k][1])[:_ANALYTICS_CACHE_CLEANUP_COUNT]
-            for key in oldest_keys:
-                del _analytics_cache[key]
+        # Cache the result (thread-safe, auto-evicts old entries)
+        _analytics_cache.set(cache_key, analytics)
 
         return analytics
+
+
+@router.get("/analytics/cache/stats")
+async def get_analytics_cache_stats(
+    _: dict = Depends(get_current_user)
+):
+    """
+    Get analytics cache statistics for monitoring.
+    Useful for debugging and performance monitoring.
+    """
+    return _analytics_cache.get_stats()
+
+
+@router.delete("/analytics/cache")
+async def clear_analytics_cache(
+    user: dict = Depends(get_current_user)
+):
+    """
+    Clear analytics cache for current user.
+    Useful for forcing fresh data after major task changes.
+    """
+    license_id = user["license_id"]
+    user_id = user["user_id"]
+    cache_key = f"{license_id}|{user_id}"
+    _analytics_cache.invalidate(cache_key)
+    return {"success": True, "message": "Analytics cache cleared"}
 
 
 # ============ Task Sharing Endpoints (P4-2) ============

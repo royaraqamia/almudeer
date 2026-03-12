@@ -8,7 +8,8 @@ import '../models/library_item.dart';
 /// Fixes applied:
 /// - Issue #13: Added is_pending_delete column for safe deletes
 /// - Issue #17: Fixed memory leak potential with proper cleanup
-/// - P0-3: Added cached_at column and cache TTL validation (60 seconds)
+/// - P0-3: Added cached_at column and cache TTL validation
+/// - FIX #7: Adaptive cache TTL based on connectivity (longer when offline)
 class LibraryDatabase {
   static final LibraryDatabase _instance = LibraryDatabase._internal();
   static Database? _database;
@@ -17,10 +18,22 @@ class LibraryDatabase {
 
   LibraryDatabase._internal();
 
-  // P0-3 FIX: Cache TTL standardized to 60 seconds to match backend
-  // This ensures library data is refreshed frequently enough to stay in sync
-  // with server changes while still providing offline support
-  static const Duration _cacheTTL = Duration(seconds: 60);
+  // FIX #7: Adaptive cache TTL - longer when offline to support offline scenarios
+  // Standard TTL when online: 60 seconds for fresh data
+  // Extended TTL when offline: 5 minutes to prevent "no data" states
+  static const Duration _cacheTTLOnline = Duration(seconds: 60);
+  static const Duration _cacheTTLOffline = Duration(minutes: 5);
+  
+  // Track last known connectivity state
+  static bool _isOnline = true;
+  
+  /// Set connectivity state to adjust cache TTL dynamically
+  static void setConnectivityState(bool isOnline) {
+    _isOnline = isOnline;
+  }
+  
+  /// Get current cache TTL based on connectivity state
+  static Duration get _currentCacheTTL => _isOnline ? _cacheTTLOnline : _cacheTTLOffline;
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -218,6 +231,12 @@ class LibraryDatabase {
               'ALTER TABLE c_library_items ADD COLUMN cached_at TEXT DEFAULT CURRENT_TIMESTAMP',
             );
           }
+          
+          // PERF-004 FIX: Add index on cached_at for faster cache expiration checks
+          await db.execute('''
+            CREATE INDEX IF NOT EXISTS idx_library_cached_at
+            ON c_library_items(cached_at DESC)
+          ''');
         }
 
         // Fix: Add missing columns for download & sharing
@@ -296,6 +315,7 @@ class LibraryDatabase {
   // --- Caching Methods ---
 
   // P0-3: Check if cache is valid (not expired)
+  // FIX #7: Uses adaptive TTL based on connectivity state
   Future<bool> isCacheValid({required int licenseKeyId, String? type}) async {
     final db = await database;
 
@@ -316,7 +336,8 @@ class LibraryDatabase {
         result.first['latest_cache'] as String,
       );
       final age = DateTime.now().difference(lastCacheTime);
-      return age < _cacheTTL;
+      // FIX #7: Use adaptive TTL based on connectivity
+      return age < _currentCacheTTL;
     } catch (e) {
       return false; // Invalid timestamp
     }

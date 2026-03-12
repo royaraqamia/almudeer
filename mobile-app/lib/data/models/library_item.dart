@@ -36,6 +36,7 @@ class LibraryItem {
   final bool isShared;
   final String? sharedWith;
   final String? sharePermission;
+  final DateTime? shareExpiresAt; // P3-14: Share expiration support
   // FIX: Store original file path for retry on failed uploads
   final String? originalFilePath;
 
@@ -68,6 +69,7 @@ class LibraryItem {
     this.isShared = false,
     this.sharedWith,
     this.sharePermission,
+    this.shareExpiresAt,
     this.originalFilePath,
   });
 
@@ -113,6 +115,12 @@ class LibraryItem {
       sharedWith: json['shared_with'],
       // Backend consistently returns 'share_permission' for all endpoints
       sharePermission: json['share_permission'],
+      // P3-14: Share expiration support
+      // FIX P1-4: Handle null and empty string cases properly
+      shareExpiresAt: json['share_expires_at'] != null && 
+                      json['share_expires_at'].toString().isNotEmpty
+          ? parseDateSafe(json['share_expires_at'], DateTime.now())
+          : null,
       // P1-5: Download resume fields (local only)
       downloadStatus: null,
       downloadedBytes: null,
@@ -152,6 +160,7 @@ class LibraryItem {
       'shared_with': sharedWith,
       'share_permission': sharePermission,
       'permission': sharePermission, // Also include 'permission' for compatibility
+      'share_expires_at': shareExpiresAt?.toIso8601String(),
       // FIX: Original file path for retry
       'original_file_path': originalFilePath,
       // Issue #26: Trash support
@@ -202,6 +211,7 @@ class LibraryItem {
     bool? isShared,
     String? sharedWith,
     String? sharePermission,
+    DateTime? shareExpiresAt,
     DateTime? deletedAt,
     int? version,
   }) {
@@ -233,6 +243,7 @@ class LibraryItem {
       isShared: isShared ?? this.isShared,
       sharedWith: sharedWith ?? this.sharedWith,
       sharePermission: sharePermission ?? this.sharePermission,
+      shareExpiresAt: shareExpiresAt ?? this.shareExpiresAt,
       deletedAt: deletedAt ?? this.deletedAt,
       version: version ?? this.version,
     );

@@ -139,6 +139,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                 physics: const NeverScrollableScrollPhysics(),
                 shrinkWrap: true,
                 itemCount: items.length,
+                addAutomaticKeepAlives: false, // P7: Don't keep off-screen items alive
+                addRepaintBoundaries: false, // P7: Reduce repaint boundaries for performance
                 itemBuilder: (context, index) {
                   final item = items[index];
                   return Padding(
@@ -160,6 +162,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                 },
               )
             : GridView.builder(
+                // P7: Lazy loading for notes grid view
                 physics: const NeverScrollableScrollPhysics(),
                 shrinkWrap: true,
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -169,6 +172,9 @@ class _LibraryScreenState extends State<LibraryScreen>
                   childAspectRatio: 0.85,
                 ),
                 itemCount: items.length,
+                addAutomaticKeepAlives: false, // P7: Don't keep off-screen items alive
+                addRepaintBoundaries: false, // P7: Reduce repaint boundaries
+                cacheExtent: 400, // P7: Pre-render items 400px beyond viewport
                 itemBuilder: (context, index) {
                   final item = items[index];
                   return StaggeredAnimatedItem(

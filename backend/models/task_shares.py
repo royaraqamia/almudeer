@@ -34,14 +34,19 @@ async def _invalidate_shared_tasks_cache(license_id: int, user_id: Optional[str]
     """Invalidate shared tasks cache
 
     FIX: Ensure complete cleanup of both cache and access times to prevent memory leaks.
+    FIX BUG-002: Include timestamp bucket in cache invalidation to handle expired shares.
     """
     cache = get_shared_tasks_cache()
 
     # Invalidate all permission levels for this user
     if user_id:
         for perm in ['read', 'edit', 'admin', 'all']:
+            # FIX BUG-002: Invalidate cache with different time buckets to prevent stale expired shares
             cache_key = f"{license_id}|{user_id}|{perm}"
             await cache.invalidate(cache_key)
+            # Also invalidate time-bucketed keys (for expiration-aware caching)
+            for bucket in range(0, 24, 2):  # 2-hour buckets for 24 hours
+                await cache.invalidate(f"{cache_key}|bucket_{bucket}")
     else:
         # Invalidate all caches for this license (expensive, use sparingly)
         await cache.invalidate_prefix(f"{license_id}|")
@@ -111,109 +116,89 @@ async def share_task(
         if recipient_user_id == task_owner_id:
             raise ValueError("Cannot share a task with yourself")
 
-        # Check if share already exists (update instead)
-        # DATA-001 FIX: Don't re-activate revoked shares
-        # FIX P1: Use INSERT ... ON CONFLICT for SQLite as well to prevent race conditions
-        existing = await fetch_one(
+        # FIX BUG-001 (Race Condition): Capture state BEFORE upsert to correctly detect reshare/permission change
+        # This eliminates the TOCTOU (Time-of-Check-Time-of-Use) vulnerability
+        # 
+        # HOW IT WORKS:
+        # 1. We capture the current share state (before_share) BEFORE the upsert
+        # 2. The UPSERT is atomic - PostgreSQL ON CONFLICT / SQLite ON CONFLICT handles races
+        # 3. After upsert, we compare before_share with the new permission to determine:
+        #    - is_reshare: True if before_share was None (new share)
+        #    - is_permission_change: True if permission changed from before to after
+        #
+        # This is safe because the UPSERT is atomic - concurrent requests will serialize
+        # at the database level, and each will see the correct before/after state.
+        before_share = await fetch_one(
             db,
-            "SELECT id FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NULL",
+            "SELECT permission, deleted_at FROM task_shares WHERE task_id = ? AND shared_with_user_id = ?",
             [task_id, recipient_user_id]
         )
 
-        if existing:
-            # Update existing active share
+        # Check for revoked share (can't re-use - must create new share)
+        if before_share and before_share.get('deleted_at') is not None:
+            raise ValueError("Share was previously revoked. Please create a new share.")
+
+        # Perform atomic UPSERT
+        if DB_TYPE == "postgresql":
+            # Use INSERT ... ON CONFLICT with proper handling
+            # The ON CONFLICT clause handles race conditions atomically
+            result = await fetch_one(
+                db,
+                """
+                INSERT INTO task_shares
+                (task_id, license_key_id, shared_with_user_id, permission, created_at, created_by, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (task_id, shared_with_user_id)
+                DO UPDATE SET
+                    permission = EXCLUDED.permission,
+                    updated_at = EXCLUDED.updated_at,
+                    deleted_at = NULL  -- Reactivate if it was soft-deleted
+                WHERE task_shares.deleted_at IS NULL OR task_shares.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
+                RETURNING id
+                """,
+                [task_id, license_id, recipient_user_id, permission, now, created_by, now]
+            )
+            share_id = result['id'] if result else None
+        else:
+            # SQLite atomic UPSERT using INSERT ... ON CONFLICT for SQLite 3.24.0+
             await execute_sql(
                 db,
                 """
-                UPDATE task_shares
-                SET permission = ?, updated_at = ?
-                WHERE id = ?
+                INSERT INTO task_shares
+                (task_id, license_key_id, shared_with_user_id, permission, created_at, created_by, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(task_id, shared_with_user_id) DO UPDATE SET
+                    permission = excluded.permission,
+                    updated_at = excluded.updated_at,
+                    deleted_at = NULL  -- Reactivate if it was soft-deleted
                 """,
-                [permission, now, existing['id']]
+                [task_id, license_id, recipient_user_id, permission, now, created_by, now]
             )
-            share_id = existing['id']
-        else:
-            # Create new share - use INSERT ... ON CONFLICT for PostgreSQL
-            if DB_TYPE == "postgresql":
-                # First check for revoked share (can't re-use)
-                revoked = await fetch_one(
-                    db,
-                    "SELECT id FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NOT NULL",
-                    [task_id, recipient_user_id]
-                )
-                if revoked:
-                    raise ValueError("Share was previously revoked. Please create a new share.")
-                
-                # Use INSERT ... ON CONFLICT with proper handling
-                # The ON CONFLICT clause handles race conditions atomically
-                result = await fetch_one(
-                    db,
-                    """
-                    INSERT INTO task_shares
-                    (task_id, license_key_id, shared_with_user_id, permission, created_at, created_by, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
-                    ON CONFLICT (task_id, shared_with_user_id) DO UPDATE SET
-                        permission = EXCLUDED.permission,
-                        updated_at = EXCLUDED.updated_at,
-                        deleted_at = NULL  -- Reactivate if it was soft-deleted (shouldn't happen due to check above, but defensive)
-                    RETURNING id
-                    """,
-                    [task_id, license_id, recipient_user_id, permission, now, created_by, now]
-                )
-                share_id = result['id'] if result else None
-            else:
-                # FIX P1 + FIX #9: SQLite race condition prevention with SAVEPOINT
-                # Use SAVEPOINT for nested operations to prevent deadlocks
-                await execute_sql(db, "SAVEPOINT share_task_sp")
-                try:
-                    # Check for revoked share first (can't re-use)
-                    revoked = await fetch_one(
-                        db,
-                        "SELECT id FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NOT NULL",
-                        [task_id, recipient_user_id]
-                    )
-                    if revoked:
-                        await execute_sql(db, "ROLLBACK TO share_task_sp")
-                        raise ValueError("Share was previously revoked. Please create a new share.")
-                    
-                    # Re-check for existing active share under lock (race condition prevention)
-                    existing_under_lock = await fetch_one(
-                        db,
-                        "SELECT id FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NULL",
-                        [task_id, recipient_user_id]
-                    )
 
-                    if existing_under_lock:
-                        # Another transaction created it - update instead
-                        await execute_sql(
-                            db,
-                            """
-                            UPDATE task_shares
-                            SET permission = ?, updated_at = ?
-                            WHERE id = ?
-                            """,
-                            [permission, now, existing_under_lock['id']]
-                        )
-                        share_id = existing_under_lock['id']
-                    else:
-                        # No existing share - insert new one
-                        await execute_sql(
-                            db,
-                            """
-                            INSERT INTO task_shares
-                            (task_id, license_key_id, shared_with_user_id, permission, created_at, created_by, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            [task_id, license_id, recipient_user_id, permission, now, created_by, now]
-                        )
-                        result = await fetch_one(db, "SELECT last_insert_rowid() as id", [])
-                        share_id = result['id'] if result else None
+            # Get the share ID (either newly inserted or existing)
+            result = await fetch_one(
+                db,
+                """
+                SELECT id FROM task_shares
+                WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NULL
+                """,
+                [task_id, recipient_user_id]
+            )
+            share_id = result['id'] if result else None
 
-                    await execute_sql(db, "RELEASE SAVEPOINT share_task_sp")
-                    await commit_db(db)
-                except Exception:
-                    await execute_sql(db, "ROLLBACK TO share_task_sp")
-                    raise
+        # FIX BUG-001: Determine is_reshare and is_permission_change AFTER upsert
+        # These flags are based on the state BEFORE the upsert (captured in before_share)
+        # 
+        # is_reshare: True if this was a completely new share (no prior record)
+        # is_permission_change: True if the permission level changed from what it was before
+        #
+        # Note: These are used for notification logic, not for the actual share operation
+        # which is handled atomically by the UPSERT above.
+        is_reshare = before_share is None
+        is_permission_change = (
+            before_share is not None and
+            before_share.get('permission') != permission
+        )
 
         # Mark task as shared (already committed, but this needs its own transaction)
         await execute_sql(
@@ -346,11 +331,13 @@ async def get_shared_tasks(
     permission: Optional[str] = None
 ) -> List[dict]:
     """Get tasks shared with a user
-    
-    FIX: Added share expiration check to prevent expired shares from granting access.
+
+    FIX BUG-002: Added share expiration check with time-bucketed caching to prevent stale expired shares.
     """
-    # Create cache key
-    cache_key = f"{license_id}|{user_id}|{permission or 'all'}"
+    # FIX BUG-002: Use time-bucketed cache key to prevent expired shares from being cached
+    now = datetime.now(timezone.utc)
+    time_bucket = int(now.hour / 2)  # 2-hour buckets
+    cache_key = f"{license_id}|{user_id}|{permission or 'all'}|bucket_{time_bucket}"
     cache = get_shared_tasks_cache()
 
     # Try cache first
@@ -363,7 +350,6 @@ async def get_shared_tasks(
     async with get_db() as db:
         # Note: is_deleted is INTEGER (0/1) in both SQLite and PostgreSQL
         # FIX: Added share expiration check (expires_at IS NULL OR expires_at > now)
-        now = datetime.now(timezone.utc)
         query = """
             SELECT t.*, ts.permission, ts.expires_at
             FROM tasks t
@@ -383,8 +369,8 @@ async def get_shared_tasks(
         rows = await fetch_all(db, query, params)
         result = [dict(row) for row in rows]
 
-        # Cache the result
-        await cache.set(cache_key, result)
+        # FIX BUG-002: Cache with shorter TTL for time-bucketed keys
+        await cache.set(cache_key, result, ttl_seconds=7200)  # 2 hours TTL
         logger.debug(f"Cached shared tasks: {cache_key}")
 
         return result

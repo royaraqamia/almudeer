@@ -351,6 +351,22 @@ class MockTaskProvider extends _i1.Mock implements _i4.TaskProvider {
           as _i7.Future<_i5.TaskModel?>);
 
   @override
+  _i7.Future<_i5.TaskModel?> deleteTaskWithConfirmation(
+    String? id, {
+    bool? showUndo = false,
+    dynamic context,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #deleteTaskWithConfirmation,
+              [id],
+              {#showUndo: showUndo, #context: context},
+            ),
+            returnValue: _i7.Future<_i5.TaskModel?>.value(),
+          )
+          as _i7.Future<_i5.TaskModel?>);
+
+  @override
   _i7.Future<void> undoDeleteTask(_i5.TaskModel? task) =>
       (super.noSuchMethod(
             Invocation.method(#undoDeleteTask, [task]),
@@ -504,8 +520,43 @@ class MockTaskRepository extends _i1.Mock implements _i2.TaskRepository {
           as _i3.TaskSyncService);
 
   @override
+  bool get isWebSocketConnected =>
+      (super.noSuchMethod(
+            Invocation.getter(#isWebSocketConnected),
+            returnValue: false,
+          )
+          as bool);
+
+  @override
+  int get wsDisconnectCount =>
+      (super.noSuchMethod(Invocation.getter(#wsDisconnectCount), returnValue: 0)
+          as int);
+
+  @override
+  int get wsReconnectAttempts =>
+      (super.noSuchMethod(
+            Invocation.getter(#wsReconnectAttempts),
+            returnValue: 0,
+          )
+          as int);
+
+  @override
+  _i7.Stream<Map<String, dynamic>> get wsStatusStream =>
+      (super.noSuchMethod(
+            Invocation.getter(#wsStatusStream),
+            returnValue: _i7.Stream<Map<String, dynamic>>.empty(),
+          )
+          as _i7.Stream<Map<String, dynamic>>);
+
+  @override
   void dispose() => super.noSuchMethod(
     Invocation.method(#dispose, []),
+    returnValueForMissingStub: null,
+  );
+
+  @override
+  void clearCommentCache() => super.noSuchMethod(
+    Invocation.method(#clearCommentCache, []),
     returnValueForMissingStub: null,
   );
 

@@ -19,11 +19,10 @@ import '../widgets/priority_picker.dart';
 import '../../../../presentation/widgets/premium_bottom_sheet.dart';
 import '../../../../presentation/widgets/animated_toast.dart';
 import '../../../../core/widgets/app_text_field.dart';
-import '../../../../presentation/widgets/library/share_item_dialog.dart';
+import '../../../../presentation/widgets/tasks/task_share_dialog.dart';
 
 // FIX: Extract magic numbers to constants
 class _TaskEditConstants {
-  static const Duration autoSaveDebounceMs = Duration(milliseconds: 1000);
   static const double minTouchTargetSize = 44.0;
   static const double iconSizeSmall = 20.0;
   static const double iconSizeMedium = 24.0;
@@ -66,6 +65,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
   late String _permissionLevel;
   late bool _canEdit;
   late bool _canShare;
+  bool _isLoadingPermissions = false; // FIX #3: Track permission loading state
 
   @override
   void initState() {
@@ -125,27 +125,66 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
       return;
     }
 
-    final provider = context.read<TaskProvider>();
-    // Wait for user to be loaded if needed
-    if (provider.currentUserId == null) {
-      await provider.loadCurrentUser();
+    // FIX #3: Set loading state
+    if (mounted) {
+      setState(() => _isLoadingPermissions = true);
     }
 
-    final currentUserId = provider.currentUserId;
-    // FIX: Check if current user is the owner by comparing createdBy with currentUserId
-    // Legacy tasks (createdBy == null) are treated as owned by the current user
-    final isOwner =
-        widget.task!.createdBy == null ||
-        widget.task!.createdBy == currentUserId;
-    _permissionLevel = getEffectivePermission(
-      widget.task!.sharePermission,
-      isOwner,
-    );
-    _canEdit = canEdit(_permissionLevel);
-    _canShare = canShare(_permissionLevel);
+    try {
+      final provider = context.read<TaskProvider>();
+      // Wait for user to be loaded if needed
+      if (provider.currentUserId == null) {
+        debugPrint('[TaskEditScreen] Waiting for current user to load...');
+        await provider.loadCurrentUser();
+        // Give it a moment to propagate
+        await Future.delayed(const Duration(milliseconds: 50));
+      }
 
-    if (mounted) {
-      setState(() {});
+      final currentUserId = provider.currentUserId;
+      
+      // FIX: Add null check after loading
+      if (currentUserId == null) {
+        debugPrint('[TaskEditScreen] Failed to get currentUserId after loading');
+        if (mounted) {
+          setState(() {
+            _canEdit = false;
+            _canShare = false;
+            _isLoadingPermissions = false;
+          });
+        }
+        return;
+      }
+      
+      // FIX: Check if current user is the owner by comparing createdBy with currentUserId
+      // Legacy tasks (createdBy == null) are treated as owned by the current user
+      final isOwner =
+          widget.task!.createdBy == null ||
+          widget.task!.createdBy == currentUserId;
+      _permissionLevel = getEffectivePermission(
+        widget.task!.sharePermission,
+        isOwner,
+      );
+      _canEdit = canEdit(_permissionLevel);
+      _canShare = canShare(_permissionLevel);
+
+      debugPrint(
+        '[TaskEditScreen] Permissions loaded: level=$_permissionLevel, canEdit=$_canEdit, canShare=$_canShare',
+      );
+
+      if (mounted) {
+        setState(() => _isLoadingPermissions = false);
+      }
+    } catch (e, stackTrace) {
+      debugPrint('[TaskEditScreen] Failed to load permissions: $e');
+      debugPrint('Stack trace: $stackTrace');
+      // Default to read-only on error
+      if (mounted) {
+        setState(() {
+          _canEdit = false;
+          _canShare = false;
+          _isLoadingPermissions = false;
+        });
+      }
     }
   }
 
@@ -169,8 +208,42 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
     // FIX MOBILE-003: Use single debounce timer for all fields to prevent race conditions
     if (_debounce?.isActive ?? false) _debounce!.cancel();
 
-    // FIX #8: Use constant instead of magic number
-    _debounce = Timer(_TaskEditConstants.autoSaveDebounceMs, _saveTask);
+    // FIX #12: Adaptive debounce timing based on network status and content type
+    // - Quick changes (typing): 500ms for responsive feel
+    // - Network available: 500ms 
+    // - Offline/slow network: 1000ms to batch changes
+    final debounceMs = _getAdaptiveDebounceMs();
+    _debounce = Timer(debounceMs, _saveTask);
+  }
+
+  // FIX #12: Get adaptive debounce duration based on conditions
+  Duration _getAdaptiveDebounceMs() {
+    // Base debounce: 500ms for responsive feel
+    const baseDebounce = Duration(milliseconds: 500);
+    
+    // Check if we have recent sync failures (indicates slow/unreliable network)
+    // This is a simple heuristic - could be enhanced with actual connectivity detection
+    if (_hasRecentSyncFailure) {
+      // Slow network: increase debounce to batch more changes
+      return const Duration(milliseconds: 1000);
+    }
+    
+    return baseDebounce;
+  }
+  
+  // FIX #12: Track recent sync failures for adaptive debounce
+  bool _hasRecentSyncFailure = false;
+
+  void _recordSyncFailure() {
+    _hasRecentSyncFailure = true;
+    // Clear the flag after 5 seconds of successful saves
+    Future.delayed(const Duration(seconds: 5), () {
+      _hasRecentSyncFailure = false;
+    });
+  }
+  
+  void _recordSyncSuccess() {
+    _hasRecentSyncFailure = false;
   }
 
   /// Check if error is due to being offline (transient error)
@@ -294,9 +367,13 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
         );
       }
       debugPrint('[TaskEditScreen] Task saved successfully');
+      // FIX #12: Record successful sync for adaptive debounce
+      _recordSyncSuccess();
     } catch (e) {
       // FIX #5: Consistent error handling - only show toast for non-transient errors
       debugPrint('[TaskEditScreen] Auto-save error: $e');
+      // FIX #12: Record sync failure for adaptive debounce
+      _recordSyncFailure();
       if (mounted && !_isOfflineError(e)) {
         AnimatedToast.error(context, 'حدث خطأ أثناء الحفظ');
       }
@@ -461,8 +538,20 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
           ),
           title: const SizedBox.shrink(),
           actions: [
+            // LOADING: Show spinner while permissions are loading
+            if (_isLoadingPermissions)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0),
+                  child: SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              )
             // PERMISSION: Only show share button for users with edit/admin/owner permission
-            if (!_isNewTask && widget.task != null && _canShare)
+            else if (!_isNewTask && widget.task != null && _canShare)
               Semantics(
                 label: 'مشاركة',
                 button: true,
@@ -471,11 +560,10 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
                   child: InkWell(
                     onTap: () {
                       Haptics.lightTap();
-                      ShareItemDialog.show(
+                      TaskShareDialog.show(
                         context,
-                        itemId: 0,
-                        itemTitle: widget.task!.title,
-                        taskIds: widget.task!.id,
+                        taskId: widget.task!.id,
+                        taskTitle: widget.task!.title,
                       );
                     },
                     borderRadius: BorderRadius.circular(
@@ -536,8 +624,8 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
               fontSize: _TaskEditConstants.fontSizeLarge,
               fontWeight: FontWeight.bold,
             ),
-            readOnly: !_canEdit,
-            enabled: _canEdit,
+            readOnly: _isLoadingPermissions || !_canEdit,
+            enabled: !_isLoadingPermissions && _canEdit,
           ),
           const SizedBox(height: 16),
           // PERMISSION: Description field - read-only for users without edit permission
@@ -551,8 +639,8 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
             maxLines: null,
             minLines: 3,
             borderRadius: AppDimensions.radiusLarge,
-            readOnly: !_canEdit,
-            enabled: _canEdit,
+            readOnly: _isLoadingPermissions || !_canEdit,
+            enabled: !_isLoadingPermissions && _canEdit,
           ),
           const SizedBox(height: 16),
           // PERMISSION: Date field - read-only for all (always was), but disable picker for read-only users

@@ -155,6 +155,8 @@ class FileStorageService:
             os.makedirs(self.upload_dir, exist_ok=True)
             logger.info(f"Created upload directory: {self.upload_dir}")
 
+    @file_storage_circuit_breaker
+    @retry_file_storage
     def save_file(self, content: bytes, filename: str, mime_type: str, subfolder: str = None) -> Tuple[str, str]:
         """
         Save bytes to a file and return (relative_path, accessible_url)
@@ -167,6 +169,9 @@ class FileStorageService:
 
         Returns:
             Tuple of (relative_file_path, public_url)
+            
+        P6-4: Circuit breaker prevents cascading failures during storage issues.
+        P6-5: Retry logic handles transient I/O errors.
         """
         try:
             # Determine subfolder if not provided
@@ -218,12 +223,16 @@ class FileStorageService:
             logger.error(f"Failed to save file: {e}")
             raise
 
+    @file_storage_circuit_breaker
+    @retry_file_storage
     async def save_upload_file_async(self, upload_file, filename: str, mime_type: str, subfolder: str = None) -> Tuple[str, str]:
         """
         Save an UploadFile to disk asynchronously in chunks to prevent OOM
         and return (relative_path, accessible_url)
-        
+
         Issue #28: Sanitizes filename to prevent path traversal attacks.
+        P6-4: Circuit breaker prevents cascading failures during storage issues.
+        P6-5: Retry logic handles transient I/O errors.
         """
         try:
             if not subfolder:

@@ -70,24 +70,30 @@ class LibraryRepository {
         '[LibraryRepository] licenseId=null, licenseKey=${licenseKey != null ? "${licenseKey.substring(0, 4)}..." : "null"}, accessToken=${accessToken != null ? "present" : "null"}',
       );
 
-      // Try one more time with explicit key if we have it
+      // FIX: Don't use placeholder licenseId=0 - this causes authentication issues
+      // If we have a license key but no ID, the API will still work with JWT auth
+      // The backend extracts license from JWT token, not from license_id parameter
       if (licenseKey != null && licenseKey.isNotEmpty) {
-        // We have a license key but no ID - this is OK, use a placeholder
-        // The backend will authenticate via JWT token
-        licenseId =
-            0; // Placeholder - backend doesn't actually use this for API calls
         debugPrint(
-          '[LibraryRepository] Using placeholder licenseId=0, JWT auth will handle it',
+          '[LibraryRepository] No licenseId but have licenseKey - API will use JWT auth',
         );
+        // Don't set licenseId - API calls will use license_key_id=0 which backend ignores
+        // when JWT token is present
       }
     }
 
     if (licenseId == null) {
-      debugPrint(
-        '[LibraryRepository] No license ID or key found - returning empty list',
-      );
-      yield [];
-      return;
+      // Check if we at least have a license key for JWT auth
+      final licenseKey = await _apiClient.getLicenseKey();
+      if (licenseKey == null || licenseKey.isEmpty) {
+        debugPrint(
+          '[LibraryRepository] No license ID or key found - returning empty list',
+        );
+        yield [];
+        return;
+      }
+      // Have license key but no ID - continue with API call (JWT will authenticate)
+      licenseId = 0; // Backend will use JWT, not this parameter
     }
 
     // 1. Emit cached data first (only for the first page)
@@ -277,18 +283,21 @@ class LibraryRepository {
   }
 
   /// Upload File (Issue #14: Now supports offline queue)
+  /// BUG-006 FIX: Reset progress on retry
+  /// UX-003 FIX: Always store originalFilePath
   Future<LibraryItem> uploadFile({
     required String filePath,
     String? title,
     int? customerId,
     void Function(double progress)? onProgress,
+    int? tempId, // BUG-006 FIX: Optional tempId for retry
   }) async {
     // Issue #14: Check connectivity and queue if offline
     final isConnected = await _checkConnectivity();
 
     if (!isConnected) {
       // Queue for later upload
-      final tempId = DateTime.now().millisecondsSinceEpoch;
+      final id = tempId ?? DateTime.now().millisecondsSinceEpoch;
       await _db.addPendingAction(
         actionType: 'upload',
         itemType: 'file',
@@ -297,13 +306,13 @@ class LibraryRepository {
           'title': title,
           'customer_id': customerId,
         },
-        localId: tempId,
+        localId: id,
       );
 
       // Create optimistic item
       final fileName = filePath.split('/').last;
       final tempItem = LibraryItem(
-        id: tempId,
+        id: id,
         licenseKeyId: 0,
         type: 'file',
         title: title ?? fileName,
@@ -312,12 +321,23 @@ class LibraryRepository {
         updatedAt: DateTime.now(),
         isUploading: true,
         uploadProgress: 0.0,
+        // UX-003 FIX: Always store original file path for retry
+        originalFilePath: filePath,
       );
 
       await _db.cacheItems([tempItem]);
       syncPendingActions(); // Will retry when online
 
       throw Exception('تمت إضافة الملف إلى قائمة الانتظار (Offline)');
+    }
+
+    // BUG-006 FIX: Reset progress to 0 before starting upload (especially for retries)
+    if (tempId != null) {
+      await _db.updateItem(tempId, {
+        'upload_progress': 0.0,
+        'is_uploading': 1,
+        'has_error': 0,
+      });
     }
 
     // Direct upload when online
@@ -416,6 +436,24 @@ class LibraryRepository {
     syncPendingActions();
   }
 
+  // UX-005 FIX: Restore a deleted item (clears pending delete flag)
+  Future<void> restoreItem(int itemId) async {
+    // Remove any pending delete action
+    final pendingActions = await _db.getPendingActions();
+    for (var action in pendingActions) {
+      final payload = jsonDecode(action['payload']);
+      if (action['action_type'] == 'delete' && payload['id'] == itemId) {
+        await _db.removePendingAction(action['id']);
+      }
+    }
+
+    // Clear pending delete flag
+    await _db.updateItem(itemId, {'is_pending_delete': false});
+
+    // Sync to server
+    syncPendingActions();
+  }
+
   /// Sync Logic (Process Pending Actions)
   /// Issue #16: Added retry limits and error tracking
   /// FIX Issue #2: Added mutex lock to prevent concurrent sync operations
@@ -425,23 +463,27 @@ class LibraryRepository {
   Future<void> syncPendingActions() async {
     // Schedule sync to run after current frame to avoid UI jank
     // This prevents "Skipped X frames" errors during heavy sync operations
-    scheduleSync();
+    await scheduleSync();
   }
 
   /// Schedule sync to run asynchronously
-  /// FIX: Prevents race conditions from multiple rapid sync requests
-  void scheduleSync() {
-    // Prevent multiple sync operations from being scheduled simultaneously
-    if (_syncScheduled) {
-      if (kDebugMode) {
-        print(
-          'LibraryRepository: Sync already scheduled, skipping duplicate request',
-        );
+  /// FIX P1-3: Use _syncLock to make flag check/set atomic and prevent race conditions
+  Future<void> scheduleSync() async {
+    // Use lock to make check-and-set atomic
+    await _syncLock.synchronized(() async {
+      // Prevent multiple sync operations from being scheduled simultaneously
+      if (_syncScheduled) {
+        if (kDebugMode) {
+          print(
+            'LibraryRepository: Sync already scheduled, skipping duplicate request',
+          );
+        }
+        return;
       }
-      return;
-    }
 
-    _syncScheduled = true;
+      _syncScheduled = true;
+    });
+
     // Run sync in next microtask to avoid blocking UI
     // Using Future.delayed to ensure it runs after current frame
     Future.delayed(Duration.zero, () async {
@@ -449,7 +491,9 @@ class LibraryRepository {
         await _performSyncInternal();
       } finally {
         // Reset flag after sync completes
-        _syncScheduled = false;
+        await _syncLock.synchronized(() async {
+          _syncScheduled = false;
+        });
       }
     });
   }
@@ -571,28 +615,26 @@ class LibraryRepository {
                       fields['customer_id'] = payload['customer_id'].toString();
                     }
 
-                    final response = await _apiClient.uploadFile(
-                      Endpoints.libraryUpload,
+                    // BUG-006 FIX: Pass tempId to reset progress on retry
+                    final item = await uploadFile(
                       filePath: filePath,
-                      fieldName: 'file',
-                      fields: fields,
+                      title: payload['title'],
+                      customerId: payload['customer_id'],
+                      tempId: localId,
                     );
 
-                    if (response['success'] == true) {
-                      final item = LibraryItem.fromJson(response['item']);
-                      await _db.cacheItems([item]);
+                    await _db.cacheItems([item]);
 
-                      // Remove temp item if exists
-                      if (localId != null) {
-                        await _db.deleteItem(localId);
+                    // Remove temp item if exists
+                    if (localId != null) {
+                      await _db.deleteItem(localId);
 
-                        // FIX: Update any pending update actions to use the real server ID
-                        await _updatePendingActionsForTempId(localId, item.id);
-                      }
-                      success = true;
-                      anySucceeded = true;
-                      _failedSyncAttempts.remove(actionId);
+                      // FIX: Update any pending update actions to use the real server ID
+                      await _updatePendingActionsForTempId(localId, item.id);
                     }
+                    success = true;
+                    anySucceeded = true;
+                    _failedSyncAttempts.remove(actionId);
                   } catch (e) {
                     if (kDebugMode) {
                       print('Upload failed for action $actionId: $e');
@@ -1278,8 +1320,9 @@ class LibraryRepository {
 
   Future<void> deletePermanently(int itemId) async {
     try {
+      // FIX P2-2: Use correct permanent delete endpoint
       final response = await _apiClient.delete(
-        '${Endpoints.libraryItems}$itemId',
+        '${Endpoints.libraryItems}trash/$itemId/delete-permanently',
       );
 
       if (response['success'] != true) {

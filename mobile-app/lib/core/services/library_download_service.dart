@@ -7,26 +7,35 @@ import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
 /// P1-5: Library download service with resume capability
-/// 
+///
 /// Supports:
 /// - HTTP Range Requests for resuming interrupted downloads
 /// - Progress tracking
 /// - Persistent download state across app restarts
 /// - Concurrent download management
+/// - FIX #13: Automatic retry with exponential backoff for transient failures
 class LibraryDownloadService {
   static final LibraryDownloadService _instance = LibraryDownloadService._internal();
   static Database? _database;
-  
+
   factory LibraryDownloadService() => _instance;
 
   LibraryDownloadService._internal();
 
+  // FIX #13: Retry configuration
+  static const int _maxRetries = 3;
+  static const Duration _initialRetryDelay = Duration(seconds: 1);
+  static const Duration _maxRetryDelay = Duration(seconds: 30);
+
   // Active downloads tracking
   final Map<int, _DownloadTask> _activeDownloads = {};
   
+  // FIX #13: Track retry counts per download
+  final Map<int, int> _retryCounts = {};
+
   // Download status stream controller
   final _statusController = StreamController<LibraryDownloadStatus>.broadcast();
-  
+
   Stream<LibraryDownloadStatus> get statusStream => _statusController.stream;
 
   Future<Database> get _db async {
@@ -255,20 +264,54 @@ class LibraryDownloadService {
       ));
       
       debugPrint('[LibraryDownloadService] Download completed: $filename');
-      
+
     } catch (e) {
       debugPrint('[LibraryDownloadService] Download failed: $e');
+      
+      // FIX #13: Implement retry logic with exponential backoff for transient errors
+      final retryCount = _retryCounts[itemId] ?? 0;
+      final isTransientError = _isTransientError(e);
+      
+      if (isTransientError && retryCount < _maxRetries) {
+        final delay = _calculateRetryDelay(retryCount);
+        debugPrint('[LibraryDownloadService] Will retry download in ${delay.inSeconds}s (attempt ${retryCount + 1}/$_maxRetries)');
+        
+        // Update task status to pending for retry
+        await db.update(
+          'download_tasks',
+          {
+            'status': 'pending',
+            'updated_at': DateTime.now().toIso8601String(),
+          },
+          where: 'id = ?',
+          whereArgs: [taskId],
+        );
+        
+        // Increment retry count
+        _retryCounts[itemId] = retryCount + 1;
+        
+        // Schedule retry after delay
+        await Future.delayed(delay);
+        
+        // Retry the download
+        await _executeDownload(taskId, itemId, url, tempFilePath, filename, startByte);
+        return;
+      }
+      
+      // Max retries exceeded or non-transient error - mark as failed
+      _retryCounts.remove(itemId); // Clear retry count
       
       await db.update(
         'download_tasks',
         {
           'status': 'failed',
           'updated_at': DateTime.now().toIso8601String(),
+          'error': e.toString(),
         },
         where: 'id = ?',
         whereArgs: [taskId],
       );
-      
+
       _statusController.add(LibraryDownloadStatus(
         itemId: itemId,
         status: LibraryDownloadStatusType.failed,
@@ -278,6 +321,72 @@ class LibraryDownloadService {
         error: e.toString(),
       ));
     }
+  }
+
+  /// FIX #13: Check if error is transient (retryable)
+  bool _isTransientError(Object error) {
+    final errorStr = error.toString().toLowerCase();
+    // Retry on network-related errors
+    return errorStr.contains('socket') ||
+           errorStr.contains('connection') ||
+           errorStr.contains('timeout') ||
+           errorStr.contains('network') ||
+           error is TimeoutException;
+  }
+  
+  /// FIX #13: Calculate retry delay with exponential backoff
+  Duration _calculateRetryDelay(int retryCount) {
+    // Exponential backoff: 1s, 2s, 4s, ...
+    final delay = _initialRetryDelay * (1 << retryCount);
+    // Cap at max delay
+    return delay > _maxRetryDelay ? _maxRetryDelay : delay;
+  }
+  
+  /// FIX #13: Manual retry method for user-initiated retries
+  Future<void> retryDownload(int itemId) async {
+    final db = await _db;
+    
+    final task = await db.query(
+      'download_tasks',
+      where: 'item_id = ?',
+      whereArgs: [itemId],
+    );
+    
+    if (task.isEmpty) {
+      throw Exception('Download task not found');
+    }
+    
+    final t = task.first;
+    final status = t['status'] as String;
+    
+    if (status != 'failed' && status != 'cancelled') {
+      throw Exception('Can only retry failed or cancelled downloads');
+    }
+    
+    // Reset retry count for manual retry
+    _retryCounts.remove(itemId);
+    
+    // Reset status to pending
+    await db.update(
+      'download_tasks',
+      {
+        'status': 'pending',
+        'error': null,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [t['id']],
+    );
+    
+    // Restart download
+    await _executeDownload(
+      t['id'] as int,
+      itemId,
+      t['url'] as String,
+      t['temp_file_path'] as String,
+      t['filename'] as String,
+      0, // Start from beginning
+    );
   }
 
   Future<void> _startFreshDownload(

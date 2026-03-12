@@ -11,6 +11,7 @@ import 'package:timezone/timezone.dart' as tz;
 import 'package:flutter_timezone/flutter_timezone.dart';
 import '../../../core/services/notification_navigator.dart';
 import '../models/task_model.dart';
+import '../utils/task_logger.dart'; // FIX #8: Centralized logging
 
 class TaskAlarmService {
   static final TaskAlarmService _instance = TaskAlarmService._internal();
@@ -53,11 +54,10 @@ class TaskAlarmService {
       // Try to get location with the extracted timezone ID
       try {
         tz.setLocalLocation(tz.getLocation(timeZoneId));
-        debugPrint('TaskAlarmService: Timezone set to "$timeZoneId"');
+        TaskLogger.timezone('primary_success', timeZoneId);
       } catch (e) {
-        debugPrint(
-          'TaskAlarmService: Failed to get location for "$timeZoneId": $e',
-        );
+        TaskLogger.w('Failed to get location for "$timeZoneId": $e', tag: 'Timezone');
+        
         // Try common timezone ID formats
         final fallbackIds = [
           timeZoneId,
@@ -69,25 +69,27 @@ class TaskAlarmService {
         ];
 
         bool located = false;
+        String? successfulFallbackId;
+        
         for (final id in fallbackIds) {
           if (id.isEmpty) continue;
           try {
             tz.setLocalLocation(tz.getLocation(id));
-            debugPrint('TaskAlarmService: Successfully set timezone to "$id"');
+            successfulFallbackId = id;
             located = true;
             break;
           } catch (_) {}
         }
 
-        if (!located) {
-          debugPrint(
-            'TaskAlarmService: All timezone lookups failed, using UTC',
-          );
+        if (located && successfulFallbackId != null) {
+          TaskLogger.timezone('fallback_success', successfulFallbackId);
+        } else {
+          TaskLogger.timezone('complete_failure', timeZoneId);
           tz.setLocalLocation(tz.getLocation('UTC'));
         }
       }
     } catch (e) {
-      debugPrint('TaskAlarmService: Timezone error: $e');
+      TaskLogger.e('Timezone error: $e', tag: 'Timezone');
       try {
         tz.setLocalLocation(tz.getLocation('UTC'));
       } catch (_) {}
@@ -144,7 +146,7 @@ class TaskAlarmService {
     }
 
     _isInitialized = true;
-    debugPrint('TaskAlarmService: Initialized');
+    TaskLogger.alarm('Initialized');
   }
 
   Future<void> _requestAndroidPermissions(
@@ -154,14 +156,12 @@ class TaskAlarmService {
       await androidPlugin.requestNotificationsPermission();
       await androidPlugin.requestExactAlarmsPermission();
     } catch (e) {
-      debugPrint('TaskAlarmService: Error requesting permissions: $e');
+      TaskLogger.e('Error requesting permissions: $e', tag: 'Alarm');
     }
   }
 
   void _handleNotificationResponse(NotificationResponse details) {
-    debugPrint(
-      'TaskAlarmService: Notification clicked/actioned: ${details.payload}',
-    );
+    TaskLogger.alarm('Notification clicked/actioned: ${details.payload}');
     if (details.payload != null) {
       try {
         final data = jsonDecode(details.payload!) as Map<String, dynamic>;
@@ -200,7 +200,7 @@ class TaskAlarmService {
     }
 
     if (task.alarmTime!.isBefore(DateTime.now())) {
-      debugPrint('TaskAlarmService: Skipping past alarm for ${task.title}');
+      TaskLogger.alarm('Skipping past alarm for ${task.title}');
       return;
     }
 
@@ -262,17 +262,15 @@ class TaskAlarmService {
         }),
       );
 
-      debugPrint(
-        'TaskAlarmService: Scheduled alarm for ${task.title} at $scheduledDate (ID: $notificationId)',
-      );
+      TaskLogger.alarm('Scheduled alarm for ${task.title} at $scheduledDate (ID: $notificationId)');
     } catch (e) {
-      debugPrint('TaskAlarmService: Failed to schedule alarm: $e');
+      TaskLogger.e('Failed to schedule alarm: $e', tag: 'Alarm');
     }
   }
 
   /// Reschedule all active alarms (optimized: only updates changed alarms)
   Future<void> rescheduleAllAlarms(List<TaskModel> tasks) async {
-    debugPrint('TaskAlarmService: Rescheduling ${tasks.length} tasks...');
+    TaskLogger.alarm('Rescheduling ${tasks.length} tasks...');
 
     // OPTIMIZATION: Get currently pending notifications to avoid unnecessary cancel/reschedule
     final List<PendingNotificationRequest> pendingNotifications =
@@ -338,8 +336,8 @@ class TaskAlarmService {
       }
     }
 
-    debugPrint(
-      'TaskAlarmService: Rescheduled $scheduledCount new, '
+    TaskLogger.alarm(
+      'Rescheduled $scheduledCount new, '
       'updated $updatedCount changed, '
       'cancelled $cancelledCount removed alarms.',
     );
@@ -348,9 +346,7 @@ class TaskAlarmService {
   Future<void> cancelAlarm(String taskId) async {
     final int notificationId = taskId.hashCode.abs();
     await _localNotifications.cancel(id: notificationId);
-    debugPrint(
-      'TaskAlarmService: Cancelled alarm for task $taskId (ID: $notificationId)',
-    );
+    TaskLogger.alarm('Cancelled alarm for task $taskId (ID: $notificationId)');
   }
 
   /// Show the ringing overlay using CallKit

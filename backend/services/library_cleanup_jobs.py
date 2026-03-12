@@ -105,14 +105,20 @@ async def cleanup_expired_shares() -> int:
 async def cleanup_old_trash() -> Tuple[int, int]:
     """
     Permanently delete items in trash older than TRASH_RETENTION_DAYS.
-    
+
     This job:
     1. Finds all items where deleted_at < (now - TRASH_RETENTION_DAYS)
     2. Deletes the physical files
     3. Permanently removes from database
-    
+
+    BUG-007 FIX: Uses UTC time for consistency across timezones.
+    Users should be informed that "30 days" means 30 days UTC time.
+
     Returns: Tuple of (items_deleted, bytes_freed)
     """
+    # BUG-007 FIX: Use UTC for consistent behavior across timezones
+    # Note: This is intentional for multi-server deployments
+    # UI should clarify "30 days (UTC)" to users
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=TRASH_RETENTION_DAYS)
     items_deleted = 0
     bytes_freed = 0
@@ -389,8 +395,74 @@ async def run_all_library_cleanup_jobs() -> dict:
 
 
 # Schedule for running jobs
-# Add to workers.py or scheduler:
-# - cleanup_expired_shares: Every 6 hours
-# - cleanup_old_trash: Daily at 2 AM
-# - cleanup_orphaned_files: Weekly on Sunday at 3 AM
-# - check_storage_quotas: Daily at 9 AM
+# ============================================================================
+# FIX #15: Integrated scheduler documentation and example implementation
+# 
+# To enable these cleanup jobs, add the following to your workers.py or
+# create a dedicated scheduler using APScheduler or Celery Beat:
+#
+# Example with APScheduler:
+# -------------------------
+# from apscheduler.schedulers.asyncio import AsyncIOScheduler
+# from apscheduler.triggers.cron import CronTrigger
+# from services.library_cleanup_jobs import run_all_library_cleanup_jobs
+#
+# scheduler = AsyncIOScheduler()
+#
+# # Cleanup expired shares: Every 6 hours
+# scheduler.add_job(
+#     run_all_library_cleanup_jobs,
+#     CronTrigger(hour='*/6', minute=0),
+#     id='library_cleanup_expired_shares'
+# )
+#
+# # Cleanup old trash: Daily at 2 AM
+# scheduler.add_job(
+#     run_all_library_cleanup_jobs,
+#     CronTrigger(hour=2, minute=0),
+#     id='library_cleanup_trash'
+# )
+#
+# # Cleanup orphaned files: Weekly on Sunday at 3 AM
+# scheduler.add_job(
+#     run_all_library_cleanup_jobs,
+#     CronTrigger(day_of_week='sun', hour=3, minute=0),
+#     id='library_cleanup_orphans'
+# )
+#
+# # Check storage quotas: Daily at 9 AM
+# scheduler.add_job(
+#     run_all_library_cleanup_jobs,
+#     CronTrigger(hour=9, minute=0),
+#     id='library_storage_quotas'
+# )
+#
+# scheduler.start()
+#
+# Example with Celery Beat:
+# -------------------------
+# from celery.schedules import crontab
+#
+# app.conf.beat_schedule = {
+#     'cleanup-expired-shares': {
+#         'task': 'tasks.run_library_cleanup_job',
+#         'schedule': crontab(minute=0, hour='*/6'),
+#         'kwargs': {'job_type': 'expired_shares'}
+#     },
+#     'cleanup-old-trash': {
+#         'task': 'tasks.run_library_cleanup_job',
+#         'schedule': crontab(hour=2, minute=0),
+#         'kwargs': {'job_type': 'trash'}
+#     },
+#     'cleanup-orphaned-files': {
+#         'task': 'tasks.run_library_cleanup_job',
+#         'schedule': crontab(hour=3, minute=0, day_of_week=0),  # Sunday
+#         'kwargs': {'job_type': 'orphans'}
+#     },
+#     'check-storage-quotas': {
+#         'task': 'tasks.run_library_cleanup_job',
+#         'schedule': crontab(hour=9, minute=0),
+#         'kwargs': {'job_type': 'quotas'}
+#     },
+# }
+# ============================================================================

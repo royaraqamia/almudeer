@@ -216,20 +216,47 @@ async def share_item(
     license_id: int,
     shared_with_user_id: str,
     permission: str = 'read',
-    created_by: Optional[str] = None
+    created_by: Optional[str] = None,
+    expires_in_days: Optional[int] = None
 ) -> dict:
     """Share a library item with another user
-    
+
     SEC-002 FIX: Added self-share prevention (was missing).
     AUTH-001 FIX: Uses shared utility for username resolution.
     DATA-001 FIX: ON CONFLICT no longer re-activates revoked shares.
     DATA-002 FIX: is_shared update is now atomic within same transaction.
+    FIX #4: Send notification on re-share to inform recipient of renewed access.
+    P2-1 FIX: Added validation for expires_in_days to prevent invalid values.
+
+    Args:
+        item_id: Library item ID to share
+        license_id: License key ID
+        shared_with_user_id: Email or user ID of recipient
+        permission: Permission level ('read', 'edit', 'admin')
+        created_by: User ID of the sharer
+        expires_in_days: Optional number of days until share expires
+
+    Raises:
+        ValueError: If expires_in_days is invalid (negative or too large)
     """
     now = datetime.now(timezone.utc)
 
     # Validate permission level
     if not validate_share_permission(permission):
         raise ValueError(f"Invalid permission: {permission}. Must be 'read', 'edit', or 'admin'")
+
+    # P2-1 FIX: Validate expires_in_days parameter
+    if expires_in_days is not None:
+        if expires_in_days <= 0:
+            raise ValueError("expires_in_days must be a positive number")
+        if expires_in_days > 3650:  # Max 10 years
+            raise ValueError("expires_in_days cannot exceed 3650 days (10 years)")
+
+    # Calculate expiration date if provided
+    expires_at = None
+    if expires_in_days is not None and expires_in_days > 0:
+        from datetime import timedelta
+        expires_at = now + timedelta(days=expires_in_days)
 
     async with get_db() as db:
         # Verify item exists
@@ -251,6 +278,41 @@ async def share_item(
         if recipient_user_id == item_owner_id:
             raise ValueError("Cannot share an item with yourself")
 
+        # FIX #10: Validate share permission hierarchy
+        # Users cannot grant permissions higher than their own
+        # Only owners (created_by) can grant any permission level
+        if created_by and created_by != item_owner_id:
+            # This is a non-owner sharing - check their permission level
+            sharer_share = await fetch_one(
+                db,
+                """
+                SELECT permission FROM library_shares
+                WHERE item_id = ? AND shared_with_user_id = ? AND license_key_id = ?
+                AND deleted_at IS NULL
+                """,
+                [item_id, created_by, license_id]
+            )
+
+            if sharer_share:
+                sharer_permission = sharer_share.get('permission', 'read')
+                # Permission hierarchy: admin > edit > read
+                permission_levels = {'read': 1, 'edit': 2, 'admin': 3}
+                if permission_levels.get(permission, 0) > permission_levels.get(sharer_permission, 0):
+                    raise ValueError(
+                        f"Cannot grant '{permission}' permission. Your permission level is '{sharer_permission}'."
+                    )
+
+        # BUG-001 FIX: Get share state BEFORE upsert for accurate reshare/permission change detection
+        # This prevents race conditions where concurrent shares could misidentify the state
+        share_before = await fetch_one(
+            db,
+            """
+            SELECT id, deleted_at, permission FROM library_shares
+            WHERE item_id = ? AND shared_with_user_id = ? AND license_key_id = ?
+            """,
+            [item_id, recipient_user_id, license_id]
+        )
+
         # DATA-001 FIX: Don't re-activate revoked shares
         # If share exists and is active (deleted_at IS NULL), update it
         # If share was revoked (deleted_at IS NOT NULL), INSERT will fail on conflict
@@ -259,14 +321,15 @@ async def share_item(
             db,
             """
             INSERT INTO library_shares
-            (item_id, license_key_id, shared_with_user_id, permission, created_at, created_by, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (item_id, license_key_id, shared_with_user_id, permission, created_at, created_by, updated_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (item_id, shared_with_user_id) DO UPDATE SET
                 permission = EXCLUDED.permission,
-                updated_at = EXCLUDED.updated_at
+                updated_at = EXCLUDED.updated_at,
+                expires_at = EXCLUDED.expires_at
             WHERE library_shares.deleted_at IS NULL  -- Only update if share is still active
             """,
-            [item_id, license_id, recipient_user_id, permission, now, created_by, now]
+            [item_id, license_id, recipient_user_id, permission, now, created_by, now, expires_at]
         )
 
         # DATA-002 FIX: Mark item as shared within same transaction (atomic)
@@ -278,51 +341,65 @@ async def share_item(
 
         await commit_db(db)
 
-        # P3-14: Create notification for recipient
-        try:
-            from workers import create_share_notification
-            await create_share_notification(
-                license_id=license_id,
-                item_id=item_id,
-                item_title=item.get("title", "Unknown"),
-                shared_by_user_id=created_by or "Unknown",
-                shared_with_user_id=recipient_user_id,
-                permission=permission
-            )
-        except Exception as e:
-            # FIX: Log with ERROR level and include full stack trace for debugging
-            # Notification failures should be monitored as they affect user experience
-            logger.error(
-                f"Failed to create library share notification for item {item_id} "
-                f"(shared with {recipient_user_id}): {e}",
-                exc_info=True
-            )
-            # P6-1 FIX: Queue for retry via background worker instead of silent failure
+        # BUG-001 FIX: Determine reshare/permission change AFTER commit using the pre-upsert state
+        # This ensures accurate detection even under concurrent access
+        is_reshare = share_before is not None and share_before.get('deleted_at') is not None
+        is_permission_change = (
+            share_before is not None and
+            share_before.get('deleted_at') is None and
+            share_before.get('permission') != permission
+        )
+        is_new_share = share_before is None
+
+        # FIX #4: Send notification for new shares, re-shares, and permission changes
+        # Previously, notifications were only sent for new shares
+        should_send_notification = is_reshare or is_permission_change or is_new_share
+
+        if should_send_notification:
             try:
-                from services.metrics_service import MetricsService
-                metrics = MetricsService()
-                await metrics.increment_counter("library_share_notification_failures", {
-                    "license_id": str(license_id),
-                    "error_type": type(e).__name__
-                })
-            except Exception as metrics_error:
-                logger.warning(f"Failed to log metrics for notification failure: {metrics_error}")
-            
-            # FIX: Queue notification for retry
-            try:
-                from workers import queue_notification_for_retry
-                await queue_notification_for_retry({
-                    'license_id': license_id,
-                    'resource_type': 'library',
-                    'resource_id': str(item_id),
-                    'resource_title': item.get("title", "Unknown"),
-                    'shared_by_user_id': created_by or "Unknown",
-                    'shared_with_user_id': recipient_user_id,
-                    'permission': permission,
-                    'priority': 'normal'
-                })
-            except Exception as retry_error:
-                logger.warning(f"Failed to queue notification for retry: {retry_error}")
+                from workers import create_share_notification
+                await create_share_notification(
+                    license_id=license_id,
+                    item_id=item_id,
+                    item_title=item.get("title", "Unknown"),
+                    shared_by_user_id=created_by or "Unknown",
+                    shared_with_user_id=recipient_user_id,
+                    permission=permission
+                )
+            except Exception as e:
+                # FIX: Log with ERROR level and include full stack trace for debugging
+                # Notification failures should be monitored as they affect user experience
+                logger.error(
+                    f"Failed to create library share notification for item {item_id} "
+                    f"(shared with {recipient_user_id}): {e}",
+                    exc_info=True
+                )
+                # P6-1 FIX: Queue for retry via background worker instead of silent failure
+                try:
+                    from services.metrics_service import MetricsService
+                    metrics = MetricsService()
+                    await metrics.increment_counter("library_share_notification_failures", {
+                        "license_id": str(license_id),
+                        "error_type": type(e).__name__
+                    })
+                except Exception as metrics_error:
+                    logger.warning(f"Failed to log metrics for notification failure: {metrics_error}")
+
+                # FIX: Queue notification for retry
+                try:
+                    from workers import queue_notification_for_retry
+                    await queue_notification_for_retry({
+                        'license_id': license_id,
+                        'resource_type': 'library',
+                        'resource_id': str(item_id),
+                        'resource_title': item.get("title", "Unknown"),
+                        'shared_by_user_id': created_by or "Unknown",
+                        'shared_with_user_id': recipient_user_id,
+                        'permission': permission,
+                        'priority': 'normal'
+                    })
+                except Exception as retry_error:
+                    logger.warning(f"Failed to queue notification for retry: {retry_error}")
 
         # Broadcast WebSocket event to recipient for instant UI update
         try:
@@ -371,7 +448,8 @@ async def share_item(
         return {
             "item_id": item_id,
             "shared_with": recipient_user_id,
-            "permission": permission
+            "permission": permission,
+            "expires_at": expires_at
         }
 
 
@@ -495,10 +573,48 @@ async def remove_share(share_id: int, license_id: int, revoked_by: Optional[str]
         )
 
         await commit_db(db)
-        
-        # P6-2: Invalidate cache for the affected user
+
+        # BUG-002 FIX: Invalidate cache for the affected user
         if share:
             await _invalidate_shared_items_cache(license_id, share["shared_with_user_id"])
+
+        # BUG-002 FIX: Broadcast WebSocket event to recipient for instant cache invalidation
+        # This ensures multi-server deployments properly invalidate caches across all instances
+        if share:
+            try:
+                from services.websocket_manager import broadcast_library_share_revoked
+                from services.websocket_manager import broadcast_safe
+
+                # Get recipient's license ID from user_id
+                recipient_user_id = share["shared_with_user_id"]
+                recipient_license_id = int(recipient_user_id) if recipient_user_id.isdigit() else None
+
+                if recipient_license_id:
+                    asyncio.create_task(
+                        broadcast_safe(
+                            broadcast_library_share_revoked(
+                                license_id=recipient_license_id,
+                                item_id=share["item_id"],
+                                share_id=share_id,
+                                revoked_by=revoked_by or "Unknown"
+                            ),
+                            "broadcast share revoke event"
+                        )
+                    )
+                else:
+                    logger.warning(f"Could not find recipient license for user_id: {recipient_user_id}")
+            except Exception as e:
+                logger.warning(f"Failed to broadcast share revoke event: {e}")
+                # Track failure for monitoring
+                try:
+                    from services.metrics_service import MetricsService
+                    metrics = MetricsService()
+                    await metrics.increment_counter("library_share_revoke_broadcast_failures", {
+                        "license_id": str(license_id),
+                        "error_type": type(e).__name__
+                    })
+                except Exception:
+                    pass
 
         # P3-14: Create notification for user whose access was revoked
         if share:

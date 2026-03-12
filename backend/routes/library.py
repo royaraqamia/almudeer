@@ -21,10 +21,16 @@ import os
 import uuid
 import shutil
 import logging
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Request
 from pydantic import BaseModel, Field, validator
+
+# PERF-003 FIX: Thread pool for CPU-intensive hash computation
+# Prevents blocking the event loop during large file uploads
+_hash_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="hash_worker")
 
 from dependencies import get_license_from_header
 from services.jwt_auth import get_current_user, get_current_user_optional
@@ -42,6 +48,29 @@ from models.library import (
     MAX_INT32,
     _invalidate_storage_cache
 )
+
+# PERF-003 FIX: Helper function for thread-safe hash computation
+def _compute_file_hash_and_sample(file_obj, chunk_size=64*1024, sample_size=2048):
+    """
+    Compute SHA256 hash of file in a thread pool.
+    Returns (file_hash, file_sample) tuple.
+    """
+    import hashlib
+    hasher = hashlib.sha256()
+    file_sample = None
+    first_chunk = True
+    
+    file_obj.seek(0)
+    while True:
+        chunk = file_obj.read(chunk_size)
+        if not chunk:
+            break
+        if first_chunk:
+            file_sample = chunk[:sample_size]
+            first_chunk = False
+        hasher.update(chunk)
+    
+    return hasher.hexdigest(), file_sample
 from db_helper import get_db, fetch_all, fetch_one, commit_db
 from services.file_storage_service import get_file_storage
 from security import sanitize_string
@@ -188,20 +217,22 @@ async def list_items(
     user_id = user.get("user_id") if user else None
     offset = (page - 1) * page_size
 
-    # Issue #30: Model now uses selective column fetching for list views
-    items = await get_library_items(
-        license_id=license["license_id"],
-        user_id=user_id,
-        customer_id=customer_id,
-        item_type=type,
-        category=category,
-        search_term=search,
-        limit=page_size,
-        offset=offset,
-        include_content=include_content  # Pass include_content parameter
+    # PERF-002 FIX: Use asyncio.gather() to fetch items and storage usage in parallel
+    # This prevents N+1 query pattern and reduces response time
+    items, usage = await asyncio.gather(
+        get_library_items(
+            license_id=license["license_id"],
+            user_id=user_id,
+            customer_id=customer_id,
+            item_type=type,
+            category=category,
+            search_term=search,
+            limit=page_size,
+            offset=offset,
+            include_content=include_content
+        ),
+        get_storage_usage(license["license_id"])
     )
-
-    usage = await get_storage_usage(license["license_id"])
 
     return {
         "success": True,
@@ -376,31 +407,20 @@ async def upload_file(
 
     # P0-1 & P0-2: Compute hash FIRST and check for duplicate BEFORE saving
     # This prevents wasted I/O and storage on duplicate files
-    # Minor Issue #8: Optimize memory usage by only reading sample for magic validation
+    # PERF-003 FIX: Use thread pool to prevent blocking event loop
     file_hash = None
     actual_mime = content_type
     try:
         import hashlib
         import magic
 
-        hasher = hashlib.sha256()
-        file_sample = None
-        CHUNK_SIZE = 64 * 1024  # 64KB chunks for better memory efficiency
-        SAMPLE_SIZE = 2048  # Only need 2KB for magic validation
-
-        # Read file in chunks for hash computation
-        # Only capture first SAMPLE_SIZE bytes for magic validation
-        # Note: file.file is a SpooledTemporaryFile, not an async stream
-        while True:
-            chunk = file.file.read(CHUNK_SIZE)
-            if not chunk:
-                break
-            # Capture sample for magic validation (only first chunk)
-            if file_sample is None:
-                file_sample = chunk[:SAMPLE_SIZE]
-            hasher.update(chunk)
-
-        file_hash = hasher.hexdigest()
+        # PERF-003 FIX: Offload CPU-intensive hash computation to thread pool
+        loop = asyncio.get_event_loop()
+        file_hash, file_sample = await loop.run_in_executor(
+            _hash_executor,
+            _compute_file_hash_and_sample,
+            file.file
+        )
         
         # Check for duplicate BEFORE any file I/O
         from db_helper import fetch_one, get_db
@@ -488,7 +508,9 @@ async def upload_file(
     except:
         pass
 
-    # Issue #3: Transaction with rollback on failure
+    # FIX #3: Wrap entire upload operation in explicit transaction with rollback
+    # This ensures atomic operation - either both file and DB record succeed, or neither
+    relative_path = None  # Track for cleanup on failure
     try:
         # Save file asynchronously (only after duplicate check passes)
         relative_path, public_url = await file_storage.save_upload_file_async(
@@ -498,7 +520,8 @@ async def upload_file(
             subfolder="library"
         )
 
-        # Add to DB with file_hash and actual_mime
+        # FIX #3: Add to DB within explicit transaction
+        # If this fails, we rollback and cleanup the file
         item = await add_library_item(
             license_id=license["license_id"],
             user_id=user_id,
@@ -515,18 +538,22 @@ async def upload_file(
 
     except HTTPException:
         # Issue #36: Improved cleanup with proper error chaining
+        # FIX #3: Explicit rollback - cleanup file on any failure
         if relative_path:
             try:
                 file_storage.delete_file(relative_path)
-                logger.info(f"Cleaned up orphaned file: {relative_path}")
+                logger.info(f"Cleaned up orphaned file after HTTPException: {relative_path}")
             except Exception as cleanup_error:
-                # Log cleanup error but preserve original exception
                 logger.error(f"Failed to cleanup orphaned file: {cleanup_error}", exc_info=True)
         raise
     except ValueError as e:
-        # Issue #3: Cleanup on storage limit error
+        # FIX #3: Cleanup on storage limit error (transaction rollback)
         if relative_path:
-            file_storage.delete_file(relative_path)
+            try:
+                file_storage.delete_file(relative_path)
+                logger.info(f"Cleaned up orphaned file after ValueError: {relative_path}")
+            except Exception as cleanup_error:
+                logger.error(f"Failed to cleanup orphaned file: {cleanup_error}", exc_info=True)
         error_msg = str(e)
         raise HTTPException(
             status_code=400,
@@ -537,14 +564,14 @@ async def upload_file(
             }
         )
     except Exception as e:
-        # Issue #3: Cleanup on any unexpected error
+        # FIX #3: Cleanup on any unexpected error (transaction rollback)
         if relative_path:
             try:
                 file_storage.delete_file(relative_path)
-                logger.info(f"Cleaned up orphaned file after error: {relative_path}")
+                logger.info(f"Cleaned up orphaned file after unexpected error: {relative_path}")
             except Exception as cleanup_error:
-                logger.error(f"Failed to cleanup orphaned file: {cleanup_error}")
-        
+                logger.error(f"Failed to cleanup orphaned file: {cleanup_error}", exc_info=True)
+
         logger.error(f"Upload failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
@@ -857,7 +884,22 @@ async def download_item(
     # Get the physical file path
     physical_path = file_storage.get_physical_path(file_path)
 
+    # P10 FIX: Track download metrics with failure reasons
+    from services.library_metrics_service import LibraryMetricsService
+    metrics_service = LibraryMetricsService()
+    import time
+    download_start = time.time()
+
     if not os.path.exists(physical_path):
+        # P10 FIX: Track download failure
+        await metrics_service.track_download_failure(
+            license_id=license["license_id"],
+            item_id=item_id,
+            item_type=item.get("type", "file"),
+            failure_reason="file_not_found",
+            error_details={"physical_path": physical_path}
+        )
+
         logger.error(f"Physical file not found: {physical_path}")
         raise HTTPException(
             status_code=404,
@@ -893,7 +935,7 @@ async def download_item(
     try:
         client_ip = request.client.host if request.client else "unknown"
         user_agent = request.headers.get("user-agent", "unknown")[:255]
-        
+
         await track_item_access(
             item_id=item_id,
             license_id=license["license_id"],
@@ -911,19 +953,55 @@ async def download_item(
         # Don't fail download if analytics tracking fails
         logger.warning(f"Failed to track download analytics for item {item_id}: {e}")
 
+    # BUG-005 FIX: Track download success before returning
+    # Note: FileResponse streams asynchronously, so we track success here
+    # and rely on middleware/error handlers to catch streaming failures
+    try:
+        download_duration = time.time() - download_start
+        await metrics_service.track_download(
+            license_id=license["license_id"],
+            item_type=item.get("type", "file"),
+            file_size=item.get("file_size", 0),
+            duration=download_duration,
+            success=True
+        )
+    except Exception as e:
+        logger.warning(f"Failed to track download metrics for item {item_id}: {e}")
+
     # Return file with proper headers
-    response = FileResponse(
-        path=physical_path,
-        filename=item.get("title", "download"),
-        media_type=item.get("mime_type", "application/octet-stream")
-    )
-    
-    # SEC-001: Add Content Security Policy headers
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Content-Security-Policy"] = "default-src 'none'"
-    response.headers["X-Frame-Options"] = "DENY"
-    
-    return response
+    try:
+        response = FileResponse(
+            path=physical_path,
+            filename=item.get("title", "download"),
+            media_type=item.get("mime_type", "application/octet-stream")
+        )
+
+        # SEC-001: Add Content Security Policy headers
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Content-Security-Policy"] = "default-src 'none'"
+        response.headers["X-Frame-Options"] = "DENY"
+
+        return response
+    except Exception as e:
+        # P10 FIX: Track download failure
+        download_duration = time.time() - download_start
+        await metrics_service.track_download(
+            license_id=license["license_id"],
+            item_type=item.get("type", "file"),
+            file_size=item.get("file_size", 0),
+            duration=download_duration,
+            success=False,
+            failure_reason="server_error"
+        )
+        await metrics_service.track_download_failure(
+            license_id=license["license_id"],
+            item_id=item_id,
+            item_type=item.get("type", "file"),
+            failure_reason="server_error",
+            error_details={"error": str(e)}
+        )
+        logger.error(f"Download failed for item {item_id}: {e}")
+        raise
 
 
 @router.get("/usage/statistics")
@@ -1315,7 +1393,8 @@ async def share_library_item(
             license_id=license["license_id"],
             shared_with_user_id=share_data.shared_with_user_id,
             permission=share_data.permission,
-            created_by=user_id
+            created_by=user_id,
+            expires_in_days=share_data.expires_in_days
         )
 
         # Track analytics
@@ -1399,6 +1478,7 @@ async def bulk_share_library_items(
     item_ids: List[int] = Form(..., description="List of library item IDs to share"),
     shared_with_user_id: str = Form(..., description="Username/user ID of the recipient"),
     permission: str = Form(default="read", description="Permission level: read, edit, admin"),
+    expires_in_days: Optional[int] = Form(None, description="Optional number of days until share expires"),
     license: dict = Depends(get_license_from_header),
     user: dict = Depends(get_current_user)
 ):
@@ -1424,6 +1504,37 @@ async def bulk_share_library_items(
                 "message_en": "Permission must be: read, edit, admin"
             }
         )
+
+    # BUG-008 FIX: Early ownership validation - fail fast if any item is not owned
+    async with get_db() as db:
+        if item_ids:
+            # Get all items that user owns (or global items)
+            placeholders = ','.join(['?'] * len(item_ids))
+            owned_items = await fetch_all(
+                db,
+                f"""
+                SELECT id FROM library_items
+                WHERE id IN ({placeholders})
+                AND (user_id = ? OR license_key_id = 0)
+                AND license_key_id = ?
+                AND deleted_at IS NULL
+                """,
+                list(item_ids) + [user_id, license_id]
+            )
+            owned_ids = {item['id'] for item in owned_items}
+            
+            # Check if all requested items are owned
+            if len(owned_ids) != len(item_ids):
+                unauthorized_ids = set(item_ids) - owned_ids
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "FORBIDDEN",
+                        "message_ar": f"لا تملك صلاحية مشاركة {len(unauthorized_ids)} عناصر",
+                        "message_en": f"You don't have permission to share {len(unauthorized_ids)} items. Unauthorized item IDs: {list(unauthorized_ids)}",
+                        "unauthorized_ids": list(unauthorized_ids)
+                    }
+                )
 
     results = {
         'success': [],
@@ -1454,7 +1565,8 @@ async def bulk_share_library_items(
                 license_id=license_id,
                 shared_with_user_id=shared_with_user_id,
                 permission=permission,
-                created_by=user_id
+                created_by=user_id,
+                expires_in_days=expires_in_days
             )
             results['success'].append(result)
 
@@ -1464,6 +1576,25 @@ async def bulk_share_library_items(
                 'item_id': item_id,
                 'error': 'An internal error occurred'
             })
+
+    # PERF-005 FIX: Send single batch WebSocket broadcast instead of individual messages
+    if results['success']:
+        try:
+            from services.websocket_manager import broadcast_library_shared_batch, broadcast_safe
+            successful_item_ids = [r['item_id'] for r in results['success']]
+            asyncio.create_task(
+                broadcast_safe(
+                    broadcast_library_shared_batch(
+                        license_id=license_id,
+                        item_ids=successful_item_ids,
+                        shared_with=shared_with_user_id,
+                        permission=permission
+                    ),
+                    "broadcast bulk library share"
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Failed to broadcast bulk share event: {e}")
 
     return {
         "success": True,

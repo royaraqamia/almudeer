@@ -299,17 +299,24 @@ async def get_tasks(
         """
         params = [user_id, user_id, license_id, now, license_id, user_id]
 
-        # Cursor-based pagination (more efficient for large datasets)
+        # FIX BUG-012: Use consistent timestamp for cursor and since filters
+        # Cursor uses updated_at for consistency with since filter
+        # This prevents skipping or duplicating tasks when both are used together
         if cursor:
-            base_query += " AND t.created_at < ?"
+            # FIX: Use updated_at instead of created_at for cursor
+            # This ensures consistency with the 'since' filter
+            base_query += " AND t.updated_at < ?"
             params.append(cursor)
 
         if since:
+            # Incremental sync: fetch tasks updated after this timestamp
             base_query += " AND (t.updated_at > ? OR t.synced_at > ?)"
             params.extend([since, since])
 
         # Unified Sorting: Active/Completed -> order_index -> newest
-        base_query += " ORDER BY t.is_completed ASC, t.order_index ASC, t.created_at DESC"
+        # FIX BUG-012: Sort by updated_at DESC for cursor-based pagination
+        # This ensures cursor position matches the filter timestamp
+        base_query += " ORDER BY t.is_completed ASC, t.order_index ASC, t.updated_at DESC"
 
         if limit is not None:
             base_query += f" LIMIT {limit} OFFSET {offset}"
@@ -407,19 +414,25 @@ def compute_task_role(task: dict, user_id: str, share_permission: Optional[str] 
     """
     Compute user's role/permission level for a task.
     Returns: 'owner', 'admin', 'editor', 'viewer'
-    
+
     P4-2: Updated to use share permission instead of assigned_to.
+    FIX BUG-011: Properly handle 'read' permission to return 'viewer' role.
     """
     if task.get('created_by') == user_id:
         return 'owner'
+    
     if share_permission:
         if share_permission == 'admin':
             return 'admin'
         elif share_permission == 'edit':
             return 'editor'
+        elif share_permission == 'read':
+            return 'viewer'  # FIX BUG-011: Explicitly return 'viewer' for read permission
+    
     # Fallback to old assigned_to for backward compatibility
     if task.get('assigned_to') == user_id and task.get('visibility') != 'private':
         return 'editor'
+    
     return 'viewer'
 
 def can_edit_task(task: dict, user_id: str, share_permission: Optional[str] = None) -> bool:
@@ -478,7 +491,18 @@ async def create_task(license_id: int, task_data: dict) -> dict:
 
     FIX BUG-004: Enhanced LWW with client timestamp + server timestamp for better conflict resolution.
     FIX: Use database-agnostic syntax for clock skew tolerance (works on both SQLite and PostgreSQL).
+    FIX: Configurable clock skew tolerance via environment variable (default: 5 seconds).
     """
+    import os
+    
+    # FIX: Configurable clock skew tolerance (default 5 seconds, max 60 seconds)
+    # Environment variable: TASK_LWW_CLOCK_SKEW_SECONDS
+    try:
+        clock_skew_seconds = int(os.getenv('TASK_LWW_CLOCK_SKEW_SECONDS', '5'))
+        clock_skew_seconds = max(1, min(clock_skew_seconds, 60))  # Clamp between 1-60 seconds
+    except (ValueError, TypeError):
+        clock_skew_seconds = 5  # Fallback to default
+    
     async with get_db() as db:
         try:
             # Convert list to JSON string if needed
@@ -494,24 +518,27 @@ async def create_task(license_id: int, task_data: dict) -> dict:
             # FIX BUG-004: Store client timestamp separately for better conflict resolution
             client_updated_at = updated_at
 
-            # SECURITY FIX: Ensure created_by is never NULL - default to license_id if not provided
-            # This prevents ownership issues when tasks are synced from clients
+            # SECURITY FIX: Ensure created_by is never NULL.
+            # Primary source: JWT user_id (set in routes/tasks.py before calling this function)
+            # Fallback: license_id (for legacy clients or edge cases)
+            # Note: In multi-user licenses, the route layer should always provide the actual user_id
             created_by = task_data.get('created_by')
             if not created_by:
                 created_by = str(license_id)
+                logger.warning(f"Task {task_data.get('id')} missing created_by, defaulting to license_id {license_id}")
 
-            # FIX: Use database-agnostic clock skew tolerance
+            # FIX: Use database-agnostic clock skew tolerance with configurable value
             # PostgreSQL: EXTRACT(EPOCH FROM ...) returns seconds
             # SQLite: strftime('%s', ...) returns seconds as string
-            clock_skew_condition = """
-                        -- If timestamps are very close (< 5s), prefer the one with more recent client timestamp
-                        ABS(EXTRACT(EPOCH FROM (excluded.updated_at - tasks.updated_at))) < 5
+            clock_skew_condition = f"""
+                        -- If timestamps are very close (< {clock_skew_seconds}s), prefer the one with more recent client timestamp
+                        ABS(EXTRACT(EPOCH FROM (excluded.updated_at - tasks.updated_at))) < {clock_skew_seconds}
                         AND excluded.updated_at >= tasks.updated_at
                     """
             if DB_TYPE == "sqlite":
-                clock_skew_condition = """
+                clock_skew_condition = f"""
                         -- SQLite: Use strftime for timestamp difference in seconds
-                        ABS(strftime('%s', excluded.updated_at) - strftime('%s', tasks.updated_at)) < 5
+                        ABS(strftime('%s', excluded.updated_at) - strftime('%s', tasks.updated_at)) < {clock_skew_seconds}
                         AND excluded.updated_at >= tasks.updated_at
                     """
 

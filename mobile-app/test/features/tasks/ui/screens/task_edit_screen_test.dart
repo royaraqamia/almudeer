@@ -137,6 +137,85 @@ void main() {
     });
   });
 
+  group('TaskEditScreen - Permission Loading Edge Cases', () {
+    testWidgets('handles null currentUserId gracefully', (
+      WidgetTester tester,
+    ) async {
+      // Simulate race condition where currentUserId is not yet loaded
+      when(mockProvider.currentUserId).thenReturn(null);
+      when(mockProvider.loadCurrentUser()).thenAnswer((_) async {});
+
+      final task = TaskModel(
+        id: 'task-1',
+        title: 'Test Task',
+        createdBy: 'other-user',
+        sharePermission: 'edit',
+      );
+
+      await tester.pumpWidget(createTestWidget(task: task));
+      
+      // Initial state: read-only until permissions load
+      await tester.pumpAndSettle();
+      
+      // Should not crash, should default to read-only
+      final titleField = find.byType(TextField).first;
+      expect(tester.widget<TextField>(titleField).readOnly, isTrue);
+    });
+
+    testWidgets('handles permission loading error gracefully', (
+      WidgetTester tester,
+    ) async {
+      when(mockProvider.loadCurrentUser()).thenThrow(Exception('Load failed'));
+
+      final task = TaskModel(
+        id: 'task-1',
+        title: 'Test Task',
+        createdBy: 'other-user',
+        sharePermission: 'edit',
+      );
+
+      await tester.pumpWidget(createTestWidget(task: task));
+      await tester.pumpAndSettle();
+
+      // Should not crash, should default to read-only on error
+      final titleField = find.byType(TextField).first;
+      expect(tester.widget<TextField>(titleField).readOnly, isTrue);
+    });
+
+    testWidgets('new task defaults to owner permission', (
+      WidgetTester tester,
+    ) async {
+      // New tasks should immediately be editable (no async permission load)
+      await tester.pumpWidget(createTestWidget());
+      await tester.pumpAndSettle();
+
+      final titleField = find.byType(TextField).first;
+      expect(tester.widget<TextField>(titleField).readOnly, isFalse);
+      expect(tester.widget<TextField>(titleField).enabled, isTrue);
+    });
+
+    testWidgets('legacy task (null createdBy) treated as owned', (
+      WidgetTester tester,
+    ) async {
+      // Legacy tasks without createdBy should be treated as owned by current user
+      final task = TaskModel(
+        id: 'task-legacy',
+        title: 'Legacy Task',
+        createdBy: null, // Legacy task
+        sharePermission: null,
+      );
+
+      when(mockProvider.currentUserId).thenReturn('user-123');
+
+      await tester.pumpWidget(createTestWidget(task: task));
+      await tester.pumpAndSettle();
+
+      // Should be editable (treated as owner)
+      final titleField = find.byType(TextField).first;
+      expect(tester.widget<TextField>(titleField).readOnly, isFalse);
+    });
+  });
+
   group('TaskEditScreen - Auto-save', () {
     testWidgets('triggers auto-save on text change', (WidgetTester tester) async {
       when(mockProvider.addTask(

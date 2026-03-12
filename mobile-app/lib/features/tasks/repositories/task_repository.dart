@@ -10,6 +10,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:async';
 import '../../../core/services/websocket_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/task_logger.dart'; // FIX #8: Centralized logging
 
 class TaskRepository {
   final LocalDatabaseService _databaseService = LocalDatabaseService();
@@ -49,39 +50,163 @@ class TaskRepository {
     _initWebSocket();
   }
 
-  // Comment cache for real-time updates - FIX: Add max size and LRU tracking
-  final Map<String, List<TaskCommentModel>> _commentCache = {};
+  // FIX BUG-003 + PERF-001: Use LinkedHashMap for O(1) LRU operations instead of O(n) List
+  // This prevents memory leak and improves performance for large comment caches
+  final _commentCache = <String, List<TaskCommentModel>>{};
+  final Map<String, DateTime> _commentCacheTimestamps = {};  // Track cache entry time for TTL
   final Set<String> _commentCacheStale = {};
-  static const int _maxCommentCacheSize = 20;  // FIX: Limit cache size to prevent memory leak
-  final List<String> _commentCacheAccessOrder = [];  // LRU tracking
+  // BUG-004 FIX: Reduced cache size from 20 to 10 to prevent memory leak
+  static const int _maxCommentCacheSize = 10;
+  // BUG-004 FIX: Reduced TTL from 5 to 3 minutes for better memory management
+  static const Duration _commentCacheTTL = Duration(minutes: 3);
+  // FIX: No need for separate access order list - LinkedHashMap maintains insertion order
 
-  // FIX: Evict oldest entries when cache is full
+  // FIX BUG-003: Evict oldest entries when cache is full or expired - O(1) operations
   void _evictCommentCacheIfNeeded() {
-    while (_commentCache.length >= _maxCommentCacheSize && _commentCacheAccessOrder.isNotEmpty) {
-      final oldestKey = _commentCacheAccessOrder.removeAt(0);
+    final now = DateTime.now();
+
+    // First, remove expired entries (TTL-based eviction)
+    final expiredKeys = <String>[];
+    for (final entry in _commentCacheTimestamps.entries) {
+      if (now.difference(entry.value) > _commentCacheTTL) {
+        expiredKeys.add(entry.key);
+      }
+    }
+
+    for (final key in expiredKeys) {
+      _commentCache.remove(key);
+      _commentCacheTimestamps.remove(key);
+      _commentCacheStale.remove(key);
+      TaskLogger.cache('Evicted expired comment cache for task $key');
+    }
+
+    // Then, evict oldest entries if still over capacity (LRU eviction)
+    // FIX BUG-003: LinkedHashMap.keys.iterator is O(1) for getting first key
+    while (_commentCache.length >= _maxCommentCacheSize && _commentCache.isNotEmpty) {
+      final oldestKey = _commentCache.keys.first;
       _commentCache.remove(oldestKey);
+      _commentCacheTimestamps.remove(oldestKey);
       _commentCacheStale.remove(oldestKey);
-      debugPrint('TaskRepository: Evicted comment cache for task $oldestKey');
+      TaskLogger.cache('Evicted LRU comment cache for task $oldestKey');
     }
   }
 
-  // FIX: Update LRU order when accessing cache
+  // FIX BUG-003: Update LRU order and timestamp when accessing cache - O(1) operation
   void _updateCommentCacheAccess(String taskId) {
-    _commentCacheAccessOrder.remove(taskId);
-    _commentCacheAccessOrder.add(taskId);
+    // FIX: Re-insert to move to end of LinkedHashMap (marks as most recently used)
+    if (_commentCache.containsKey(taskId)) {
+      final comments = _commentCache.remove(taskId);
+      _commentCache[taskId] = comments!;
+      _commentCacheTimestamps[taskId] = DateTime.now();
+    }
+  }
+
+  // FIX: Helper to add entry to cache with timestamp
+  void _addToCommentCache(String taskId, List<TaskCommentModel> comments) {
+    _evictCommentCacheIfNeeded();  // Evict before adding
+    _commentCache[taskId] = comments;
+    _commentCacheTimestamps[taskId] = DateTime.now();
+    _updateCommentCacheAccess(taskId);
+    TaskLogger.cache('Cached ${comments.length} comments for task $taskId');
+  }
+
+  // FIX BUG-004: Add error-based cache cleanup to prevent memory leaks on repeated failures
+  void _cleanupCommentCacheOnError(String taskId) {
+    // On repeated errors, remove the cache entry to prevent serving stale data indefinitely
+    if (_commentCacheStale.contains(taskId)) {
+      // Already stale - this is a repeated failure, evict the cache
+      _commentCache.remove(taskId);
+      _commentCacheTimestamps.remove(taskId);
+      _commentCacheStale.remove(taskId);
+      TaskLogger.cache('Evicted comment cache for task $taskId due to repeated errors');
+    } else {
+      // First error - mark as stale
+      _commentCacheStale.add(taskId);
+      TaskLogger.cache('Comment cache marked stale for task $taskId due to error');
+    }
   }
 
   // WebSocket reconnection state
   int _wsReconnectAttempts = 0;
   static const int _maxWsReconnectAttempts = 10;
   static const Duration _wsReconnectBaseDelay = Duration(seconds: 2);
+  static const Duration _wsReconnectMaxDelay = Duration(minutes: 2); // FIX BUG-008: Cap max delay
   Timer? _wsReconnectTimer;
+  bool _isReconnecting = false; // FIX BUG-008: Prevent concurrent reconnection attempts
+  
+  // FIX BUG-011: WebSocket connection status for UI indicator
+  bool _isWebSocketConnected = true;
+  DateTime? _wsLastDisconnectedAt;
+  int _wsDisconnectCount = 0;
+  
+  // Get WebSocket connection status
+  bool get isWebSocketConnected => _isWebSocketConnected;
+  DateTime? get wsLastDisconnectedAt => _wsLastDisconnectedAt;
+  int get wsDisconnectCount => _wsDisconnectCount;
+  int get wsReconnectAttempts => _wsReconnectAttempts;
+  
+  // Stream for WebSocket status changes
+  final _wsStatusController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get wsStatusStream => _wsStatusController.stream;
+  
+  void _notifyWsStatusChange() {
+    if (_wsStatusController.hasListener) {
+      _wsStatusController.add({
+        'isConnected': _isWebSocketConnected,
+        'reconnectAttempts': _wsReconnectAttempts,
+        'disconnectCount': _wsDisconnectCount,
+        'lastDisconnectedAt': _wsLastDisconnectedAt,
+      });
+    }
+  }
+
+  // BUG-005 FIX: WebSocket event deduplication with LRU cache
+  final Map<String, DateTime> _processedEventIds = {};
+  static const Duration _eventIdTTL = Duration(minutes: 5);
+  static const int _maxEventIdCacheSize = 100;
+
+  // BUG-005 FIX: Check if event was already processed
+  bool _isDuplicateEvent(String eventId) {
+    if (_processedEventIds.containsKey(eventId)) {
+      TaskLogger.websocket('Duplicate event ignored: $eventId');
+      return true;
+    }
+    return false;
+  }
+
+  // BUG-005 FIX: Track processed event
+  void _markEventAsProcessed(String eventId) {
+    // Evict old entries if cache is full
+    if (_processedEventIds.length >= _maxEventIdCacheSize) {
+      _cleanupOldEventIds();
+    }
+    _processedEventIds[eventId] = DateTime.now();
+  }
+
+  // BUG-005 FIX: Cleanup expired event IDs
+  void _cleanupOldEventIds() {
+    final now = DateTime.now();
+    _processedEventIds.removeWhere((key, timestamp) {
+      return now.difference(timestamp) > _eventIdTTL;
+    });
+  }
 
   void _initWebSocket() {
     final ws = _webSocketService;
     if (ws == null) return;
+
+    // FIX BUG-008: Cancel any existing reconnection timer before initializing
+    _wsReconnectTimer?.cancel();
+    _isReconnecting = false;
+
     _wsSubscription?.cancel();
     _wsSubscription = ws.stream.listen((event) {
+      // BUG-005 FIX: Check for duplicate events
+      final eventId = event['event_id'] as String?;
+      if (eventId != null && _isDuplicateEvent(eventId)) {
+        return;  // Skip duplicate event
+      }
+
       if (event['event'] == 'task_sync') {
         final data = event['data'] as Map<String, dynamic>?;
         final taskId = data?['task_id'] as String?;
@@ -91,20 +216,25 @@ class TaskRepository {
           'TaskRepository: task_sync event received. ID: $taskId, Type: $changeType',
         );
 
+        // BUG-005 FIX: Mark event as processed
+        if (eventId != null) {
+          _markEventAsProcessed(eventId);
+        }
+
         // Handle comment events separately for real-time updates
         if (changeType == 'comment' && taskId != null) {
           // FIX BUG-005: Mark as stale but don't remove - return stale data while fetching
           _commentCacheStale.add(taskId);
-          debugPrint('TaskRepository: Comment cache marked stale for task $taskId');
+          TaskLogger.cache('Comment cache marked stale for task $taskId');
 
           // Notify listeners to refresh comments
           _syncController.add(null);
 
           // Fetch fresh in background - don't await
           getComments(taskId).then((comments) {
-            debugPrint('TaskRepository: Background comment refresh completed for $taskId');
+            TaskLogger.d('Background comment refresh completed for $taskId', tag: 'Comments');
           }).catchError((e) {
-            debugPrint('TaskRepository: Background comment refresh failed for $taskId: $e');
+            TaskLogger.e('Background comment refresh failed for $taskId: $e', tag: 'Comments');
           });
         } else if (changeType == 'delete' && taskId != null) {
           // Optimization: If delete, we can remove locally immediately
@@ -121,38 +251,83 @@ class TaskRepository {
         }
       }
     }, onError: (error) {
-      // FIX: Handle WebSocket errors with exponential backoff reconnection
-      debugPrint('TaskRepository: WebSocket error: $error');
+      // FIX BUG-008: Handle WebSocket errors with debounce and capped exponential backoff
+      TaskLogger.websocket('WebSocket error: $error');
+
+      // FIX BUG-011: Track disconnection status
+      _isWebSocketConnected = false;
+      _wsLastDisconnectedAt = DateTime.now();
+      _wsDisconnectCount++;
+      _notifyWsStatusChange();
+
+      // FIX: Debounce reconnection attempts to prevent rapid retries
+      if (_isReconnecting) {
+        TaskLogger.websocket('Reconnection already in progress, skipping...');
+        return;
+      }
+
       _wsReconnectAttempts++;
       if (_wsReconnectAttempts <= _maxWsReconnectAttempts) {
-        final delay = _wsReconnectBaseDelay * (1 << (_wsReconnectAttempts - 1)); // Exponential backoff
-        debugPrint('TaskRepository: Scheduling WebSocket reconnection in ${delay.inSeconds}s (attempt $_wsReconnectAttempts/$_maxWsReconnectAttempts)');
+        // FIX: Cap the delay to prevent excessively long waits
+        final delay = Duration(
+          milliseconds: (_wsReconnectBaseDelay.inMilliseconds * (1 << (_wsReconnectAttempts - 1)))
+              .clamp(0, _wsReconnectMaxDelay.inMilliseconds),
+        );
+        TaskLogger.websocket('Scheduling reconnection in ${delay.inSeconds}s (attempt $_wsReconnectAttempts/$_maxWsReconnectAttempts)');
+
         _wsReconnectTimer?.cancel();
+        _isReconnecting = true;
         _wsReconnectTimer = Timer(delay, () {
-          debugPrint('TaskRepository: Reconnecting WebSocket...');
+          _isReconnecting = false;
+          TaskLogger.websocket('Reconnecting WebSocket...');
           _initWebSocket();
         });
       } else {
-        debugPrint('TaskRepository: Max WebSocket reconnection attempts reached. Stopping reconnections.');
+        TaskLogger.w('Max WebSocket reconnection attempts reached. Stopping reconnections.', tag: 'WebSocket');
       }
     }, onDone: () {
-      // FIX: Handle WebSocket disconnection with reconnection
-      debugPrint('TaskRepository: WebSocket connection closed. Attempting reconnection...');
+      // FIX BUG-008: Handle WebSocket disconnection with debounce and capped backoff
+      TaskLogger.websocket('WebSocket connection closed. Attempting reconnection...');
+
+      // FIX BUG-011: Track disconnection status
+      _isWebSocketConnected = false;
+      _wsLastDisconnectedAt = DateTime.now();
+      _wsDisconnectCount++;
+      _notifyWsStatusChange();
+
+      // FIX: Debounce reconnection attempts
+      if (_isReconnecting) {
+        TaskLogger.websocket('Reconnection already in progress, skipping...');
+        return;
+      }
+
       _wsReconnectAttempts++;
       if (_wsReconnectAttempts <= _maxWsReconnectAttempts) {
-        final delay = _wsReconnectBaseDelay * (1 << (_wsReconnectAttempts - 1)); // Exponential backoff
-        debugPrint('TaskRepository: Scheduling WebSocket reconnection in ${delay.inSeconds}s (attempt $_wsReconnectAttempts/$_maxWsReconnectAttempts)');
+        // FIX: Cap the delay
+        final delay = Duration(
+          milliseconds: (_wsReconnectBaseDelay.inMilliseconds * (1 << (_wsReconnectAttempts - 1)))
+              .clamp(0, _wsReconnectMaxDelay.inMilliseconds),
+        );
+        TaskLogger.websocket('Scheduling reconnection in ${delay.inSeconds}s (attempt $_wsReconnectAttempts/$_maxWsReconnectAttempts)');
+
         _wsReconnectTimer?.cancel();
+        _isReconnecting = true;
         _wsReconnectTimer = Timer(delay, () {
-          debugPrint('TaskRepository: Reconnecting WebSocket...');
+          _isReconnecting = false;
+          TaskLogger.websocket('Reconnecting WebSocket...');
           _initWebSocket();
         });
       } else {
-        debugPrint('TaskRepository: Max WebSocket reconnection attempts reached. Stopping reconnections.');
+        TaskLogger.w('Max WebSocket reconnection attempts reached. Stopping reconnections.', tag: 'WebSocket');
       }
     });
     // Reset reconnect attempts on successful connection
     _wsReconnectAttempts = 0;
+    // FIX BUG-011: Mark as connected on successful init
+    if (!_isWebSocketConnected) {
+      _isWebSocketConnected = true;
+      _notifyWsStatusChange();
+    }
   }
 
   // FIX PERF-002: Cache last alarm reschedule to avoid unnecessary work
@@ -162,7 +337,7 @@ class TaskRepository {
   // FIX: Invalidate alarm cache when tasks are modified
   void _invalidateAlarmCache() {
     _lastAlarmReschedule = null;
-    debugPrint('TaskRepository: Alarm cache invalidated');
+    TaskLogger.alarm('Alarm cache invalidated');
   }
 
   Future<void> _rescheduleLocalAlarms() async {
@@ -171,7 +346,7 @@ class TaskRepository {
       final now = DateTime.now();
       if (_lastAlarmReschedule != null &&
           now.difference(_lastAlarmReschedule!) < _alarmRescheduleInterval) {
-        debugPrint('TaskRepository: Skipping alarm reschedule (recently done)');
+        TaskLogger.alarm('Skipping alarm reschedule (recently done)');
         return;
       }
 
@@ -185,17 +360,17 @@ class TaskRepository {
       );
 
       if (maps.isEmpty) {
-        debugPrint('TaskRepository: No active alarms to reschedule');
+        TaskLogger.alarm('No active alarms to reschedule');
         _lastAlarmReschedule = now;
         return;
       }
 
       final tasks = maps.map((m) => TaskModel.fromMap(m)).toList();
-      debugPrint('TaskRepository: Rescheduling ${tasks.length} active alarms');
+      TaskLogger.alarm('Rescheduling ${tasks.length} active alarms');
       await TaskAlarmService().rescheduleAllAlarms(tasks);
       _lastAlarmReschedule = now;
     } catch (e) {
-      debugPrint('TaskRepository: Failed to reschedule local alarms: $e');
+      TaskLogger.e('Failed to reschedule local alarms: $e', tag: 'Alarm');
     }
   }
 
@@ -205,6 +380,16 @@ class TaskRepository {
     _wsReconnectTimer?.cancel();
     _syncController.close();
     _typingController.close();
+    // BUG-004 FIX: Clear comment cache on dispose (logout)
+    clearCommentCache();
+  }
+
+  /// BUG-004 FIX: Clear entire comment cache (useful for logout or data reset)
+  void clearCommentCache() {
+    _commentCache.clear();
+    _commentCacheTimestamps.clear();
+    _commentCacheStale.clear();
+    TaskLogger.cache('Comment cache cleared (BUG-004 FIX)');
   }
 
   Future<List<TaskModel>> getTasks({
@@ -234,15 +419,34 @@ class TaskRepository {
   }
 
   /// Fetch tasks shared with the current user from backend
+  /// BUG-002 FIX: Added client-side expiration filtering
   Future<List<TaskModel>> getSharedTasks({String? permission}) async {
     try {
       final tasks = await _syncService.fetchSharedTasks(permission: permission);
+      final now = DateTime.now();
+      
       // Mark tasks as shared by setting sharePermission
-      return tasks.map((task) {
-        return task.copyWith(sharePermission: permission ?? 'read');
-      }).toList();
+      // BUG-002 FIX: Filter out expired shares client-side as additional safety
+      return tasks
+          .map((task) {
+            return task.copyWith(sharePermission: permission ?? 'read');
+          })
+          .where((task) {
+            // Filter out expired shares
+            if (task.shareExpiresAt != null) {
+              if (task.shareExpiresAt!.isBefore(now)) {
+                TaskLogger.d(
+                  'Filtering out expired share: task=${task.id}, expiredAt=${task.shareExpiresAt}',
+                  tag: 'Sync',
+                );
+                return false;
+              }
+            }
+            return true;
+          })
+          .toList();
     } catch (e) {
-      debugPrint('[TaskRepository] Failed to fetch shared tasks: $e');
+      TaskLogger.e('Failed to fetch shared tasks: $e', tag: 'Sync');
       return [];
     }
   }
@@ -272,10 +476,10 @@ class TaskRepository {
       // FIX PERF-005: Process in parallel with concurrency limit (max 5 concurrent)
       const maxConcurrent = 5;
       final pendingTasks = pendingMaps.map((m) => TaskModel.fromMap(m)).toList();
-      
+
       if (pendingTasks.isNotEmpty) {
-        debugPrint('TaskRepository: Processing ${pendingTasks.length} pending sync items (max concurrent: $maxConcurrent)');
-        
+        TaskLogger.sync('Processing ${pendingTasks.length} pending sync items (max concurrent: $maxConcurrent)');
+
         // Process in batches to avoid overwhelming the server
         for (var i = 0; i < pendingTasks.length; i += maxConcurrent) {
           final batch = pendingTasks.skip(i).take(maxConcurrent).toList();
@@ -286,7 +490,7 @@ class TaskRepository {
       // 2. Pull remote changes with timeout
       await _syncFromBackend();
     } catch (e) {
-      debugPrint('Sync queue processing error: $e');
+      TaskLogger.e('Sync queue processing error: $e', tag: 'Sync');
     } finally {
       _isSyncing = false;
     }
@@ -302,7 +506,7 @@ class TaskRepository {
           onTimeout: () => throw TimeoutException('Delete task timeout'),
         );
         await db.delete('tasks', where: 'id = ?', whereArgs: [task.id]);
-        debugPrint('TaskRepository: Deleted task ${task.id} from remote');
+        TaskLogger.sync('Deleted task ${task.id} from remote');
       } else {
         // TaskSyncService will send the local updated_at which the backend now respects for LWW
         await _syncService.createTask(task).timeout(
@@ -315,14 +519,16 @@ class TaskRepository {
           where: 'id = ?',
           whereArgs: [task.id],
         );
-        debugPrint('TaskRepository: Synced task ${task.id} to remote');
+        TaskLogger.sync('Synced task ${task.id} to remote');
       }
     } catch (e, stackTrace) {
       // Explicit Error Handling for Silent Sync Failures
-      debugPrint(
-        'CRITICAL: Failed to push local sync item ${task.id} to remote: $e',
+      TaskLogger.e(
+        'Failed to push local sync item ${task.id} to remote: $e',
+        tag: 'Sync',
+        error: e,
+        stackTrace: stackTrace,
       );
-      debugPrint('Stack trace: $stackTrace');
       // We intentionally do not mark isSynced = true here, so it retries on the next queue run.
     }
   }
@@ -355,14 +561,13 @@ class TaskRepository {
           lastSync.isBefore(sevenDaysAgo);
 
       if (shouldForceFullSync) {
-        debugPrint(
-          'TaskRepository: Forcing FULL sync - lastSync: $lastSync, '
-          'localTaskCount: $localTaskCount, sevenDaysAgo: $sevenDaysAgo',
+        TaskLogger.sync(
+          'Forcing FULL sync - lastSync: $lastSync, '
+          'localTaskCount: $localTaskCount',
         );
       }
 
-      debugPrint('TaskRepository: Syncing from backend - lastSync: $lastSync, '
-          'localTaskCount: $localTaskCount, forceFullSync: $shouldForceFullSync');
+      TaskLogger.sync('Syncing from backend - lastSync: $lastSync, localTaskCount: $localTaskCount');
 
       // TIMEOUT: Add timeout to fetchTasks to prevent indefinite hangs
       final remoteTasks = await _syncService.fetchTasks(
@@ -371,15 +576,12 @@ class TaskRepository {
       ).timeout(
         const Duration(seconds: 60),
         onTimeout: () {
-          debugPrint('Sync timeout: fetchTasks exceeded 60s');
+          TaskLogger.w('Sync timeout: fetchTasks exceeded 60s', tag: 'Sync');
           return <TaskModel>[];
         },
       );
 
-      debugPrint(
-        'TaskRepository: Received ${remoteTasks.length} tasks from backend, '
-        'first task subTasks: ${remoteTasks.isNotEmpty ? remoteTasks.first.subTasks.map((s) => s.title).toList() : "N/A"}',
-      );
+      TaskLogger.sync('Received ${remoteTasks.length} tasks from backend');
 
       if (remoteTasks.isNotEmpty) {
         final db = await _databaseService.database;
@@ -405,9 +607,7 @@ class TaskRepository {
           if (pendingMap.containsKey(task.id)) {
             final localTask = pendingMap[task.id]!;
             if (localTask.updatedAt.isAfter(task.updatedAt)) {
-              debugPrint(
-                'LWW Sync: Skipping remote pull for ${task.id}, local is newer.',
-              );
+              TaskLogger.sync('Skipping remote pull for ${task.id}, local is newer');
               continue;
             }
           }
@@ -426,14 +626,28 @@ class TaskRepository {
           DateTime.now().toUtc().toIso8601String(),
         );
 
-        // Reliability Hardening: Handle remote deletions and Re-schedule alarms
-        // FIX: Only check for deletions on FULL sync (when since=null)
-        // On delta sync, missing tasks are just unchanged, not deleted
-        if (shouldForceFullSync) {
-          final remoteIds = remoteTasks.map((t) => t.id).toSet();
-          final localTasks = await getTasks(triggerSync: false);
+        // FIX BUG-006: Handle remote deletions on BOTH full and delta sync
+        // Backend now includes soft-deleted tasks in delta sync with is_deleted=1 flag
+        final remoteIds = remoteTasks.map((t) => t.id).toSet();
+        final localTasks = await getTasks(triggerSync: false);
 
-          // Delete local tasks that no longer exist on remote (only on full sync)
+        // Process deletions: Remove local tasks that are marked deleted on remote
+        for (var remoteTask in remoteTasks) {
+          if (remoteTask.isDeleted) {
+            // Remote task is soft-deleted - delete locally as well
+            await db.delete(
+              'tasks',
+              where: 'id = ?',
+              whereArgs: [remoteTask.id],
+            );
+            await TaskAlarmService().cancelAlarm(remoteTask.id);
+            TaskLogger.alarm('Cancelled alarm for deleted task ${remoteTask.id}');
+          }
+        }
+
+        // FIX BUG-006: Also handle tasks that exist locally but not on remote (only on full sync)
+        // This catches any edge cases where delta sync might miss deletions
+        if (shouldForceFullSync) {
           for (var localTask in localTasks) {
             if (!remoteIds.contains(localTask.id) && localTask.isSynced) {
               await db.delete(
@@ -442,9 +656,7 @@ class TaskRepository {
                 whereArgs: [localTask.id],
               );
               await TaskAlarmService().cancelAlarm(localTask.id);
-              debugPrint(
-                'TaskRepository: Cancelled alarm for deleted task ${localTask.id}',
-              );
+              TaskLogger.alarm('Cancelled alarm for orphaned task ${localTask.id}');
             }
           }
         }
@@ -466,7 +678,7 @@ class TaskRepository {
         _syncController.add(null);
       }
     } catch (e) {
-      debugPrint('Sync failed: $e');
+      TaskLogger.e('Sync failed: $e', tag: 'Sync');
     }
   }
 
@@ -494,9 +706,7 @@ class TaskRepository {
   Future<void> updateTask(TaskModel task) async {
     final db = await _databaseService.database;
 
-    debugPrint(
-      '[TaskRepository] updateTask: id=${task.id}, subTasks=${task.subTasks.map((s) => s.title).toList()}',
-    );
+    TaskLogger.d('updateTask: id=${task.id}, subTasks=${task.subTasks.map((s) => s.title).toList()}', tag: 'Repository');
 
     // Update as pending sync
     await db.update(
@@ -547,7 +757,7 @@ class TaskRepository {
       permission: permission,
       expiresInDays: expiresInDays,
     );
-    debugPrint('Task shared successfully: $taskId with $sharedWithUserId');
+    TaskLogger.i('Task shared successfully: $taskId with $sharedWithUserId');
   }
 
   Future<void> deleteTask(String id) async {
@@ -581,22 +791,19 @@ class TaskRepository {
 
   /// Get comments for a task (fresh from remote, fallback to local)
   /// FIX BUG-005: Returns stale cache immediately while fetching fresh data in background
-  /// FIX: Added LRU eviction to prevent memory leaks
+  /// FIX: Added LRU eviction with TTL to prevent memory leaks
   Future<List<TaskCommentModel>> getComments(String taskId) async {
     // FIX BUG-005: Return stale cache immediately if available (even if marked stale)
     if (_commentCache.containsKey(taskId)) {
-      _updateCommentCacheAccess(taskId);  // FIX: Update LRU
+      _updateCommentCacheAccess(taskId);  // FIX: Update LRU and timestamp
       final cached = _commentCache[taskId]!;
       if (_commentCacheStale.contains(taskId)) {
-        debugPrint('TaskRepository: Returning STALE cached comments for task $taskId (background refresh in progress)');
+        TaskLogger.cache('Returning STALE cached comments for task $taskId');
       } else {
-        debugPrint('TaskRepository: Returning cached comments for task $taskId');
+        TaskLogger.cache('Returning cached comments for task $taskId');
       }
       return cached;
     }
-
-    // FIX: Evict old entries if needed before adding new one
-    _evictCommentCacheIfNeeded();
 
     // FIX: Fetch fresh data from remote first, with timeout and fallback to local
     final db = await _databaseService.database;
@@ -606,7 +813,7 @@ class TaskRepository {
       final remoteComments = await _syncService.fetchComments(taskId).timeout(
         const Duration(seconds: 3),
         onTimeout: () {
-          debugPrint('Comment sync timeout for task $taskId, using local cache');
+          TaskLogger.w('Comment sync timeout for task $taskId, using local cache', tag: 'Comments');
           return <TaskCommentModel>[];
         },
       );
@@ -623,19 +830,20 @@ class TaskRepository {
         }
         await batch.commit(noResult: true);
 
-        // Update cache, clear stale flag, and update LRU
-        _commentCache[taskId] = remoteComments;
+        // FIX: Use helper method for proper cache management
+        _addToCommentCache(taskId, remoteComments);
         _commentCacheStale.remove(taskId);
-        _updateCommentCacheAccess(taskId);
 
-        debugPrint('Updated ${remoteComments.length} comments for task $taskId');
+        TaskLogger.i('Updated ${remoteComments.length} comments for task $taskId', tag: 'Comments');
         return remoteComments;
       }
 
       // Remote returned empty - could be no comments or sync issue
       // Fall through to local cache
     } catch (e) {
-      debugPrint('Comment sync failed for task $taskId: $e');
+      TaskLogger.e('Comment sync failed for task $taskId: $e', tag: 'Comments');
+      // FIX BUG-004: Add error-based cache cleanup
+      _cleanupCommentCacheOnError(taskId);
       // Fall through to local cache on error
     }
 
@@ -649,10 +857,9 @@ class TaskRepository {
 
     final localComments = maps.map((map) => TaskCommentModel.fromMap(map)).toList();
 
-    // Cache the local comments, clear stale flag, and update LRU
-    _commentCache[taskId] = localComments;
+    // FIX: Use helper method for proper cache management
+    _addToCommentCache(taskId, localComments);
     _commentCacheStale.remove(taskId);
-    _updateCommentCacheAccess(taskId);
 
     return localComments;
   }

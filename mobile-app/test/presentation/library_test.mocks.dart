@@ -121,6 +121,7 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
     String? title,
     int? customerId,
     void Function(double)? onProgress,
+    int? tempId,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#uploadFile, [], {
@@ -128,6 +129,7 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
               #title: title,
               #customerId: customerId,
               #onProgress: onProgress,
+              #tempId: tempId,
             }),
             returnValue: _i6.Future<_i3.LibraryItem>.value(
               _FakeLibraryItem_1(
@@ -137,6 +139,7 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
                   #title: title,
                   #customerId: customerId,
                   #onProgress: onProgress,
+                  #tempId: tempId,
                 }),
               ),
             ),
@@ -180,6 +183,15 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
           as _i6.Future<void>);
 
   @override
+  _i6.Future<void> restoreItem(int? itemId) =>
+      (super.noSuchMethod(
+            Invocation.method(#restoreItem, [itemId]),
+            returnValue: _i6.Future<void>.value(),
+            returnValueForMissingStub: _i6.Future<void>.value(),
+          )
+          as _i6.Future<void>);
+
+  @override
   _i6.Future<void> syncPendingActions() =>
       (super.noSuchMethod(
             Invocation.method(#syncPendingActions, []),
@@ -189,10 +201,13 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
           as _i6.Future<void>);
 
   @override
-  void scheduleSync() => super.noSuchMethod(
-    Invocation.method(#scheduleSync, []),
-    returnValueForMissingStub: null,
-  );
+  _i6.Future<void> scheduleSync() =>
+      (super.noSuchMethod(
+            Invocation.method(#scheduleSync, []),
+            returnValue: _i6.Future<void>.value(),
+            returnValueForMissingStub: _i6.Future<void>.value(),
+          )
+          as _i6.Future<void>);
 
   @override
   _i6.Future<int> getStorageUsage() =>

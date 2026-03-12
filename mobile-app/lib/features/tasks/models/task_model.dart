@@ -85,6 +85,7 @@ class TaskModel {
   final String visibility; // 'shared' or 'private'
   // P4-2: Sharing support
   final String? sharePermission; // 'read', 'edit', 'admin' - for tasks shared with user
+  final DateTime? shareExpiresAt; // Expiration time for shared access (BUG-002 FIX)
 
   TaskModel({
     required this.id,
@@ -104,6 +105,7 @@ class TaskModel {
     this.visibility = 'shared',
     this.priority = TaskPriority.medium,
     this.sharePermission,
+    this.shareExpiresAt,
     DateTime? createdAt,
     DateTime? updatedAt,
     this.isSynced = true,
@@ -132,6 +134,7 @@ class TaskModel {
     String? visibility,
     TaskPriority? priority,
     String? sharePermission,
+    DateTime? shareExpiresAt,
     DateTime? createdAt,
     DateTime? updatedAt,
     bool? isSynced,
@@ -155,6 +158,7 @@ class TaskModel {
       visibility: visibility ?? this.visibility,
       priority: priority ?? this.priority,
       sharePermission: sharePermission ?? this.sharePermission,
+      shareExpiresAt: shareExpiresAt ?? this.shareExpiresAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       isSynced: isSynced ?? this.isSynced,
@@ -188,6 +192,8 @@ class TaskModel {
       'is_deleted': isDeleted ? 1 : 0,
       // P4-2: Share permission
       'share_permission': sharePermission,
+      // BUG-002 FIX: Share expiration
+      'share_expires_at': shareExpiresAt?.millisecondsSinceEpoch,
     };
   }
 
@@ -240,6 +246,10 @@ class TaskModel {
       priority: _parsePriority(map['priority']),
       // P4-2: Share permission - backend returns 'share_permission'
       sharePermission: map['share_permission'],
+      // BUG-002 FIX: Share expiration
+      shareExpiresAt: map['share_expires_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['share_expires_at'])
+          : null,
       createdAt: map['created_at'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['created_at'])
           : null,
@@ -343,6 +353,10 @@ class TaskModel {
       priority: _parsePriority(json['priority']),
       // P4-2: Share permission - backend returns 'share_permission'
       sharePermission: json['share_permission'],
+      // BUG-002 FIX: Share expiration
+      shareExpiresAt: json['share_expires_at'] != null
+          ? DateTime.tryParse(json['share_expires_at'])
+          : null,
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'])
           : null,

@@ -128,4 +128,17 @@ class LibraryLocalizations {
   String get mergeVersions => _isArabic
       ? 'دمج الإصدارين'
       : 'Merge Versions';
+
+  // P1-5: Enhanced conflict resolution dialog
+  String get conflictTitle => _isArabic
+      ? 'تعارض في الإصدارات'
+      : 'Version Conflict';
+
+  String get keepLocal => _isArabic
+      ? 'الاحتفاظ بالإصدار المحلي'
+      : 'Keep Local';
+
+  String get useServer => _isArabic
+      ? 'استخدام إصدار الخادم'
+      : 'Use Server';
 }

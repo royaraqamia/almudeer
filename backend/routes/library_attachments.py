@@ -97,6 +97,31 @@ async def upload_attachment(
         if not item:
             raise HTTPException(404, detail="Library item not found")
 
+        # BUG-004 FIX: Verify user has permission to add attachments (edit/admin required)
+        if user_id:
+            # Check if user is the owner
+            owner_check = await fetch_one(
+                db,
+                "SELECT created_by FROM library_items WHERE id = ? AND license_key_id = ?",
+                [item_id, license["license_id"]]
+            )
+            
+            if owner_check and owner_check.get("created_by") != user_id:
+                # Not the owner - check share permission
+                from models.library import verify_share_permission
+                has_permission = await verify_share_permission(
+                    db, item_id, user_id, license["license_id"], "edit"
+                )
+                if not has_permission:
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "code": "FORBIDDEN",
+                            "message_ar": "لا تملك صلاحية إضافة مرفقات لهذا العنصر",
+                            "message_en": "You don't have permission to add attachments to this item"
+                        }
+                    )
+
     # P1-4 FIX: Sanitize filename to prevent path traversal attacks
     original_filename = file.filename or "attachment"
     # Remove path components (prevent ../../../etc/passwd)
@@ -295,10 +320,18 @@ async def get_attachment_file(
             }
         )
 
+    # FIX #14: Add Content-Disposition header to force download
+    # This ensures browsers download the file instead of displaying it
+    filename = attachment.get("filename", "attachment")
+    
     return FileResponse(
         path=physical_path,
-        filename=attachment.get("filename", "attachment"),
-        media_type=attachment.get("mime_type", "application/octet-stream")
+        filename=filename,
+        media_type=attachment.get("mime_type", "application/octet-stream"),
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Transfer-Encoding": "binary",
+        }
     )
 
 

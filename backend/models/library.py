@@ -41,6 +41,8 @@ async def verify_share_permission(
     Verify if a user has the required permission for a shared item.
 
     P3-14: Share permission enforcement.
+    FIX P0-1: Uses atomic JOIN query to prevent race conditions.
+    FIX P0-2: Added share expiration check.
 
     Args:
         db: Database connection
@@ -57,37 +59,37 @@ async def verify_share_permission(
         - edit: can read and edit
         - read: can only read
     """
-    # Check if user is the owner
-    item = await fetch_one(
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+
+    # FIX P0-1: Use atomic JOIN query to prevent race conditions
+    # FIX P0-2: Add expiration check (expires_at IS NULL OR expires_at > now)
+    result = await fetch_one(
         db,
-        "SELECT created_by FROM library_items WHERE id = ? AND license_key_id = ?",
-        [item_id, license_id]
+        """
+        SELECT li.created_by, ls.permission as share_permission
+        FROM library_items li
+        LEFT JOIN library_shares ls ON li.id = ls.item_id
+            AND ls.shared_with_user_id = ?
+            AND ls.license_key_id = ?
+            AND ls.deleted_at IS NULL
+            AND (ls.expires_at IS NULL OR ls.expires_at > ?)
+        WHERE li.id = ? AND li.license_key_id = ? AND li.deleted_at IS NULL
+        """,
+        [user_id, license_id, now, item_id, license_id]
     )
 
-    if not item:
+    if not result:
         return False
 
     # Owner always has full access
-    if item.get("created_by") == user_id:
+    if result.get("created_by") == user_id:
         return True
 
-    # Check share permissions
-    share = await fetch_one(
-        db,
-        """
-        SELECT permission FROM library_shares
-        WHERE item_id = ?
-        AND shared_with_user_id = ?
-        AND license_key_id = ?
-        AND deleted_at IS NULL
-        """,
-        [item_id, user_id, license_id]
-    )
-
-    if not share:
+    # Check share permissions (share exists and is not expired due to JOIN condition)
+    share_permission = result.get("share_permission")
+    if not share_permission:
         return False
-
-    share_permission = share.get("permission", "read")
 
     # Permission hierarchy check
     if required_permission == "read":
@@ -237,8 +239,9 @@ async def get_library_items(
             if user_id and include_shared:
                 try:
                     columns_prefixed = ", ".join(f"li.{col}" for col in (FULL_COLUMNS if include_content else LIST_VIEW_COLUMNS))
-                    
+
                     if DB_TYPE == "postgresql":
+                        # FIX P0-2: Added share expiration check
                         shared_search_query = f"""
                             SELECT {columns_prefixed}, ls.permission as share_permission, ls.expires_at as share_expires_at
                             FROM library_items li
@@ -246,11 +249,14 @@ async def get_library_items(
                             WHERE ls.shared_with_user_id = $1
                             AND ls.license_key_id = $2
                             AND ls.deleted_at IS NULL
+                            AND (ls.expires_at IS NULL OR ls.expires_at > $3)
                             AND li.deleted_at IS NULL
-                            AND li.search_vector @@ websearch_to_tsquery('english', $3)
+                            AND li.search_vector @@ websearch_to_tsquery('english', $4)
                         """
-                        shared_params = [user_id, license_id, sanitized_term]
+                        now = datetime.now(timezone.utc)
+                        shared_params = [user_id, license_id, now, sanitized_term]
                     else:
+                        # FIX P0-2: Added share expiration check
                         shared_search_query = f"""
                             SELECT {columns_prefixed}, ls.permission as share_permission, ls.expires_at as share_expires_at
                             FROM library_items li
@@ -259,10 +265,12 @@ async def get_library_items(
                             WHERE ls.shared_with_user_id = ?
                             AND ls.license_key_id = ?
                             AND ls.deleted_at IS NULL
+                            AND (ls.expires_at IS NULL OR ls.expires_at > ?)
                             AND li.deleted_at IS NULL
                             AND library_items_fts MATCH ?
                         """
-                        shared_params = [user_id, license_id, f"'{sanitized_term}*'" ]
+                        now = datetime.now(timezone.utc)
+                        shared_params = [user_id, license_id, now, f"'{sanitized_term}*'" ]
 
                     # Add type/category filters to shared query
                     if category:
@@ -331,6 +339,7 @@ async def get_library_items(
                     # Use table prefix to avoid column ambiguity with library_shares
                     # Add share permission to the select
                     columns_prefixed = ", ".join(f"li.{col}" for col in (FULL_COLUMNS if include_content else LIST_VIEW_COLUMNS))
+                    # FIX P0-2: Added share expiration check
                     shared_query = f"""
                         SELECT {columns_prefixed}, ls.permission as share_permission, ls.expires_at as share_expires_at
                         FROM library_items li
@@ -338,9 +347,11 @@ async def get_library_items(
                         WHERE ls.shared_with_user_id = ?
                         AND ls.license_key_id = ?
                         AND ls.deleted_at IS NULL
+                        AND (ls.expires_at IS NULL OR ls.expires_at > ?)
                         AND li.deleted_at IS NULL
                     """
-                    shared_params = [user_id, license_id]
+                    now = datetime.now(timezone.utc)
+                    shared_params = [user_id, license_id, now]
 
                     # Add type/category filters to shared query
                     if category:

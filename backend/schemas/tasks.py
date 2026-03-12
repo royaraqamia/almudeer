@@ -31,6 +31,8 @@ class TaskBase(BaseModel):
     attachments: Optional[List[Attachment]] = []
     visibility: str = "shared" # shared, private
     role: Optional[str] = None  # owner, assignee, viewer (computed, not stored)
+    # FIX BUG-005: Priority field with proper validation
+    priority: str = "medium"  # low, medium, high, urgent
 
     @field_validator('recurrence')
     @classmethod
@@ -44,6 +46,14 @@ class TaskBase(BaseModel):
     def validate_visibility(cls, v):
         if v not in ('shared', 'private'):
             raise ValueError('visibility must be shared or private')
+        return v
+
+    # FIX BUG-005: Validate priority field to accept only valid values
+    @field_validator('priority')
+    @classmethod
+    def validate_priority(cls, v):
+        if v not in ('low', 'medium', 'high', 'urgent'):
+            raise ValueError('priority must be low, medium, high, or urgent')
         return v
 
 class TaskCreate(TaskBase):

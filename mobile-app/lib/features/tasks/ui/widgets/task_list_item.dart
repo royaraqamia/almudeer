@@ -240,6 +240,33 @@ class _TaskListItemState extends State<TaskListItem>
                             ),
                           ),
                         ),
+                      // UX-001 FIX: Show sync pending indicator
+                      if (!widget.task.isSynced)
+                        Positioned(
+                          top: AppDimensions.spacing8,
+                          right: widget.task.sharePermission != null ? 120 : 56,
+                          child: Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: Colors.orange,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.white,
+                                width: 1,
+                              ),
+                            ),
+                            child: Tooltip(
+                              message: 'Pending sync',
+                              child: Container(
+                                decoration: const BoxDecoration(
+                                  color: Colors.orange,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -258,8 +285,31 @@ class _TaskListItemState extends State<TaskListItem>
     return InkWell(
       onTap: () {
         Haptics.lightTap();
-        context.read<TaskProvider>().toggleTaskStatus(widget.task);
+        final provider = context.read<TaskProvider>();
+        final previousState = widget.task.isCompleted;
+        
+        // Toggle the task
+        provider.toggleTaskStatus(widget.task);
         widget.onComplete?.call();
+        
+        // UX-004 FIX: Show undo snackbar
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              previousState
+                  ? 'تم إعادة فتح المهمة'
+                  : 'تم إكمال المهمة',
+            ),
+            action: SnackBarAction(
+              label: 'تراجع',
+              onPressed: () {
+                // Toggle back to previous state
+                provider.toggleTaskStatus(widget.task);
+              },
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
       },
       borderRadius: BorderRadius.circular(12),
       child: Padding(

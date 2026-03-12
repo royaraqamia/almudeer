@@ -320,6 +320,21 @@ class TaskSyncService {
     }
   }
 
+  /// Fetch task shares for a specific task - P4-2
+  Future<List<Map<String, dynamic>>> fetchTaskShares(String taskId) async {
+    try {
+      final response = await _apiClient.get('$_endpoint/$taskId/shares');
+      // Handle wrapped list format: {'data': [...]}
+      if (response.containsKey('data') && response['data'] is List) {
+        return List<Map<String, dynamic>>.from(response['data'] as List);
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching task shares: $e');
+      return [];
+    }
+  }
+
   Future<List<TaskCommentModel>> fetchComments(String taskId) async {
     try {
       final response = await _apiClient.get('$_endpoint/$taskId/comments');

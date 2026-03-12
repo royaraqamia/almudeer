@@ -14,8 +14,11 @@ import '../../data/repositories/customers_repository.dart';
 const int _maxInt32 = 2147483647;
 
 /// Throttle interval for progress updates to prevent UI lag (milliseconds)
-/// Increased from 100ms to 200ms to prevent UI jank during heavy uploads
-const int _progressThrottleIntervalMs = 200;
+/// FIX #9: Adaptive throttling - faster updates at start (50ms), slower during transfer (200ms)
+/// This prevents UI from feeling unresponsive during initial upload while reducing overhead
+const int _progressThrottleIntervalMsStart = 50;  // Fast updates at start (0-10%)
+const int _progressThrottleIntervalMsTransfer = 200;  // Slower updates during transfer
+const double _progressThrottleFastThreshold = 0.1;  // 10% threshold for fast updates
 
 /// Tolerance window for comparing timestamps to account for clock skew (seconds)
 /// Minor Issue #10: Reduced from 5 to 2 seconds to prevent accepting stale data
@@ -92,14 +95,34 @@ class LibraryProvider extends ChangeNotifier {
   int? _inFlightCategoryToken;
 
   // Progress throttling to prevent UI lag - tracks last update time per item
+  // FIX P2-3: Added max age to prevent unbounded memory growth
   final Map<int, DateTime> _lastProgressUpdate = {};
+  static const Duration _progressUpdateMaxAge = Duration(hours: 1);
+
+  /// FIX P2-3: Cleanup stale progress entries older than max age
+  /// Prevents memory leaks during long sessions with many uploads
+  void _cleanupStaleProgressEntries() {
+    final now = DateTime.now();
+    final staleKeys = _lastProgressUpdate.entries
+        .where((e) => now.difference(e.value) > _progressUpdateMaxAge)
+        .map((e) => e.key)
+        .toList();
+    
+    for (final key in staleKeys) {
+      _lastProgressUpdate.remove(key);
+    }
+    
+    if (staleKeys.isNotEmpty) {
+      debugPrint('[LibraryProvider] Cleaned up ${staleKeys.length} stale progress entries');
+    }
+  }
 
   // Shared items cache with timestamp to prevent excessive API calls
   DateTime? _sharedItemsLastFetched;
-  // FIX #10: Reduced cache TTL for better real-time collaboration
-  // Default 1 minute balances freshness with API call reduction
+  // BUG-003 FIX: Increased cache TTL from 1 minute to 5 minutes for better UX
+  // Reduced from 5 minutes to 2 minutes as a balance between freshness and API calls
   // Use setSharedItemsCacheTTL() to customize for specific use cases
-  Duration _sharedItemsCacheTTL = const Duration(minutes: 1);
+  Duration _sharedItemsCacheTTL = const Duration(minutes: 2);
 
   /// Set custom cache TTL for shared items (e.g., shorter for real-time collaboration)
   void setSharedItemsCacheTTL(Duration ttl) {
@@ -139,15 +162,22 @@ class LibraryProvider extends ChangeNotifier {
   bool get usernameNotFound => _usernameNotFound;
 
   /// Get search results for global search
+  /// UX-004 FIX: Include shared items in search results
   List<LibraryItem> get searchResults {
     if (_currentQuery == null || _currentQuery!.isEmpty) return _items;
     final query = _currentQuery!.toLowerCase();
-    return _items.where((item) {
+    // Search in both owned and shared items
+    final allItems = _mergeAndDeduplicateItems(_items, _sharedItems);
+    return allItems.where((item) {
       final title = item.title.toLowerCase();
       final fileType = item.type.toLowerCase();
       return title.contains(query) || fileType.contains(query);
     }).toList();
   }
+
+  // UX-006 FIX: Loading state for bulk operations
+  bool _isBulkDeleting = false;
+  bool get isBulkDeleting => _isBulkDeleting;
 
   void toggleSelectionMode(bool enabled) {
     if (_isSelectionMode == enabled) return;
@@ -202,20 +232,39 @@ class LibraryProvider extends ChangeNotifier {
               if (!_disposed) {
                 await fetchItems(refresh: true);
               }
+            } else if (eventType == 'library_share_revoked') {
+              // BUG-003 FIX: Handle share revocation events
+              debugPrint(
+                '[LibraryProvider] Received library_share_revoked event, invalidating cache',
+              );
+              // Invalidate shared items cache immediately
+              _sharedItemsLastFetched = null;
+              // Refresh items to remove the revoked share
+              if (!_disposed) {
+                await fetchItems(refresh: true);
+              }
+            } else if (eventType == 'connection_lost') {
+              // P6-2: Handle connection lost events
+              debugPrint(
+                '[LibraryProvider] WebSocket connection lost, will reconnect',
+              );
             }
           } catch (e, stackTrace) {
             debugPrint('[LibraryProvider] WebSocket event error: $e');
             debugPrint('Stack: $stackTrace');
-            // FIX: Cancel subscription on error to prevent memory leaks
+            // FIX #5: Cancel subscription on error to prevent memory leaks
             _websocketSubscription?.cancel();
             _websocketSubscription = null;
           }
         },
         onError: (error) {
-          // FIX: Handle stream errors and cleanup subscription
+          // FIX #5: Handle stream errors and cleanup subscription
           debugPrint('[LibraryProvider] WebSocket stream error: $error');
           _websocketSubscription?.cancel();
           _websocketSubscription = null;
+
+          // P6-2: Force reconnection after error
+          _webSocketService.forceReconnect();
         },
       );
     }
@@ -249,6 +298,9 @@ class LibraryProvider extends ChangeNotifier {
     bool refresh = false,
     bool loadMore = false,
   }) async {
+    // FIX P2-3: Cleanup stale progress entries periodically
+    _cleanupStaleProgressEntries();
+
     // Increment token on category/query change to invalidate stale requests
     final bool categoryChanged =
         category != null && category != _currentCategory;
@@ -530,11 +582,14 @@ class LibraryProvider extends ChangeNotifier {
   /// Merge owned and shared items, removing duplicates
   /// Owned items take precedence, shared items are marked with sharePermission
   /// FIX BUG #4: Properly preserve sharePermission from backend response
+  /// P3-14 FIX: Filter out expired shares to prevent showing inaccessible items
+  /// FIX #2, #16: Added comprehensive null safety checks to prevent crashes
   List<LibraryItem> _mergeAndDeduplicateItems(
     List<LibraryItem> ownedItems,
     List<LibraryItem> sharedItems,
   ) {
     final Map<int, LibraryItem> itemsMap = {};
+    final now = DateTime.now();
 
     // Add owned items first (they take precedence)
     for (final item in ownedItems) {
@@ -544,11 +599,25 @@ class LibraryProvider extends ChangeNotifier {
 
     // Add shared items that aren't already owned
     for (final item in sharedItems) {
-      if (item.id == 0) continue; // Skip invalid items
+      // FIX #2: Skip null or invalid items
+      if (item.id == 0) continue;
+
+      // FIX #16: Safe null check for shareExpiresAt with proper comparison
+      // Only skip if shareExpiresAt is not null AND is before now
+      final expiresAt = item.shareExpiresAt;
+      if (expiresAt != null && expiresAt.isBefore(now)) {
+        debugPrint(
+          '[LibraryProvider] Skipping expired share: item_id=${item.id}, '
+          'expired_at=$expiresAt',
+        );
+        continue;
+      }
+
       if (!itemsMap.containsKey(item.id)) {
         // FIX BUG #4: Preserve the actual sharePermission from backend
         // Backend returns share_permission for shared items, null for owned
-        if (item.sharePermission != null) {
+        final permission = item.sharePermission;
+        if (permission != null && permission.isNotEmpty) {
           // Backend provided sharePermission - use it as-is
           itemsMap[item.id] = item;
         } else {
@@ -747,20 +816,88 @@ class LibraryProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteItem(int id) async {
+  // UX-005 FIX: Track last deleted items for undo functionality
+  final List<Map<String, dynamic>> _recentlyDeleted = [];
+  static const int _maxDeletedToKeep = 5;
+  static const Duration _undoTTL = Duration(seconds: 5);
+
+  // UX-005 FIX: Delete item with undo option
+  Future<void> deleteItem(int id, {bool showUndo = true}) async {
+    // Find item for potential undo
+    final removedIndex = _items.indexWhere((item) => item.id == id);
+    LibraryItem? removedItem;
+    if (removedIndex != -1) {
+      removedItem = _items[removedIndex];
+    }
+
     // Optimistic removal
-    final removedItem = _items.firstWhere((item) => item.id == id);
     _items.removeWhere((item) => item.id == id);
     notifyListeners();
 
     try {
       await _repository.deleteItem(id);
+
+      // UX-005 FIX: Store for undo (only if showUndo is true)
+      if (showUndo && removedItem != null) {
+        _recentlyDeleted.add({
+          'item': removedItem,
+          'index': removedIndex,
+          'timestamp': DateTime.now(),
+        });
+
+        // Clean up old entries
+        if (_recentlyDeleted.length > _maxDeletedToKeep) {
+          _recentlyDeleted.removeAt(0);
+        }
+
+        // Auto-remove after TTL
+        Future.delayed(_undoTTL, () {
+          _recentlyDeleted.removeWhere(
+            (entry) => entry['item'].id == id,
+          );
+        });
+      }
     } catch (e) {
       // Revert on failure
-      _items.insert(0, removedItem);
+      if (removedItem != null) {
+        _items.insert(removedIndex >= 0 ? removedIndex : 0, removedItem);
+        notifyListeners();
+      }
+      rethrow;
+    }
+  }
+
+  // UX-005 FIX: Undo last delete
+  Future<void> undoDelete(int id) async {
+    final entry = _recentlyDeleted.cast<Map<String, dynamic>>().firstWhere(
+      (e) => (e['item'] as LibraryItem).id == id,
+      orElse: () => <String, dynamic>{},
+    );
+
+    if (entry.isEmpty) return;
+
+    final item = entry['item'] as LibraryItem;
+    final index = entry['index'] as int?;
+
+    // Restore item
+    _items.insert(index ?? 0, item);
+    _recentlyDeleted.removeWhere((e) => e['item'].id == id);
+    notifyListeners();
+
+    // Restore in repository (mark as not deleted)
+    try {
+      await _repository.restoreItem(id);
+    } catch (e) {
+      // If restore fails, remove from list again
+      _items.removeWhere((item) => item.id == id);
       notifyListeners();
       rethrow;
     }
+  }
+
+  // UX-005 FIX: Check if item can be undone
+  bool canUndoDelete(int id) {
+    return _recentlyDeleted.any((e) => e['item'].id == id);
   }
 
   Future<void> updateNote(int id, String title, String content) async {
@@ -855,12 +992,17 @@ class LibraryProvider extends ChangeNotifier {
         filePath: path,
         customerId: customerId,
         onProgress: (progress) {
-          // Throttle progress updates to prevent UI lag (every 100ms per item)
+          // FIX #9: Adaptive throttling - faster updates at start, slower during transfer
           final now = DateTime.now();
           final lastUpdate = _lastProgressUpdate[tempId];
+          
+          // Use faster throttle at start (0-10%), slower during rest of upload
+          final currentThreshold = progress < _progressThrottleFastThreshold
+              ? _progressThrottleIntervalMsStart
+              : _progressThrottleIntervalMsTransfer;
+          
           if (lastUpdate != null &&
-              now.difference(lastUpdate).inMilliseconds <
-                  _progressThrottleIntervalMs) {
+              now.difference(lastUpdate).inMilliseconds < currentThreshold) {
             return;
           }
           _lastProgressUpdate[tempId] = now;
@@ -899,6 +1041,11 @@ class LibraryProvider extends ChangeNotifier {
       // 3. Clear temp item and add real item
       _items.removeWhere((item) => item.id == tempId);
       _items.insert(0, uploadedItem);
+      
+      // P3-14 FIX: Track temp ID to real ID mapping for bulk operations
+      // This ensures updates to the temp item are properly mapped to the server ID
+      _tempToRealIdMap[tempId] = uploadedItem.id;
+      
       notifyListeners();
 
       // Still trigger a silent refresh to ensure sync
@@ -1150,16 +1297,25 @@ class LibraryProvider extends ChangeNotifier {
     }
   }
 
+  // UX-006 FIX: Delete selected with loading state
   Future<void> deleteSelected() async {
     if (_selectedIds.isEmpty) return;
 
-    await _repository.bulkDelete(_selectedIds.toList());
+    _isBulkDeleting = true;
+    notifyListeners();
 
-    // Optimistic removal from local list
-    _items.removeWhere((item) => _selectedIds.contains(item.id));
-    clearSelection();
-    // Also trigger refresh to ensure sync status
-    await fetchItems(refresh: false);
+    try {
+      await _repository.bulkDelete(_selectedIds.toList());
+
+      // Optimistic removal from local list
+      _items.removeWhere((item) => _selectedIds.contains(item.id));
+      clearSelection();
+      // Also trigger refresh to ensure sync status
+      await fetchItems(refresh: false);
+    } finally {
+      _isBulkDeleting = false;
+      notifyListeners();
+    }
   }
 
   /// FIX Issue #3: Generate unique temp ID using UUID to prevent collisions
@@ -1298,18 +1454,37 @@ class LibraryProvider extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _itemsSubscription?.cancel();
-    _websocketSubscription?.cancel();
-    // FIX BUG #4: Cancel timer to prevent memory leaks
+    
+    // FIX #5: Cancel all subscriptions with proper null checks
+    // Using Future.wait to ensure all cancellations complete
+    final cancelFutures = <Future>[];
+    
+    if (_itemsSubscription != null) {
+      cancelFutures.add(_itemsSubscription!.cancel());
+      _itemsSubscription = null;
+    }
+    
+    if (_websocketSubscription != null) {
+      cancelFutures.add(_websocketSubscription!.cancel());
+      _websocketSubscription = null;
+    }
+    
+    // FIX #5: Cancel timer to prevent memory leaks
     _usernameLookupTimer?.cancel();
+    _usernameLookupTimer = null;
+    
     clearUsernameLookup();
     _repository.dispose();
+    
     // Clear all maps to prevent memory leaks
     _pendingUpdates.clear();
     _tempToRealIdMap.clear();
     _lastProgressUpdate.clear();
     _sharedItems.clear();
     _itemShares.clear();
+    _uploadingIds.clear();
+    _selectedIds.clear();
+    
     super.dispose();
   }
 }

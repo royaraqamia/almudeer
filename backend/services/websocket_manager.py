@@ -374,10 +374,14 @@ class ConnectionManager:
                 # and mark them as 'delivered' (double gray checks for senders)
                 if new_count == 1:
                     await self._confirm_pending_deliveries(license_id)
-                
+
                 # NEW: Replay missed message_edited events for this license
                 # Store recent edits in Redis with TTL for replay on reconnect
                 await self._replay_missed_edits(license_id)
+                
+                # FIX WS-001: Replay buffered task sync messages for this license
+                # This ensures clients don't miss task updates during brief disconnections
+                await replay_buffered_task_syncs(license_id, websocket)
             except Exception as e:
                 logger.error(f"Error updating global presence on connect: {e}")
         else:
@@ -1304,16 +1308,105 @@ async def broadcast_task_sync(license_id: int, task_id: Optional[str] = None, ch
     """
     Broadcast a signal to all devices to trigger a task synchronization.
     Optionally includes a task_id for targeted sync.
+    
+    FIX WS-001: Added message buffering for reliability during disconnections.
     """
     manager = get_websocket_manager()
-    await manager.send_to_license(license_id, WebSocketMessage(
+    
+    message = WebSocketMessage(
         event="task_sync",
         data={
             "timestamp": datetime.utcnow().isoformat(),
             "task_id": task_id,
             "change_type": change_type
         }
-    ))
+    )
+    
+    # Send to connected clients
+    await manager.send_to_license(license_id, message)
+    
+    # FIX WS-001: Buffer for recently disconnected clients (TTL: 30 seconds)
+    if task_id and change_type in ("update", "delete", "create"):
+        await _buffer_task_sync_message(license_id, task_id, change_type, message.to_json())
+
+
+async def _buffer_task_sync_message(
+    license_id: int,
+    task_id: str,
+    change_type: str,
+    message_json: str
+):
+    """
+    Buffer task sync messages in Redis for recently disconnected clients.
+    Messages expire after 30 seconds to prevent stale data.
+    
+    FIX WS-001: Improves reliability for users with unstable connections.
+    """
+    from services.websocket_manager import get_websocket_manager
+    manager = get_websocket_manager()
+    
+    if not manager.redis_enabled:
+        return  # Redis required for buffering
+    
+    try:
+        redis = manager._pubsub._redis_client
+        buffer_key = f"almudeer:task_buffer:{license_id}"
+        
+        # Add to Redis stream with TTL
+        await redis.xadd(
+            buffer_key,
+            {
+                "task_id": task_id,
+                "change_type": change_type,
+                "message": message_json,
+                "timestamp": datetime.utcnow().isoformat()
+            },
+            maxlen=100,  # Keep last 100 messages per license
+            approximate=True
+        )
+        
+        # Set TTL on the key
+        await redis.expire(buffer_key, 30)
+        
+        logger.debug(f"Buffered task sync message for license {license_id}, task {task_id}")
+    except Exception as e:
+        logger.warning(f"Failed to buffer task sync message: {e}")
+
+
+async def replay_buffered_task_syncs(license_id: int, websocket: WebSocket):
+    """
+    Replay buffered task sync messages to a reconnected client.
+    
+    FIX WS-001: Ensures clients don't miss updates during brief disconnections.
+    """
+    from services.websocket_manager import get_websocket_manager
+    manager = get_websocket_manager()
+    
+    if not manager.redis_enabled:
+        return  # Redis required for buffering
+    
+    try:
+        redis = manager._pubsub._redis_client
+        buffer_key = f"almudeer:task_buffer:{license_id}"
+        
+        # Read buffered messages
+        messages = await redis.xrange(buffer_key, count=50)
+        
+        if messages:
+            for _, message_data in messages:
+                try:
+                    message_json = message_data.get(b"message", message_data.get("message"))
+                    if message_json:
+                        message_dict = json.loads(message_json)
+                        await websocket.send_json(message_dict)
+                except Exception as e:
+                    logger.warning(f"Failed to replay buffered message: {e}")
+            
+            # Clear buffer after successful replay
+            await redis.delete(buffer_key)
+            logger.info(f"Replayed {len(messages)} buffered task syncs for license {license_id}")
+    except Exception as e:
+        logger.warning(f"Failed to replay buffered task syncs: {e}")
 
 
 async def broadcast_global_sync(event_name: str):
@@ -1351,6 +1444,54 @@ async def broadcast_library_shared(
             "item_title": item_title,
             "shared_by": shared_by,
             "permission": permission
+        }
+    ))
+
+
+async def broadcast_library_share_revoked(
+    license_id: int,
+    item_id: int,
+    share_id: int,
+    revoked_by: str
+):
+    """
+    Broadcast when a library share is revoked.
+    Recipients should refresh their shared library items cache.
+    BUG-002 FIX: Added for multi-server cache invalidation.
+    """
+    manager = get_websocket_manager()
+    await manager.send_to_license(license_id, WebSocketMessage(
+        event="library_share_revoked",
+        data={
+            "timestamp": datetime.utcnow().isoformat(),
+            "item_id": item_id,
+            "share_id": share_id,
+            "revoked_by": revoked_by
+        }
+    ))
+
+
+# PERF-005 FIX: Batch broadcast for bulk share operations
+async def broadcast_library_shared_batch(
+    license_id: int,
+    item_ids: List[int],
+    shared_with: str,
+    permission: str
+):
+    """
+    Broadcast when multiple library items are shared at once.
+    Recipients should refresh their shared library items cache.
+    PERF-005 FIX: Reduces WebSocket message count for bulk operations.
+    """
+    manager = get_websocket_manager()
+    await manager.send_to_license(license_id, WebSocketMessage(
+        event="library_shared_batch",
+        data={
+            "timestamp": datetime.utcnow().isoformat(),
+            "item_ids": item_ids,
+            "shared_with": shared_with,
+            "permission": permission,
+            "count": len(item_ids)
         }
     ))
 

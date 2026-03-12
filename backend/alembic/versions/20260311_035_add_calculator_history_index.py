@@ -16,14 +16,19 @@ depends_on = None
 
 def upgrade():
     """Add index on calculator_history column for faster sync operations"""
-    
+
     # Get the database type
     from db_helper import DB_TYPE
-    
+
     if DB_TYPE == "postgresql":
-        # PostgreSQL - use CONCURRENTLY to avoid locking (in separate transaction)
-        # Note: CONCURRENTLY cannot be used inside a transaction, so we use standard index
-        op.execute("CREATE INDEX IF NOT EXISTS idx_user_preferences_calculator_history ON user_preferences USING GIN (calculator_history)")
+        # PostgreSQL - calculator_history is TEXT column (not JSONB)
+        # For TEXT columns, we use a regular B-tree index which is more efficient
+        # GIN indexes are for JSONB, arrays, or full-text search
+        op.execute("""
+            CREATE INDEX IF NOT EXISTS idx_user_preferences_calculator_history 
+            ON user_preferences 
+            USING BTREE (calculator_history)
+        """)
     else:
         # SQLite - check if index exists first
         try:
