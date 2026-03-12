@@ -571,6 +571,7 @@ async def create_task(license_id: int, task_data: dict) -> dict:
                     tasks.updated_at IS NULL
                     OR excluded.updated_at > tasks.updated_at
                     OR ({clock_skew_condition})
+                )
             """, (
                 task_data['id'],
                 license_id,
