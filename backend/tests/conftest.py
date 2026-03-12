@@ -237,7 +237,15 @@ async def db_session():
     await init_enhanced_tables()
     await init_customers_and_analytics()
 
-    # 3. Seed Data and Yield Session
+    # 3. Ensure library_items has created_by column (migration for tests)
+    async with get_db() as db:
+        try:
+            await db.execute("ALTER TABLE library_items ADD COLUMN created_by TEXT")
+            await db.commit()
+        except:
+            pass  # Column already exists
+
+    # 4. Seed Data and Yield Session
     async with get_db() as db:
         # Seed test license key
         import hashlib

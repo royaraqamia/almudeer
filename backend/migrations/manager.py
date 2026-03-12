@@ -395,10 +395,10 @@ async def ensure_library_attachments_table():
 
     async with get_db() as db:
         if DB_TYPE == "postgresql":
-            # PostgreSQL: Check if table exists, create if not
             try:
+                # Check if table exists
                 row = await db.fetchrow("""
-                    SELECT 1 FROM information_schema.tables 
+                    SELECT 1 FROM information_schema.tables
                     WHERE table_schema = 'public' AND table_name = 'library_attachments'
                 """)
 
@@ -439,10 +439,99 @@ async def ensure_library_attachments_table():
                     await commit_db(db)
                     logger.info("library_attachments table created")
                 else:
-                    logger.debug("library_attachments table already exists")
+                    # Table exists - verify columns and add missing ones
+                    from db_pool import TIMESTAMP_NOW
+                    
+                    # Check and add library_item_id column if missing
+                    col_check = await db.fetchrow("""
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = 'public' 
+                        AND table_name = 'library_attachments'
+                        AND column_name = 'library_item_id'
+                    """)
+                    
+                    if not col_check:
+                        logger.info("Adding missing library_item_id column to library_attachments table")
+                        await execute_sql(db, """
+                            ALTER TABLE library_attachments 
+                            ADD COLUMN library_item_id INTEGER NOT NULL
+                            REFERENCES library_items(id) ON DELETE CASCADE
+                        """)
+                        await commit_db(db)
+                        logger.info("Added library_item_id column to library_attachments table")
+                    
+                    # Check and add other potentially missing columns
+                    columns_to_add = [
+                        ("filename", "TEXT"),
+                        ("file_size", "INTEGER"),
+                        ("mime_type", "TEXT"),
+                        ("file_hash", "TEXT"),
+                        ("created_by", "TEXT"),
+                        ("deleted_at", "TIMESTAMP"),
+                    ]
+                    
+                    for col_name, col_type in columns_to_add:
+                        col_check = await db.fetchrow("""
+                            SELECT 1 FROM information_schema.columns
+                            WHERE table_schema = 'public' 
+                            AND table_name = 'library_attachments'
+                            AND column_name = %s
+                        """, [col_name])
+                        
+                        if not col_check:
+                            logger.info(f"Adding missing {col_name} column to library_attachments table")
+                            await execute_sql(db, f"""
+                                ALTER TABLE library_attachments 
+                                ADD COLUMN {col_name} {col_type}
+                            """)
+                            await commit_db(db)
+                    
+                    # Ensure indexes exist
+                    await execute_sql(db, """
+                        CREATE INDEX IF NOT EXISTS idx_attachments_item_id
+                        ON library_attachments(library_item_id)
+                    """)
+                    await execute_sql(db, """
+                        CREATE INDEX IF NOT EXISTS idx_attachments_license
+                        ON library_attachments(license_key_id)
+                    """)
+                    await execute_sql(db, """
+                        CREATE INDEX IF NOT EXISTS idx_attachments_deleted
+                        ON library_attachments(deleted_at)
+                    """)
+                    await commit_db(db)
+                    logger.debug("library_attachments table schema verified")
+                    
             except Exception as e:
                 logger.warning(f"Error ensuring library_attachments table: {e}")
         else:
             # SQLite: Table creation is handled in init_enhanced_tables()
-            pass
+            # But verify columns exist for existing deployments
+            try:
+                # Check if library_item_id column exists
+                result = await execute_sql(db, "PRAGMA table_info(library_attachments)")
+                columns = [row[1] for row in result] if result else []
+                
+                if "library_item_id" not in columns:
+                    logger.info("Adding missing library_item_id column to library_attachments table (SQLite)")
+                    await execute_sql(db, "ALTER TABLE library_attachments ADD COLUMN library_item_id INTEGER NOT NULL")
+                    await commit_db(db)
+                
+                # Add other missing columns if needed
+                if "filename" not in columns:
+                    await execute_sql(db, "ALTER TABLE library_attachments ADD COLUMN filename TEXT")
+                if "file_size" not in columns:
+                    await execute_sql(db, "ALTER TABLE library_attachments ADD COLUMN file_size INTEGER")
+                if "mime_type" not in columns:
+                    await execute_sql(db, "ALTER TABLE library_attachments ADD COLUMN mime_type TEXT")
+                if "file_hash" not in columns:
+                    await execute_sql(db, "ALTER TABLE library_attachments ADD COLUMN file_hash TEXT")
+                if "created_by" not in columns:
+                    await execute_sql(db, "ALTER TABLE library_attachments ADD COLUMN created_by TEXT")
+                if "deleted_at" not in columns:
+                    await execute_sql(db, "ALTER TABLE library_attachments ADD COLUMN deleted_at TIMESTAMP")
+                
+                await commit_db(db)
+            except Exception as e:
+                logger.warning(f"Error ensuring library_attachments columns (SQLite): {e}")
 
