@@ -5,6 +5,7 @@ B2B Communication Platform for Syrian and Arab Market
 
 import os
 import warnings
+import logging
 
 # Disable ChromaDB telemetry BEFORE any imports that might use it
 # This fixes PostHog compatibility errors
