@@ -67,7 +67,7 @@ async def search_users(
             )
             AND is_active IS TRUE
             ORDER BY
-                CASE 
+                CASE
                     WHEN username LIKE ? THEN 0
                     WHEN full_name LIKE ? THEN 1
                     ELSE 2
@@ -77,7 +77,7 @@ async def search_users(
             """,
             [
                 search_query, search_query, search_query,
-                search_query, search_query,
+                search_query,
                 limit,
             ],
         )

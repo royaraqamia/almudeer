@@ -119,15 +119,18 @@ class LibraryProvider extends ChangeNotifier {
 
   // Shared items cache with timestamp to prevent excessive API calls
   DateTime? _sharedItemsLastFetched;
-  // BUG-003 FIX: Increased cache TTL from 1 minute to 5 minutes for better UX
-  // Reduced from 5 minutes to 2 minutes as a balance between freshness and API calls
-  // Use setSharedItemsCacheTTL() to customize for specific use cases
-  Duration _sharedItemsCacheTTL = const Duration(minutes: 2);
+  // FIX: Increased cache TTL to 15 minutes to reduce API calls
+  // Shared items don't change frequently, so longer cache is acceptable
+  Duration _sharedItemsCacheTTL = const Duration(minutes: 15);
 
   /// Set custom cache TTL for shared items (e.g., shorter for real-time collaboration)
   void setSharedItemsCacheTTL(Duration ttl) {
     _sharedItemsCacheTTL = ttl;
   }
+
+  // Debounce timer for category changes to prevent rapid API calls
+  Timer? _debounceTimer;
+  static const Duration _debounceDuration = Duration(milliseconds: 300);
 
   // Getters
   List<LibraryItem> get items => _items;
@@ -329,9 +332,6 @@ class LibraryProvider extends ChangeNotifier {
       refresh = true;
     }
 
-    // Capture current token to detect stale emissions
-    final int currentToken = _categoryChangeToken;
-
     // Force refresh on category/query change regardless of loadMore flag
     if (categoryChanged || queryChanged) {
       refresh = true;
@@ -347,7 +347,20 @@ class LibraryProvider extends ChangeNotifier {
       _isFetchingMore = true;
     }
 
-    // Only show full loading if we have no items (initial load or forced refresh)
+    // FIX: Debounce rapid category/query changes to prevent excessive API calls
+    _debounceTimer?.cancel();
+    await Future.delayed(_debounceDuration);
+    if (_disposed) return;
+
+    // Capture current token to detect stale emissions AFTER debounce
+    final int currentToken = _categoryChangeToken;
+
+    // Skip if a newer request was made during debounce
+    if (currentToken != _categoryChangeToken) {
+      debugPrint('[LibraryProvider] Debounced request cancelled due to newer request');
+      return;
+    }
+
     if ((_items.isEmpty || refresh) && !loadMore) {
       _isLoading = true;
       notifyListeners();
@@ -1454,25 +1467,29 @@ class LibraryProvider extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    
+
+    // Cancel debounce timer to prevent memory leaks
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+
     // FIX #5: Cancel all subscriptions with proper null checks
     // Using Future.wait to ensure all cancellations complete
     final cancelFutures = <Future>[];
-    
+
     if (_itemsSubscription != null) {
       cancelFutures.add(_itemsSubscription!.cancel());
       _itemsSubscription = null;
     }
-    
+
     if (_websocketSubscription != null) {
       cancelFutures.add(_websocketSubscription!.cancel());
       _websocketSubscription = null;
     }
-    
+
     // FIX #5: Cancel timer to prevent memory leaks
     _usernameLookupTimer?.cancel();
     _usernameLookupTimer = null;
-    
+
     clearUsernameLookup();
     _repository.dispose();
     

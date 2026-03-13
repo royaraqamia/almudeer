@@ -479,12 +479,15 @@ class TaskRepository {
 
       if (pendingTasks.isNotEmpty) {
         TaskLogger.sync('Processing ${pendingTasks.length} pending sync items (max concurrent: $maxConcurrent)');
+        debugPrint('[TaskRepository] Found ${pendingTasks.length} pending sync tasks: ${pendingTasks.map((t) => t.id).join(", ")}');
 
         // Process in batches to avoid overwhelming the server
         for (var i = 0; i < pendingTasks.length; i += maxConcurrent) {
           final batch = pendingTasks.skip(i).take(maxConcurrent).toList();
           await Future.wait(batch.map((task) => _processSyncTask(db, task)));
         }
+      } else {
+        debugPrint('[TaskRepository] No pending sync tasks found');
       }
 
       // 2. Pull remote changes with timeout

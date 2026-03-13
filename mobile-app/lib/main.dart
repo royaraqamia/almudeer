@@ -106,65 +106,76 @@ void main() async {
 
   final webSocketService = WebSocketService();
 
-  // Initialize services (fire and forget to not block UI)
-  // OfflineSyncService.initialize() will be called lazily when needed
+  // Initialize lightweight services first
   connectivityService.initialize();
   pendingOperationsService.initialize();
 
-  // Initialize background services
-  BackgroundSyncService().initialize();
+  // Defer heavy initializations to after first frame to improve startup performance
+  // This prevents "Skipped XX frames" warnings during app launch
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    // Initialize background services (non-blocking)
+    BackgroundSyncService().initialize();
 
-  // Initialize Task Alarm Service
-  try {
-    await TaskAlarmService().initialize();
-    debugPrint('TaskAlarmService initialized');
-  } catch (e) {
-    debugPrint('TaskAlarmService initialization error: $e');
-  }
-
-  // Initialize sharing service to handle "Open with" and "Share" intents
-  SharingService().initialize();
-
-  // Initialize Browser Download Manager
-  await BrowserDownloadManager().init();
-
-  // Initialize Athkar Reminders
-  try {
-    final athkarReminderService = AthkarReminderService();
-    await athkarReminderService.initialize();
-    await athkarReminderService.scheduleReminders();
-  } catch (e) {
-    debugPrint('Athkar reminders error: $e');
-  }
-
-  // P3-15 FIX: Perform startup cache cleanup for attachments
-  // Run in background to avoid blocking startup
-  MediaCacheManager()
-      .performStartupCleanup()
-      .then((_) {
-        debugPrint('Startup cache cleanup completed');
-      })
-      .catchError((e) {
-        debugPrint('Startup cache cleanup error: $e');
+    // Initialize Task Alarm Service
+    try {
+      TaskAlarmService().initialize().then((_) {
+        debugPrint('TaskAlarmService initialized');
+      }).catchError((e) {
+        debugPrint('TaskAlarmService initialization error: $e');
       });
+    } catch (e) {
+      debugPrint('TaskAlarmService initialization error: $e');
+    }
 
-  // Relocated from SplashScreen: Initialize core services early
-  try {
-    await Firebase.initializeApp();
-    // FCM initialization (heavy, but needed for tokens)
-    // FCM initialization (heavy, but needed for tokens)
-    // Run in background to avoid blocking startup
-    FcmService()
-        .initialize()
+    // Initialize sharing service (non-blocking)
+    SharingService().initialize();
+
+    // Initialize Browser Download Manager (non-blocking)
+    BrowserDownloadManager().init().then((_) {
+      debugPrint('BrowserDownloadManager initialized');
+    }).catchError((e) {
+      debugPrint('BrowserDownloadManager initialization error: $e');
+    });
+
+    // Initialize Athkar Reminders (non-blocking)
+    try {
+      final athkarReminderService = AthkarReminderService();
+      athkarReminderService.initialize().then((_) {
+        athkarReminderService.scheduleReminders();
+      }).catchError((e) {
+        debugPrint('Athkar reminders error: $e');
+      });
+    } catch (e) {
+      debugPrint('Athkar reminders error: $e');
+    }
+
+    // P3-15 FIX: Perform startup cache cleanup for attachments (background)
+    MediaCacheManager()
+        .performStartupCleanup()
         .then((_) {
-          debugPrint('FCM initialized in background');
+          debugPrint('Startup cache cleanup completed');
         })
         .catchError((e) {
-          debugPrint('FCM background initialization error: $e');
+          debugPrint('Startup cache cleanup error: $e');
         });
+  });
+
+  // Initialize Firebase (required for FCM)
+  try {
+    await Firebase.initializeApp();
   } catch (e) {
-    debugPrint('Early initialization error in main: $e');
+    debugPrint('Firebase initialization error: $e');
   }
+
+  // FCM initialization (heavy, runs completely in background)
+  FcmService()
+      .initialize()
+      .then((_) {
+        debugPrint('FCM initialized in background');
+      })
+      .catchError((e) {
+        debugPrint('FCM background initialization error: $e');
+      });
 
   runApp(
     AlMudeerApp(
