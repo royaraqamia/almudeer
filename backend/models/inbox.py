@@ -1631,10 +1631,15 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
                 out_conditions.append(f"license_key_id IN (SELECT id FROM license_keys WHERE username IN ({contact_placeholders}))")
                 out_params.extend(list(all_contacts))
 
-            # AND messages sent TO us (current user)
-            out_params.append(current_username)
+                # AND messages sent TO us (current user)
+                out_conditions.append("recipient_id = ?")
+                out_params.append(current_username)
 
-            out_where = " AND ".join(out_conditions)
+                out_where = " AND ".join(out_conditions)
+            else:
+                # No contacts to process, skip outbox update
+                outbox_messages = []
+                out_where = ""
 
             # Get list of outbox messages to update
             # These are messages that OTHERS sent TO US, which we just read
