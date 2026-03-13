@@ -42,7 +42,7 @@ class LocalDatabaseService {
     // Open/Create the database first so we can check its content
     final Database db = await openDatabase(
       path,
-      version: 22, // Added share_permission to CREATE TABLE and migration
+      version: 24, // Added name column to customers
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -56,6 +56,7 @@ class LocalDatabaseService {
       CREATE TABLE customers (
         local_id INTEGER PRIMARY KEY AUTOINCREMENT,
         remote_id INTEGER UNIQUE,
+        name TEXT,
         phone TEXT,
         username TEXT,
         profile_pic_url TEXT,
@@ -67,8 +68,8 @@ class LocalDatabaseService {
         sync_status TEXT DEFAULT 'synced', -- 'synced', 'dirty', 'new', 'deleted'
         last_updated_at INTEGER,
         dirty_fields TEXT, -- JSON list of fields changed offline
-        username TEXT,
-        is_almudeer_user INTEGER DEFAULT 0
+        is_almudeer_user INTEGER DEFAULT 0,
+        last_contact_at TEXT
       )
     ''');
 
@@ -150,7 +151,8 @@ class LocalDatabaseService {
         is_deleted INTEGER NOT NULL DEFAULT 0,
         attachments TEXT,
         visibility TEXT DEFAULT 'shared',
-        share_permission TEXT
+        share_permission TEXT,
+        share_expires_at TEXT
       )
     ''');
 
@@ -170,9 +172,6 @@ class LocalDatabaseService {
 
     // 7. Indexes for Keyboard Performance
     await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)',
-    );
-    await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)',
     );
   }
@@ -180,9 +179,6 @@ class LocalDatabaseService {
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     // ... (previous upgrade logic)
     if (oldVersion < 20) {
-      await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)',
-      );
       await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)',
       );
@@ -446,6 +442,30 @@ class LocalDatabaseService {
       final taskColumnNames = taskColumns.map((c) => c['name']).toSet();
       if (!taskColumnNames.contains('share_permission')) {
         await db.execute('ALTER TABLE tasks ADD COLUMN share_permission TEXT');
+      }
+    }
+
+    // Version 23: Add last_contact_at to customers and share_expires_at to tasks
+    if (oldVersion < 23) {
+      final customerColumns = await db.rawQuery('PRAGMA table_info(customers)');
+      final customerColumnNames = customerColumns.map((c) => c['name']).toSet();
+      if (!customerColumnNames.contains('last_contact_at')) {
+        await db.execute('ALTER TABLE customers ADD COLUMN last_contact_at TEXT');
+      }
+
+      final taskColumns = await db.rawQuery('PRAGMA table_info(tasks)');
+      final taskColumnNames = taskColumns.map((c) => c['name']).toSet();
+      if (!taskColumnNames.contains('share_expires_at')) {
+        await db.execute('ALTER TABLE tasks ADD COLUMN share_expires_at TEXT');
+      }
+    }
+
+    // Version 24: Add name column to customers
+    if (oldVersion < 24) {
+      final customerColumns = await db.rawQuery('PRAGMA table_info(customers)');
+      final customerColumnNames = customerColumns.map((c) => c['name']).toSet();
+      if (!customerColumnNames.contains('name')) {
+        await db.execute('ALTER TABLE customers ADD COLUMN name TEXT');
       }
     }
   }

@@ -47,7 +47,7 @@ class LibraryDatabase {
 
     return await openDatabase(
       path,
-      version: 8, // Added created_by column for library sharing
+      version: 10, // Added deleted_at and version columns
       onCreate: (db, version) async {
         // Table for caching library items
         await db.execute('''
@@ -77,7 +77,10 @@ class LibraryDatabase {
             shared_with TEXT,
             permission TEXT,
             share_permission TEXT,
+            share_expires_at TEXT,
             original_file_path TEXT,
+            deleted_at TEXT,
+            version INTEGER,
             cached_at TEXT DEFAULT CURRENT_TIMESTAMP
           )
         ''');
@@ -322,6 +325,43 @@ class LibraryDatabase {
           if (!columnNames.contains('created_by')) {
             await db.execute(
               'ALTER TABLE c_library_items ADD COLUMN created_by TEXT',
+            );
+          }
+        }
+
+        // Add share_expires_at column for share expiration (P3-14)
+        if (oldVersion < 9) {
+          final columns = await db.rawQuery(
+            'PRAGMA table_info(c_library_items)',
+          );
+          final columnNames = columns
+              .map((col) => col['name'] as String)
+              .toSet();
+
+          if (!columnNames.contains('share_expires_at')) {
+            await db.execute(
+              'ALTER TABLE c_library_items ADD COLUMN share_expires_at TEXT',
+            );
+          }
+        }
+
+        // Add deleted_at and version columns for trash support (Issue #26, P3-13)
+        if (oldVersion < 10) {
+          final columns = await db.rawQuery(
+            'PRAGMA table_info(c_library_items)',
+          );
+          final columnNames = columns
+              .map((col) => col['name'] as String)
+              .toSet();
+
+          if (!columnNames.contains('deleted_at')) {
+            await db.execute(
+              'ALTER TABLE c_library_items ADD COLUMN deleted_at TEXT',
+            );
+          }
+          if (!columnNames.contains('version')) {
+            await db.execute(
+              'ALTER TABLE c_library_items ADD COLUMN version INTEGER',
             );
           }
         }
