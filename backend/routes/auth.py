@@ -177,7 +177,6 @@ async def login(data: LoginRequest, request: Request):
         role="user",
         ip_address=ip_address,
         user_agent=request.headers.get("User-Agent"),
-        skip_session_revoke=False  # Revoke existing sessions on fresh login
     )
 
     # Remove valid/error from result before returning as user info
