@@ -3051,7 +3051,7 @@ async def upsert_conversation_state(
         out_params = [license_id]
         out_filt = []
         if all_contacts:
-            out_filt.append(f"o.recipient_id IN ({', '.join(['?' for _ in all_contacts])})")
+            out_filt.append(f"recipient_id IN ({', '.join(['?' for _ in all_contacts])})")
             out_params.extend(all_contacts)
         if all_ids:
             out_filt.append(f"recipient_id IN ({', '.join(['?' for _ in all_ids])})")
@@ -3060,12 +3060,18 @@ async def upsert_conversation_state(
 
         # Optimization: Combined Counts and Latest Message
         stats_query = f"""
-            SELECT 
+            SELECT
                 (SELECT COUNT(*) FROM inbox_messages WHERE license_key_id = ? AND ({in_where}) AND deleted_at IS NULL AND (is_read IS NOT TRUE)) as unread_count,
                 (SELECT COUNT(*) FROM inbox_messages WHERE license_key_id = ? AND ({in_where}) AND deleted_at IS NULL) as count_in,
                 (SELECT COUNT(*) FROM outbox_messages WHERE license_key_id = ? AND ({out_where}) AND deleted_at IS NULL) as count_out
         """
-        row_stats = await fetch_one(db, stats_query, [license_id] + in_params[1:] + [license_id] + in_params[1:] + [license_id] + out_params[1:])
+        # Build params: each subquery needs license_id + its where clause params
+        # in_params[0] is license_id, in_params[1:] are the contact/id placeholders
+        # out_params[0] is license_id, out_params[1:] are the contact/id placeholders
+        stats_params = [license_id] + (in_params[1:] if in_filt else []) + \
+                       [license_id] + (in_params[1:] if in_filt else []) + \
+                       [license_id] + (out_params[1:] if out_filt else [])
+        row_stats = await fetch_one(db, stats_query, stats_params)
         unread_count = row_stats["unread_count"] if row_stats else 0
         message_count = (row_stats["count_in"] if row_stats else 0) + (row_stats["count_out"] if row_stats else 0)
 
@@ -3078,7 +3084,9 @@ async def upsert_conversation_state(
             FROM outbox_messages WHERE license_key_id = ? AND ({out_where}) AND deleted_at IS NULL
             ORDER BY created_at DESC LIMIT 1
         """
-        last_message = await fetch_one(db, latest_msg_query, [license_id] + in_params[1:] + [license_id] + out_params[1:])
+        latest_params = [license_id] + (in_params[1:] if in_filt else []) + \
+                        [license_id] + (out_params[1:] if out_filt else [])
+        last_message = await fetch_one(db, latest_msg_query, latest_params)
 
         if not last_message:
             ts_now = datetime.now(timezone.utc).replace(tzinfo=None) if DB_TYPE == "postgresql" else datetime.utcnow().isoformat()
