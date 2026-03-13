@@ -13,7 +13,7 @@ import secrets
 import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 
 from jose import jwt, JWTError
