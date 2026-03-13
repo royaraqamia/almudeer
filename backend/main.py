@@ -321,9 +321,10 @@ async def lifespan(app: FastAPI):
             from services.outbox_processor_service import start_outbox_processor
             outbox_processor = await start_outbox_processor()
             if outbox_processor:
-                # Process any pending messages from when service was down
-                await outbox_processor.process_all_pending()
                 logger.info("Outbox Processor Service started")
+                # Schedule pending messages processing in background (non-blocking)
+                # This prevents startup timeout when there are many pending messages
+                asyncio.create_task(outbox_processor.process_all_pending())
             else:
                 logger.warning("Outbox Processor Service failed to start - messages may not be sent!")
         except Exception as e:
