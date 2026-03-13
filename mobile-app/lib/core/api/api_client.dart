@@ -482,10 +482,11 @@ class ApiClient {
     
     try {
       http.Response response;
-      // Debug logging for shared-with-me endpoint
-      if (endpoint.contains('shared-with-me')) {
-        debugPrint('[ApiClient] >>> REQUEST: $method ${Endpoints.baseUrl}$endpoint');
+      // Debug logging for send message endpoint
+      if (endpoint.contains('/send')) {
+        debugPrint('[ApiClient] >>> SEND MESSAGE REQUEST: $method ${Endpoints.baseUrl}$endpoint');
         debugPrint('[ApiClient] >>> Headers: ${headers.keys.join(', ')}');
+        debugPrint('[ApiClient] >>> Body: $body');
       }
       switch (method) {
         case 'GET':
@@ -501,6 +502,10 @@ class ApiClient {
                 body: body != null ? jsonEncode(body) : null,
               )
               .timeout(_requestTimeout);
+          if (endpoint.contains('/send')) {
+            debugPrint('[ApiClient] <<< SEND MESSAGE RESPONSE: ${response.statusCode}');
+            debugPrint('[ApiClient] <<< Body: ${response.body}');
+          }
           break;
         case 'PUT':
           response = await _client

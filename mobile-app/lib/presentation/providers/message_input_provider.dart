@@ -85,7 +85,9 @@ class MessageInputProvider extends ChangeNotifier {
       totalUploadBytes: totalUploadBytes,
     );
 
+    debugPrint('[MessageInputProvider] Created optimistic message with ID: ${optimisticMessage.id}');
     chatProvider.addOptimisticMessage(optimisticMessage);
+    debugPrint('[MessageInputProvider] Added optimistic message to chatProvider');
 
     // 2. Compress media in background (after showing optimistic message)
     List<Map<String, dynamic>>? attachments;
@@ -199,8 +201,10 @@ class MessageInputProvider extends ChangeNotifier {
       );
 
       // 3. Confirm Send
+      debugPrint('[MessageInputProvider] Response received: $response');
       if (response['pending'] == true) {
         // Offline / Pending: Treat as Sent locally
+        debugPrint('[MessageInputProvider] Message is pending (offline)');
         chatProvider.confirmMessageSent(
           optimisticMessage.id,
           optimisticMessage.id, // Keep temp ID until sync
@@ -209,17 +213,21 @@ class MessageInputProvider extends ChangeNotifier {
       } else {
         // Online: Update with Server ID
         final responseData = response['data'] ?? response;
+        debugPrint('[MessageInputProvider] Response data: $responseData');
         final int? newId = responseData['id'] is int
             ? responseData['id']
             : (responseData['outbox_id'] is int
                   ? responseData['outbox_id']
                   : null);
+        debugPrint('[MessageInputProvider] Extracted newId: $newId');
         // Extract outbox_id for status tracking
         final int? outboxId = responseData['outbox_id'] is int
             ? responseData['outbox_id']
             : null;
+        debugPrint('[MessageInputProvider] Extracted outboxId: $outboxId');
 
         if (newId != null) {
+          debugPrint('[MessageInputProvider] Calling confirmMessageSent with newId: $newId');
           chatProvider.confirmMessageSent(
             optimisticMessage.id,
             newId,
@@ -227,6 +235,7 @@ class MessageInputProvider extends ChangeNotifier {
             outboxId: outboxId,
           );
         } else {
+          debugPrint('[MessageInputProvider] No newId, using optimistic ID');
           chatProvider.confirmMessageSent(
             optimisticMessage.id,
             optimisticMessage.id,

@@ -437,9 +437,14 @@ class InboxRepository {
 
     // 3. Send via Multipart if we have files, otherwise standard POST
     // P2-11 FIX: Add error classification for better retry logic
+    debugPrint('[InboxRepository] Sending message to: ${Endpoints.sendMessage(senderContact)}');
+    debugPrint('[InboxRepository] Message body: "$message"');
+    debugPrint('[InboxRepository] Fields: $fields');
+    
     Map<String, dynamic> result;
     try {
       if (fileEntries.isNotEmpty) {
+        debugPrint('[InboxRepository] Sending with files (multipart)');
         result = await _apiClient.uploadMultipleFiles(
           Endpoints.sendMessage(senderContact),
           files: fileEntries,
@@ -447,6 +452,7 @@ class InboxRepository {
           onProgress: onUploadProgress,
         );
       } else {
+        debugPrint('[InboxRepository] Sending text-only message (POST)');
         result = await _apiClient.post(
           Endpoints.sendMessage(senderContact),
           body: {
@@ -455,6 +461,7 @@ class InboxRepository {
           },
         );
       }
+      debugPrint('[InboxRepository] Message sent successfully, response: $result');
     } on MessageSendException {
       // Re-throw already classified exceptions
       rethrow;

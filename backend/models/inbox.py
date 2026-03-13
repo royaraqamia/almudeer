@@ -1089,12 +1089,17 @@ async def get_conversation_messages_cursor(
     """
     Get messages from a specific sender with cursor-based pagination.
     Includes BOTH incoming (inbox) and outgoing (outbox) messages.
-    
+
     Cursor format: "{created_at_iso}_{message_id}"
-    
+
     Uses comprehensive alias matching to find all messages from the same sender/recipient.
     """
     import base64
+    from logging_config import get_logger
+    logger = get_logger(__name__)
+    
+    # DEBUG: Log parameters
+    logger.info(f"[get_conversation_messages_cursor] license_id={license_id}, sender_contact={sender_contact}, limit={limit}")
     
     # Parse cursor if provided
     cursor_created_at = None
@@ -1285,11 +1290,11 @@ async def get_conversation_messages_cursor(
              # by including direction in the cursor if necessary, or just using a strict inequality.
              # 'incoming' sorts before 'outgoing' if same TS and same ID (unlikely but possible).
              d_val = 1 if cursor_direction == 'i' else 2
-             
+
              if direction == "older":
                  # (effective_ts, direction_rank, id) < (cursor_ts, cursor_d_rank, cursor_id)
                  where_clauses.append("""
-                    (effective_ts < ?) OR 
+                    (effective_ts < ?) OR
                     (effective_ts = ? AND (
                         (CASE WHEN direction = 'incoming' THEN 1 ELSE 2 END < ?) OR
                         (CASE WHEN direction = 'incoming' THEN 1 ELSE 2 END = ? AND id < ?)
@@ -1298,26 +1303,30 @@ async def get_conversation_messages_cursor(
                  full_params.extend([cursor_created_at, cursor_created_at, d_val, d_val, cursor_id])
              else:
                  where_clauses.append("""
-                    (effective_ts > ?) OR 
+                    (effective_ts > ?) OR
                     (effective_ts = ? AND (
                         (CASE WHEN direction = 'incoming' THEN 1 ELSE 2 END > ?) OR
                         (CASE WHEN direction = 'incoming' THEN 1 ELSE 2 END = ? AND id > ?)
                     ))
                  """)
                  full_params.extend([cursor_created_at, cursor_created_at, d_val, d_val, cursor_id])
-                 
+
         if where_clauses:
             final_query += " WHERE " + " AND ".join(where_clauses)
-            
+
         if direction == "older":
             final_query += " ORDER BY effective_ts DESC, (CASE WHEN direction = 'incoming' THEN 1 ELSE 2 END) DESC, id DESC"
         else:
             final_query += " ORDER BY effective_ts ASC, (CASE WHEN direction = 'incoming' THEN 1 ELSE 2 END) ASC, id ASC"
-            
+
         final_query += " LIMIT ?"
         full_params.append(limit + 1)
-        
+
+        logger.info(f"[get_conversation_messages_cursor] Final query params count: {len(full_params)}")
+
         rows = await fetch_all(db, final_query, full_params)
+
+        logger.info(f"[get_conversation_messages_cursor] Returned {len(rows)} rows")
         
         # Parsing
         has_more = len(rows) > limit

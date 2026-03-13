@@ -434,8 +434,46 @@ class ConversationDetailProvider extends ChangeNotifier {
 
         final freshMessages = response.messages;
 
+        // P2-15 FIX: Preserve outgoing messages that might not be returned by the API
+        // This handles cases where the backend doesn't return outbox messages correctly
+        final currentMessages = _memoryMessages[senderContact] ?? [];
+        final outgoingMessages = currentMessages
+            .where((m) => m.direction == 'outgoing' && m.id > 0)
+            .toList();
+        
+        // Merge fresh messages with local outgoing messages
+        // Use a map to avoid duplicates (key by message ID)
+        final mergedMessagesMap = <int, InboxMessage>{};
+        
+        // Add all fresh messages from API
+        for (final msg in freshMessages) {
+          mergedMessagesMap[msg.id] = msg;
+        }
+        
+        // Add outgoing messages that aren't in the fresh list
+        for (final msg in outgoingMessages) {
+          if (!mergedMessagesMap.containsKey(msg.id)) {
+            mergedMessagesMap[msg.id] = msg;
+          }
+        }
+        
+        // Convert back to list and sort by created_at
+        final mergedMessages = mergedMessagesMap.values.toList();
+        mergedMessages.sort((a, b) {
+          // Parse ISO 8601 strings to DateTime for comparison
+          DateTime aTime, bTime;
+          try {
+            aTime = DateTime.parse(a.createdAt);
+            bTime = DateTime.parse(b.createdAt);
+          } catch (e) {
+            // Fallback to string comparison if parsing fails
+            return b.createdAt.compareTo(a.createdAt);
+          }
+          return bTime.millisecondsSinceEpoch.compareTo(aTime.millisecondsSinceEpoch); // DESC order (newest first)
+        });
+
         // Update Memory
-        _memoryMessages[senderContact] = freshMessages;
+        _memoryMessages[senderContact] = mergedMessages;
         _memoryCursors[senderContact] = response.nextCursor;
         _memoryHasMore[senderContact] = response.hasMore;
         _memoryStates[senderContact] = ConversationState.loaded;
@@ -655,9 +693,15 @@ class ConversationDetailProvider extends ChangeNotifier {
     String status, {
     int? outboxId,
   }) {
-    if (_activeContact == null) return;
+    debugPrint('[ConversationDetailProvider] confirmMessageSent: tempId=$tempId, realId=$realId, status=$status');
+    if (_activeContact == null) {
+      debugPrint('[ConversationDetailProvider] No active contact, aborting confirmMessageSent');
+      return;
+    }
     final contact = _activeContact!;
     final current = _memoryMessages[contact] ?? [];
+    debugPrint('[ConversationDetailProvider] Current messages count: ${current.length}');
+    debugPrint('[ConversationDetailProvider] Looking for tempId: $tempId in contact: $contact');
 
     // The status we want to persist MUST be 'sent' if we have an active connection
     const targetStatus = 'sent';
@@ -687,7 +731,9 @@ class ConversationDetailProvider extends ChangeNotifier {
     }
 
     final index = current.indexWhere((m) => m.id == tempId);
+    debugPrint('[ConversationDetailProvider] Found tempId at index: $index');
     if (index != -1) {
+      debugPrint('[ConversationDetailProvider] Updating message at index $index with realId: $realId');
       final updatedList = List<InboxMessage>.from(current);
       updatedList[index] = updatedList[index].copyWith(
         id: realId,
@@ -697,9 +743,12 @@ class ConversationDetailProvider extends ChangeNotifier {
         outboxId: outboxId,
       );
       _memoryMessages[contact] = updatedList;
+      debugPrint('[ConversationDetailProvider] Message updated, calling notifyListeners');
       notifyListeners();
       // FIX: Update persistent cache to prevent stale state on chat reopen
       _updatePersistentCache(contact);
+    } else {
+      debugPrint('[ConversationDetailProvider] ERROR: tempId $tempId not found in memory messages!');
     }
   }
 
