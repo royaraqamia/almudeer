@@ -727,15 +727,26 @@ async def init_customers_and_analytics():
         """)
 
         # Link inbox messages to customers
-        await execute_sql(db, """
-            CREATE TABLE IF NOT EXISTS customer_messages (
-                customer_id INTEGER,
-                inbox_message_id INTEGER,
-                PRIMARY KEY (customer_id, inbox_message_id),
-                FOREIGN KEY (customer_id) REFERENCES customers(id),
-                FOREIGN KEY (inbox_message_id) REFERENCES inbox_messages(id)
-            )
-        """)
+        if DB_TYPE == "postgresql":
+            await execute_sql(db, """
+                CREATE TABLE IF NOT EXISTS customer_messages (
+                    customer_id INTEGER,
+                    inbox_message_id BIGINT,
+                    PRIMARY KEY (customer_id, inbox_message_id),
+                    FOREIGN KEY (customer_id) REFERENCES customers(id),
+                    FOREIGN KEY (inbox_message_id) REFERENCES inbox_messages(id)
+                )
+            """)
+        else:
+            await execute_sql(db, """
+                CREATE TABLE IF NOT EXISTS customer_messages (
+                    customer_id INTEGER,
+                    inbox_message_id INTEGER,
+                    PRIMARY KEY (customer_id, inbox_message_id),
+                    FOREIGN KEY (customer_id) REFERENCES customers(id),
+                    FOREIGN KEY (inbox_message_id) REFERENCES inbox_messages(id)
+                )
+            """)
 
         # User preferences (UI + AI behavior / tone)
         await execute_sql(db, """
