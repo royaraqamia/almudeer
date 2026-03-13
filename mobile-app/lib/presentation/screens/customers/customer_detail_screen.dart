@@ -54,7 +54,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
   final CustomersRepository _repository = CustomersRepository();
   late Map<String, dynamic> _customer;
   bool _isLoadingFullDetails = false;
-  bool _isUsernameLookupEnabled = true;
 
   // Controllers for editing
   late TextEditingController _nameController;
@@ -189,11 +188,11 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     if (_usernameListenerInitialized && _usernameLookupListener != null) {
       _usernameController.removeListener(_usernameLookupListener!);
     }
-    
+
     _usernameListenerInitialized = true;
 
     _usernameLookupListener = () {
-      if (!_isUsernameLookupEnabled || !mounted || _isDisposed) return;
+      if (!mounted || _isDisposed) return;
       final username = _usernameController.text.trim();
       if (username.isNotEmpty) {
         context.read<CustomersProvider>().lookupUsername(username);
@@ -232,11 +231,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
 
   @override
   void dispose() {
-    // Prevent any final listener triggers during disposal
-    _isUsernameLookupEnabled = false;
     _isDisposed = true;
     _isNavigating = false;
-    
+
     // Safely remove username listener only if initialized
     if (_usernameListenerInitialized && _usernameLookupListener != null) {
       _usernameController.removeListener(_usernameLookupListener!);
@@ -350,9 +347,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     Haptics.lightTap();
     final customersProvider = context.read<CustomersProvider>();
     customersProvider.clearUsernameLookup();
-
-    // Disable username lookup listener during modal
-    setState(() => _isUsernameLookupEnabled = false);
 
     _nameController.text = _customer[_kNameKey] ?? '';
     _phoneController.text = _customer[_kPhoneKey] ?? '';
@@ -493,12 +487,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                 SolarLinearIcons.phone,
                 onChanged: (_) => setModalState(() {}),
               ),
-              _buildTextField(
-                _phoneController,
-                'رقم الهاتف (اختياري)',
-                SolarLinearIcons.phone,
-                onChanged: (_) => setModalState(() {}),
-              ),
               const SizedBox(height: AppDimensions.spacing16),
               AppGradientButton(
                 onPressed: hasChanges()
@@ -514,11 +502,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
         },
       ),
     );
-
-    // Re-enable username lookup listener after modal closes
-    if (mounted) {
-      setState(() => _isUsernameLookupEnabled = true);
-    }
 
     if (result == true) {
       // Pass the operation type determined at modal open time

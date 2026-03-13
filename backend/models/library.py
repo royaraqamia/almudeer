@@ -223,9 +223,12 @@ async def get_library_items(
             query += " AND customer_id = ?"
             params.append(customer_id)
 
-        if user_id:
-            query += " AND user_id = ?"
-            params.append(user_id)
+        # REMOVED: Don't filter by user_id - this prevented users from seeing library items
+        # created by other users in the same license. Library items are shared across the license.
+        # The user_id is only used for fetching shared items, not filtering owned items.
+        # if user_id:
+        #     query += " AND user_id = ?"
+        #     params.append(user_id)
 
         # Add type/category filters
         if category:
@@ -314,6 +317,8 @@ async def get_library_items(
             return owned_items
     else:
         # No search - use regular query
+        # FIX: Don't filter by user_id - fetch ALL items for the license
+        # The user_id is only used for fetching shared items, not filtering owned items
         query = f"SELECT {columns} FROM library_items WHERE (license_key_id = ? OR license_key_id = 0) AND deleted_at IS NULL"
         params = [license_id]
 
@@ -321,9 +326,11 @@ async def get_library_items(
             query += " AND customer_id = ?"
             params.append(customer_id)
 
-        if user_id:
-            query += " AND user_id = ?"
-            params.append(user_id)
+        # REMOVED: Don't filter by user_id - this prevented users from seeing library items
+        # created by other users in the same license. Library items are shared across the license.
+        # if user_id:
+        #     query += " AND user_id = ?"
+        #     params.append(user_id)
 
         if category:
             if category == 'notes':

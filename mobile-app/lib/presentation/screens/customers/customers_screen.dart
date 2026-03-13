@@ -264,7 +264,10 @@ class _CustomersViewState extends State<_CustomersView>
     // Store listener reference for proper disposal
     usernameLookupListener = () {
       if (!context.mounted) return;
-      context.read<CustomersProvider>().lookupUsername(usernameController.text);
+      final username = usernameController.text.trim().replaceAll('@', '');
+      if (username.isNotEmpty) {
+        context.read<CustomersProvider>().lookupUsername(username);
+      }
     };
     usernameController.addListener(usernameLookupListener);
 
