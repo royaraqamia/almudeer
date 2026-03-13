@@ -350,10 +350,9 @@ async def logout(
 
             from database import DB_TYPE
             from db_helper import get_db, execute_sql, commit_db
-            from services.jwt_auth import _session_revocation_cache
 
             async with get_db() as db:
-                # Revoke all sessions if requested
+                # Revoke all sessions if requested (admin action)
                 if data.revoke_all_sessions and user.get("license_id"):
                     if DB_TYPE == "postgresql":
                         await execute_sql(db, "UPDATE device_sessions SET is_revoked = TRUE WHERE license_key_id = ?", [user.get("license_id")])
@@ -362,14 +361,12 @@ async def logout(
                     await commit_db(db)
                     logger.info(f"All sessions revoked for user: {user.get('user_id')}")
                 elif family_id:
-                    # Revoke only current session
+                    # Revoke only current session (user-initiated logout)
                     if DB_TYPE == "postgresql":
                         await execute_sql(db, "UPDATE device_sessions SET is_revoked = TRUE WHERE family_id = ?", [family_id])
                     else:
                         await execute_sql(db, "UPDATE device_sessions SET is_revoked = 1 WHERE family_id = ?", [family_id])
                     await commit_db(db)
-                    # Invalidate session revocation cache immediately
-                    _session_revocation_cache.invalidate(family_id)
                     logger.info(f"Device session revoked for family: {family_id}")
 
             # Blacklist the token

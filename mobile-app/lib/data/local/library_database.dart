@@ -47,7 +47,7 @@ class LibraryDatabase {
 
     return await openDatabase(
       path,
-      version: 7, // Added share_permission column
+      version: 8, // Added created_by column for library sharing
       onCreate: (db, version) async {
         // Table for caching library items
         await db.execute('''
@@ -72,6 +72,7 @@ class LibraryDatabase {
             download_progress REAL DEFAULT 0.0,
             local_path TEXT,
             user_id TEXT,
+            created_by TEXT,
             is_shared INTEGER DEFAULT 0,
             shared_with TEXT,
             permission TEXT,
@@ -305,6 +306,22 @@ class LibraryDatabase {
           if (!columnNames.contains('share_permission')) {
             await db.execute(
               'ALTER TABLE c_library_items ADD COLUMN share_permission TEXT',
+            );
+          }
+        }
+
+        // Add created_by column for library sharing (P3-14)
+        if (oldVersion < 8) {
+          final columns = await db.rawQuery(
+            'PRAGMA table_info(c_library_items)',
+          );
+          final columnNames = columns
+              .map((col) => col['name'] as String)
+              .toSet();
+
+          if (!columnNames.contains('created_by')) {
+            await db.execute(
+              'ALTER TABLE c_library_items ADD COLUMN created_by TEXT',
             );
           }
         }

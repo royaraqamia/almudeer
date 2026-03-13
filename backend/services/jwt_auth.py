@@ -1,15 +1,19 @@
 """
 Al-Mudeer - JWT Authentication Service
 Production-ready JWT authentication with access/refresh tokens
+
+Session Management:
+- Sessions are tracked in device_sessions table for admin oversight
+- Only admin-initiated revocation will log users out
+- No automatic session revocation for better user experience
 """
 
 import os
 import secrets
 import hashlib
 import uuid
-import time
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any
 from dataclasses import dataclass
 
 from jose import jwt, JWTError
@@ -19,41 +23,6 @@ from logging_config import get_logger
 from db_helper import execute_sql, commit_db
 
 logger = get_logger(__name__)
-
-
-# ============ Session Revocation Cache ============
-# Short-lived cache to reduce DB load for session revocation checks
-
-class SessionRevocationCache:
-    """Simple in-memory cache for session revocation status"""
-
-    def __init__(self, ttl_seconds: int = 1):  # SECURITY FIX #2: Reduced from 2s to 1s, then to 500ms
-        self._cache: Dict[str, Tuple[bool, float]] = {}  # family_id -> (is_revoked, expires_at)
-        self._ttl = ttl_seconds
-
-    def get(self, family_id: str) -> Optional[bool]:
-        """Get cached revocation status. Returns None if not cached."""
-        if family_id in self._cache:
-            is_revoked, expires_at = self._cache[family_id]
-            if time.time() < expires_at:
-                return is_revoked
-            else:
-                del self._cache[family_id]
-        return None
-
-    def set(self, family_id: str, is_revoked: bool):
-        """Cache revocation status"""
-        self._cache[family_id] = (is_revoked, time.time() + self._ttl)
-
-    def invalidate(self, family_id: str):
-        """Invalidate cached entry"""
-        if family_id in self._cache:
-            del self._cache[family_id]
-
-
-# Global session revocation cache (1 second TTL - P0-3 FIX: Reduced from 5s for faster revocation)
-# This reduces the window where revoked sessions can still access the system
-_session_revocation_cache = SessionRevocationCache(ttl_seconds=1)
 
 
 # ============ Configuration ============
@@ -197,22 +166,14 @@ async def create_token_pair(
     ip_address: str = None,
     family_id: str = None,
     user_agent: str = None,
-    skip_session_revoke: bool = True,
 ) -> Dict[str, Any]:
     """
-    Create both access and refresh tokens. Track device session.
+    Create both access and refresh tokens. Track device session for admin oversight.
 
-    SECURITY FIX #7: Enforce concurrent session limits per license.
-    
-    Args:
-        skip_session_revoke: If True, skip revoking existing sessions (default for session updates).
-                            If False, revoke all existing sessions (used for fresh logins).
+    Note: Sessions are only revoked by admin action, not automatically.
     """
     # Fetch current token_version for the license to embed in JWT
     from database import get_db, fetch_one
-    
-    # SECURITY FIX #7: Check concurrent session limit
-    max_sessions = int(os.getenv("MAX_CONCURRENT_SESSIONS", "0"))  # 0 = unlimited
     
     token_version = 1
     if license_id:
@@ -233,26 +194,9 @@ async def create_token_pair(
         family_id = str(uuid.uuid4())
         is_new_family = True
 
-    # SECURITY FIX: When creating a new session (login), revoke all existing sessions
-    # This prevents "session revoked" errors when users re-login after clearing app data
-    # FIX: Skip revocation when updating existing session (device secret rotation on login)
-    if license_id and is_new_family and not skip_session_revoke:
-        from database import DB_TYPE
-        from db_helper import execute_sql, commit_db
-        try:
-            async with get_db() as db:
-                if DB_TYPE == "postgresql":
-                    await execute_sql(db,
-                        "UPDATE device_sessions SET is_revoked = TRUE WHERE license_key_id = $1 AND is_revoked = FALSE",
-                        [license_id])
-                else:
-                    await execute_sql(db,
-                        "UPDATE device_sessions SET is_revoked = 1 WHERE license_key_id = ? AND is_revoked = 0",
-                        [license_id])
-                await commit_db(db)
-        except Exception as e:
-            logger.error(f"Error revoking old sessions on login: {e}")
-            pass
+    # Note: We no longer automatically revoke sessions on login
+    # Admin-initiated revocation is the only way sessions are revoked
+    # This provides a smoother user experience
 
     payload = {
         "sub": user_id,
@@ -261,22 +205,22 @@ async def create_token_pair(
         "v": token_version, # Token version for server-side kill-switch
         "family_id": family_id,
     }
-    
+
     access_token, jti, expires_at = await create_access_token_async(payload)
     refresh_token, refresh_jti = await create_refresh_token_async(payload, family_id=family_id)
-    
+
     # Session Intelligence: Resolve location and parse device name
     from services.session_intelligence import resolve_location, parse_device_info
     location = await resolve_location(ip_address)
     device_name = parse_device_info(user_agent)
-    
-    # Store session in DB for RTR
+
+    # Store session in DB for audit/admin oversight
     if license_id:
         from database import DB_TYPE
         from db_helper import execute_sql, commit_db
         try:
             async with get_db() as db:
-                # SECURITY FIX: Use timezone-aware datetime
+                # Use timezone-aware datetime
                 expires_db = datetime.now(timezone.utc) + timedelta(days=config.refresh_token_expire_days)
 
                 if is_new_family:
@@ -284,7 +228,7 @@ async def create_token_pair(
                         await execute_sql(db, """
                             INSERT INTO device_sessions
                             (license_key_id, family_id, refresh_token_jti, ip_address, expires_at, device_name, location, user_agent)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                         """, [license_id, family_id, refresh_jti, ip_address, expires_db, device_name, location, user_agent])
                     else:
                         await execute_sql(db, """
@@ -309,51 +253,9 @@ async def create_token_pair(
                         """, [refresh_jti, expires_db.isoformat(), ip_address, device_name, location, user_agent, family_id])
 
                 await commit_db(db)
-                
-                # SECURITY FIX #7: Enforce concurrent session limit
-                if max_sessions > 0 and is_new_family:
-                    # Count active sessions for this license
-                    sessions_result = await fetch_one(
-                        db,
-                        "SELECT COUNT(*) as session_count FROM device_sessions WHERE license_key_id = ? AND is_revoked = 0",
-                        [license_id]
-                    )
-                    session_count = sessions_result.get("session_count", 0) if sessions_result else 0
-                    
-                    if session_count > max_sessions:
-                        # Revoke oldest sessions to stay within limit
-                        sessions_to_revoke = session_count - max_sessions
-                        logger.info(f"Revoking {sessions_to_revoke} oldest session(s) for license {license_id} (limit: {max_sessions})")
-                        
-                        if DB_TYPE == "postgresql":
-                            await execute_sql(db, """
-                                UPDATE device_sessions
-                                SET is_revoked = TRUE
-                                WHERE license_key_id = ? AND is_revoked = 0
-                                AND id IN (
-                                    SELECT id FROM device_sessions
-                                    WHERE license_key_id = ? AND is_revoked = 0
-                                    ORDER BY last_used_at ASC
-                                    LIMIT ?
-                                )
-                            """, [license_id, license_id, sessions_to_revoke])
-                        else:
-                            await execute_sql(db, """
-                                UPDATE device_sessions
-                                SET is_revoked = 1
-                                WHERE license_key_id = ? AND is_revoked = 0
-                                AND id IN (
-                                    SELECT id FROM device_sessions
-                                    WHERE license_key_id = ? AND is_revoked = 0
-                                    ORDER BY last_used_at ASC
-                                    LIMIT ?
-                                )
-                            """, [license_id, license_id, sessions_to_revoke])
-                        
-                        await commit_db(db)
-                        
+
         except Exception as e:
-            logger.error(f"Error updating device session or enforcing session limit: {e}")
+            logger.error(f"Error updating device session: {e}")
 
     return {
         "access_token": access_token,
@@ -419,6 +321,9 @@ async def refresh_access_token(
 ) -> Optional[Dict[str, Any]]:
     """
     Use a refresh token to get a new access token and rotate the refresh token.
+    
+    Note: Session revocation is only checked at the license level (admin action).
+    Individual device sessions are NOT automatically revoked for better UX.
     """
     payload = await verify_token_async(refresh_token, TokenType.REFRESH)
 
@@ -428,42 +333,20 @@ async def refresh_access_token(
     jti = payload.get("jti")
     family_id = payload.get("family_id")
     license_id = payload.get("license_id")
-    family_id = payload.get("family_id")
 
-    # Real-time Session Revocation Check
-    if family_id:
-        from db_helper import get_db, fetch_one
-        try:
-            async with get_db() as db:
-                session = await fetch_one(db, "SELECT is_revoked FROM device_sessions WHERE family_id = ?", [family_id])
-                if session and session.get("is_revoked"):
-                    logger.warning(f"Rejecting access token for revoked session: {family_id}")
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Session has been revoked",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error checking session revocation: {e}")
-            pass
-    
-    if not license_id or not jti:
+    if not license_id:
         return None
-    
-    # CRITICAL FIX #1: Add token version check to prevent refresh after revocation
-    # This ensures that even with a valid refresh token, if the token version has
-    # changed (e.g., admin forced logout), the refresh will fail
+
+    # Token version check - this handles admin-initiated license-level revocation
     from database import validate_license_by_id
     validation = await validate_license_by_id(
-        license_id, 
+        license_id,
         required_version=payload.get("v")
     )
     if not validation.get("valid"):
         logger.warning(f"Token version mismatch or account inactive for license {license_id} during refresh")
         return None
-        
+
     if not family_id:
         # Legacy support
         return await create_token_pair(
@@ -472,84 +355,63 @@ async def refresh_access_token(
             role=payload.get("role", "user"),
             ip_address=ip_address,
         )
-        
-    # RTR Logic
-    from db_helper import get_db, fetch_one, execute_sql, commit_db
+
+    # Update session metadata (last used, IP, device info)
     from database import DB_TYPE
+    from db_helper import get_db, fetch_one, execute_sql, commit_db
 
     try:
         async with get_db() as db:
-            # CRITICAL SECURITY FIX: Use SELECT FOR UPDATE to prevent race conditions
-            # This ensures atomic check-and-update for token theft detection
-            # Without this, concurrent refresh requests could bypass the theft detection
             if DB_TYPE == "postgresql":
-                # Use FOR UPDATE with SKIP LOCKED to prevent deadlocks
                 session = await fetch_one(
                     db,
-                    "SELECT * FROM device_sessions WHERE family_id = ? FOR UPDATE SKIP LOCKED",
+                    "SELECT * FROM device_sessions WHERE family_id = ?",
                     [family_id]
                 )
             else:
-                # SQLite doesn't support FOR UPDATE, use immediate transaction
-                await execute_sql(db, "BEGIN IMMEDIATE")
                 session = await fetch_one(db, "SELECT * FROM device_sessions WHERE family_id = ?", [family_id])
 
             if not session:
-                # Session not found - this can happen if:
-                # 1. All sessions were deleted (e.g., by admin)
-                # 2. First login from a new device
-                # 3. Database migration
-                # Instead of failing, allow the refresh - user can still use the token
-                # The token itself is still valid (checked earlier in the flow)
-                logger.info(f"Device session {family_id} not found. Allowing refresh - user will re-login if needed.")
-                # Return a simple token response without session binding
-                return await create_token_pair(
-                    user_id=payload.get("sub"),
-                    license_id=license_id,
-                    role=payload.get("role", "user"),
-                    ip_address=ip_address,
-                    family_id=family_id,
-                    user_agent=user_agent
-                )
-
-            if session["is_revoked"]:
-                # Session was revoked - instead of rejecting, just allow re-login
-                # This is more user-friendly
-                logger.info(f"Session {family_id} was revoked. Allowing re-authentication.")
-                return await create_token_pair(
-                    user_id=payload.get("sub"),
-                    license_id=license_id,
-                    role=payload.get("role", "user"),
-                    ip_address=ip_address,
-                    family_id=family_id,
-                    user_agent=user_agent
-                )
-
-            if session["refresh_token_jti"] != jti:
-                # Token rotation detected (legitimate: new token issued)
-                # Instead of revoking, just allow the new token to work
-                # This prevents users from being logged out unexpectedly
-                logger.info(f"Token rotation detected for family {family_id}. Allowing new token.")
-                # Update the session's refresh_token_jti to match
+                # Session not found - create new session entry
+                logger.info(f"Device session {family_id} not found. Creating new session entry.")
+                from services.session_intelligence import resolve_location, parse_device_info
+                location = await resolve_location(ip_address)
+                device_name = parse_device_info(user_agent)
+                expires_db = datetime.now(timezone.utc) + timedelta(days=config.refresh_token_expire_days)
+                
                 if DB_TYPE == "postgresql":
-                    await execute_sql(db, "UPDATE device_sessions SET refresh_token_jti = ? WHERE family_id = ?", [jti, family_id])
+                    await execute_sql(db, """
+                        INSERT INTO device_sessions
+                        (license_key_id, family_id, refresh_token_jti, ip_address, expires_at, device_name, location, user_agent)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    """, [license_id, family_id, jti, ip_address, expires_db, device_name, location, user_agent])
                 else:
-                    await execute_sql(db, "UPDATE device_sessions SET refresh_token_jti = ? WHERE family_id = ?", [jti, family_id])
+                    await execute_sql(db, """
+                        INSERT INTO device_sessions
+                        (license_key_id, family_id, refresh_token_jti, ip_address, expires_at, device_name, location, user_agent)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, [license_id, family_id, jti, ip_address, expires_db.isoformat(), device_name, location, user_agent])
                 await commit_db(db)
 
-            # Valid rotation
-            return await create_token_pair(
-                user_id=payload.get("sub"),
-                license_id=license_id,
-                role=payload.get("role", "user"),
-                ip_address=ip_address,
-                family_id=family_id,
-                user_agent=user_agent
-            )
+            # Update refresh token JTI for session tracking
+            if DB_TYPE == "postgresql":
+                await execute_sql(db, "UPDATE device_sessions SET refresh_token_jti = $1, last_used_at = NOW() WHERE family_id = $2", [jti, family_id])
+            else:
+                await execute_sql(db, "UPDATE device_sessions SET refresh_token_jti = ?, last_used_at = CURRENT_TIMESTAMP WHERE family_id = ?", [jti, family_id])
+            await commit_db(db)
 
     except Exception as e:
-        logger.error(f"Error during RTR check: {e}")
-        return None
+        logger.error(f"Error updating device session: {e}")
+
+    # Issue new token pair
+    return await create_token_pair(
+        user_id=payload.get("sub"),
+        license_id=license_id,
+        role=payload.get("role", "user"),
+        ip_address=ip_address,
+        family_id=family_id,
+        user_agent=user_agent
+    )
 
 
 # ============ FastAPI Dependencies ============
@@ -587,45 +449,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Real-time Session Revocation Check (Specific to this device/session)
-    # FIX: Added caching to reduce DB load
-    family_id = payload.get("family_id")
-    if family_id:
-        # Check cache first
-        cached_revoked = _session_revocation_cache.get(family_id)
-        if cached_revoked is not None:
-            if cached_revoked:
-                logger.warning(f"Blocking access token for revoked session (cached): {family_id}")
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Session has been revoked",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-        else:
-            # Cache miss - check database and update cache
-            from db_helper import get_db, fetch_one
-            try:
-                async with get_db() as db:
-                    session = await fetch_one(db,
-                        "SELECT is_revoked FROM device_sessions WHERE family_id = ?",
-                        [family_id])
-                    is_revoked = session.get("is_revoked") if session else False
-                    _session_revocation_cache.set(family_id, is_revoked)
-
-                    if is_revoked:
-                        logger.warning(f"Blocking access token for revoked session: {family_id}")
-                        raise HTTPException(
-                            status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Session has been revoked",
-                            headers={"WWW-Authenticate": "Bearer"},
-                        )
-            except HTTPException:
-                raise
-            except Exception as e:
-                logger.error(f"Error checking session revocation in get_current_user: {e}")
-                pass
-    
-    # Senior Engineering Hardening: Atomic Validation via Database Layer
+    # License-level validation (handles admin-initiated account deactivation)
     license_id = payload.get("license_id")
     if license_id:
         from database import validate_license_by_id
