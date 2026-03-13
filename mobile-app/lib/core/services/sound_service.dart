@@ -93,9 +93,20 @@ class SoundService {
   void playTransferError() => _playSound('transfer_error.mp3');
 
   /// Dispose players
-  void dispose() {
-    _uiPlayer.dispose();
-    _callPlayer.dispose();
+  Future<void> dispose() async {
+    try {
+      // Stop and dispose UI player
+      await _uiPlayer.stop();
+      await _uiPlayer.setLoopMode(LoopMode.off);
+      await _uiPlayer.dispose();
+      
+      // Stop and dispose call player
+      await _callPlayer.stop();
+      await _callPlayer.setLoopMode(LoopMode.off);
+      await _callPlayer.dispose();
+    } catch (e) {
+      _logger.e('Error disposing players: $e');
+    }
     _isInitialized = false;
   }
 }

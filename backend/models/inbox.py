@@ -1160,10 +1160,17 @@ async def get_conversation_messages_cursor(
         # Get all aliases for this sender
         all_contacts, all_ids = await _get_sender_aliases(db, license_id, sender_contact)
 
+        # DEBUG: Log aliases found
+        logger.info(f"[get_conversation_messages_cursor] all_contacts={all_contacts}, all_ids={all_ids}")
+
         # P0-4 FIX: If no aliases found, use original sender_contact as fallback
         # This prevents empty result sets when sender_contact format is unique
         if not all_contacts and not all_ids:
             all_contacts = {sender_contact} if sender_contact else set()
+            logger.info(f"[get_conversation_messages_cursor] Using fallback all_contacts={all_contacts}")
+
+        # DEBUG: Log what we'll search for in outbox
+        logger.info(f"[get_conversation_messages_cursor] Will search outbox for recipient_id IN {all_contacts} or sender_id IN {all_ids}")
 
         # Build params
         params = []
@@ -1207,7 +1214,8 @@ async def get_conversation_messages_cursor(
 
         out_sender_where = " OR ".join(out_identifiers) if out_identifiers else "1=0"
         outbox_conditions.append(f"({out_sender_where})")
-        outbox_conditions.append("o.status IN ('approved', 'sent')")
+        # Include pending, approved, and sent messages to ensure optimistic UI messages appear
+        outbox_conditions.append("o.status IN ('pending', 'approved', 'sent')")
         outbox_conditions.append("o.deleted_at IS NULL")
 
         outbox_where = " AND ".join(outbox_conditions)

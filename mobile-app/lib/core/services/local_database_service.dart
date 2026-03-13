@@ -42,7 +42,7 @@ class LocalDatabaseService {
     // Open/Create the database first so we can check its content
     final Database db = await openDatabase(
       path,
-      version: 24, // Added name column to customers
+      version: 27, // Added inbox/outbox system tables and columns
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -83,21 +83,26 @@ class LocalDatabaseService {
         body TEXT,
         media_url TEXT,
         created_at TEXT,
+        received_at TEXT,
         status TEXT, -- 'unread', 'read', 'replied'
         intent TEXT,
+        urgency TEXT,
+        sentiment TEXT,
+        delivery_status TEXT,
 
         -- Reply Fields
         reply_to_id INTEGER,
         reply_to_platform_id TEXT,
         reply_to_body_preview TEXT,
         reply_to_sender_name TEXT,
+        reply_count INTEGER DEFAULT 0,
 
         -- Sync Fields
         sync_status TEXT DEFAULT 'synced',
         last_updated_at INTEGER,
         attachments TEXT, -- JSON string for attachments
         is_forwarded INTEGER DEFAULT 0,
-        
+
         -- P1-1 FIX: Retry tracking for offline message send
         retry_count INTEGER DEFAULT 0,
         last_retry_at INTEGER,
@@ -108,13 +113,93 @@ class LocalDatabaseService {
         channel_message_id TEXT,
         platform_message_id TEXT,
         direction TEXT DEFAULT 'incoming',
+        original_sender TEXT,
 
         -- v12 Fields
-        edited_at TEXT
+        edited_at TEXT,
+
+        -- Soft Delete
+        deleted_at TEXT,
+
+        -- Read Status
+        is_read INTEGER DEFAULT 0
       )
     ''');
 
-    // 3. Sync Queue (For robust offline operations)
+    // 3. Outbox Messages Table (Outgoing Messages)
+    await db.execute('''
+      CREATE TABLE outbox_messages (
+        local_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        remote_id INTEGER UNIQUE,
+        inbox_message_id INTEGER,
+        channel TEXT NOT NULL,
+        recipient_id TEXT,
+        recipient_contact TEXT,
+        subject TEXT,
+        body TEXT NOT NULL,
+        attachments TEXT,
+        status TEXT DEFAULT 'pending',
+        delivery_status TEXT,
+        sent_at TEXT,
+        failed_at TEXT,
+        approved_at TEXT,
+        error_message TEXT,
+        reply_to_platform_id TEXT,
+        reply_to_body_preview TEXT,
+        reply_to_sender_name TEXT,
+        reply_to_id INTEGER,
+        reply_count INTEGER DEFAULT 0,
+        is_forwarded INTEGER DEFAULT 0,
+        platform_message_id TEXT,
+        original_sender TEXT,
+
+        -- Sync Fields
+        sync_status TEXT DEFAULT 'synced',
+        last_updated_at INTEGER,
+
+        -- Retry tracking
+        retry_count INTEGER DEFAULT 0,
+        last_retry_at INTEGER,
+        max_retries INTEGER DEFAULT 3,
+
+        -- Soft Delete
+        deleted_at TEXT,
+
+        created_at TEXT,
+        updated_at TEXT
+      )
+    ''');
+
+    // 4. Inbox Conversations Table (Conversation List Cache)
+    await db.execute('''
+      CREATE TABLE inbox_conversations (
+        sender_contact TEXT NOT NULL,
+        sender_name TEXT,
+        channel TEXT,
+        last_message_id INTEGER,
+        last_message_body TEXT,
+        last_message_ai_summary TEXT,
+        last_message_at TEXT,
+        last_message_attachments TEXT,
+        status TEXT,
+        delivery_status TEXT,
+        unread_count INTEGER DEFAULT 0,
+        message_count INTEGER DEFAULT 0,
+        is_online INTEGER DEFAULT 0,
+        peer_license_id INTEGER,
+        avatar_url TEXT,
+        last_seen_at TEXT,
+
+        -- Sync Fields
+        sync_status TEXT DEFAULT 'synced',
+        last_updated_at INTEGER,
+        deleted_at TEXT,
+
+        PRIMARY KEY (sender_contact)
+      )
+    ''');
+
+    // 5. Sync Queue (For robust offline operations)
     await db.execute('''
       CREATE TABLE sync_queue (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -156,7 +241,7 @@ class LocalDatabaseService {
       )
     ''');
 
-    // 5. Task Comments Table
+    // 6. Task Comments Table
     await db.execute('''
       CREATE TABLE task_comments (
         id TEXT PRIMARY KEY,
@@ -170,9 +255,27 @@ class LocalDatabaseService {
       )
     ''');
 
-    // 7. Indexes for Keyboard Performance
+    // 7. Indexes for Performance
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_inbox_messages_sender_contact ON inbox_messages(sender_contact)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_inbox_messages_remote_id ON inbox_messages(remote_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_inbox_messages_direction ON inbox_messages(direction)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_outbox_messages_recipient_contact ON outbox_messages(recipient_contact)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_outbox_messages_status ON outbox_messages(status)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_inbox_conversations_last_message ON inbox_conversations(last_message_at DESC)',
     );
   }
 
@@ -467,6 +570,128 @@ class LocalDatabaseService {
       if (!customerColumnNames.contains('name')) {
         await db.execute('ALTER TABLE customers ADD COLUMN name TEXT');
       }
+    }
+
+    // Version 25: Add inbox/outbox system columns to inbox_messages
+    if (oldVersion < 25) {
+      final inboxColumns = await db.rawQuery('PRAGMA table_info(inbox_messages)');
+      final inboxColumnNames = inboxColumns.map((c) => c['name']).toSet();
+
+      if (!inboxColumnNames.contains('received_at')) {
+        await db.execute('ALTER TABLE inbox_messages ADD COLUMN received_at TEXT');
+      }
+      if (!inboxColumnNames.contains('urgency')) {
+        await db.execute('ALTER TABLE inbox_messages ADD COLUMN urgency TEXT');
+      }
+      if (!inboxColumnNames.contains('sentiment')) {
+        await db.execute('ALTER TABLE inbox_messages ADD COLUMN sentiment TEXT');
+      }
+      if (!inboxColumnNames.contains('delivery_status')) {
+        await db.execute('ALTER TABLE inbox_messages ADD COLUMN delivery_status TEXT');
+      }
+      if (!inboxColumnNames.contains('reply_count')) {
+        await db.execute('ALTER TABLE inbox_messages ADD COLUMN reply_count INTEGER DEFAULT 0');
+      }
+      if (!inboxColumnNames.contains('original_sender')) {
+        await db.execute('ALTER TABLE inbox_messages ADD COLUMN original_sender TEXT');
+      }
+      if (!inboxColumnNames.contains('deleted_at')) {
+        await db.execute('ALTER TABLE inbox_messages ADD COLUMN deleted_at TEXT');
+      }
+      if (!inboxColumnNames.contains('is_read')) {
+        await db.execute('ALTER TABLE inbox_messages ADD COLUMN is_read INTEGER DEFAULT 0');
+      }
+    }
+
+    // Version 26: Create outbox_messages table
+    if (oldVersion < 26) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS outbox_messages (
+          local_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          remote_id INTEGER UNIQUE,
+          inbox_message_id INTEGER,
+          channel TEXT NOT NULL,
+          recipient_id TEXT,
+          recipient_contact TEXT,
+          subject TEXT,
+          body TEXT NOT NULL,
+          attachments TEXT,
+          status TEXT DEFAULT 'pending',
+          delivery_status TEXT,
+          sent_at TEXT,
+          failed_at TEXT,
+          approved_at TEXT,
+          error_message TEXT,
+          reply_to_platform_id TEXT,
+          reply_to_body_preview TEXT,
+          reply_to_sender_name TEXT,
+          reply_to_id INTEGER,
+          reply_count INTEGER DEFAULT 0,
+          is_forwarded INTEGER DEFAULT 0,
+          platform_message_id TEXT,
+          original_sender TEXT,
+          sync_status TEXT DEFAULT 'synced',
+          last_updated_at INTEGER,
+          retry_count INTEGER DEFAULT 0,
+          last_retry_at INTEGER,
+          max_retries INTEGER DEFAULT 3,
+          deleted_at TEXT,
+          created_at TEXT,
+          updated_at TEXT
+        )
+      ''');
+
+      // Create indexes for outbox_messages
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_outbox_messages_recipient_contact ON outbox_messages(recipient_contact)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_outbox_messages_status ON outbox_messages(status)',
+      );
+    }
+
+    // Version 27: Create inbox_conversations table
+    if (oldVersion < 27) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS inbox_conversations (
+          sender_contact TEXT NOT NULL,
+          sender_name TEXT,
+          channel TEXT,
+          last_message_id INTEGER,
+          last_message_body TEXT,
+          last_message_ai_summary TEXT,
+          last_message_at TEXT,
+          last_message_attachments TEXT,
+          status TEXT,
+          delivery_status TEXT,
+          unread_count INTEGER DEFAULT 0,
+          message_count INTEGER DEFAULT 0,
+          is_online INTEGER DEFAULT 0,
+          peer_license_id INTEGER,
+          avatar_url TEXT,
+          last_seen_at TEXT,
+          sync_status TEXT DEFAULT 'synced',
+          last_updated_at INTEGER,
+          deleted_at TEXT,
+          PRIMARY KEY (sender_contact)
+        )
+      ''');
+
+      // Create index for inbox_conversations
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_inbox_conversations_last_message ON inbox_conversations(last_message_at DESC)',
+      );
+
+      // Create additional indexes for inbox_messages
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_inbox_messages_sender_contact ON inbox_messages(sender_contact)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_inbox_messages_remote_id ON inbox_messages(remote_id)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_inbox_messages_direction ON inbox_messages(direction)',
+      );
     }
   }
 }

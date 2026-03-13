@@ -861,8 +861,18 @@ class _BrowserScreenState extends State<BrowserScreen> {
     String url = _urlController.text.trim();
     if (url.isEmpty) return;
 
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      url = 'https://$url';
+    // Check if it looks like a search query (no dots or spaces)
+    // If so, convert to Google search
+    final isSearchQuery = !url.contains('.') && !url.contains('/') && !url.contains(' ');
+    
+    if (isSearchQuery) {
+      // Convert to Google search
+      url = 'https://www.google.com/search?q=${Uri.encodeComponent(url)}';
+    } else {
+      // Add https:// if missing
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://$url';
+      }
     }
 
     if (_adBlocker.isAdultContent(url)) {
@@ -899,45 +909,72 @@ class _BrowserScreenState extends State<BrowserScreen> {
         systemOverlayStyle: SystemUiOverlayStyle(
           statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
         ),
-        title: GestureDetector(
-          onTap: () => _showTabsSwitcher(),
-          child: Column(
-            children: [
-              Text(
-                activeTab.title,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                  fontFamily: 'IBM Plex Sans Arabic',
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-              if (!activeTab.isLoading && activeTab.url.isNotEmpty)
-                Text(
-                  _getHostFromUrl(activeTab.url),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontSize: 10,
-                    color: Colors.grey,
-                  ),
-                ),
-            ],
-          ),
-        ),
-        centerTitle: true,
         leading: IconButton(
           icon: const Icon(SolarLinearIcons.arrowRight, size: 24),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(SolarLinearIcons.download, size: 22),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const DownloadsScreen()),
-              );
-            },
+        title: SizedBox(
+          height: 40,
+          child: Container(
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.surfaceDark : Colors.grey[100],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: TextField(
+              controller: _urlController,
+              onSubmitted: (_) => _loadUrl(),
+              style: const TextStyle(fontSize: 14, height: 1.0),
+              decoration: InputDecoration(
+                hintText: 'أدخل الرابط هنا...',
+                hintStyle: const TextStyle(fontSize: 14),
+                prefixIcon: const Icon(SolarLinearIcons.global, size: 18),
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (activeTab.canShowReaderMode)
+                      IconButton(
+                        icon: Icon(
+                          _isReaderMode
+                              ? SolarBoldIcons.billList
+                              : SolarLinearIcons.billList,
+                          size: 18,
+                        ),
+                        onPressed: _toggleReaderMode,
+                        tooltip: 'وضع القراءة',
+                      ),
+                    IconButton(
+                      icon: const Icon(
+                        SolarLinearIcons.arrowLeft,
+                        size: 18,
+                      ),
+                      onPressed: _loadUrl,
+                    ),
+                  ],
+                ),
+                filled: true,
+                fillColor: isDark ? AppColors.surfaceDark : Colors.grey[100],
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: isDark ? AppColors.cardDark : Colors.grey[300]!,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: isDark ? AppColors.primary : AppColors.primary,
+                    width: 2,
+                  ),
+                ),
+              ),
+            ),
           ),
+        ),
+        actions: [
           IconButton(
             icon: const Icon(SolarLinearIcons.refresh, size: 22),
             onPressed: () {
@@ -953,6 +990,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 _toggleDesktopMode();
               } else if (value == 'search') {
                 setState(() => _showSearch = true);
+              } else if (value == 'downloads') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DownloadsScreen()),
+                );
               } else if (value == 'history') {
                 Navigator.push(
                   context,
@@ -997,6 +1039,16 @@ class _BrowserScreenState extends State<BrowserScreen> {
                     Icon(SolarLinearIcons.magnifer, size: 20),
                     SizedBox(width: 8),
                     Text('بحث في الصفحة'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'downloads',
+                child: Row(
+                  children: [
+                    Icon(SolarLinearIcons.download, size: 20),
+                    SizedBox(width: 8),
+                    Text('التحميلات'),
                   ],
                 ),
               ),
@@ -1046,124 +1098,66 @@ class _BrowserScreenState extends State<BrowserScreen> {
           ),
         ],
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(60),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                child: Container(
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: isDark ? Colors.grey[900] : Colors.grey[100],
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                    ),
-                  ),
-                  child: TextField(
-                    controller: _urlController,
-                    onSubmitted: (_) => _loadUrl(),
-                    style: const TextStyle(fontSize: 14, height: 1.0),
-                    decoration: InputDecoration(
-                      hintText: 'أدخل الرابط هنا...',
-                      hintStyle: const TextStyle(fontSize: 14),
-                      prefixIcon: const Icon(SolarLinearIcons.global, size: 18),
-                      suffixIcon: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (activeTab.canShowReaderMode)
-                            IconButton(
-                              icon: Icon(
-                                _isReaderMode
-                                    ? SolarBoldIcons.billList
-                                    : SolarLinearIcons.billList,
-                                size: 18,
-                              ),
-                              onPressed: _toggleReaderMode,
-                              tooltip: 'وضع القراءة',
-                            ),
-                          IconButton(
-                            icon: const Icon(
-                              SolarLinearIcons.arrowLeft,
-                              size: 18,
-                            ),
-                            onPressed: _loadUrl,
-                          ),
-                        ],
-                      ),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              if (activeTab.isLoading)
-                LinearProgressIndicator(
+          preferredSize: const Size.fromHeight(2),
+          child: activeTab.isLoading
+              ? LinearProgressIndicator(
                   value: activeTab.progress,
                   backgroundColor: Colors.transparent,
                   color: AppColors.primary,
                   minHeight: 2,
-                ),
-            ],
-          ),
+                )
+              : const SizedBox.shrink(),
         ),
       ),
-      body: Column(
+      body: Stack(
         children: [
+          ..._tabs.asMap().entries.map((entry) {
+            final isSelected = _activeTabIndex == entry.key;
+            return Offstage(
+              offstage: !isSelected,
+              child: RepaintBoundary(
+                key: entry.value.id == activeTab.id ? _repaintKey : null,
+                child: _WebViewWithErrorHandling(
+                  controller: entry.value.controller,
+                ),
+              ),
+            );
+          }),
+          _buildReaderModeOverlay(),
           if (_showSearch)
-            Container(
-              padding: const EdgeInsets.all(8.0),
-              color: isDark ? Colors.grey[900] : Colors.grey[200],
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _searchTextController,
-                      autofocus: true,
-                      decoration: const InputDecoration(
-                        hintText: 'البحث في الصفحة...',
-                        border: InputBorder.none,
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.all(8.0),
+                color: isDark ? Colors.grey[900] : Colors.grey[200],
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _searchTextController,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          hintText: 'البحث في الصفحة...',
+                          border: InputBorder.none,
+                        ),
+                        onSubmitted: _executeSearch,
                       ),
-                      onSubmitted: _executeSearch,
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(SolarLinearIcons.closeCircle),
-                    onPressed: () {
-                      setState(() {
-                        _showSearch = false;
-                        _searchTextController.clear();
-                      });
-                    },
-                  ),
-                ],
+                    IconButton(
+                      icon: const Icon(SolarLinearIcons.closeCircle),
+                      onPressed: () {
+                        setState(() {
+                          _showSearch = false;
+                          _searchTextController.clear();
+                        });
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
-          Expanded(
-            child: Stack(
-              children: [
-                ..._tabs.asMap().entries.map((entry) {
-                  final isSelected = _activeTabIndex == entry.key;
-                  return Offstage(
-                    offstage: !isSelected,
-                    child: RepaintBoundary(
-                      key: entry.value.id == activeTab.id ? _repaintKey : null,
-                      child: _WebViewWithErrorHandling(
-                        controller: entry.value.controller,
-                      ),
-                    ),
-                  );
-                }),
-                _buildReaderModeOverlay(),
-              ],
-            ),
-          ),
         ],
       ),
       bottomNavigationBar: SafeArea(
@@ -1246,14 +1240,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
         ),
       ),
     );
-  }
-
-  String _getHostFromUrl(String url) {
-    try {
-      return Uri.parse(url).host;
-    } catch (e) {
-      return url;
-    }
   }
 
   void _showTabsSwitcher() async {

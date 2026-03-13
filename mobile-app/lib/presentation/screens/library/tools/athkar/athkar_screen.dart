@@ -119,32 +119,6 @@ class _AthkarList extends StatefulWidget {
 }
 
 class _AthkarListState extends State<_AthkarList> {
-  final TextEditingController _searchController = TextEditingController();
-  String _searchQuery = '';
-
-  String _normalizeArabic(String text) {
-    return text
-        .replaceAll(RegExp(r'[\u064B-\u0652]'), '') // Harakat
-        .replaceAll(RegExp(r'[\u0670]'), 'إ') // Superscript alef
-        .replaceAll(RegExp(r'[\u0640]'), '') // Tatweel/Kashida
-        .replaceAll('ى', 'ي')
-        .replaceAll('ة', 'ه')
-        .toLowerCase();
-  }
-
-  bool _matchesSearch(String text) {
-    if (_searchQuery.isEmpty) return true;
-    final normalizedText = _normalizeArabic(text);
-    final normalizedQuery = _normalizeArabic(_searchQuery);
-    return normalizedText.contains(normalizedQuery);
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AthkarProvider>();
@@ -153,13 +127,6 @@ class _AthkarListState extends State<_AthkarList> {
     if (provider.isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-
-    final filteredAthkar = widget.athkar.where((item) {
-      if (_searchQuery.isEmpty) return true;
-      return _matchesSearch(item.text) ||
-          _matchesSearch(item.reward ?? '') ||
-          _matchesSearch(item.source ?? '');
-    }).toList();
 
     // Calculate total progress
     int totalTarget = 0;
@@ -193,7 +160,7 @@ class _AthkarListState extends State<_AthkarList> {
 
     return Column(
       children: [
-        // Progress Summary & Search
+        // Progress Summary
         Container(
           padding: const EdgeInsets.all(AppDimensions.paddingMedium),
           decoration: BoxDecoration(
@@ -206,140 +173,76 @@ class _AthkarListState extends State<_AthkarList> {
               ),
             ],
           ),
-          child: Column(
+          child: Row(
             children: [
-              // Progress Bar
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'إجمالي التقدم',
-                              style: TextStyle(
-                                fontFamily: 'IBM Plex Sans Arabic',
-                                fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white70 : Colors.black87,
-                              ),
-                            ),
-                            Text(
-                              '${(totalProgress * 100).toInt()}%',
-                              style: const TextStyle(
-                                fontFamily: 'IBM Plex Sans Arabic',
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: AppDimensions.spacing8),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(
-                            AppDimensions.radiusMedium,
-                          ),
-                          child: LinearProgressIndicator(
-                            value: totalProgress,
-                            backgroundColor: AppColors.primary.withValues(
-                              alpha: 0.1,
-                            ),
-                            valueColor: const AlwaysStoppedAnimation<Color>(
-                              AppColors.primary,
-                            ),
-                            minHeight: 8,
-                          ),
-                        ),
-                        const SizedBox(height: AppDimensions.spacing4),
                         Text(
-                          'تم إكمال $completedCount من ${widget.athkar.length} ذكراً',
+                          'إجمالي التقدم',
                           style: TextStyle(
-                            fontSize: 12,
                             fontFamily: 'IBM Plex Sans Arabic',
-                            color: Colors.grey.withValues(alpha: 0.8),
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white70 : Colors.black87,
+                          ),
+                        ),
+                        Text(
+                          '${(totalProgress * 100).toInt()}%',
+                          style: const TextStyle(
+                            fontFamily: 'IBM Plex Sans Arabic',
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primary,
                           ),
                         ),
                       ],
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppDimensions.spacing16),
-              // Search Bar
-              TextField(
-                controller: _searchController,
-                textAlign: TextAlign.right,
-                textDirection: TextDirection.rtl,
-                onChanged: (value) => setState(() => _searchQuery = value),
-                decoration: InputDecoration(
-                  hintText: 'بحث في الأذكار...',
-                  hintStyle: const TextStyle(
-                    fontFamily: 'IBM Plex Sans Arabic',
-                  ),
-                  prefixIcon: const Icon(SolarLinearIcons.magnifer, size: 20),
-                  suffixIcon: _searchQuery.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 20),
-                          onPressed: () {
-                            _searchController.clear();
-                            setState(() => _searchQuery = '');
-                          },
-                        )
-                      : null,
-                  filled: true,
-                  fillColor: isDark
-                      ? Colors.white.withValues(alpha: 0.05)
-                      : Colors.grey.withValues(alpha: 0.1),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(
-                      AppDimensions.radiusLarge,
+                    const SizedBox(height: AppDimensions.spacing8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(
+                        AppDimensions.radiusMedium,
+                      ),
+                      child: LinearProgressIndicator(
+                        value: totalProgress,
+                        backgroundColor: AppColors.primary.withValues(
+                          alpha: 0.1,
+                        ),
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          AppColors.primary,
+                        ),
+                        minHeight: 8,
+                      ),
                     ),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: AppDimensions.paddingMedium,
-                    vertical: AppDimensions.spacing12,
-                  ),
+                    const SizedBox(height: AppDimensions.spacing4),
+                    Text(
+                      'تم إكمال $completedCount من ${widget.athkar.length} ذكراً',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontFamily: 'IBM Plex Sans Arabic',
+                        color: Colors.grey.withValues(alpha: 0.8),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
         ),
         Expanded(
-          child: filteredAthkar.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        SolarLinearIcons.magnifer,
-                        size: 64,
-                        color: Colors.grey.withValues(alpha: 0.3),
-                      ),
-                      const SizedBox(height: AppDimensions.spacing16),
-                      const Text(
-                        'لا توجد أذكار تطابق بحثك',
-                        style: TextStyle(
-                          fontFamily: 'IBM Plex Sans Arabic',
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppDimensions.paddingMedium,
-                    vertical: AppDimensions.spacing10,
-                  ),
-                  physics: const BouncingScrollPhysics(),
-                  itemCount: filteredAthkar.length,
-                  itemBuilder: (context, index) {
-                    return _AthkarCard(item: filteredAthkar[index]);
-                  },
-                ),
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppDimensions.paddingMedium,
+              vertical: AppDimensions.spacing10,
+            ),
+            physics: const BouncingScrollPhysics(),
+            itemCount: widget.athkar.length,
+            itemBuilder: (context, index) {
+              return _AthkarCard(item: widget.athkar[index]);
+            },
+          ),
         ),
       ],
     );

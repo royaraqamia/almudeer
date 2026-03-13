@@ -525,6 +525,11 @@ class MockInboxLocalDataSource extends _i1.Mock
     String? replyToSenderName,
     bool? isForwarded = false,
     List<Map<String, dynamic>>? attachments,
+    String? receivedAt,
+    String? urgency,
+    String? sentiment,
+    String? originalSender,
+    String? deliveryStatus,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#addMessageLocally, [], {
@@ -538,6 +543,11 @@ class MockInboxLocalDataSource extends _i1.Mock
               #replyToSenderName: replyToSenderName,
               #isForwarded: isForwarded,
               #attachments: attachments,
+              #receivedAt: receivedAt,
+              #urgency: urgency,
+              #sentiment: sentiment,
+              #originalSender: originalSender,
+              #deliveryStatus: deliveryStatus,
             }),
             returnValue: _i5.Future<int>.value(0),
           )
@@ -577,6 +587,27 @@ class MockInboxLocalDataSource extends _i1.Mock
             ),
           )
           as _i5.Future<List<Map<String, dynamic>>>);
+
+  @override
+  _i5.Future<List<Map<String, dynamic>>> getUnsyncedOutgoingMessages(
+    String? senderContact,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#getUnsyncedOutgoingMessages, [senderContact]),
+            returnValue: _i5.Future<List<Map<String, dynamic>>>.value(
+              <Map<String, dynamic>>[],
+            ),
+          )
+          as _i5.Future<List<Map<String, dynamic>>>);
+
+  @override
+  _i5.Future<void> deleteOptimisticMessage(int? localId) =>
+      (super.noSuchMethod(
+            Invocation.method(#deleteOptimisticMessage, [localId]),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
 
   @override
   _i5.Future<void> markAsSynced(
@@ -681,6 +712,189 @@ class MockInboxLocalDataSource extends _i1.Mock
   _i5.Future<void> persistRemoteMessage(Map<String, dynamic>? msg) =>
       (super.noSuchMethod(
             Invocation.method(#persistRemoteMessage, [msg]),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<int> insertOutboxMessage({
+    required String? channel,
+    required String? body,
+    String? recipientId,
+    String? recipientContact,
+    String? subject,
+    int? inboxMessageId,
+    int? replyToId,
+    String? replyToPlatformId,
+    String? replyToBodyPreview,
+    String? replyToSenderName,
+    List<Map<String, dynamic>>? attachments,
+    bool? isForwarded = false,
+    String? status = 'pending',
+    String? deliveryStatus,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(#insertOutboxMessage, [], {
+              #channel: channel,
+              #body: body,
+              #recipientId: recipientId,
+              #recipientContact: recipientContact,
+              #subject: subject,
+              #inboxMessageId: inboxMessageId,
+              #replyToId: replyToId,
+              #replyToPlatformId: replyToPlatformId,
+              #replyToBodyPreview: replyToBodyPreview,
+              #replyToSenderName: replyToSenderName,
+              #attachments: attachments,
+              #isForwarded: isForwarded,
+              #status: status,
+              #deliveryStatus: deliveryStatus,
+            }),
+            returnValue: _i5.Future<int>.value(0),
+          )
+          as _i5.Future<int>);
+
+  @override
+  _i5.Future<List<Map<String, dynamic>>> getPendingOutboxMessages() =>
+      (super.noSuchMethod(
+            Invocation.method(#getPendingOutboxMessages, []),
+            returnValue: _i5.Future<List<Map<String, dynamic>>>.value(
+              <Map<String, dynamic>>[],
+            ),
+          )
+          as _i5.Future<List<Map<String, dynamic>>>);
+
+  @override
+  _i5.Future<void> markOutboxAsSynced(
+    int? localId,
+    int? remoteId, {
+    String? platformMessageId,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #markOutboxAsSynced,
+              [localId, remoteId],
+              {#platformMessageId: platformMessageId},
+            ),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<void> updateOutboxStatus(
+    int? remoteId,
+    String? status, {
+    String? errorMessage,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #updateOutboxStatus,
+              [remoteId, status],
+              {#errorMessage: errorMessage},
+            ),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<void> deleteOutboxMessage(int? remoteId) =>
+      (super.noSuchMethod(
+            Invocation.method(#deleteOutboxMessage, [remoteId]),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<void> cacheConversations(
+    List<Map<String, dynamic>>? conversations,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#cacheConversations, [conversations]),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<List<Map<String, dynamic>>> getConversations({
+    int? limit = 50,
+    int? offset = 0,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(#getConversations, [], {
+              #limit: limit,
+              #offset: offset,
+            }),
+            returnValue: _i5.Future<List<Map<String, dynamic>>>.value(
+              <Map<String, dynamic>>[],
+            ),
+          )
+          as _i5.Future<List<Map<String, dynamic>>>);
+
+  @override
+  _i5.Future<Map<String, dynamic>?> getConversation(String? senderContact) =>
+      (super.noSuchMethod(
+            Invocation.method(#getConversation, [senderContact]),
+            returnValue: _i5.Future<Map<String, dynamic>?>.value(),
+          )
+          as _i5.Future<Map<String, dynamic>?>);
+
+  @override
+  _i5.Future<void> updateConversationUnreadCount(
+    String? senderContact,
+    int? unreadCount,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#updateConversationUnreadCount, [
+              senderContact,
+              unreadCount,
+            ]),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<void> updateConversationOnlineStatus(
+    String? senderContact,
+    bool? isOnline,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#updateConversationOnlineStatus, [
+              senderContact,
+              isOnline,
+            ]),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<void> markConversationAsRead(String? senderContact) =>
+      (super.noSuchMethod(
+            Invocation.method(#markConversationAsRead, [senderContact]),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<void> deleteConversation(String? senderContact) =>
+      (super.noSuchMethod(
+            Invocation.method(#deleteConversation, [senderContact]),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<void> clearConversations() =>
+      (super.noSuchMethod(
+            Invocation.method(#clearConversations, []),
             returnValue: _i5.Future<void>.value(),
             returnValueForMissingStub: _i5.Future<void>.value(),
           )

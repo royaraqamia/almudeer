@@ -436,23 +436,86 @@ class ConversationDetailProvider extends ChangeNotifier {
 
         // P2-15 FIX: Preserve outgoing messages that might not be returned by the API
         // This handles cases where the backend doesn't return outbox messages correctly
+        // FIX: Include ALL outgoing messages (both positive and negative IDs for optimistic messages)
         final currentMessages = _memoryMessages[senderContact] ?? [];
         final outgoingMessages = currentMessages
-            .where((m) => m.direction == 'outgoing' && m.id > 0)
+            .where((m) => m.direction == 'outgoing')
             .toList();
-        
+
+        // FIX: Also load unsynced messages from local database
+        List<InboxMessage> localUnsyncedMessages = [];
+        try {
+          localUnsyncedMessages = await _inboxRepository.getUnsyncedOutgoingMessages(senderContact);
+        } catch (e) {
+          debugPrint('Error loading unsynced messages: $e');
+        }
+
         // Merge fresh messages with local outgoing messages
         // Use a map to avoid duplicates (key by message ID)
         final mergedMessagesMap = <int, InboxMessage>{};
-        
+
         // Add all fresh messages from API
         for (final msg in freshMessages) {
           mergedMessagesMap[msg.id] = msg;
         }
-        
-        // Add outgoing messages that aren't in the fresh list
+
+        // Add in-memory outgoing messages that aren't in the fresh list
+        // For optimistic messages (negative IDs), check if we have a synced version
         for (final msg in outgoingMessages) {
-          if (!mergedMessagesMap.containsKey(msg.id)) {
+          if (msg.id < 0) {
+            // Optimistic message - check if we have a synced version by matching:
+            // 1. outboxId (if available)
+            // 2. body + timestamp (fallback)
+            bool alreadySynced = false;
+            
+            // Check by outboxId first (most reliable)
+            if (msg.outboxId != null) {
+              alreadySynced = freshMessages.any((m) => m.outboxId == msg.outboxId);
+            }
+            
+            // If not found by outboxId, check by body + similar timestamp
+            if (!alreadySynced) {
+              alreadySynced = freshMessages.any((m) {
+                if (m.body != msg.body) return false;
+                // Check if timestamps are within 5 seconds (optimistic was just replaced by synced)
+                try {
+                  final msgTime = DateTime.parse(msg.createdAt);
+                  final freshTime = DateTime.parse(m.createdAt);
+                  return freshTime.difference(msgTime).inSeconds.abs() < 5;
+                } catch (e) {
+                  return false;
+                }
+              });
+            }
+            
+            // Only add optimistic message if no synced version exists
+            if (!alreadySynced) {
+              mergedMessagesMap[msg.id] = msg;
+            }
+          } else {
+            // Regular positive ID message
+            if (!mergedMessagesMap.containsKey(msg.id)) {
+              mergedMessagesMap[msg.id] = msg;
+            }
+          }
+        }
+
+        // Add local unsynced messages from database (not in memory)
+        for (final msg in localUnsyncedMessages) {
+          // Check if already in merged map (from memory or API)
+          final alreadyExists = mergedMessagesMap.values.any((m) {
+            // Match by body + timestamp (since unsynced messages don't have remote_id yet)
+            if (m.body != msg.body) return false;
+            try {
+              final mTime = DateTime.parse(m.createdAt);
+              final msgTime = DateTime.parse(msg.createdAt);
+              return mTime.difference(msgTime).inSeconds.abs() < 2;
+            } catch (e) {
+              return false;
+            }
+          });
+          
+          if (!alreadyExists) {
             mergedMessagesMap[msg.id] = msg;
           }
         }
@@ -489,14 +552,14 @@ class ConversationDetailProvider extends ChangeNotifier {
           _memoryChannels[senderContact] = freshMessages.first.channel;
         }
 
-        // Update Unified Persistent Cache
+        // Update Unified Persistent Cache with merged messages (includes unsynced outgoing)
         final accountHash = await _inboxRepository.apiClient
             .getAccountCacheHash();
         await _cache.put(
           PersistentCacheService.boxInbox,
           '${accountHash}_messages_$senderContact',
           {
-            'messages': freshMessages.map((m) => m.toJson()).toList(),
+            'messages': mergedMessages.map((m) => m.toJson()).toList(),
             'cached_at': DateTime.now().toIso8601String(),
           },
         );

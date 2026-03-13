@@ -423,6 +423,11 @@ async def send_chat_message(
         history = history if 'history' in locals() else await get_full_chat_history(license["license_id"], sender_contact, limit=1)
         if history:
             recipient_id = history[0].get("sender_id")
+        else:
+            # P2-15 FIX: If no history found, use sender_contact as recipient_id
+            # This handles new conversations where there's no previous message
+            recipient_id = sender_contact
+            logger.warning(f"[send_chat_message] No history found for {sender_contact}, using sender_contact as recipient_id")
     
     outbox_id = await create_outbox_message(
         inbox_message_id=reply_to_id,

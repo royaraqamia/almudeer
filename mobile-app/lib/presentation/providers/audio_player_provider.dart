@@ -72,7 +72,18 @@ class AlMudeerAudioHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> stop() async {
     try {
-      await _player.stop().timeout(const Duration(seconds: 2));
+      await _player.setLoopMode(LoopMode.off).timeout(
+        const Duration(seconds: 1),
+        onTimeout: () => debugPrint('setLoopMode timeout'),
+      );
+      await _player.pause().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => debugPrint('Pause timeout'),
+      );
+      await _player.stop().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => debugPrint('Stop timeout'),
+      );
     } catch (e) {
       debugPrint('Player stop timeout: $e');
     }
@@ -109,12 +120,31 @@ class AlMudeerAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> release() async {
     try {
       if (_player.playing) {
-        await _player.pause().timeout(const Duration(seconds: 1));
+        await _player.pause().timeout(
+          const Duration(seconds: 3),
+          onTimeout: () => debugPrint('Pause timeout during release'),
+        );
       }
-      await _player.stop().timeout(const Duration(seconds: 2));
-      await _player.dispose().timeout(const Duration(seconds: 2));
+      await _player.setLoopMode(LoopMode.off).timeout(
+        const Duration(seconds: 1),
+        onTimeout: () => debugPrint('setLoopMode timeout during release'),
+      );
+      await _player.stop().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => debugPrint('Stop timeout during release'),
+      );
+      await _player.dispose().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => debugPrint('Dispose timeout during release'),
+      );
     } catch (e) {
       debugPrint('Player release error (non-fatal): $e');
+      // Force dispose even on timeout
+      try {
+        await _player.dispose();
+      } catch (forceDisposeError) {
+        debugPrint('Force dispose failed: $forceDisposeError');
+      }
     }
   }
 
@@ -269,7 +299,8 @@ class AudioPlayerProvider extends ChangeNotifier {
       _handler = await getOrInitAudioHandler();
 
       final session = await AudioSession.instance;
-      await session.configure(const AudioSessionConfiguration.speech());
+      // Use music() instead of speech() for better emulator codec compatibility
+      await session.configure(const AudioSessionConfiguration.music());
 
       _isPlayerInitialized = true;
       _initProximity();
@@ -675,7 +706,14 @@ class AudioPlayerProvider extends ChangeNotifier {
 
   Future<void> stop({bool clear = true}) async {
     try {
-      await _handler?.stop().timeout(const Duration(seconds: 2));
+      await _handler?.player.setLoopMode(LoopMode.off).timeout(
+        const Duration(seconds: 1),
+        onTimeout: () => debugPrint('setLoopMode timeout in stop'),
+      );
+      await _handler?.stop().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => debugPrint('Stop timeout in stop'),
+      );
     } catch (e) {
       debugPrint('Stop timeout: $e');
     }
@@ -746,7 +784,7 @@ class AudioPlayerProvider extends ChangeNotifier {
     try {
       final session = await AudioSession.instance;
       if (_isNear) {
-        // Earpiece
+        // Earpiece - use speech mode for proximity
         await session.configure(
           const AudioSessionConfiguration(
             avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
@@ -761,11 +799,18 @@ class AudioPlayerProvider extends ChangeNotifier {
           ),
         );
       } else {
-        // Speaker
+        // Speaker - use music mode for better codec compatibility
         await session.configure(const AudioSessionConfiguration.music());
       }
     } catch (e) {
       debugPrint('Audio Route Error: $e');
+      // Fallback to music mode on error
+      try {
+        final session = await AudioSession.instance;
+        await session.configure(const AudioSessionConfiguration.music());
+      } catch (fallbackError) {
+        debugPrint('Fallback audio route error: $fallbackError');
+      }
     }
   }
 

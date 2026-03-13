@@ -531,6 +531,12 @@ class InboxRepository {
     return CursorPaginatedMessages.fromJson(response);
   }
 
+  /// Get unsynced outgoing messages for a contact (local only)
+  Future<List<InboxMessage>> getUnsyncedOutgoingMessages(String senderContact) async {
+    final localMessages = await _localDataSource.getUnsyncedOutgoingMessages(senderContact);
+    return localMessages.map(_mapLocalMessage).toList();
+  }
+
   /// Edit an outbox message
   Future<Map<String, dynamic>> editMessage(
     int messageId,

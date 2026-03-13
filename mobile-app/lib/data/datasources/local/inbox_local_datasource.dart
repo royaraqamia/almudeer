@@ -32,17 +32,25 @@ class InboxLocalDataSource {
         'media_url': msg['media_url'],
         'intent': msg['intent'],
         'created_at': msg['created_at'],
+        'received_at': msg['received_at'],
         'status': msg['status'],
+        'delivery_status': msg['delivery_status'],
         'reply_to_id': msg['reply_to_id'],
         'reply_to_platform_id': msg['reply_to_platform_id'],
         'reply_to_body_preview': msg['reply_to_body_preview'],
         'reply_to_sender_name': msg['reply_to_sender_name'],
+        'reply_count': msg['reply_count'] ?? 0,
         'sync_status': 'synced',
         'attachments': msg['attachments'] != null
             ? jsonEncode(msg['attachments'])
             : null,
         'is_forwarded':
             (msg['is_forwarded'] == true || msg['is_forwarded'] == 1) ? 1 : 0,
+        'urgency': msg['urgency'],
+        'sentiment': msg['sentiment'],
+        'original_sender': msg['original_sender'],
+        'deleted_at': msg['deleted_at'],
+        'is_read': (msg['is_read'] == true || msg['is_read'] == 1) ? 1 : 0,
 
         // v9 fields
         'sender_name': msg['sender_name'],
@@ -101,6 +109,11 @@ class InboxLocalDataSource {
     String? replyToSenderName,
     bool isForwarded = false,
     List<Map<String, dynamic>>? attachments,
+    String? receivedAt,
+    String? urgency,
+    String? sentiment,
+    String? originalSender,
+    String? deliveryStatus,
   }) async {
     final db = await _db;
     return await db.insert('inbox_messages', {
@@ -110,13 +123,20 @@ class InboxLocalDataSource {
       'media_url': mediaUrl,
       'attachments': attachments != null ? jsonEncode(attachments) : null,
       'created_at': DateTime.now().toIso8601String(),
+      'received_at': receivedAt,
       'status': 'replied', // Assuming outbound message
+      'delivery_status': deliveryStatus,
       'reply_to_id': replyToId,
       'reply_to_platform_id': replyToPlatformId,
       'reply_to_body_preview': replyToBodyPreview,
       'reply_to_sender_name': replyToSenderName,
+      'reply_count': 0,
       'is_forwarded': isForwarded ? 1 : 0,
       'sync_status': 'new', // Needs syncing
+      'urgency': urgency,
+      'sentiment': sentiment,
+      'original_sender': originalSender,
+      'is_read': 1, // Outgoing messages are always read
       // P1-1 FIX: Initialize retry tracking
       'retry_count': 0,
       'max_retries': 3,
@@ -146,22 +166,29 @@ class InboxLocalDataSource {
         'body',
         'media_url',
         'created_at',
+        'received_at',
         'edited_at',
         'status',
+        'delivery_status',
         'sync_status',
         'reply_to_id',
         'reply_to_platform_id',
         'reply_to_body_preview',
         'reply_to_sender_name',
+        'reply_count',
         'is_forwarded',
         'direction',
         'channel_message_id',
         'platform_message_id',
         'intent',
+        'urgency',
+        'sentiment',
+        'is_read',
+        'deleted_at',
         // Note: 'attachments' excluded by default to reduce row size
         // It can be fetched separately if needed
       ],
-      where: 'sender_contact = ?',
+      where: 'sender_contact = ? AND deleted_at IS NULL',
       whereArgs: [senderContact],
       orderBy: 'created_at DESC',
       limit: limit,
@@ -184,18 +211,24 @@ class InboxLocalDataSource {
         'media_url',
         'attachments',  // Include attachments for this specific query
         'created_at',
+        'received_at',
         'edited_at',
         'status',
+        'delivery_status',
         'sync_status',
         'reply_to_id',
         'reply_to_platform_id',
         'reply_to_body_preview',
         'reply_to_sender_name',
+        'reply_count',
         'is_forwarded',
         'direction',
         'channel_message_id',
         'platform_message_id',
         'intent',
+        'urgency',
+        'sentiment',
+        'is_read',
       ],
       where: 'local_id = ?',
       whereArgs: [localId],
@@ -212,6 +245,58 @@ class InboxLocalDataSource {
       where: 'sync_status = ?',
       whereArgs: ['new'],
       orderBy: 'created_at ASC',
+    );
+  }
+
+  /// Get unsynced outgoing messages for a specific contact
+  /// Used to merge with API results to preserve optimistic messages
+  Future<List<Map<String, dynamic>>> getUnsyncedOutgoingMessages(String senderContact) async {
+    final db = await _db;
+    return await db.query(
+      'inbox_messages',
+      columns: [
+        'local_id',
+        'remote_id',
+        'sender_contact',
+        'sender_name',
+        'channel',
+        'body',
+        'media_url',
+        'attachments',
+        'created_at',
+        'received_at',
+        'edited_at',
+        'status',
+        'delivery_status',
+        'sync_status',
+        'reply_to_id',
+        'reply_to_platform_id',
+        'reply_to_body_preview',
+        'reply_to_sender_name',
+        'reply_count',
+        'is_forwarded',
+        'direction',
+        'channel_message_id',
+        'platform_message_id',
+        'intent',
+        'urgency',
+        'sentiment',
+        'is_read',
+      ],
+      where: 'sender_contact = ? AND direction = ? AND sync_status = ? AND deleted_at IS NULL',
+      whereArgs: [senderContact, 'outgoing', 'new'],
+      orderBy: 'created_at ASC',
+    );
+  }
+
+  /// Delete optimistic message after it's been synced
+  /// Called when we receive the server-confirmed message to avoid duplicates
+  Future<void> deleteOptimisticMessage(int localId) async {
+    final db = await _db;
+    await db.delete(
+      'inbox_messages',
+      where: 'local_id = ?',
+      whereArgs: [localId],
     );
   }
 
@@ -385,11 +470,14 @@ class InboxLocalDataSource {
       'media_url': msg['media_url'],
       'intent': msg['intent'],
       'created_at': msg['created_at'] ?? msg['timestamp'],
+      'received_at': msg['received_at'],
       'status': msg['status'],
+      'delivery_status': msg['delivery_status'],
       'reply_to_id': msg['reply_to_id'],
       'reply_to_platform_id': msg['reply_to_platform_id'],
       'reply_to_body_preview': msg['reply_to_body_preview'],
       'reply_to_sender_name': msg['reply_to_sender_name'],
+      'reply_count': msg['reply_count'] ?? 0,
       'sync_status': 'synced',
       'attachments': msg['attachments'] != null
           ? (msg['attachments'] is String
@@ -399,12 +487,255 @@ class InboxLocalDataSource {
       'is_forwarded': (msg['is_forwarded'] == true || msg['is_forwarded'] == 1)
           ? 1
           : 0,
+      'urgency': msg['urgency'],
+      'sentiment': msg['sentiment'],
+      'original_sender': msg['original_sender'],
+      'deleted_at': msg['deleted_at'],
+      'is_read': (msg['is_read'] == true || msg['is_read'] == 1) ? 1 : 0,
       'sender_name': msg['sender_name'],
       'channel_message_id': msg['channel_message_id'],
       'platform_message_id': msg['platform_message_id'],
       'direction': msg['direction'] ?? 'incoming',
       'edited_at': msg['edited_at'],
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  // ============ Outbox Messages Methods ============
+
+  /// Insert an outbox message locally
+  Future<int> insertOutboxMessage({
+    required String channel,
+    required String body,
+    String? recipientId,
+    String? recipientContact,
+    String? subject,
+    int? inboxMessageId,
+    int? replyToId,
+    String? replyToPlatformId,
+    String? replyToBodyPreview,
+    String? replyToSenderName,
+    List<Map<String, dynamic>>? attachments,
+    bool isForwarded = false,
+    String status = 'pending',
+    String? deliveryStatus,
+  }) async {
+    final db = await _db;
+    return await db.insert('outbox_messages', {
+      'channel': channel,
+      'body': body,
+      'recipient_id': recipientId,
+      'recipient_contact': recipientContact,
+      'subject': subject,
+      'inbox_message_id': inboxMessageId,
+      'reply_to_id': replyToId,
+      'reply_to_platform_id': replyToPlatformId,
+      'reply_to_body_preview': replyToBodyPreview,
+      'reply_to_sender_name': replyToSenderName,
+      'attachments': attachments != null ? jsonEncode(attachments) : null,
+      'is_forwarded': isForwarded ? 1 : 0,
+      'status': status,
+      'delivery_status': deliveryStatus,
+      'sync_status': 'new',
+      'retry_count': 0,
+      'max_retries': 3,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  /// Get pending outbox messages
+  Future<List<Map<String, dynamic>>> getPendingOutboxMessages() async {
+    final db = await _db;
+    return await db.query(
+      'outbox_messages',
+      where: 'sync_status = ? AND status IN (?, ?) AND deleted_at IS NULL',
+      whereArgs: ['new', 'pending', 'approved'],
+      orderBy: 'created_at ASC',
+    );
+  }
+
+  /// Mark outbox message as synced
+  Future<void> markOutboxAsSynced(
+    int localId,
+    int remoteId, {
+    String? platformMessageId,
+  }) async {
+    final db = await _db;
+    await db.update(
+      'outbox_messages',
+      {
+        'sync_status': 'synced',
+        'remote_id': remoteId,
+        'platform_message_id': platformMessageId,
+        'retry_count': 0,
+      },
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  /// Update outbox message status
+  Future<void> updateOutboxStatus(int remoteId, String status, {String? errorMessage}) async {
+    final db = await _db;
+    final values = <String, dynamic>{
+      'status': status,
+      'sync_status': 'synced',
+    };
+    if (status == 'failed') {
+      values['failed_at'] = DateTime.now().toIso8601String();
+      if (errorMessage != null) {
+        values['error_message'] = errorMessage;
+      }
+    } else if (status == 'sent') {
+      values['sent_at'] = DateTime.now().toIso8601String();
+    } else if (status == 'approved') {
+      values['approved_at'] = DateTime.now().toIso8601String();
+    }
+    await db.update(
+      'outbox_messages',
+      values,
+      where: 'remote_id = ?',
+      whereArgs: [remoteId],
+    );
+  }
+
+  /// Delete outbox message (soft delete)
+  Future<void> deleteOutboxMessage(int remoteId) async {
+    final db = await _db;
+    await db.update(
+      'outbox_messages',
+      {
+        'deleted_at': DateTime.now().toIso8601String(),
+        'sync_status': 'dirty',
+      },
+      where: 'remote_id = ?',
+      whereArgs: [remoteId],
+    );
+  }
+
+  // ============ Inbox Conversations Methods ============
+
+  /// Cache conversations list
+  Future<void> cacheConversations(List<Map<String, dynamic>> conversations) async {
+    final db = await _db;
+    final batch = db.batch();
+    for (var conv in conversations) {
+      batch.insert('inbox_conversations', {
+        'sender_contact': conv['sender_contact'],
+        'sender_name': conv['sender_name'],
+        'channel': conv['channel'],
+        'last_message_id': conv['last_message_id'],
+        'last_message_body': conv['last_message_body'],
+        'last_message_ai_summary': conv['last_message_ai_summary'],
+        'last_message_at': conv['last_message_at'],
+        'last_message_attachments': conv['last_message_attachments'] != null
+            ? jsonEncode(conv['last_message_attachments'])
+            : null,
+        'status': conv['status'],
+        'delivery_status': conv['delivery_status'],
+        'unread_count': conv['unread_count'] ?? 0,
+        'message_count': conv['message_count'] ?? 0,
+        'is_online': (conv['is_online'] == true || conv['is_online'] == 1) ? 1 : 0,
+        'peer_license_id': conv['peer_license_id'],
+        'avatar_url': conv['avatar_url'],
+        'last_seen_at': conv['last_seen_at'],
+        'sync_status': 'synced',
+        'deleted_at': conv['deleted_at'],
+        'last_updated_at': DateTime.now().millisecondsSinceEpoch,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Get all conversations
+  Future<List<Map<String, dynamic>>> getConversations({int limit = 50, int offset = 0}) async {
+    final db = await _db;
+    return await db.query(
+      'inbox_conversations',
+      where: 'deleted_at IS NULL',
+      orderBy: 'last_message_at DESC',
+      limit: limit,
+      offset: offset,
+    );
+  }
+
+  /// Get conversation by sender contact
+  Future<Map<String, dynamic>?> getConversation(String senderContact) async {
+    final db = await _db;
+    final results = await db.query(
+      'inbox_conversations',
+      where: 'sender_contact = ?',
+      whereArgs: [senderContact],
+      limit: 1,
+    );
+    return results.isNotEmpty ? results.first : null;
+  }
+
+  /// Update conversation unread count
+  Future<void> updateConversationUnreadCount(
+    String senderContact,
+    int unreadCount,
+  ) async {
+    final db = await _db;
+    await db.update(
+      'inbox_conversations',
+      {
+        'unread_count': unreadCount,
+        'last_updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'sender_contact = ?',
+      whereArgs: [senderContact],
+    );
+  }
+
+  /// Update conversation online status
+  Future<void> updateConversationOnlineStatus(
+    String senderContact,
+    bool isOnline,
+  ) async {
+    final db = await _db;
+    await db.update(
+      'inbox_conversations',
+      {
+        'is_online': isOnline ? 1 : 0,
+        'last_updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'sender_contact = ?',
+      whereArgs: [senderContact],
+    );
+  }
+
+  /// Mark conversation as read
+  Future<void> markConversationAsRead(String senderContact) async {
+    final db = await _db;
+    await db.update(
+      'inbox_conversations',
+      {
+        'unread_count': 0,
+        'last_updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'sender_contact = ?',
+      whereArgs: [senderContact],
+    );
+  }
+
+  /// Delete conversation (soft delete)
+  Future<void> deleteConversation(String senderContact) async {
+    final db = await _db;
+    await db.update(
+      'inbox_conversations',
+      {
+        'deleted_at': DateTime.now().toIso8601String(),
+        'sync_status': 'dirty',
+      },
+      where: 'sender_contact = ?',
+      whereArgs: [senderContact],
+    );
+  }
+
+  /// Clear all conversations data
+  Future<void> clearConversations() async {
+    final db = await _db;
+    await db.delete('inbox_conversations');
   }
 
   /// P1-5 FIX: Check if a message has pending local operations
@@ -431,9 +762,8 @@ class InboxLocalDataSource {
     final db = await _db;
 
     // Update sender_contact in conversations table
-    // Note: Conversations are typically cached in memory, but we update any persisted data
     await db.update(
-      'conversations',
+      'inbox_conversations',
       {'sender_contact': newContact},
       where: 'sender_contact = ?',
       whereArgs: [oldContact],

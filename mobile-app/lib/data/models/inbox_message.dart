@@ -67,6 +67,18 @@ class InboxMessage {
   final int? uploadedBytes;
   final int? totalUploadBytes;
 
+  /// Message priority/urgency level
+  final String? urgency;
+
+  /// AI sentiment analysis result
+  final String? sentiment;
+
+  /// Read/unread status
+  final bool isRead;
+
+  /// Soft delete timestamp
+  final String? deletedAt;
+
   InboxMessage({
     required this.id,
     required this.channel,
@@ -104,6 +116,10 @@ class InboxMessage {
     this.uploadProgress,
     this.uploadedBytes,
     this.totalUploadBytes,
+    this.urgency,
+    this.sentiment,
+    this.isRead = false,
+    this.deletedAt,
   });
 
   /// Create an optimistic outgoing message for instant UI feedback
@@ -219,6 +235,10 @@ class InboxMessage {
     double? uploadProgress,
     int? uploadedBytes,
     int? totalUploadBytes,
+    String? urgency,
+    String? sentiment,
+    bool? isRead,
+    String? deletedAt,
   }) {
     return InboxMessage(
       id: id ?? this.id,
@@ -257,6 +277,10 @@ class InboxMessage {
       uploadProgress: uploadProgress ?? this.uploadProgress,
       uploadedBytes: uploadedBytes ?? this.uploadedBytes,
       totalUploadBytes: totalUploadBytes ?? this.totalUploadBytes,
+      urgency: urgency ?? this.urgency,
+      sentiment: sentiment ?? this.sentiment,
+      isRead: isRead ?? this.isRead,
+      deletedAt: deletedAt ?? this.deletedAt,
     );
   }
 
@@ -408,6 +432,10 @@ class InboxMessage {
           : int.tryParse(json['outbox_id']?.toString() ?? ''),
       threadId: json['thread_id']?.toString(),
       replyCount: json['reply_count'] as int? ?? 0,
+      urgency: json['urgency'] as String?,
+      sentiment: json['sentiment'] as String?,
+      isRead: json['is_read'] == true || json['is_read'] == 1,
+      deletedAt: json['deleted_at'] as String?,
     );
   }
 
@@ -441,6 +469,10 @@ class InboxMessage {
       'send_status': sendStatus.name,
       'thread_id': threadId,
       'reply_count': replyCount,
+      'urgency': urgency,
+      'sentiment': sentiment,
+      'is_read': isRead,
+      'deleted_at': deletedAt,
     };
   }
 
