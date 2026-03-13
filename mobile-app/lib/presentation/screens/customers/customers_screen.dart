@@ -256,195 +256,11 @@ class _CustomersViewState extends State<_CustomersView>
     final provider = context.read<CustomersProvider>();
     provider.clearUsernameLookup();
 
-    final nameController = TextEditingController();
-    final phoneController = TextEditingController();
-    final usernameController = TextEditingController();
-    VoidCallback? usernameLookupListener;
-
-    // Store listener reference for proper disposal
-    usernameLookupListener = () {
-      if (!context.mounted) return;
-      final username = usernameController.text.trim().replaceAll('@', '');
-      if (username.isNotEmpty) {
-        context.read<CustomersProvider>().lookupUsername(username);
-      }
-    };
-    usernameController.addListener(usernameLookupListener);
-
     PremiumBottomSheet.show(
       context: context,
       title: 'إضافة شخص جديد',
-      child: StatefulBuilder(
-        builder: (context, setModalState) {
-          final bool canAdd = nameController.text.trim().isNotEmpty;
-
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AppTextField(
-                controller: nameController,
-                hintText: 'الاسم',
-                prefixIcon: const Icon(SolarLinearIcons.user),
-                onChanged: (_) => setModalState(() {}),
-              ),
-              const SizedBox(height: 16),
-              Consumer<CustomersProvider>(
-                builder: (context, provider, _) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      AppTextField(
-                        controller: usernameController,
-                        hintText: 'معرِّف الشَّخص على التَّطبيق',
-                        prefixIcon: const Icon(SolarLinearIcons.userCircle),
-                        onChanged: (val) {
-                          setModalState(() {});
-                        },
-                        suffixIcon: provider.isCheckingUsername
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: Padding(
-                                  padding: EdgeInsets.all(12),
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: AppColors.primary,
-                                  ),
-                                ),
-                              )
-                            : provider.foundUsernameDetails != null
-                            ? const Icon(
-                                SolarBoldIcons.checkCircle,
-                                color: AppColors.success,
-                                size: 20,
-                              )
-                            : provider.usernameNotFound
-                            ? const Icon(
-                                SolarBoldIcons.closeCircle,
-                                color: AppColors.error,
-                                size: 20,
-                              )
-                            : null,
-                      ),
-                      if (provider.foundUsernameDetails != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8, right: 12),
-                          child: Row(
-                            children: [
-                              Icon(
-                                SolarLinearIcons.infoCircle,
-                                size: 14,
-                                color: AppColors.success.withValues(alpha: 0.8),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'تمَّ العثور على: ${provider.foundUsernameDetails}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.success.withValues(
-                                    alpha: 0.8,
-                                  ),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      if (provider.usernameNotFound &&
-                          usernameController.text.length >= 3)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8, right: 12),
-                          child: Row(
-                            children: [
-                              Icon(
-                                SolarLinearIcons.infoCircle,
-                                size: 14,
-                                color: AppColors.error.withValues(alpha: 0.8),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'لم يتم العثور على شخص بهذا المعرِّف',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.error.withValues(alpha: 0.8),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
-              AppTextField(
-                controller: phoneController,
-                hintText: 'رقم الهاتف (اختياري)',
-                prefixIcon: const Icon(SolarLinearIcons.phone),
-                keyboardType: TextInputType.phone,
-                onChanged: (_) => setModalState(() {}),
-              ),
-              const SizedBox(height: 32),
-              AppGradientButton(
-                onPressed: !canAdd
-                    ? null
-                    : () async {
-                        if (nameController.text.isEmpty) {
-                          AnimatedToast.error(context, 'يرجى إدخال اسم الشخص');
-                          return;
-                        }
-
-                        Haptics.mediumTap();
-                        final data = {
-                          'name': nameController.text,
-                          'phone': phoneController.text.isNotEmpty
-                              ? phoneController.text
-                              : null,
-                          'username': usernameController.text.isNotEmpty
-                              ? usernameController.text
-                              : null,
-                        };
-
-                        try {
-                          final result = await context
-                              .read<CustomersProvider>()
-                              .addCustomer(data);
-                          if (result['success'] == true && context.mounted) {
-                            Navigator.pop(context);
-                            AnimatedToast.success(
-                              context,
-                              result['message'] ?? 'تمَّت الإضافة بنجاح',
-                            );
-                          } else if (context.mounted) {
-                            AnimatedToast.error(
-                              context,
-                              result['error'] ??
-                                  result['message'] ??
-                                  'فشلت الإضافة',
-                            );
-                          }
-                        } catch (e) {
-                          if (context.mounted) {
-                            AnimatedToast.error(context, 'فشلت الإضافة');
-                          }
-                        }
-                      },
-                text: 'إضافة',
-                gradientColors: const [Color(0xFF2563EB), Color(0xFF0891B2)],
-              ),
-            ],
-          );
-        },
-      ),
+      child: _AddCustomerForm(provider: provider),
     );
-
-    // Clean up listener and controllers after modal closes
-    usernameController.removeListener(usernameLookupListener);
-    nameController.dispose();
-    phoneController.dispose();
-    usernameController.dispose();
   }
 
   Widget _buildPremiumEmptyState(ThemeData theme) {
@@ -465,6 +281,216 @@ class _CustomersViewState extends State<_CustomersView>
             offset: Offset(0, 20 * (1 - animValue)),
             child: child,
           ),
+        );
+      },
+    );
+  }
+}
+
+/// Form widget for adding a new customer
+/// Manages its own TextEditingControllers to avoid disposal issues
+class _AddCustomerForm extends StatefulWidget {
+  final CustomersProvider provider;
+
+  const _AddCustomerForm({required this.provider});
+
+  @override
+  State<_AddCustomerForm> createState() => _AddCustomerFormState();
+}
+
+class _AddCustomerFormState extends State<_AddCustomerForm> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _phoneController;
+  late final TextEditingController _usernameController;
+  VoidCallback? _usernameLookupListener;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController();
+    _phoneController = TextEditingController();
+    _usernameController = TextEditingController();
+
+    _usernameLookupListener = () {
+      if (!mounted) return;
+      final username = _usernameController.text.trim().replaceAll('@', '');
+      if (username.isNotEmpty) {
+        widget.provider.lookupUsername(username);
+      }
+    };
+    _usernameController.addListener(_usernameLookupListener!);
+  }
+
+  @override
+  void dispose() {
+    _usernameController.removeListener(_usernameLookupListener!);
+    _nameController.dispose();
+    _phoneController.dispose();
+    _usernameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StatefulBuilder(
+      builder: (context, setModalState) {
+        final bool canAdd = _nameController.text.trim().isNotEmpty;
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AppTextField(
+              controller: _nameController,
+              hintText: 'الاسم',
+              prefixIcon: const Icon(SolarLinearIcons.user),
+              onChanged: (_) => setModalState(() {}),
+            ),
+            const SizedBox(height: 16),
+            Consumer<CustomersProvider>(
+              builder: (context, provider, _) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AppTextField(
+                      controller: _usernameController,
+                      hintText: 'معرِّف الشَّخص على التَّطبيق',
+                      prefixIcon: const Icon(SolarLinearIcons.userCircle),
+                      onChanged: (val) {
+                        setModalState(() {});
+                      },
+                      suffixIcon: provider.isCheckingUsername
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: Padding(
+                                padding: EdgeInsets.all(12),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            )
+                          : provider.foundUsernameDetails != null
+                          ? const Icon(
+                              SolarBoldIcons.checkCircle,
+                              color: AppColors.success,
+                              size: 20,
+                            )
+                          : provider.usernameNotFound
+                          ? const Icon(
+                              SolarBoldIcons.closeCircle,
+                              color: AppColors.error,
+                              size: 20,
+                            )
+                          : null,
+                    ),
+                    if (provider.foundUsernameDetails != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8, right: 12),
+                        child: Row(
+                          children: [
+                            Icon(
+                              SolarLinearIcons.infoCircle,
+                              size: 14,
+                              color: AppColors.success.withValues(alpha: 0.8),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'تمَّ العثور على: ${provider.foundUsernameDetails}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.success.withValues(
+                                  alpha: 0.8,
+                                ),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (provider.usernameNotFound &&
+                        _usernameController.text.length >= 3)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8, right: 12),
+                        child: Row(
+                          children: [
+                            Icon(
+                              SolarLinearIcons.infoCircle,
+                              size: 14,
+                              color: AppColors.error.withValues(alpha: 0.8),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'لم يتم العثور على شخص بهذا المعرِّف',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.error.withValues(alpha: 0.8),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+            AppTextField(
+              controller: _phoneController,
+              hintText: 'رقم الهاتف (اختياري)',
+              prefixIcon: const Icon(SolarLinearIcons.phone),
+              keyboardType: TextInputType.phone,
+              onChanged: (_) => setModalState(() {}),
+            ),
+            const SizedBox(height: 32),
+            AppGradientButton(
+              onPressed: !canAdd
+                  ? null
+                  : () async {
+                      if (_nameController.text.isEmpty) {
+                        AnimatedToast.error(context, 'يرجى إدخال اسم الشخص');
+                        return;
+                      }
+
+                      Haptics.mediumTap();
+                      final data = {
+                        'name': _nameController.text,
+                        'phone': _phoneController.text.isNotEmpty
+                            ? _phoneController.text
+                            : null,
+                        'username': _usernameController.text.isNotEmpty
+                            ? _usernameController.text
+                            : null,
+                      };
+
+                      try {
+                        final result = await widget.provider.addCustomer(data);
+                        if (result['success'] == true && context.mounted) {
+                          Navigator.pop(context);
+                          AnimatedToast.success(
+                            context,
+                            result['message'] ?? 'تمَّت الإضافة بنجاح',
+                          );
+                        } else if (context.mounted) {
+                          AnimatedToast.error(
+                            context,
+                            result['error'] ??
+                                result['message'] ??
+                                'فشلت الإضافة',
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          AnimatedToast.error(context, 'فشلت الإضافة');
+                        }
+                      }
+                    },
+              text: 'إضافة',
+              gradientColors: const [Color(0xFF2563EB), Color(0xFF0891B2)],
+            ),
+          ],
         );
       },
     );

@@ -43,9 +43,8 @@ async def search_users(
             "query": q,
         }
 
-    license_id = current_user.get("license_id")
     search_query = f"%{q.strip()}%"
-    
+
     async with get_db() as db:
         # Search in license_keys table for Almudeer users
         # Search by username or full_name
@@ -83,59 +82,7 @@ async def search_users(
         )
         
         users = [dict(row) for row in rows]
-        
-        # Also search in customers who are Almudeer users
-        customer_rows = await fetch_all(
-            db,
-            """
-            SELECT
-                c.id,
-                c.username,
-                c.name,
-                NULL as image,
-                c.is_vip,
-                c.created_at,
-                c.last_contact_at as last_seen_at
-            FROM customers c
-            WHERE c.license_key_id = ?
-            AND EXISTS (SELECT 1 FROM license_keys l WHERE l.username = c.username AND c.username IS NOT NULL)
-            AND (
-                c.username LIKE ?
-                OR c.name LIKE ?
-            )
-            ORDER BY
-                CASE
-                    WHEN c.username LIKE ? THEN 0
-                    WHEN c.name LIKE ? THEN 1
-                    ELSE 2
-                END,
-                c.last_contact_at DESC
-            LIMIT ?
-            """,
-            [
-                license_id,
-                search_query, search_query, search_query,
-                search_query, search_query,
-                limit,
-            ],
-        )
-        
-        # Merge results, avoiding duplicates by username
-        existing_usernames = {user.get("username") for user in users if user.get("username")}
-        
-        for customer in customer_rows:
-            customer_dict = dict(customer)
-            username = customer_dict.get("username")
-            
-            # Only add if not already in results and has a username
-            if username and username not in existing_usernames:
-                customer_dict["is_customer"] = True
-                users.append(customer_dict)
-                existing_usernames.add(username)
-        
-        # Limit total results
-        users = users[:limit]
-        
+
         return {
             "results": users,
             "count": len(users),
