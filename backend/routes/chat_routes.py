@@ -446,6 +446,10 @@ async def send_chat_message(
     # Standardize: pass license_id if needed, though approve_outbox_message fetches internally from outbox_id
     await approve_outbox_message(outbox_id, body)
 
+    # FIX P2-15: Small delay to ensure database transaction is committed
+    # before triggering outbox processing
+    await asyncio.sleep(0.1)
+
     # Instant Send: Trigger Redis wake-up
     from services.websocket_manager import RedisPubSubManager
     trigger_mgr = RedisPubSubManager()

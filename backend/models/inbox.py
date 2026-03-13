@@ -502,7 +502,7 @@ async def approve_outbox_message(message_id: int, edited_body: str = None):
     async with get_db() as db:
         # Get message details before update for upsert_conversation_state
         message_row = await fetch_one(db, "SELECT license_key_id, inbox_message_id FROM outbox_messages WHERE id = ?", [message_id])
-        
+
         if edited_body:
             await execute_sql(
                 db,
@@ -1095,11 +1095,6 @@ async def get_conversation_messages_cursor(
     Uses comprehensive alias matching to find all messages from the same sender/recipient.
     """
     import base64
-    from logging_config import get_logger
-    logger = get_logger(__name__)
-    
-    # DEBUG: Log parameters
-    logger.info(f"[get_conversation_messages_cursor] license_id={license_id}, sender_contact={sender_contact}, limit={limit}")
     
     # Parse cursor if provided
     cursor_created_at = None
@@ -1160,17 +1155,10 @@ async def get_conversation_messages_cursor(
         # Get all aliases for this sender
         all_contacts, all_ids = await _get_sender_aliases(db, license_id, sender_contact)
 
-        # DEBUG: Log aliases found
-        logger.info(f"[get_conversation_messages_cursor] all_contacts={all_contacts}, all_ids={all_ids}")
-
         # P0-4 FIX: If no aliases found, use original sender_contact as fallback
         # This prevents empty result sets when sender_contact format is unique
         if not all_contacts and not all_ids:
             all_contacts = {sender_contact} if sender_contact else set()
-            logger.info(f"[get_conversation_messages_cursor] Using fallback all_contacts={all_contacts}")
-
-        # DEBUG: Log what we'll search for in outbox
-        logger.info(f"[get_conversation_messages_cursor] Will search outbox for recipient_id IN {all_contacts} or sender_id IN {all_ids}")
 
         # Build params
         params = []
@@ -1330,11 +1318,7 @@ async def get_conversation_messages_cursor(
         final_query += " LIMIT ?"
         full_params.append(limit + 1)
 
-        logger.info(f"[get_conversation_messages_cursor] Final query params count: {len(full_params)}")
-
         rows = await fetch_all(db, final_query, full_params)
-
-        logger.info(f"[get_conversation_messages_cursor] Returned {len(rows)} rows")
         
         # Parsing
         has_more = len(rows) > limit

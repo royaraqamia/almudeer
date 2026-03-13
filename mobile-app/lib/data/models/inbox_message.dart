@@ -50,6 +50,7 @@ class InboxMessage {
   final String? editedAt;
   final bool isEdited;
   final bool isDeleted;
+  final int? editCount;
 
   /// Threading context
   final String? threadId;
@@ -78,6 +79,47 @@ class InboxMessage {
 
   /// Soft delete timestamp
   final String? deletedAt;
+
+  /// Voice message fields
+  final String? voiceNoteUrl;
+  final int? voiceNoteDuration;
+  final bool isVoiceNote;
+
+  /// Audio message fields
+  final String? audioUrl;
+  final int? audioDuration;
+  final String? audioTranscript;
+
+  /// Message forwarding
+  final String? forwardedFrom;
+  final int? forwardedFromLicenseId;
+  final int? forwardedMessageId;
+
+  /// Message pinning
+  final bool isPinned;
+  final String? pinnedAt;
+  final String? archivedAt;
+
+  /// Message retry tracking
+  final int? retryCount;
+  final int? maxRetries;
+  final String? lastRetryAt;
+  final String? failedAt;
+  final String? sentAt;
+
+  /// AI processing fields
+  final String? aiSummary;
+  final String? aiDraftResponse;
+  final String? intent;
+  final String? language;
+  final String? dialect;
+  final String? processedAt;
+
+  /// Sender info
+  final String? senderUsername;
+
+  /// License key (backend internal - included for completeness)
+  final int? licenseKeyId;
 
   InboxMessage({
     required this.id,
@@ -108,6 +150,7 @@ class InboxMessage {
     this.isForwarded = false,
     this.isEdited = false,
     this.isDeleted = false,
+    this.editCount,
     this.threadId,
     this.replyCount = 0,
     this.sendStatus = MessageSendStatus.none,
@@ -120,6 +163,39 @@ class InboxMessage {
     this.sentiment,
     this.isRead = false,
     this.deletedAt,
+    // Voice message fields
+    this.voiceNoteUrl,
+    this.voiceNoteDuration,
+    this.isVoiceNote = false,
+    // Audio message fields
+    this.audioUrl,
+    this.audioDuration,
+    this.audioTranscript,
+    // Message forwarding
+    this.forwardedFrom,
+    this.forwardedFromLicenseId,
+    this.forwardedMessageId,
+    // Message pinning
+    this.isPinned = false,
+    this.pinnedAt,
+    this.archivedAt,
+    // Message retry tracking
+    this.retryCount,
+    this.maxRetries,
+    this.lastRetryAt,
+    this.failedAt,
+    this.sentAt,
+    // AI processing fields
+    this.aiSummary,
+    this.aiDraftResponse,
+    this.intent,
+    this.language,
+    this.dialect,
+    this.processedAt,
+    // Sender info
+    this.senderUsername,
+    // License key
+    this.licenseKeyId,
   });
 
   /// Create an optimistic outgoing message for instant UI feedback
@@ -423,6 +499,7 @@ class InboxMessage {
       editedAt: json['edited_at'] as String?,
       isEdited: json['edited_at'] != null,
       isDeleted: json['deleted_at'] != null,
+      editCount: json['edit_count'] as int?,
       sendStatus:
           (json['status'] == 'failed' || json['delivery_status'] == 'failed')
           ? MessageSendStatus.failed
@@ -436,6 +513,39 @@ class InboxMessage {
       sentiment: json['sentiment'] as String?,
       isRead: json['is_read'] == true || json['is_read'] == 1,
       deletedAt: json['deleted_at'] as String?,
+      // Voice message fields
+      voiceNoteUrl: json['voice_note_url'] as String?,
+      voiceNoteDuration: json['voice_note_duration'] as int?,
+      isVoiceNote: json['is_voice_note'] == true || json['is_voice_note'] == 1,
+      // Audio message fields
+      audioUrl: json['audio_url'] as String?,
+      audioDuration: json['audio_duration'] as int?,
+      audioTranscript: json['audio_transcript'] as String?,
+      // Message forwarding
+      forwardedFrom: json['forwarded_from'] as String?,
+      forwardedFromLicenseId: json['forwarded_from_license_id'] as int?,
+      forwardedMessageId: json['forwarded_message_id'] as int?,
+      // Message pinning
+      isPinned: json['is_pinned'] == true || json['is_pinned'] == 1,
+      pinnedAt: json['pinned_at'] as String?,
+      archivedAt: json['archived_at'] as String?,
+      // Message retry tracking
+      retryCount: json['retry_count'] as int?,
+      maxRetries: json['max_retries'] as int?,
+      lastRetryAt: json['last_retry_at'] as String?,
+      failedAt: json['failed_at'] as String?,
+      sentAt: json['sent_at'] as String?,
+      // AI processing fields
+      aiSummary: json['ai_summary'] as String?,
+      aiDraftResponse: json['ai_draft_response'] as String?,
+      intent: json['intent'] as String?,
+      language: json['language'] as String?,
+      dialect: json['dialect'] as String?,
+      processedAt: json['processed_at'] as String?,
+      // Sender info
+      senderUsername: json['sender_username'] as String?,
+      // License key
+      licenseKeyId: json['license_key_id'] as int?,
     );
   }
 
@@ -465,6 +575,7 @@ class InboxMessage {
       'edited_at': editedAt,
       'is_edited': isEdited,
       'is_deleted': isDeleted,
+      'edit_count': editCount,
       'outbox_id': outboxId,
       'send_status': sendStatus.name,
       'thread_id': threadId,
@@ -473,6 +584,39 @@ class InboxMessage {
       'sentiment': sentiment,
       'is_read': isRead,
       'deleted_at': deletedAt,
+      // Voice message fields
+      'voice_note_url': voiceNoteUrl,
+      'voice_note_duration': voiceNoteDuration,
+      'is_voice_note': isVoiceNote,
+      // Audio message fields
+      'audio_url': audioUrl,
+      'audio_duration': audioDuration,
+      'audio_transcript': audioTranscript,
+      // Message forwarding
+      'forwarded_from': forwardedFrom,
+      'forwarded_from_license_id': forwardedFromLicenseId,
+      'forwarded_message_id': forwardedMessageId,
+      // Message pinning
+      'is_pinned': isPinned,
+      'pinned_at': pinnedAt,
+      'archived_at': archivedAt,
+      // Message retry tracking
+      'retry_count': retryCount,
+      'max_retries': maxRetries,
+      'last_retry_at': lastRetryAt,
+      'failed_at': failedAt,
+      'sent_at': sentAt,
+      // AI processing fields
+      'ai_summary': aiSummary,
+      'ai_draft_response': aiDraftResponse,
+      'intent': intent,
+      'language': language,
+      'dialect': dialect,
+      'processed_at': processedAt,
+      // Sender info
+      'sender_username': senderUsername,
+      // License key
+      'license_key_id': licenseKeyId,
     };
   }
 

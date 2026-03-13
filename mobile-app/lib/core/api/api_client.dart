@@ -482,12 +482,6 @@ class ApiClient {
     
     try {
       http.Response response;
-      // Debug logging for send message endpoint
-      if (endpoint.contains('/send')) {
-        debugPrint('[ApiClient] >>> SEND MESSAGE REQUEST: $method ${Endpoints.baseUrl}$endpoint');
-        debugPrint('[ApiClient] >>> Headers: ${headers.keys.join(', ')}');
-        debugPrint('[ApiClient] >>> Body: $body');
-      }
       switch (method) {
         case 'GET':
           response = await _client
@@ -502,10 +496,6 @@ class ApiClient {
                 body: body != null ? jsonEncode(body) : null,
               )
               .timeout(_requestTimeout);
-          if (endpoint.contains('/send')) {
-            debugPrint('[ApiClient] <<< SEND MESSAGE RESPONSE: ${response.statusCode}');
-            debugPrint('[ApiClient] <<< Body: ${response.body}');
-          }
           break;
         case 'PUT':
           response = await _client

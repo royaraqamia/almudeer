@@ -756,15 +756,9 @@ class ConversationDetailProvider extends ChangeNotifier {
     String status, {
     int? outboxId,
   }) {
-    debugPrint('[ConversationDetailProvider] confirmMessageSent: tempId=$tempId, realId=$realId, status=$status');
-    if (_activeContact == null) {
-      debugPrint('[ConversationDetailProvider] No active contact, aborting confirmMessageSent');
-      return;
-    }
+    if (_activeContact == null) return;
     final contact = _activeContact!;
     final current = _memoryMessages[contact] ?? [];
-    debugPrint('[ConversationDetailProvider] Current messages count: ${current.length}');
-    debugPrint('[ConversationDetailProvider] Looking for tempId: $tempId in contact: $contact');
 
     // The status we want to persist MUST be 'sent' if we have an active connection
     const targetStatus = 'sent';
@@ -794,9 +788,7 @@ class ConversationDetailProvider extends ChangeNotifier {
     }
 
     final index = current.indexWhere((m) => m.id == tempId);
-    debugPrint('[ConversationDetailProvider] Found tempId at index: $index');
     if (index != -1) {
-      debugPrint('[ConversationDetailProvider] Updating message at index $index with realId: $realId');
       final updatedList = List<InboxMessage>.from(current);
       updatedList[index] = updatedList[index].copyWith(
         id: realId,
@@ -806,12 +798,9 @@ class ConversationDetailProvider extends ChangeNotifier {
         outboxId: outboxId,
       );
       _memoryMessages[contact] = updatedList;
-      debugPrint('[ConversationDetailProvider] Message updated, calling notifyListeners');
       notifyListeners();
       // FIX: Update persistent cache to prevent stale state on chat reopen
       _updatePersistentCache(contact);
-    } else {
-      debugPrint('[ConversationDetailProvider] ERROR: tempId $tempId not found in memory messages!');
     }
   }
 

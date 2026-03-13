@@ -78,20 +78,21 @@ class OutboxProcessorService:
     async def _handle_outbox_trigger(self, data):
         """
         Handle outbox trigger from Redis.
-        
+
         Args:
             data: License ID as string from Redis message
         """
         if not self._running:
+            logger.warning(f"OutboxProcessorService not running, ignoring trigger for {data}")
             return
-            
+
         try:
             license_id = int(data)
-            logger.debug(f"Received outbox trigger for license {license_id}")
-            
+            logger.info(f"Received outbox trigger for license {license_id}")
+
             # Process outbox messages for this license
             await self._process_outbox_messages(license_id)
-            
+
         except (ValueError, TypeError) as e:
             logger.error(f"Invalid outbox trigger data: {data} - {e}")
         except Exception as e:
@@ -100,7 +101,7 @@ class OutboxProcessorService:
     async def _process_outbox_messages(self, license_id: int):
         """
         Process all approved outbox messages for a license.
-        
+
         Args:
             license_id: The license ID to process messages for
         """
@@ -108,37 +109,38 @@ class OutboxProcessorService:
             try:
                 from models.inbox import get_pending_outbox
                 from services.message_sender import send_outbox_message
-                
+
                 # Get all pending/approved messages
                 messages = await get_pending_outbox(license_id)
-                
+
                 if not messages:
-                    logger.debug(f"No pending outbox messages for license {license_id}")
+                    logger.info(f"No pending outbox messages for license {license_id}")
                     return
-                
+
                 logger.info(f"Processing {len(messages)} outbox message(s) for license {license_id}")
-                
+
                 # Process each message
                 for message in messages:
                     if not self._running:
+                        logger.warning("OutboxProcessorService stopped while processing")
                         break
-                        
+
                     outbox_id = message["id"]
                     status = message.get("status", "pending")
-                    
+
                     # Only process approved messages
                     # (pending messages will be approved by chat_routes before trigger is published)
                     if status != "approved":
-                        logger.debug(f"Skipping outbox {outbox_id} with status {status}")
+                        logger.info(f"Skipping outbox {outbox_id} with status {status} (not approved yet)")
                         continue
-                    
+
                     try:
-                        logger.debug(f"Sending outbox message {outbox_id} via {message.get('channel')}")
+                        logger.info(f"Sending outbox message {outbox_id} via {message.get('channel')}")
                         await send_outbox_message(outbox_id, license_id)
                     except Exception as e:
                         logger.error(f"Failed to send outbox message {outbox_id}: {e}", exc_info=True)
                         # send_outbox_message already marks as failed internally
-                        
+
             except Exception as e:
                 logger.error(f"Error in _process_outbox_messages for license {license_id}: {e}", exc_info=True)
     

@@ -39,17 +39,6 @@ class MessageInputProvider extends ChangeNotifier {
     final senderContact = chatProvider.senderContact;
     if (senderContact == null) return false;
 
-    // DEBUG: Log incoming message parameters
-    debugPrint('[MessageInputProvider] sendMessage called:');
-    debugPrint('  - message: "${message.isEmpty ? "(empty)" : message}"');
-    debugPrint('  - mediaFiles: ${mediaFiles?.length ?? 0} files');
-    if (mediaFiles != null) {
-      for (var f in mediaFiles) {
-        debugPrint('    - ${f.path}');
-      }
-    }
-    debugPrint('  - metadata: $metadata');
-
     // 0. Calculate total bytes FIRST (before compression) for instant progress tracking
     int totalUploadBytes = 0;
     if (mediaFiles != null && mediaFiles.isNotEmpty) {
@@ -57,7 +46,7 @@ class MessageInputProvider extends ChangeNotifier {
         try {
           totalUploadBytes += await file.length();
         } catch (e) {
-          debugPrint('[MessageInputProvider] Error getting file size: $e');
+          // Ignore file size error
         }
       }
     }
@@ -85,9 +74,7 @@ class MessageInputProvider extends ChangeNotifier {
       totalUploadBytes: totalUploadBytes,
     );
 
-    debugPrint('[MessageInputProvider] Created optimistic message with ID: ${optimisticMessage.id}');
     chatProvider.addOptimisticMessage(optimisticMessage);
-    debugPrint('[MessageInputProvider] Added optimistic message to chatProvider');
 
     // 2. Compress media in background (after showing optimistic message)
     List<Map<String, dynamic>>? attachments;
@@ -144,14 +131,6 @@ class MessageInputProvider extends ChangeNotifier {
       );
       attachments = results.whereType<Map<String, dynamic>>().toList();
 
-      // Update message with compressed attachments (background update)
-      debugPrint(
-        '[MessageInputProvider] Processed attachments: ${attachments.length}',
-      );
-      for (var att in attachments) {
-        debugPrint('  - type: ${att['type']}, path: ${att['path']}');
-      }
-
       // Update the optimistic message with actual attachments after compression
       chatProvider.updateMessageAttachments(optimisticMessage.id, attachments);
     }
@@ -160,11 +139,6 @@ class MessageInputProvider extends ChangeNotifier {
       attachments ??= [];
       attachments.addAll(customAttachments);
     }
-
-    // DEBUG: Log final attachments before sending to repository
-    debugPrint(
-      '[MessageInputProvider] Final attachments count: ${attachments?.length ?? 0}',
-    );
 
     try {
       // 2. API Call with progress callback (throttled to prevent excessive UI updates)
@@ -201,10 +175,8 @@ class MessageInputProvider extends ChangeNotifier {
       );
 
       // 3. Confirm Send
-      debugPrint('[MessageInputProvider] Response received: $response');
       if (response['pending'] == true) {
         // Offline / Pending: Treat as Sent locally
-        debugPrint('[MessageInputProvider] Message is pending (offline)');
         chatProvider.confirmMessageSent(
           optimisticMessage.id,
           optimisticMessage.id, // Keep temp ID until sync
@@ -213,21 +185,17 @@ class MessageInputProvider extends ChangeNotifier {
       } else {
         // Online: Update with Server ID
         final responseData = response['data'] ?? response;
-        debugPrint('[MessageInputProvider] Response data: $responseData');
         final int? newId = responseData['id'] is int
             ? responseData['id']
             : (responseData['outbox_id'] is int
                   ? responseData['outbox_id']
                   : null);
-        debugPrint('[MessageInputProvider] Extracted newId: $newId');
         // Extract outbox_id for status tracking
         final int? outboxId = responseData['outbox_id'] is int
             ? responseData['outbox_id']
             : null;
-        debugPrint('[MessageInputProvider] Extracted outboxId: $outboxId');
 
         if (newId != null) {
-          debugPrint('[MessageInputProvider] Calling confirmMessageSent with newId: $newId');
           chatProvider.confirmMessageSent(
             optimisticMessage.id,
             newId,
@@ -235,7 +203,6 @@ class MessageInputProvider extends ChangeNotifier {
             outboxId: outboxId,
           );
         } else {
-          debugPrint('[MessageInputProvider] No newId, using optimistic ID');
           chatProvider.confirmMessageSent(
             optimisticMessage.id,
             optimisticMessage.id,
@@ -250,7 +217,6 @@ class MessageInputProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       // 5. Fail Optimistic
-      debugPrint('Message send failed: $e');
       chatProvider.markMessageFailed(optimisticMessage.id);
       return false;
     }
