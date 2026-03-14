@@ -720,6 +720,10 @@ async def mark_outbox_sent(message_id: int, platform_message_id: str = None):
 
 async def get_pending_outbox(license_id: int) -> List[dict]:
     """Get pending outbox messages (DB agnostic)."""
+    from logging_config import get_logger
+    logger = get_logger(__name__)
+    logger.info(f"[get_pending_outbox] Fetching for license {license_id}")
+    
     async with get_db() as db:
         rows = await fetch_all(
             db,
@@ -732,6 +736,7 @@ async def get_pending_outbox(license_id: int) -> List[dict]:
             """,
             [license_id],
         )
+        logger.info(f"[get_pending_outbox] Found {len(rows)} messages for license {license_id}")
         return rows
 
 

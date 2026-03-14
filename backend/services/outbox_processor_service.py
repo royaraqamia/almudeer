@@ -105,13 +105,19 @@ class OutboxProcessorService:
         Args:
             license_id: The license ID to process messages for
         """
+        logger.info(f"[_process_outbox_messages] Starting for license {license_id}")
+        
         async with self._processing_lock:
             try:
+                logger.info(f"[_process_outbox_messages] Acquired lock for license {license_id}")
+                
                 from models.inbox import get_pending_outbox
                 from services.message_sender import send_outbox_message
 
                 # Get all pending/approved messages
+                logger.info(f"[_process_outbox_messages] Calling get_pending_outbox for license {license_id}")
                 messages = await get_pending_outbox(license_id)
+                logger.info(f"[_process_outbox_messages] Got {len(messages)} messages for license {license_id}")
 
                 if not messages:
                     logger.info(f"No pending outbox messages for license {license_id}")
@@ -143,6 +149,7 @@ class OutboxProcessorService:
 
             except Exception as e:
                 logger.error(f"Error in _process_outbox_messages for license {license_id}: {e}", exc_info=True)
+                raise  # Re-raise to see the error in process_all_pending
     
     async def process_all_pending(self):
         """
