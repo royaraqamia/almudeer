@@ -607,14 +607,20 @@ async def create_task(license_id: int, task_data: dict) -> dict:
                 # LWW conflict resolution rejected the update - this happens when:
                 # 1. Client's updated_at is older than server's (outside clock skew tolerance)
                 # 2. Another concurrent update won the conflict resolution
-                # Log for debugging but don't raise - return None to signal "no change made"
+                # Fetch the current task from DB to return to client (client has stale data)
                 logger.info(
-                    f"LWW conflict resolution rejected task {task_data.get('id')}. "
-                    f"Client updated_at: {updated_at}. "
-                    f"This is normal for stale sync requests."
+                    f"LWW conflict resolution rejected task {task_data.get('id')}: client version stale. "
+                    f"Client updated_at: {updated_at}"
                 )
             
             await commit_db(db)
+            
+            # If the upsert was rejected, fetch the existing task to return to the client
+            # This ensures the client receives the current server version
+            if not result:
+                async with get_db() as db2:
+                    result = await _get_task_by_id_raw(db2, license_id, task_data['id'])
+            
             return result
         except Exception as e:
             # Transaction will be automatically rolled back by the context manager
