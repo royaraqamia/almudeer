@@ -921,6 +921,8 @@ async def _get_sender_aliases(db, license_id: int, sender_contact: str) -> tuple
     """
     Get all sender_contact and sender_id variants for a given sender.
     P1-3: Optimized with early termination and UNION ALL for performance.
+    
+    FIX: Normalizes contact names to catch variations like 'ayhamalali' vs 'ayham-alali'
     """
     if not sender_contact:
         return set(), set()
@@ -964,16 +966,46 @@ async def _get_sender_aliases(db, license_id: int, sender_contact: str) -> tuple
         if row.get("sender_contact"): all_contacts.add(row["sender_contact"])
         if row.get("sender_id"): all_ids.add(str(row["sender_id"]))
 
-    # 3. P1-3: Early termination - skip LIKE if we already found aliases
-    if not all_ids and len(sender_contact) > 5 and len(all_contacts) < 10:
-        like_query = """
-            SELECT sender_contact, sender_id FROM inbox_messages
-            WHERE license_key_id = ? AND sender_contact LIKE ? LIMIT 10
-        """
-        like_aliases = await fetch_all(db, like_query, [license_id, f"%{sender_contact}%"])
-        for row in like_aliases:
-            if row.get("sender_contact"): all_contacts.add(row["sender_contact"])
-            if row.get("sender_id"): all_ids.add(str(row["sender_id"]))
+    # 3. FIX: Always run normalized search to catch variations like 'ayhamalali' vs 'ayham-alali'
+    # Create a normalized version (remove hyphens, underscores, spaces for comparison)
+    normalized_contact = sender_contact.replace('-', '').replace('_', '').replace(' ', '').lower()
+    
+    # Search for contacts that match when normalized
+    like_query = """
+        SELECT DISTINCT sender_contact, sender_id FROM inbox_messages
+        WHERE license_key_id = ?
+        AND (
+            REPLACE(REPLACE(REPLACE(LOWER(sender_contact), '-', ''), '_', ''), ' ', '') = ?
+            OR sender_contact IN ({placeholders})
+        )
+        LIMIT 50
+    """.format(placeholders=placeholders)
+    
+    like_params = [license_id, normalized_contact] + check_ids
+    like_aliases = await fetch_all(db, like_query, like_params)
+    
+    for row in like_aliases:
+        if row.get("sender_contact"): all_contacts.add(row["sender_contact"])
+        if row.get("sender_id"): all_ids.add(str(row["sender_id"]))
+    
+    # Also check outbox for normalized matches
+    outbox_like_query = """
+        SELECT DISTINCT COALESCE(recipient_id, recipient_contact) as sender_id
+        FROM outbox_messages
+        WHERE license_key_id = ?
+        AND (
+            REPLACE(REPLACE(REPLACE(LOWER(recipient_contact), '-', ''), '_', ''), ' ', '') = ?
+            OR recipient_id IN ({placeholders})
+            OR recipient_contact IN ({placeholders})
+        )
+        LIMIT 50
+    """.format(placeholders=placeholders)
+    
+    outbox_like_params = [license_id, normalized_contact] + check_ids + check_ids
+    outbox_like_aliases = await fetch_all(db, outbox_like_query, outbox_like_params)
+    
+    for row in outbox_like_aliases:
+        if row.get("sender_id"): all_ids.add(str(row["sender_id"]))
 
     # 4. Hop-2 expansion for cross-linked identities (P1-3: Limited to prevent runaway queries)
     if (all_contacts or all_ids) and len(all_contacts) < 100:
@@ -981,7 +1013,7 @@ async def _get_sender_aliases(db, license_id: int, sender_contact: str) -> tuple
         pass2_ids = list(all_ids)
         placeholders_c = ", ".join(["?" for _ in pass2_contacts]) if pass2_contacts else "'__NONE__'"
         placeholders_i = ", ".join(["?" for _ in pass2_ids]) if pass2_ids else "'__NONE__'"
-        
+
         query2 = f"""
             SELECT sender_contact, sender_id FROM inbox_messages
             WHERE license_key_id = ? AND (sender_contact IN ({placeholders_c}) OR sender_id IN ({placeholders_i}))
@@ -1819,6 +1851,7 @@ async def get_full_chat_history(
             db,
             f"""
             SELECT
+                o.id as outbox_id,
                 o.id, o.channel, COALESCE(o.recipient_id, o.recipient_contact) as sender_id,
                 o.subject, o.body, o.attachments, o.status,
                 o.created_at, o.sent_at, o.edited_at,

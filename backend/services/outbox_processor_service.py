@@ -98,94 +98,104 @@ class OutboxProcessorService:
         except Exception as e:
             logger.error(f"Error processing outbox trigger: {e}", exc_info=True)
     
-    async def _process_outbox_messages(self, license_id: int):
+    async def _process_outbox_messages(self, license_id: int, skip_lock: bool = False):
         """
         Process all approved outbox messages for a license.
 
         Args:
             license_id: The license ID to process messages for
+            skip_lock: If True, don't acquire the lock (caller already holds it)
         """
         logger.info(f"[_process_outbox_messages] Starting for license {license_id}")
         
-        async with self._processing_lock:
-            try:
+        # Use a context manager that can be skipped
+        if skip_lock:
+            logger.info(f"[_process_outbox_messages] Skipping lock (caller holds it) for license {license_id}")
+            await self._do_process_outbox_messages(license_id)
+        else:
+            async with self._processing_lock:
                 logger.info(f"[_process_outbox_messages] Acquired lock for license {license_id}")
-                
-                from models.inbox import get_pending_outbox
-                from services.message_sender import send_outbox_message
+                await self._do_process_outbox_messages(license_id)
 
-                # Get all pending/approved messages
-                logger.info(f"[_process_outbox_messages] Calling get_pending_outbox for license {license_id}")
-                messages = await get_pending_outbox(license_id)
-                logger.info(f"[_process_outbox_messages] Got {len(messages)} messages for license {license_id}")
+    async def _do_process_outbox_messages(self, license_id: int):
+        """Internal method that actually processes messages (no lock acquisition)."""
+        try:
+            from models.inbox import get_pending_outbox
+            from services.message_sender import send_outbox_message
 
-                if not messages:
-                    logger.info(f"No pending outbox messages for license {license_id}")
-                    return
+            # Get all pending/approved messages
+            logger.info(f"[_process_outbox_messages] Calling get_pending_outbox for license {license_id}")
+            messages = await get_pending_outbox(license_id)
+            logger.info(f"[_process_outbox_messages] Got {len(messages)} messages for license {license_id}")
 
-                logger.info(f"Processing {len(messages)} outbox message(s) for license {license_id}")
+            if not messages:
+                logger.info(f"No pending outbox messages for license {license_id}")
+                return
 
-                # Process each message
-                for message in messages:
-                    if not self._running:
-                        logger.warning("OutboxProcessorService stopped while processing")
-                        break
+            logger.info(f"Processing {len(messages)} outbox message(s) for license {license_id}")
 
-                    outbox_id = message["id"]
-                    status = message.get("status", "pending")
+            # Process each message
+            for message in messages:
+                if not self._running:
+                    logger.warning("OutboxProcessorService stopped while processing")
+                    break
 
-                    # Only process approved messages
-                    # (pending messages will be approved by chat_routes before trigger is published)
-                    if status != "approved":
-                        logger.info(f"Skipping outbox {outbox_id} with status {status} (not approved yet)")
-                        continue
+                outbox_id = message["id"]
+                status = message.get("status", "pending")
 
-                    try:
-                        logger.info(f"Sending outbox message {outbox_id} via {message.get('channel')}")
-                        await send_outbox_message(outbox_id, license_id)
-                    except Exception as e:
-                        logger.error(f"Failed to send outbox message {outbox_id}: {e}", exc_info=True)
-                        # send_outbox_message already marks as failed internally
+                # Only process approved messages
+                # (pending messages will be approved by chat_routes before trigger is published)
+                if status != "approved":
+                    logger.info(f"Skipping outbox {outbox_id} with status {status} (not approved yet)")
+                    continue
 
-            except Exception as e:
-                logger.error(f"Error in _process_outbox_messages for license {license_id}: {e}", exc_info=True)
-                raise  # Re-raise to see the error in process_all_pending
+                try:
+                    logger.info(f"Sending outbox message {outbox_id} via {message.get('channel')}")
+                    await send_outbox_message(outbox_id, license_id)
+                except Exception as e:
+                    logger.error(f"Failed to send outbox message {outbox_id}: {e}", exc_info=True)
+                    # send_outbox_message already marks as failed internally
+
+        except Exception as e:
+            logger.error(f"Error in _process_outbox_messages for license {license_id}: {e}", exc_info=True)
+            raise  # Re-raise to see the error in process_all_pending
     
     async def process_all_pending(self):
         """
         Process all pending outbox messages across all licenses.
-        
+
         Useful for:
         - Initial startup processing (catch up on messages while service was down)
         - Manual trigger for debugging
         """
         try:
             from db_helper import fetch_all, get_db
-            
+
             async with self._processing_lock:
                 # Get all licenses with pending/approved outbox messages
                 async with get_db() as db:
                     licenses = await fetch_all(
                         db,
                         """
-                        SELECT DISTINCT license_key_id 
-                        FROM outbox_messages 
-                        WHERE status IN ('pending', 'approved') 
+                        SELECT DISTINCT license_key_id
+                        FROM outbox_messages
+                        WHERE status IN ('pending', 'approved')
                         AND deleted_at IS NULL
                         """
                     )
-                
+
                 if not licenses:
                     logger.debug("No pending outbox messages to process")
                     return
-                
+
                 logger.info(f"Found {len(licenses)} license(s) with pending outbox messages")
-                
+
                 for lic in licenses:
                     if not self._running:
                         break
-                    await self._process_outbox_messages(lic["license_key_id"])
-                    
+                    # Pass skip_lock=True because we already hold the lock
+                    await self._process_outbox_messages(lic["license_key_id"], skip_lock=True)
+
         except Exception as e:
             logger.error(f"Error in process_all_pending: {e}", exc_info=True)
     

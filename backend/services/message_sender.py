@@ -40,9 +40,10 @@ async def send_outbox_message(outbox_id: int, license_id: int) -> Dict[str, Any]
     try:
         # Get the outbox message details
         async with get_db() as db:
+            # Use PostgreSQL-style parameters directly since get_db() returns asyncpg connection
             message = await fetch_one(
                 db,
-                "SELECT * FROM outbox_messages WHERE id = ? AND license_key_id = ?",
+                "SELECT * FROM outbox_messages WHERE id = $1 AND license_key_id = $2",
                 [outbox_id, license_id]
             )
         
