@@ -161,9 +161,9 @@ LIST_VIEW_COLUMNS = [
 
 # Issue #30: Full columns for detail view
 FULL_COLUMNS = [
-    "id", "license_key_id", "user_id", "customer_id", "type", 
-    "title", "content", "file_path", "file_size", "mime_type", 
-    "created_at", "updated_at"
+    "id", "license_key_id", "user_id", "customer_id", "type",
+    "title", "content", "file_path", "file_size", "mime_type",
+    "created_at", "updated_at", "created_by"
 ]
 
 

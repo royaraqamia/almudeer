@@ -262,8 +262,19 @@ async def create_new_task(
         
     try:
         result = await create_task(license_id, task_dict)
+        
+        # FIX: Handle LWW conflict resolution "no-op" result
+        # When create_task returns None, it means the LWW conflict resolution
+        # determined the client's update was stale (older than server version).
+        # This is normal for offline sync scenarios - just return success without
+        # creating a new task. The client already has the newer version.
         if not result:
-            raise HTTPException(status_code=500, detail="Failed to create/sync task")
+            logger.info(
+                f"LWW sync skipped for task {task_dict.get('id')}: client version stale",
+                extra={"task_id": task_dict.get('id'), "user_id": user_id}
+            )
+            # Return a minimal success response - client already has newer data
+            return {"id": task_dict.get('id'), "synced": False, "reason": "client_version_stale"}
 
         # Trigger real-time sync across other devices
         background_tasks.add_task(broadcast_task_sync, license_id, task_id=result["id"], change_type="create")

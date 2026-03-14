@@ -1,10 +1,13 @@
 import json
+import logging
 from typing import List, Optional
 from datetime import datetime, timezone
 from db_helper import get_db, execute_sql, fetch_all, fetch_one, commit_db, DB_TYPE
 from models.base import ID_PK, TIMESTAMP_NOW
 from utils.timestamps import normalize_timestamp, generate_stable_id
 from utils.json_utils import normalize_bool, normalize_priority
+
+logger = logging.getLogger(__name__)
 
 async def verify_task_access(
     db,
@@ -595,14 +598,27 @@ async def create_task(license_id: int, task_data: dict) -> dict:
                 updated_at,
                 license_id  # For the WHERE clause in ON CONFLICT
             ))
+            
+            # Fetch the task in the SAME transaction to verify it was created/updated
+            # This avoids potential issues with transaction isolation and timing
+            result = await _get_task_by_id_raw(db, license_id, task_data['id'])
+            
+            if not result:
+                # LWW conflict resolution rejected the update - this happens when:
+                # 1. Client's updated_at is older than server's (outside clock skew tolerance)
+                # 2. Another concurrent update won the conflict resolution
+                # Log for debugging but don't raise - return None to signal "no change made"
+                logger.info(
+                    f"LWW conflict resolution rejected task {task_data.get('id')}. "
+                    f"Client updated_at: {updated_at}. "
+                    f"This is normal for stale sync requests."
+                )
+            
             await commit_db(db)
-            # Use internal helper to get task without permission check (we just created it)
-            async with get_db() as db:
-                return await _get_task_by_id_raw(db, license_id, task_data['id'])
+            return result
         except Exception as e:
             # Transaction will be automatically rolled back by the context manager
-            import logging
-            logging.error(f"Failed to create/update task {task_data.get('id')}: {e}")
+            logger.error(f"Failed to create/update task {task_data.get('id')}: {e}", exc_info=True)
             raise
 
 async def update_task(license_id: int, task_id: str, task_data: dict) -> Optional[dict]:
