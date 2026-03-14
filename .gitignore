@@ -44,3 +44,9 @@ mobile-app/build/
 *.log
 *.tmp
 *.temp
+
+# Test databases
+test_*.db
+*_test.db
+test_*.sqlite
+*_test.sqlite
