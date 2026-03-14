@@ -416,7 +416,6 @@ class _TaskFilterChips extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final filters = [
-      {'label': 'الكل', 'value': TaskFilter.all},
       {'label': 'اليوم', 'value': TaskFilter.today},
       {'label': 'القادمة', 'value': TaskFilter.upcoming},
       {'label': 'المكتملة', 'value': TaskFilter.completed},

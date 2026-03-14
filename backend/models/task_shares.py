@@ -89,7 +89,7 @@ async def share_task(
     AUTH-001 FIX: Uses shared utility for username resolution.
     """
     now = datetime.now(timezone.utc)
-    
+
     # SQLite compatibility: convert datetime to ISO format string
     if DB_TYPE == "sqlite":
         now = now.isoformat()
@@ -122,7 +122,7 @@ async def share_task(
 
         # FIX BUG-001 (Race Condition): Capture state BEFORE upsert to correctly detect reshare/permission change
         # This eliminates the TOCTOU (Time-of-Check-Time-of-Use) vulnerability
-        # 
+        #
         # HOW IT WORKS:
         # 1. We capture the current share state (before_share) BEFORE the upsert
         # 2. The UPSERT is atomic - PostgreSQL ON CONFLICT / SQLite ON CONFLICT handles races
@@ -142,6 +142,11 @@ async def share_task(
         if before_share and before_share.get('deleted_at') is not None:
             raise ValueError("Share was previously revoked. Please create a new share.")
 
+        # FIX: Use recipient's license_id for license_key_id so the recipient can find the share
+        # The license_key_id in task_shares should match the recipient's license context,
+        # not the sharer's. This ensures get_shared_tasks() can find shares for the recipient.
+        recipient_license_id = int(recipient_user_id)
+
         # Perform atomic UPSERT
         if DB_TYPE == "postgresql":
             # Use INSERT ... ON CONFLICT with proper handling
@@ -160,7 +165,7 @@ async def share_task(
                 WHERE task_shares.deleted_at IS NULL OR task_shares.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
                 RETURNING id
                 """,
-                [task_id, license_id, recipient_user_id, permission, now, created_by, now]
+                [task_id, recipient_license_id, recipient_user_id, permission, now, created_by, now]
             )
             share_id = result['id'] if result else None
         else:
@@ -176,7 +181,7 @@ async def share_task(
                     updated_at = excluded.updated_at,
                     deleted_at = NULL  -- Reactivate if it was soft-deleted
                 """,
-                [task_id, license_id, recipient_user_id, permission, now, created_by, now]
+                [task_id, recipient_license_id, recipient_user_id, permission, now, created_by, now]
             )
 
             # Get the share ID (either newly inserted or existing)

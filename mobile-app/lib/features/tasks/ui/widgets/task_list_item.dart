@@ -112,7 +112,6 @@ class _TaskListItemState extends State<TaskListItem>
                 child: Container(
                   margin: const EdgeInsets.symmetric(
                     horizontal: AppDimensions.paddingMedium,
-                    vertical: AppDimensions.paddingSmall,
                   ),
                   decoration: ShapeDecoration(
                     color: cardColor,
@@ -145,7 +144,7 @@ class _TaskListItemState extends State<TaskListItem>
                           cornerSmoothing: 1.0,
                         ),
                         child: Padding(
-                          padding: const EdgeInsets.only(right: 24),
+                          padding: const EdgeInsets.only(right: 40),
                           child: Row(
                             children: [
                               Expanded(
@@ -240,33 +239,6 @@ class _TaskListItemState extends State<TaskListItem>
                             ),
                           ),
                         ),
-                      // UX-001 FIX: Show sync pending indicator
-                      if (!widget.task.isSynced)
-                        Positioned(
-                          top: AppDimensions.spacing8,
-                          right: widget.task.sharePermission != null ? 120 : 56,
-                          child: Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              color: Colors.orange,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: Colors.white,
-                                width: 1,
-                              ),
-                            ),
-                            child: Tooltip(
-                              message: 'Pending sync',
-                              child: Container(
-                                decoration: const BoxDecoration(
-                                  color: Colors.orange,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
                     ],
                   ),
                 ),
@@ -350,43 +322,6 @@ class _TaskListItemState extends State<TaskListItem>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Date/time on the left (right in RTL)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (widget.task.dueDate != null) ...[
-                _buildInfoTag(
-                  context,
-                  SolarLinearIcons.calendar,
-                  _getRelativeDate(widget.task.dueDate!),
-                  isWarning: isOverdue,
-                ),
-              ],
-              if (widget.task.alarmEnabled &&
-                  widget.task.alarmTime != null) ...[
-                const SizedBox(height: 2),
-                _buildInfoTag(
-                  context,
-                  SolarLinearIcons.bellBing,
-                  TimeOfDay.fromDateTime(
-                    widget.task.alarmTime!,
-                  ).format(context),
-                  color: AppColors.primary,
-                ),
-              ],
-              if (widget.task.recurrence != null &&
-                  widget.task.recurrence!.isNotEmpty) ...[
-                const SizedBox(height: 2),
-                _buildInfoTag(
-                  context,
-                  SolarLinearIcons.refresh,
-                  _getRecurrenceLabel(widget.task.recurrence!),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(width: AppDimensions.spacing12),
           // Task content
           Expanded(
             child: Column(
@@ -396,8 +331,8 @@ class _TaskListItemState extends State<TaskListItem>
                 Text(
                   widget.task.title,
                   style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
                     decoration: widget.task.isCompleted
                         ? TextDecoration.lineThrough
                         : null,
@@ -426,6 +361,43 @@ class _TaskListItemState extends State<TaskListItem>
                 _buildAssignmentInfo(context),
               ],
             ),
+          ),
+          const SizedBox(width: AppDimensions.spacing12),
+          // Date/time on the right
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              if (widget.task.dueDate != null) ...[
+                _buildInfoTag(
+                  context,
+                  SolarLinearIcons.calendar,
+                  _getRelativeDate(widget.task.dueDate!),
+                  isWarning: isOverdue,
+                ),
+              ],
+              if (widget.task.alarmEnabled &&
+                  widget.task.alarmTime != null) ...[
+                const SizedBox(width: 4),
+                _buildInfoTag(
+                  context,
+                  SolarLinearIcons.bellBing,
+                  TimeOfDay.fromDateTime(
+                    widget.task.alarmTime!,
+                  ).format(context),
+                  color: AppColors.primary,
+                ),
+              ],
+              if (widget.task.recurrence != null &&
+                  widget.task.recurrence!.isNotEmpty) ...[
+                const SizedBox(width: 4),
+                _buildInfoTag(
+                  context,
+                  SolarLinearIcons.refresh,
+                  _getRecurrenceLabel(widget.task.recurrence!),
+                ),
+              ],
+            ],
           ),
         ],
       ),

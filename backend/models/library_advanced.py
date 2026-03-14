@@ -304,19 +304,22 @@ async def share_item(
 
         # BUG-001 FIX: Get share state BEFORE upsert for accurate reshare/permission change detection
         # This prevents race conditions where concurrent shares could misidentify the state
+        # FIX: Use recipient's license_id for consistent share lookup
+        recipient_license_id = int(recipient_user_id)
         share_before = await fetch_one(
             db,
             """
             SELECT id, deleted_at, permission FROM library_shares
             WHERE item_id = ? AND shared_with_user_id = ? AND license_key_id = ?
             """,
-            [item_id, recipient_user_id, license_id]
+            [item_id, recipient_user_id, recipient_license_id]
         )
 
         # DATA-001 FIX: Don't re-activate revoked shares
         # If share exists and is active (deleted_at IS NULL), update it
         # If share was revoked (deleted_at IS NOT NULL), INSERT will fail on conflict
         # and we should NOT update - user must create fresh share instead
+        # FIX: Use recipient's license_id so recipient can find the share
         await execute_sql(
             db,
             """
@@ -329,7 +332,7 @@ async def share_item(
                 expires_at = EXCLUDED.expires_at
             WHERE library_shares.deleted_at IS NULL  -- Only update if share is still active
             """,
-            [item_id, license_id, recipient_user_id, permission, now, created_by, now, expires_at]
+            [item_id, recipient_license_id, recipient_user_id, permission, now, created_by, now, expires_at]
         )
 
         # DATA-002 FIX: Mark item as shared within same transaction (atomic)
