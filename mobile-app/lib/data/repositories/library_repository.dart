@@ -46,6 +46,7 @@ class LibraryRepository {
 
   ApiClient get apiClient => _apiClient;
   Stream<void> get syncStream => _syncController.stream;
+  LibraryDatabase get db => _db;
 
   /// Get items (Offline First strategy)
   /// Returns a stream that emits local data first, then updates with remote data

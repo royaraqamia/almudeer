@@ -315,13 +315,14 @@ class LibraryProvider extends ChangeNotifier {
       _categoryChangeToken++;
       // Cancel any in-flight request for the previous category
       _inFlightCategoryToken = _categoryChangeToken;
-      // Clear items immediately to prevent showing stale items from previous category
-      _items = [];
-      notifyListeners();
       // Clean up pending updates from the OLD category to prevent memory leaks
       // and stale data when switching between notes/files
       _cleanupPendingUpdatesForCategory(oldCategory);
-      refresh = true;
+      // FIX: Load cached items for the new category immediately to prevent empty state flash
+      // This shows cached data while fetching fresh data in the background
+      _loadCachedItemsForCurrentCategory();
+      // Don't set refresh=true yet - let the stream handle it
+      // We'll still fetch from remote, but user sees cached data first
     }
 
     if (queryChanged) {
@@ -361,7 +362,10 @@ class LibraryProvider extends ChangeNotifier {
       return;
     }
 
-    if ((_items.isEmpty || refresh) && !loadMore) {
+    // FIX: Only show loading if we don't already have cached items
+    // This prevents loading indicator flash when switching tabs with cached data
+    final bool hasCachedItems = _items.isNotEmpty;
+    if ((!hasCachedItems || refresh) && !loadMore) {
       _isLoading = true;
       notifyListeners();
     } else if (loadMore) {
@@ -372,8 +376,9 @@ class LibraryProvider extends ChangeNotifier {
     await _itemsSubscription?.cancel();
     _itemsSubscription = null;
 
-    // Skip cache emission when category changed to prevent flash of wrong items
-    final bool shouldSkipCache = categoryChanged;
+    // FIX: Allow cache emission on category change to prevent empty state flash
+    // The cached data will show immediately while remote fetches in background
+    final bool shouldSkipCache = false;
 
     _itemsSubscription = _repository
         .getItemsStream(
@@ -724,6 +729,39 @@ class LibraryProvider extends ChangeNotifier {
         '[LibraryProvider] Cleaning up temp-to-real mapping for id=$id (category change to $category)',
       );
       _tempToRealIdMap.remove(id);
+    }
+  }
+
+  /// Load cached items for the current category to show immediately on category switch
+  /// This prevents the empty state flash while fetching fresh data in the background
+  Future<void> _loadCachedItemsForCurrentCategory() async {
+    try {
+      final licenseId = await _repository.apiClient.getLicenseId();
+      if (licenseId == null) return;
+
+      final cachedItems = await _repository.db.getCachedItems(
+        licenseKeyId: licenseId,
+        type: _currentCategory,
+      );
+
+      if (!_disposed && cachedItems.isNotEmpty) {
+        // Filter to ensure only correct category items are shown
+        final filteredItems = _filterItemsByCategory(
+          cachedItems,
+          _currentCategory,
+        );
+        _items = filteredItems;
+        _currentPage = 1;
+        _hasMore = true;
+        _isLoading = false;
+        notifyListeners();
+        debugPrint(
+          '[LibraryProvider] Loaded ${filteredItems.length} cached items for $_currentCategory',
+        );
+      }
+    } catch (e) {
+      // Silently fail - remote fetch will handle it
+      debugPrint('[LibraryProvider] Failed to load cached items: $e');
     }
   }
 

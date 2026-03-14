@@ -520,11 +520,11 @@ async def _add_library_item_internal(
                 db,
                 """
                 INSERT INTO library_items
-                (license_key_id, user_id, customer_id, type, title, content, file_path, file_size, mime_type, file_hash, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (license_key_id, user_id, created_by, customer_id, type, title, content, file_path, file_size, mime_type, file_hash, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING *
                 """,
-                [license_id, user_id, customer_id, item_type, title, content, file_path, file_size, mime_type, file_hash, ts_value, ts_value]
+                [license_id, user_id, user_id, customer_id, item_type, title, content, file_path, file_size, mime_type, file_hash, ts_value, ts_value]
             )
             await commit_db(db)
             await _invalidate_storage_cache(license_id)
@@ -534,10 +534,10 @@ async def _add_library_item_internal(
                 db,
                 """
                 INSERT INTO library_items
-                (license_key_id, user_id, customer_id, type, title, content, file_path, file_size, mime_type, file_hash, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (license_key_id, user_id, created_by, customer_id, type, title, content, file_path, file_size, mime_type, file_hash, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                [license_id, user_id, customer_id, item_type, title, content, file_path, file_size, mime_type, file_hash, ts_value, ts_value]
+                [license_id, user_id, user_id, customer_id, item_type, title, content, file_path, file_size, mime_type, file_hash, ts_value, ts_value]
             )
             await commit_db(db)
             await _invalidate_storage_cache(license_id)
