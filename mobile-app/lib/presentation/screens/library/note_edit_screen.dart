@@ -11,6 +11,7 @@ import '../../../core/utils/url_launcher_utils.dart';
 
 import '../../../data/models/library_item.dart';
 import '../../providers/library_provider.dart';
+import '../../providers/auth_provider.dart';
 import '../../../core/extensions/string_extension.dart';
 import '../../widgets/library/share_item_dialog.dart';
 
@@ -67,10 +68,24 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   }
   
   void _loadPermissions() {
+    // Get current user ID from AuthProvider
+    final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.userInfo?.licenseId?.toString();
+    
     // New notes are always editable (user is owner)
-    // Existing items: check share permission
+    if (_isNewNote) {
+      _canEdit = true;
+      debugPrint('[NoteEditScreen] New note - user is owner, canEdit=true');
+      return;
+    }
+    
+    // Existing items: check if user is the owner or has edit/admin share permission
     final sharePermission = widget.item?.sharePermission;
-    final isOwner = sharePermission == null;
+    final createdBy = widget.item?.createdBy;
+    final userId = widget.item?.userId;
+    
+    // User is owner if they created the item (createdBy or userId matches)
+    final isOwner = createdBy == currentUserId || userId == currentUserId;
     
     // Permission levels: owner/edit/admin can edit, read-only cannot
     _canEdit = isOwner || 
@@ -78,7 +93,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
                sharePermission == 'admin';
     
     debugPrint(
-      '[NoteEditScreen] Permissions loaded: sharePermission=$sharePermission, isOwner=$isOwner, canEdit=$_canEdit',
+      '[NoteEditScreen] Permissions: currentUserId=$currentUserId, createdBy=$createdBy, userId=$userId, sharePermission=$sharePermission, isOwner=$isOwner, canEdit=$_canEdit',
     );
   }
 
