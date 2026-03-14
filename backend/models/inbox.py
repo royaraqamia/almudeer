@@ -210,6 +210,22 @@ async def save_inbox_message(
                 if sender_contact != canonical_contact:
                     sender_contact = canonical_contact
 
+        # ---------------------------------------------------------
+        # Fallback: Generate sender_contact if not available
+        # ---------------------------------------------------------
+        # For channels like Telegram where phone numbers may not be available,
+        # generate a fallback contact identifier to ensure conversation threading works.
+        if not sender_contact:
+            if sender_id:
+                # Use sender_id as fallback (e.g., Telegram user ID)
+                sender_contact = f"uid_{channel}_{sender_id}"
+            elif sender_name:
+                # Use sender_name as last resort (less ideal for threading)
+                sender_contact = f"name_{channel}_{sender_name}_{int(datetime.utcnow().timestamp())}"
+            else:
+                # Ultimate fallback - should rarely happen
+                sender_contact = f"unknown_{channel}_{int(datetime.utcnow().timestamp())}"
+
         # Stringify received_at for SQLite to avoid type mismatches
         reg_received_at = received_at or datetime.utcnow()
         if DB_TYPE != "postgresql" and isinstance(reg_received_at, datetime):

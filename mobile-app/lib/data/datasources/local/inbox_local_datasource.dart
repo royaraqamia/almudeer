@@ -24,9 +24,23 @@ class InboxLocalDataSource {
     final List<int> remoteIds = [];
     for (var msg in messages) {
       if (msg['id'] != null) remoteIds.add(msg['id']);
+      
+      // Defensive fallback: ensure sender_contact is never null
+      // Backend should always provide this, but handle edge cases
+      String? contact = msg['sender_contact'];
+      if (contact == null || contact.isEmpty) {
+        final senderId = msg['sender_id'];
+        final channel = msg['channel'] ?? 'unknown';
+        if (senderId != null) {
+          contact = 'uid_${channel}_$senderId';
+        } else {
+          contact = 'unknown_${channel}_${DateTime.now().millisecondsSinceEpoch}';
+        }
+      }
+      
       batch.insert('inbox_messages', {
         'remote_id': msg['id'],
-        'sender_contact': msg['sender_contact'],
+        'sender_contact': contact,
         'channel': msg['channel'],
         'body': msg['body'],
         'media_url': msg['media_url'],
