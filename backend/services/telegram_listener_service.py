@@ -411,7 +411,6 @@ class TelegramListenerService:
                              channel="telegram",
                              body=body or ("[Media]" if attachments else ""),
                              recipient_id=recipient_id,
-                             recipient_contact=recipient_contact, # Using identifier field for contact
                              recipient_name=recipient_name,
                              attachments=attachments,
                              sent_at=event.message.date,

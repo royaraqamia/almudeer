@@ -1847,9 +1847,11 @@ class ConversationDetailProvider extends ChangeNotifier {
                   (e) => debugPrint('Error persisting delivery status: $e'),
                 );
           } else {
-            debugPrint(
-              '[ConversationDetailProvider] Message $msgId not found in memory for contact $targetContact',
-            );
+            // Message not found in memory - this can happen if:
+            // 1. Message was already confirmed and conversation was reloaded
+            // 2. User switched conversations before status update arrived
+            // 3. Message is in local DB but not loaded into memory yet
+            // This is OK - the message status will be correct when conversation is loaded
           }
         } else {
           debugPrint(

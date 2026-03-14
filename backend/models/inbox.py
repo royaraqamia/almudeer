@@ -944,14 +944,14 @@ async def _get_sender_aliases(db, license_id: int, sender_contact: str) -> tuple
         ) AS inbox_subq
         UNION ALL
         SELECT NULL as sender_contact, sender_id FROM (
-            SELECT recipient_id as sender_id
+            SELECT COALESCE(recipient_id, recipient_contact) as sender_id
             FROM outbox_messages
             WHERE license_key_id = ?
-            AND recipient_id IN ({placeholders})
+            AND (recipient_id IN ({placeholders}) OR recipient_contact IN ({placeholders}))
             LIMIT 200
         ) AS outbox_subq
     """
-    params = [license_id] + check_ids + check_ids + [license_id] + check_ids
+    params = [license_id] + check_ids + check_ids + [license_id] + check_ids + check_ids
     aliases = await fetch_all(db, query, params)
 
     # 2. Add found aliases to sets
@@ -978,13 +978,13 @@ async def _get_sender_aliases(db, license_id: int, sender_contact: str) -> tuple
         placeholders_i = ", ".join(["?" for _ in pass2_ids]) if pass2_ids else "'__NONE__'"
         
         query2 = f"""
-            SELECT sender_contact, sender_id FROM inbox_messages 
+            SELECT sender_contact, sender_id FROM inbox_messages
             WHERE license_key_id = ? AND (sender_contact IN ({placeholders_c}) OR sender_id IN ({placeholders_i}))
             UNION
-            SELECT NULL as sender_contact, recipient_id as sender_id FROM outbox_messages
-            WHERE license_key_id = ? AND recipient_id IN ({placeholders_i})
+            SELECT NULL as sender_contact, COALESCE(recipient_id, recipient_contact) as sender_id FROM outbox_messages
+            WHERE license_key_id = ? AND (recipient_id IN ({placeholders_i}) OR recipient_contact IN ({placeholders_i}))
         """
-        params2 = [license_id] + pass2_contacts + pass2_ids + [license_id] + pass2_ids
+        params2 = [license_id] + pass2_contacts + pass2_ids + [license_id] + pass2_ids + pass2_ids
         aliases2 = await fetch_all(db, query2, params2)
         for row in aliases2:
             if row.get("sender_contact"): all_contacts.add(row["sender_contact"])
@@ -1632,8 +1632,9 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
                 out_conditions.append(f"license_key_id IN (SELECT id FROM license_keys WHERE username IN ({contact_placeholders}))")
                 out_params.extend(list(all_contacts))
 
-                # AND messages sent TO us (current user)
-                out_conditions.append("recipient_id = ?")
+                # AND messages sent TO us (current user) - check BOTH recipient_id and recipient_contact
+                out_conditions.append("(recipient_id = ? OR recipient_contact = ?)")
+                out_params.append(current_username)
                 out_params.append(current_username)
 
                 out_where = " AND ".join(out_conditions)
@@ -1647,7 +1648,7 @@ async def mark_chat_read(license_id: int, sender_contact: str) -> int:
             outbox_messages = await fetch_all(
                 db,
                 f"""
-                    SELECT id, license_key_id, inbox_message_id, recipient_id
+                    SELECT id, license_key_id, inbox_message_id, recipient_id, recipient_contact
                     FROM outbox_messages
                     WHERE ({out_where})
                     AND delivery_status NOT IN ('read', 'failed')
@@ -1788,28 +1789,32 @@ async def get_full_chat_history(
             inbox_params
         )
         
-        # Build params for outbox (uses recipient_id)
+        # Build params for outbox (check BOTH recipient_id AND recipient_contact for backward compatibility)
         out_conditions = []
         out_params = [license_id]
 
         if all_contacts:
             contact_placeholders = ", ".join(["?" for _ in all_contacts])
-            out_conditions.append(f"o.recipient_id IN ({contact_placeholders})")
+            # Check both recipient_id and recipient_contact to support old and new data
+            out_conditions.append(f"(o.recipient_id IN ({contact_placeholders}) OR o.recipient_contact IN ({contact_placeholders}))")
+            out_params.extend(list(all_contacts))
             out_params.extend(list(all_contacts))
 
         if all_ids:
             id_placeholders = ", ".join(["?" for _ in all_ids])
-            out_conditions.append(f"o.recipient_id IN ({id_placeholders})")
+            # Check both recipient_id and recipient_contact to support old and new data
+            out_conditions.append(f"(o.recipient_id IN ({id_placeholders}) OR o.recipient_contact IN ({id_placeholders}))")
+            out_params.extend(list(all_ids))
             out_params.extend(list(all_ids))
 
         out_where = " OR ".join(out_conditions) if out_conditions else "1=0"
         out_params.append(limit)
-        
+
         outbox_rows = await fetch_all(
             db,
             f"""
             SELECT
-                o.id, o.channel, o.recipient_id as sender_id,
+                o.id, o.channel, COALESCE(o.recipient_id, o.recipient_contact) as sender_id,
                 o.subject, o.body, o.attachments, o.status,
                 o.created_at, o.sent_at, o.edited_at,
                 o.delivery_status,
@@ -2946,18 +2951,20 @@ async def upsert_conversation_state(
             if not has_messages:
                 if all_contacts:
                     contact_placeholders = ", ".join(["?" for _ in all_contacts])
+                    # Check BOTH recipient_id and recipient_contact for backward compatibility
                     outbox_check = await fetch_one(
                         db,
-                        f"SELECT 1 FROM outbox_messages WHERE license_key_id = ? AND recipient_id IN ({contact_placeholders}) AND deleted_at IS NULL LIMIT 1",
+                        f"SELECT 1 FROM outbox_messages WHERE license_key_id = ? AND (recipient_id IN ({contact_placeholders}) OR recipient_contact IN ({contact_placeholders})) AND deleted_at IS NULL LIMIT 1",
                         [license_id] + list(all_contacts) + list(all_contacts)
                     )
                     has_messages = outbox_check is not None
 
                 if not has_messages and all_ids:
                     id_placeholders = ", ".join(["?" for _ in all_ids])
+                    # Check BOTH recipient_id and recipient_contact for backward compatibility
                     outbox_check = await fetch_one(
                         db,
-                        f"SELECT 1 FROM outbox_messages WHERE license_key_id = ? AND (recipient_contact IN ({id_placeholders}) OR recipient_id IN ({id_placeholders})) AND deleted_at IS NULL LIMIT 1",
+                        f"SELECT 1 FROM outbox_messages WHERE license_key_id = ? AND (recipient_id IN ({id_placeholders}) OR recipient_contact IN ({id_placeholders})) AND deleted_at IS NULL LIMIT 1",
                         [license_id] + list(all_ids) + list(all_ids)
                     )
                     has_messages = outbox_check is not None
