@@ -406,7 +406,7 @@ async def get_library_items(
 async def get_library_item(license_id: int, item_id: int, user_id: Optional[str] = None) -> Optional[dict]:
     """
     Get a specific library item (including global).
-    
+
     Issue #30: Fetches all columns including content for detail view.
     Bug #3 FIX: When user_id is provided and no owned item is found,
     falls back to checking share permissions so shared items are accessible.
@@ -418,7 +418,8 @@ async def get_library_item(license_id: int, item_id: int, user_id: Optional[str]
     async with get_db() as db:
         if user_id:
             # First try: check if user owns the item
-            owned_query = query + " AND user_id = ?"
+            # FIX: Use created_by instead of user_id for ownership check
+            owned_query = query + " AND created_by = ?"
             owned_params = params + [user_id]
             row = await fetch_one(db, owned_query, owned_params)
             if row:
