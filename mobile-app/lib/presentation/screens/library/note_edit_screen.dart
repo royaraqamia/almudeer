@@ -40,6 +40,9 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   // P1: Edit mode visual feedback
   final FocusNode _contentFocusNode = FocusNode();
   late LibraryProvider _provider;
+  
+  // Permission state
+  bool _canEdit = true;
 
   @override
   void initState() {
@@ -56,6 +59,27 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     _titleController.addListener(_onChanged);
     _contentController.addListener(_onChanged);
     _contentFocusNode.addListener(_onFocusChange);
+    
+    // Load permissions for existing items
+    if (!_isNewNote) {
+      _loadPermissions();
+    }
+  }
+  
+  void _loadPermissions() {
+    // New notes are always editable (user is owner)
+    // Existing items: check share permission
+    final sharePermission = widget.item?.sharePermission;
+    final isOwner = sharePermission == null;
+    
+    // Permission levels: owner/edit/admin can edit, read-only cannot
+    _canEdit = isOwner || 
+               sharePermission == 'edit' || 
+               sharePermission == 'admin';
+    
+    debugPrint(
+      '[NoteEditScreen] Permissions loaded: sharePermission=$sharePermission, isOwner=$isOwner, canEdit=$_canEdit',
+    );
   }
 
   @override
@@ -91,11 +115,23 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   }
 
   void _onChanged() {
+    // PERMISSION: Prevent read-only users from triggering auto-save
+    if (!_canEdit) {
+      debugPrint('[NoteEditScreen] Read-only user - skipping auto-save');
+      return;
+    }
+    
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(seconds: 1), _saveNote);
   }
 
   Future<void> _saveNote({bool skipStateUpdate = false}) async {
+    // PERMISSION: Block read-only users from saving
+    if (!_canEdit) {
+      debugPrint('[NoteEditScreen] Read-only user attempted to save - blocked');
+      return;
+    }
+    
     if (_isSaving) return;
 
     final title = _titleController.text.trim();
@@ -189,7 +225,8 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
             ),
           ),
           actions: [
-            if (widget.item != null)
+            // PERMISSION: Only show share button for users with edit permission
+            if (widget.item != null && _canEdit)
               Semantics(
                 label: 'مشاركة',
                 button: true,
@@ -271,6 +308,9 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
                         ),
                       ),
                       maxLines: 1,
+                      // PERMISSION: Read-only users cannot edit
+                      readOnly: !_canEdit,
+                      enabled: _canEdit,
                     ),
                   );
                 },
@@ -347,6 +387,9 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
               maxLines: null,
               expands: true,
               textAlignVertical: TextAlignVertical.top,
+              // PERMISSION: Read-only users cannot edit
+              readOnly: !_canEdit,
+              enabled: _canEdit,
             ),
           );
         },

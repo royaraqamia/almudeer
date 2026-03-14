@@ -265,6 +265,17 @@ async def create_new_task(
         
         # Note: If result differs from input (e.g., LWW conflict resolution used server version),
         # the client will receive the server's version and can update its local state.
+        
+        # Safety check: If result is still None, there was an actual error (e.g., constraint violation)
+        if not result:
+            logger.error(
+                f"Task creation failed for {task_dict.get('id')}: database operation returned None",
+                extra={"task_id": task_dict.get('id'), "user_id": user_id}
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="تعذر إنشاء المهمة. يرجى التحقق من البيانات والمحاولة مرة أخرى."
+            )
 
         # Trigger real-time sync across other devices
         background_tasks.add_task(broadcast_task_sync, license_id, task_id=result["id"], change_type="create")
