@@ -141,7 +141,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
       }
 
       final currentUserId = provider.currentUserId;
-      
+
       // FIX: Add null check after loading
       if (currentUserId == null) {
         debugPrint('[TaskEditScreen] Failed to get currentUserId after loading');
@@ -154,12 +154,16 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
         }
         return;
       }
+
+      // FIX: Determine if user is the owner
+      // User is owner ONLY if:
+      // 1. They created the task (createdBy == currentUserId)
+      // 2. AND there's no sharePermission (sharePermission == null means not a recipient)
+      //
+      // If sharePermission exists, user is a RECIPIENT with limited permissions
+      final isRecipient = widget.task!.sharePermission != null;
+      final isOwner = !isRecipient && (widget.task!.createdBy == currentUserId);
       
-      // FIX: Check if current user is the owner by comparing createdBy with currentUserId
-      // Legacy tasks (createdBy == null) are treated as owned by the current user
-      final isOwner =
-          widget.task!.createdBy == null ||
-          widget.task!.createdBy == currentUserId;
       _permissionLevel = getEffectivePermission(
         widget.task!.sharePermission,
         isOwner,
@@ -205,12 +209,18 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
   }
 
   void _onChanged() {
+    // PERMISSION: Prevent read-only users from triggering auto-save
+    if (!_canEdit) {
+      debugPrint('[TaskEditScreen] Read-only user - skipping auto-save');
+      return;
+    }
+
     // FIX MOBILE-003: Use single debounce timer for all fields to prevent race conditions
     if (_debounce?.isActive ?? false) _debounce!.cancel();
 
     // FIX #12: Adaptive debounce timing based on network status and content type
     // - Quick changes (typing): 500ms for responsive feel
-    // - Network available: 500ms 
+    // - Network available: 500ms
     // - Offline/slow network: 1000ms to batch changes
     final debounceMs = _getAdaptiveDebounceMs();
     _debounce = Timer(debounceMs, _saveTask);
@@ -257,6 +267,12 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
   }
 
   Future<void> _saveTask() async {
+    // PERMISSION: Block read-only users from saving
+    if (!_canEdit) {
+      debugPrint('[TaskEditScreen] Read-only user attempted to save - blocked');
+      return;
+    }
+
     // FIX MOBILE-003: Prevent concurrent saves with generation counter
     if (_isSaving) {
       _pendingSave = true;

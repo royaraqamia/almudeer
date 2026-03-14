@@ -1373,11 +1373,13 @@ async def share_library_item(
                 "message_en": "Authentication required to share items"
             }
         )
-    
+
     user_id = user.get("user_id")
-    
+    logger.info(f"[LIBRARY SHARE] item_id={item_id}, license_id={license['license_id']}, user_id={user_id}")
+
     # Verify item exists and user owns it
     item = await get_library_item(license["license_id"], item_id, user_id=user_id)
+    logger.info(f"[LIBRARY SHARE] Item fetched: {item.get('id') if item else 'None'}, created_by={item.get('created_by') if item else 'None'}, user_id={user_id}")
     if not item:
         raise HTTPException(
             status_code=404,

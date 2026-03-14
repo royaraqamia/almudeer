@@ -12,7 +12,6 @@ import '../../../../core/utils/haptics.dart';
 import '../../../../core/extensions/string_extension.dart';
 import '../screens/task_edit_screen.dart';
 import 'package:figma_squircle/figma_squircle.dart';
-import '../../../../presentation/widgets/animated_toast.dart';
 
 class TaskListItem extends StatefulWidget {
   final TaskModel task;
@@ -81,15 +80,8 @@ class _TaskListItemState extends State<TaskListItem>
           if (widget.isSelectionMode) {
             widget.onSelectionChanged?.call(!widget.isSelected);
           } else {
-            final provider = context.read<TaskProvider>();
-            final userId = provider.currentUserId;
-            final canEdit = _canUserEditTask(widget.task, userId);
-
-            if (!canEdit) {
-              AnimatedToast.error(context, 'ليس لديك صلاحية تعديل هذه المهمة');
-              return;
-            }
-
+            // Navigate to edit screen - permissions will be handled inside
+            // Read-only users will see the screen in view mode
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => TaskEditScreen(task: widget.task),
@@ -196,49 +188,6 @@ class _TaskListItemState extends State<TaskListItem>
                           ),
                         ),
                       ),
-                      // Show shared badge for tasks shared with the user
-                      if (widget.task.sharePermission != null)
-                        Positioned(
-                          top: AppDimensions.spacing8,
-                          right: 56, // Position to the left of the checkbox
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppDimensions.spacing8,
-                              vertical: AppDimensions.spacing4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _getPermissionColor(
-                                widget.task.sharePermission!,
-                              ).withValues(alpha: 0.9),
-                              borderRadius: BorderRadius.circular(
-                                AppDimensions.radiusSmall,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  _getPermissionIcon(
-                                    widget.task.sharePermission!,
-                                  ),
-                                  size: AppDimensions.iconSmall,
-                                  color: Colors.white,
-                                ),
-                                const SizedBox(width: AppDimensions.spacing4),
-                                Text(
-                                  _getPermissionLabel(
-                                    widget.task.sharePermission!,
-                                  ),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
                     ],
                   ),
                 ),
@@ -602,60 +551,4 @@ class _TaskListItemState extends State<TaskListItem>
       ),
     );
   }
-
-  IconData _getPermissionIcon(String permission) {
-    switch (permission) {
-      case 'edit':
-        return SolarLinearIcons.pen;
-      case 'admin':
-        return SolarLinearIcons.userHeart;
-      default:
-        return SolarLinearIcons.eye;
-    }
-  }
-
-  String _getPermissionLabel(String permission) {
-    switch (permission) {
-      case 'edit':
-        return 'تعديل';
-      case 'admin':
-        return 'مدير';
-      default:
-        return 'قراءة';
-    }
-  }
-
-  Color _getPermissionColor(String permission) {
-    switch (permission) {
-      case 'edit':
-        return Colors.blue;
-      case 'admin':
-        return Colors.purple;
-      default:
-        return AppColors.primary;
-    }
-  }
-}
-
-bool _canUserEditTask(TaskModel task, String? userId) {
-  if (userId == null) return false;
-
-  // Owner can always edit
-  if (task.createdBy == userId) return true;
-
-  // FIX: If createdBy is null (legacy task), allow edit for all license users
-  if (task.createdBy == null || task.createdBy!.isEmpty) return true;
-
-  // FIX P4-2: Check share permission instead of old assigned_to field
-  // Users with edit or admin permission can edit shared tasks
-  if (task.sharePermission == 'edit' || task.sharePermission == 'admin') {
-    return true;
-  }
-
-  // Fallback for backward compatibility: assigned_to with shared visibility
-  if (task.assignedTo == userId && task.visibility == 'shared') {
-    return true;
-  }
-
-  return false;
 }
