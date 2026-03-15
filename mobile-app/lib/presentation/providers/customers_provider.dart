@@ -239,6 +239,8 @@ class CustomersProvider extends ChangeNotifier {
       return;
     }
 
+    bool hasValidCache = false;
+
     // 1. Instant Cache Peek for first page
     if (_currentPage == 1 && _customers.isEmpty) {
       try {
@@ -254,6 +256,7 @@ class CustomersProvider extends ChangeNotifier {
           final responseModel = CustomersResponse.fromJson(cachedData);
           _customers = responseModel.customers;
           _hasNextPage = responseModel.hasMore;
+          hasValidCache = true;
           notifyListeners();
         } else {
           _isLoading = true;
@@ -268,8 +271,9 @@ class CustomersProvider extends ChangeNotifier {
       notifyListeners();
     }
 
-    // 2. Skip API call if skipAutoRefresh is true (offline-first experience)
-    if (skipAutoRefresh) {
+    // 2. Skip API call if skipAutoRefresh is true AND we have valid cache
+    // If cache is empty, we must fetch to show data
+    if (skipAutoRefresh && hasValidCache) {
       return;
     }
 

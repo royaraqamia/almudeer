@@ -349,13 +349,18 @@ class LibraryProvider extends ChangeNotifier {
       _isFetchingMore = true;
     }
 
-    // Skip remote fetch if skipAutoRefresh is true (offline-first experience)
+    // Skip remote fetch if skipAutoRefresh is true AND we have cached items
+    // If cache is empty, we must fetch to show data
     if (skipAutoRefresh) {
-      // Just load from cache and return
+      // Load from cache first
       _loadCachedItemsForCurrentCategory();
-      _isLoading = false;
-      notifyListeners();
-      return;
+      // Only skip remote fetch if we have cached items
+      if (_items.isNotEmpty) {
+        _isLoading = false;
+        notifyListeners();
+        return;
+      }
+      // Cache is empty - continue to fetch from remote
     }
 
     // FIX: Debounce rapid category/query changes to prevent excessive API calls

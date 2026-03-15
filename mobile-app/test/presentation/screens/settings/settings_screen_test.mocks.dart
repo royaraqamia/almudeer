@@ -140,9 +140,9 @@ class MockSettingsProvider extends _i1.Mock implements _i2.SettingsProvider {
   );
 
   @override
-  _i4.Future<void> loadSettings() =>
+  _i4.Future<void> loadSettings({bool? skipAutoRefresh}) =>
       (super.noSuchMethod(
-            Invocation.method(#loadSettings, []),
+            Invocation.method(#loadSettings, [], {#skipAutoRefresh: skipAutoRefresh}),
             returnValue: _i4.Future<void>.value(),
             returnValueForMissingStub: _i4.Future<void>.value(),
           )
@@ -303,9 +303,9 @@ class MockSettingsProvider extends _i1.Mock implements _i2.SettingsProvider {
   );
 
   @override
-  _i4.Future<void> loadIntegrations() =>
+  _i4.Future<void> loadIntegrations({bool? skipAutoRefresh}) =>
       (super.noSuchMethod(
-            Invocation.method(#loadIntegrations, []),
+            Invocation.method(#loadIntegrations, [], {#skipAutoRefresh: skipAutoRefresh}),
             returnValue: _i4.Future<void>.value(),
             returnValueForMissingStub: _i4.Future<void>.value(),
           )

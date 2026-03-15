@@ -223,8 +223,8 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
       // Load library items (notes, files, audio, links)
       context.read<LibraryProvider>().fetchItems(refresh: true);
 
-      // Load settings and preferences
-      context.read<SettingsProvider>().loadSettings();
+      // Load settings and preferences (cache-first for offline experience)
+      context.read<SettingsProvider>().loadSettings(skipAutoRefresh: true);
 
       // Load tasks
       context.read<TaskProvider>().loadTasks();

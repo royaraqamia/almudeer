@@ -235,7 +235,7 @@ class AlMudeerApp extends StatelessWidget {
 
         // Settings provider
         ChangeNotifierProvider(
-          create: (_) => SettingsProvider()..loadSettings(),
+          create: (_) => SettingsProvider()..loadSettings(skipAutoRefresh: true),
         ),
 
         // Audio Player Provider

@@ -356,6 +356,9 @@ async def get_shared_tasks(
         logger.debug(f"Cache hit for shared tasks: {cache_key}")
         return cached
 
+    # Import _parse_task_row to parse JSON fields (sub_tasks, attachments)
+    from models.tasks import _parse_task_row
+
     async with get_db() as db:
         # Note: is_deleted is INTEGER (0/1) in both SQLite and PostgreSQL
         # FIX: Added share expiration check (expires_at IS NULL OR expires_at > now)
@@ -376,7 +379,8 @@ async def get_shared_tasks(
             params.append(permission)
 
         rows = await fetch_all(db, query, params)
-        result = [dict(row) for row in rows]
+        # FIX: Parse JSON fields (sub_tasks, attachments) for each row
+        result = [_parse_task_row(dict(row)) for row in rows]
 
         # FIX BUG-002: Cache with shorter TTL for time-bucketed keys
         await cache.set(cache_key, result)

@@ -406,6 +406,7 @@ class ConversationDetailProvider extends ChangeNotifier {
       _failure = null;
 
       // 2. Load from Disk Cache (Unified Persistent Cache)
+      bool hasValidCache = false;
       try {
         final accountHash = await _inboxRepository.apiClient
             .getAccountCacheHash();
@@ -420,6 +421,7 @@ class ConversationDetailProvider extends ChangeNotifier {
 
           _memoryMessages[senderContact] = cachedMessages;
           _memoryStates[senderContact] = ConversationState.loaded;
+          hasValidCache = true;
 
           if (_activeContact == senderContact) {
             notifyListeners();
@@ -429,8 +431,9 @@ class ConversationDetailProvider extends ChangeNotifier {
         debugPrint('Cache read error for $senderContact: $e');
       }
 
-      // 3. Skip API call if skipAutoRefresh is true (offline-first experience)
-      if (skipAutoRefresh) {
+      // 3. Skip API call if skipAutoRefresh is true AND we have valid cache
+      // If cache is empty, we must fetch to show data
+      if (skipAutoRefresh && hasValidCache) {
         // Ensure state is loaded after cache load
         _memoryStates[senderContact] = ConversationState.loaded;
         if (_activeContact == senderContact) {

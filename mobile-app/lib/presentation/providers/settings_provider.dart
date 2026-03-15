@@ -65,12 +65,16 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   /// Load all settings data with cache-first approach
-  Future<void> loadSettings() async {
+  /// 
+  /// [skipAutoRefresh] - if true, only load from cache and skip API call (for offline-first experience)
+  Future<void> loadSettings({bool skipAutoRefresh = false}) async {
     final currentGeneration = _loadGeneration;
     debugPrint(
-      '[SettingsProvider] loadSettings() called, generation=$currentGeneration',
+      '[SettingsProvider] loadSettings() called, generation=$currentGeneration, skipAutoRefresh=$skipAutoRefresh',
     );
     _errorMessage = null;
+
+    bool hasValidCache = false;
 
     // 1. Instant Cache Load for Knowledge Documents
     if (_knowledgeDocuments.isEmpty) {
@@ -100,6 +104,7 @@ class SettingsProvider extends ChangeNotifier {
               .toList();
           _state = SettingsState.loaded;
           _knowledgeLoadState = KnowledgeLoadState.loaded;
+          hasValidCache = true;
           notifyListeners();
         }
       } catch (_) {
@@ -107,7 +112,12 @@ class SettingsProvider extends ChangeNotifier {
       }
     }
 
-    // 2. Fresh Fetch in Background
+    // 2. Skip API call if skipAutoRefresh is true AND we have valid cache
+    if (skipAutoRefresh && hasValidCache) {
+      return;
+    }
+
+    // 3. Fresh Fetch in Background
     try {
       // Load both preferences and knowledge documents
       final results = await Future.wait([
@@ -671,8 +681,12 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   /// Load integrations with cache-first approach
-  Future<void> loadIntegrations() async {
+  /// 
+  /// [skipAutoRefresh] - if true, only load from cache and skip API call (for offline-first experience)
+  Future<void> loadIntegrations({bool skipAutoRefresh = false}) async {
     _errorMessage = null;
+
+    bool hasValidCache = false;
 
     // 1. Instant Cache Load
     if (_integrations.isEmpty) {
@@ -691,6 +705,7 @@ class SettingsProvider extends ChangeNotifier {
               (cachedData['integrations'] as List<dynamic>?) ??
               [];
           _integrationsState = SettingsState.loaded;
+          hasValidCache = true;
           notifyListeners();
         } else {
           _integrationsState = SettingsState.loading;
@@ -699,7 +714,12 @@ class SettingsProvider extends ChangeNotifier {
       } catch (_) {}
     }
 
-    // 2. Fresh Fetch
+    // 2. Skip API call if skipAutoRefresh is true AND we have valid cache
+    if (skipAutoRefresh && hasValidCache) {
+      return;
+    }
+
+    // 3. Fresh Fetch
     try {
       final status = await _integrationsRepository.getAccountsStatus();
       _integrations =

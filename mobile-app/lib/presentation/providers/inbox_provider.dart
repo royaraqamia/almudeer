@@ -298,8 +298,9 @@ class InboxProvider extends ChangeNotifier {
       }
     }
 
-    // 2. Skip auto-refresh if requested (e.g., app resume - rely on WebSocket for updates)
-    if (skipAutoRefresh) {
+    // 2. Skip auto-refresh if requested AND we have valid cache
+    // If cache is empty, we must fetch to show data
+    if (skipAutoRefresh && hasValidCache) {
       return;
     }
 

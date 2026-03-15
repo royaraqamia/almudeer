@@ -35,7 +35,8 @@ class _IntegrationsSectionState extends State<IntegrationsSection>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<SettingsProvider>().loadIntegrations();
+      // Load from cache only - no API call for offline-first experience
+      context.read<SettingsProvider>().loadIntegrations(skipAutoRefresh: true);
     });
   }
 
