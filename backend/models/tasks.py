@@ -21,6 +21,9 @@ async def verify_task_access(
 
     P4-1: Consolidated task visibility and permission check.
     P4-2: Updated to use task_shares table instead of assigned_to field.
+    
+    FIX: Added support for cross-license shared tasks - when a task is shared with a user
+    from a different license, the task exists with the owner's license_key_id, not the user's.
 
     Args:
         db: Database connection
@@ -44,6 +47,22 @@ async def verify_task_access(
         [task_id, license_id]
     )
 
+    # FIX: If not found in user's license, check for shared tasks from other licenses
+    if not task:
+        task = await fetch_one(
+            db,
+            """
+            SELECT t.* FROM tasks t
+            INNER JOIN task_shares ts ON t.id = ts.task_id
+            WHERE t.id = ?
+            AND ts.shared_with_user_id = ?
+            AND ts.deleted_at IS NULL
+            AND (ts.expires_at IS NULL OR ts.expires_at > ?)
+            AND t.is_deleted = 0
+            """,
+            [task_id, user_id, datetime.now(timezone.utc)]
+        )
+
     if not task:
         return False
 
@@ -53,16 +72,17 @@ async def verify_task_access(
 
     # Check task_shares for permission-based access
     # FIX: Add expires_at check to prevent expired shares from granting access
+    # FIX: For cross-license shares, check without license_key_id filter
     now = datetime.now(timezone.utc)
     share = await fetch_one(
         db,
         """
         SELECT permission FROM task_shares
-        WHERE task_id = ? AND shared_with_user_id = ? AND license_key_id = ?
+        WHERE task_id = ? AND shared_with_user_id = ?
         AND deleted_at IS NULL
         AND (expires_at IS NULL OR expires_at > ?)
         """,
-        [task_id, user_id, license_id, now]
+        [task_id, user_id, now]
     )
 
     if share:
@@ -343,15 +363,31 @@ async def get_task(license_id: int, task_id: str, user_id: str) -> Optional[dict
 
     P4-1: Uses verify_task_access for permission checking.
     P4-2: Also fetches share permission for the user.
+    
+    FIX: Added support for cross-license shared tasks - when a task is shared with a user
+    from a different license, the task exists with the owner's license_key_id, not the user's.
     """
     async with get_db() as db:
         # First check if task exists (filter out soft-deleted tasks)
+        # Check both user's license and global tasks
         row = await fetch_one(db, """
             SELECT * FROM tasks
             WHERE (license_key_id = ? OR license_key_id = 0)
             AND id = ?
             AND is_deleted = 0
         """, (license_id, task_id))
+
+        # FIX: If not found in user's license, check for shared tasks from other licenses
+        if not row:
+            row = await fetch_one(db, """
+                SELECT t.* FROM tasks t
+                INNER JOIN task_shares ts ON t.id = ts.task_id
+                WHERE t.id = ?
+                AND ts.shared_with_user_id = ?
+                AND ts.deleted_at IS NULL
+                AND (ts.expires_at IS NULL OR ts.expires_at > ?)
+                AND t.is_deleted = 0
+            """, (task_id, user_id, datetime.now(timezone.utc)))
 
         if not row:
             return None
@@ -371,11 +407,11 @@ async def get_task(license_id: int, task_id: str, user_id: str) -> Optional[dict
                 db,
                 """
                 SELECT permission FROM task_shares
-                WHERE task_id = ? AND shared_with_user_id = ? AND license_key_id = ?
+                WHERE task_id = ? AND shared_with_user_id = ?
                 AND deleted_at IS NULL
                 AND (expires_at IS NULL OR expires_at > ?)
                 """,
-                [task_id, user_id, license_id, now]
+                [task_id, user_id, now]
             )
             if share:
                 task_dict['share_permission'] = share.get('permission')
@@ -647,45 +683,60 @@ async def create_task(license_id: int, task_data: dict, user_id: str = None) -> 
             # If the upsert was rejected, fetch the existing task to return to the client
             # This ensures the client receives the current server version
             if not result:
-                async with get_db() as db2:
-                    result = await _get_task_by_id_raw(db2, license_id, task_data['id'])
+                try:
+                    async with get_db() as db2:
+                        result = await _get_task_by_id_raw(db2, license_id, task_data['id'])
 
-                # FIX: If still no result, check if this is a shared task
-                # The task might exist with a different license_key_id (owner's license)
-                if not result and user_id:
-                    # Check if task exists with a different license (shared task scenario)
-                    task_with_other_license = await fetch_one(db2, """
-                        SELECT t.* FROM tasks t
-                        INNER JOIN task_shares ts ON t.id = ts.task_id
-                        WHERE t.id = ?
-                        AND ts.shared_with_user_id = ?
-                        AND ts.deleted_at IS NULL
-                        AND (ts.expires_at IS NULL OR ts.expires_at > ?)
-                        AND t.is_deleted = 0
-                    """, (task_data['id'], user_id, datetime.now(timezone.utc)))
-                    
-                    if task_with_other_license:
-                        # This is a shared task - return it with proper permission info
-                        result = dict(task_with_other_license)
-                        # Add share_permission to the result
-                        share_info = await fetch_one(db2, """
-                            SELECT permission FROM task_shares
-                            WHERE task_id = ? AND shared_with_user_id = ?
-                            AND deleted_at IS NULL
-                            AND (expires_at IS NULL OR expires_at > ?)
-                        """, (task_data['id'], user_id, datetime.now(timezone.utc)))
-                        if share_info:
-                            result['share_permission'] = share_info.get('permission')
-                        logger.info(
-                            f"Task {task_data.get('id')} synced as shared task (owner license: {task_with_other_license.get('license_key_id')})"
-                        )
+                        # FIX: If still no result, check if this is a shared task
+                        # The task might exist with a different license_key_id (owner's license)
+                        if not result and user_id:
+                            try:
+                                # Check if task exists with a different license (shared task scenario)
+                                task_with_other_license = await fetch_one(db2, """
+                                    SELECT t.* FROM tasks t
+                                    INNER JOIN task_shares ts ON t.id = ts.task_id
+                                    WHERE t.id = ?
+                                    AND ts.shared_with_user_id = ?
+                                    AND ts.deleted_at IS NULL
+                                    AND (ts.expires_at IS NULL OR ts.expires_at > ?)
+                                    AND t.is_deleted = 0
+                                """, (task_data['id'], user_id, datetime.now(timezone.utc)))
 
-                # If still no result, the task truly doesn't exist - this is an actual error
-                if not result:
+                                if task_with_other_license:
+                                    # This is a shared task - return it with proper permission info
+                                    result = dict(task_with_other_license)
+                                    # Add share_permission to the result
+                                    share_info = await fetch_one(db2, """
+                                        SELECT permission FROM task_shares
+                                        WHERE task_id = ? AND shared_with_user_id = ?
+                                        AND deleted_at IS NULL
+                                        AND (expires_at IS NULL OR expires_at > ?)
+                                    """, (task_data['id'], user_id, datetime.now(timezone.utc)))
+                                    if share_info:
+                                        result['share_permission'] = share_info.get('permission')
+                                    logger.info(
+                                        f"Task {task_data.get('id')} synced as shared task (owner license: {task_with_other_license.get('license_key_id')})"
+                                    )
+                            except Exception as share_err:
+                                logger.error(
+                                    f"Failed to fetch shared task {task_data.get('id')} for user {user_id}: {share_err}",
+                                    exc_info=True
+                                )
+                                # Re-raise to let the caller handle it
+                                raise
+                except Exception as fetch_err:
                     logger.error(
-                        f"Task {task_data.get('id')} not found after INSERT - "
-                        f"possible constraint violation or permission issue"
+                        f"Failed to fetch task {task_data.get('id')} after upsert: {fetch_err}",
+                        exc_info=True
                     )
+                    raise
+
+            # If still no result, the task truly doesn't exist - this is an actual error
+            if not result:
+                logger.error(
+                    f"Task {task_data.get('id')} not found after INSERT - "
+                    f"possible constraint violation or permission issue"
+                )
 
             return result
         except Exception as e:
