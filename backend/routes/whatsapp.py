@@ -374,37 +374,97 @@ async def process_whatsapp_change(phone_number_id: str, payload: dict, value: di
                         print(f"WhatsApp delivery status update: {wa_message_id} -> {status}")
                     continue
                 
-                # 4. Media Handling
+                # 4. Media Handling - Robust attachment processing
                 attachments = []
                 if msg.get("media_id"):
                     try:
                         content = await service.download_media(msg["media_id"])
                         if content:
                             size = len(content)
-                            if size < 20 * 1024 * 1024:
+                            if size < 20 * 1024 * 1024:  # 20MB limit
+                                # Determine MIME type based on message type
                                 msg_type = msg.get("type", "file")
-                                mime_map = {"image": "image/jpeg", "audio": "audio/ogg", "video": "video/mp4", "document": "application/pdf"}
+                                mime_map = {
+                                    "image": "image/jpeg",
+                                    "audio": "audio/ogg",
+                                    "voice": "audio/ogg",
+                                    "video": "video/mp4",
+                                    "document": "application/octet-stream"
+                                }
                                 mime_type = mime_map.get(msg_type, "application/octet-stream")
                                 
+                                # Determine attachment type
+                                att_type = "voice" if msg.get("is_voice") else msg_type
+                                if att_type == "voice":
+                                    att_type = "voice"
+                                elif att_type == "audio":
+                                    att_type = "audio"
+                                elif att_type == "image":
+                                    att_type = "photo"
+                                elif att_type == "video":
+                                    att_type = "video"
+                                else:
+                                    att_type = "document"
+
                                 filename = f"wa_{msg['media_id']}"
-                                rel_path, abs_url = get_file_storage().save_file(content=content, filename=filename, mime_type=mime_type)
-                                
+                                rel_path, abs_url = get_file_storage().save_file(
+                                    content=content, 
+                                    filename=filename, 
+                                    mime_type=mime_type
+                                )
+
+                                # Add base64 for instant preview on small files
                                 b64_data = None
-                                if size < 1 * 1024 * 1024:
-                                    b64_data = base64.b64encode(content).decode('utf-8')
+                                size_threshold = 200 * 1024 if att_type == "photo" else 100 * 1024
+                                if size < size_threshold:
+                                    try:
+                                        b64_data = base64.b64encode(content).decode('utf-8')
+                                    except Exception as b64_err:
+                                        print(f"Failed to encode WhatsApp attachment as base64: {b64_err}")
 
                                 attachments.append({
-                                    "type": "voice" if msg.get("is_voice") else msg_type,
+                                    "type": att_type,
                                     "mime_type": mime_type,
                                     "url": abs_url,
                                     "path": rel_path,
                                     "base64": b64_data,
                                     "filename": filename,
+                                    "file_name": filename,
                                     "size": size,
+                                    "file_size": size,
                                     "platform_media_id": msg["media_id"]
                                 })
+                        else:
+                            print(f"WhatsApp media download returned empty content for {msg.get('media_id')}")
                     except Exception as e:
-                        print(f"Error downloading WhatsApp media: {e}")
+                        print(f"Error downloading WhatsApp media: {e}", exc_info=True)
+                        # Add placeholder attachment so message still shows
+                        attachments.append({
+                            "type": msg.get("type", "file"),
+                            "download_pending": True,
+                            "platform_media_id": msg.get("media_id"),
+                            "error": str(e)
+                        })
+
+                # Ensure body text is never empty when attachments exist
+                body_text = msg.get("body", "")
+                if not body_text or not body_text.strip():
+                    if attachments:
+                        att_type = attachments[0].get("type", "file")
+                        if att_type == "photo":
+                            body_text = "📷 صورة"
+                        elif att_type == "video":
+                            body_text = "🎥 فيديو"
+                        elif att_type == "voice":
+                            body_text = "🎤 رسالة صوتية"
+                        elif att_type == "audio":
+                            body_text = "🎵 ملف صوتي"
+                        elif att_type == "document":
+                            body_text = "📄 ملف"
+                        else:
+                            body_text = "📎 مرفق"
+                    else:
+                        body_text = "(بدون نص)"
 
                 # 5. Save to Inbox
                 inbox_id = await save_inbox_message(
@@ -414,9 +474,9 @@ async def process_whatsapp_change(phone_number_id: str, payload: dict, value: di
                     sender_id=msg.get("from"),
                     sender_name=msg.get("sender_name"),
                     sender_contact=msg.get("sender_phone"),
-                    body=msg.get("body", ""),
+                    body=body_text,
                     received_at=msg.get("timestamp"),
-                    attachments=attachments,
+                    attachments=attachments if attachments else None,
                     is_forwarded=msg.get("is_forwarded", False)
                 )
 

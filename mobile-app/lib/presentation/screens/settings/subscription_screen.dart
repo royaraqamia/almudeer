@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:figma_squircle/figma_squircle.dart';
@@ -8,20 +7,11 @@ import 'package:solar_icon_pack/solar_icon_pack.dart';
 
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/dimensions.dart';
-import '../../../core/constants/animations.dart';
 import '../../../core/constants/settings_strings.dart';
 import '../../../data/models/user_info.dart';
 import '../../providers/auth_provider.dart';
 import 'widgets/subscription_plans_section.dart';
-
-/// Apple HIG: Progress indicators should complete in 1-2 seconds
-const Duration _progressAnimationDuration = Duration(milliseconds: 1400);
-
-/// Maximum subscription duration in days (10 years)
-const int _maxSubscriptionDays = 3650;
-
-/// Default subscription duration in days (1 year)
-const int _defaultSubscriptionDays = 365;
+import '../../../core/extensions/string_extension.dart';
 
 class SubscriptionScreen extends StatefulWidget {
   const SubscriptionScreen({super.key});
@@ -30,82 +20,19 @@ class SubscriptionScreen extends StatefulWidget {
   State<SubscriptionScreen> createState() => _SubscriptionScreenState();
 }
 
-class _SubscriptionScreenState extends State<SubscriptionScreen>
-    with TickerProviderStateMixin {
-  late AnimationController _fadeController;
-  late AnimationController _progressController;
-  late Animation<double> _fadeAnimation;
-  late Animation<double> _progressAnimation;
-  bool _prefersReducedMotion = false;
-
+class _SubscriptionScreenState extends State<SubscriptionScreen> {
   // Cache for formatted dates to avoid redundant Hijri conversions
   final Map<String, String> _dateCache = {};
 
   @override
-  void initState() {
-    super.initState();
-    _initAnimations();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Initialize prefersReducedMotion here since it requires MediaQuery
-    _prefersReducedMotion = AppAnimations.prefersReducedMotion(context);
-  }
-
-  void _initAnimations() {
-    // Main fade-in animation
-    // Apple HIG: 350ms standard duration
-    final fadeDuration = _prefersReducedMotion
-        ? Duration.zero
-        : AppAnimations.standard;
-    _fadeController = AnimationController(
-      duration: fadeDuration,
-      vsync: this,
-    );
-
-    // Progress circle animation
-    final progressDuration = _prefersReducedMotion
-        ? Duration.zero
-        : _progressAnimationDuration;
-    _progressController = AnimationController(
-      duration: progressDuration,
-      vsync: this,
-    );
-
-    _fadeAnimation = CurvedAnimation(
-      parent: _fadeController,
-      curve: _prefersReducedMotion ? Curves.linear : AppAnimations.enter,
-    );
-
-    _progressAnimation = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(
-        parent: _progressController,
-        curve: _prefersReducedMotion ? Curves.linear : AppAnimations.primary,
-      ),
-    );
-
-    // Start animations after first frame is rendered
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _fadeController.forward();
-      _progressController.forward();
-    });
-  }
-
-  @override
   void dispose() {
-    _fadeController.dispose();
-    _progressController.dispose();
     _dateCache.clear();
     super.dispose();
   }
 
   /// Format date using Hijri calendar with caching
   ///
-  /// Uses Arabic locale for Hijri conversion regardless of app language
-  /// as per Islamic calendar standards.
+  /// Uses Arabic locale for Hijri conversion with English numbers.
   String _formatDate(String dateStr) {
     if (dateStr.isEmpty) return '-';
 
@@ -117,7 +44,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
       final date = DateTime.parse(dateStr);
       HijriCalendar.setLocal('ar');
       final hijriDate = HijriCalendar.fromDate(date);
-      final formatted = hijriDate.toFormat('dd MMMM yyyy');
+      final formatted = hijriDate.toFormat('dd MMMM yyyy').toEnglishNumbers;
 
       // Cache the result
       _dateCache[dateStr] = formatted;
@@ -126,37 +53,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
       debugPrint('[SubscriptionScreen] Date parse error: $e, input: $dateStr');
       return dateStr;
     }
-  }
-
-  double _calculateProgress(int daysRemaining, int totalDays) {
-    if (totalDays == 0) return 0;
-    return (daysRemaining / totalDays).clamp(0.0, 1.0);
-  }
-
-  /// Calculate total subscription duration in days
-  ///
-  /// Uses createdAt and expiresAt to determine the subscription period.
-  /// Falls back to 365 days if dates are unavailable.
-  int _calculateTotalSubscriptionDays(UserInfo userInfo) {
-    try {
-      final createdAt = userInfo.createdAt;
-      final expiresAt = userInfo.expiresAt;
-      if (createdAt != null &&
-          createdAt.isNotEmpty &&
-          expiresAt.isNotEmpty) {
-        final startDate = DateTime.parse(createdAt);
-        final endDate = DateTime.parse(expiresAt);
-        final totalDays = endDate.difference(startDate).inDays;
-        // Sanity check: should be between 1 and max subscription days
-        if (totalDays > 0 && totalDays <= _maxSubscriptionDays) {
-          return totalDays;
-        }
-      }
-    } catch (e) {
-      debugPrint('[SubscriptionScreen] Error calculating total days: $e');
-    }
-    // Default to 365 days (yearly subscription)
-    return _defaultSubscriptionDays;
   }
 
   @override
@@ -188,8 +84,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
     // Safe to access userInfo after null check
     final userInfo = authProvider.userInfo!;
     final daysRemaining = userInfo.daysUntilExpiry;
-    final totalDays = _calculateTotalSubscriptionDays(userInfo);
-    final progress = _calculateProgress(daysRemaining, totalDays);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -197,8 +91,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
       appBar: _buildAppBar(theme, isDark),
       body: Stack(
         children: [
-          // Background gradient decoration
-          _buildBackgroundDecoration(isDark),
           // Main content
           SafeArea(
             child: _buildContent(
@@ -206,7 +98,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
               isDark,
               authProvider,
               daysRemaining,
-              progress,
               userInfo,
             ),
           ),
@@ -283,49 +174,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
     );
   }
 
-  Widget _buildBackgroundDecoration(bool isDark) {
-    return Stack(
-      children: [
-        // Primary gradient orb (top-right)
-        Positioned(
-          top: -100,
-          right: -100,
-          child: Container(
-            width: 300,
-            height: 300,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  AppColors.primary.withValues(alpha: isDark ? 0.15 : 0.1),
-                  AppColors.primary.withValues(alpha: 0.0),
-                ],
-              ),
-            ),
-          ),
-        ),
-        // Secondary gradient orb (bottom-left)
-        Positioned(
-          bottom: -150,
-          left: -150,
-          child: Container(
-            width: 350,
-            height: 350,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  AppColors.accent.withValues(alpha: isDark ? 0.12 : 0.08),
-                  AppColors.accent.withValues(alpha: 0.0),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildErrorState(ThemeData theme, String errorMessage) {
     final isDark = theme.brightness == Brightness.dark;
     
@@ -393,7 +241,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
     bool isDark,
     AuthProvider authProvider,
     int daysRemaining,
-    double progress,
     UserInfo userInfo,
   ) {
     return SingleChildScrollView(
@@ -404,26 +251,22 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
         top: AppDimensions.spacing24,
         bottom: AppDimensions.paddingLarge,
       ),
-      child: FadeTransition(
-        opacity: _fadeAnimation,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Membership Status Card
-            _buildMembershipCard(
-              theme,
-              isDark,
-              authProvider,
-              daysRemaining,
-              progress,
-              userInfo,
-            ),
-            const SizedBox(height: AppDimensions.spacing24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Membership Status Card
+          _buildMembershipCard(
+            theme,
+            isDark,
+            authProvider,
+            daysRemaining,
+            userInfo,
+          ),
+          const SizedBox(height: AppDimensions.spacing24),
 
-            // Subscription Plans with error boundary
-            _buildSubscriptionPlansSection(),
-          ],
-        ),
+          // Subscription Plans with error boundary
+          _buildSubscriptionPlansSection(),
+        ],
       ),
     );
   }
@@ -433,21 +276,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
     bool isDark,
     AuthProvider authProvider,
     int daysRemaining,
-    double progress,
     UserInfo userInfo,
   ) {
     final expiresAt = userInfo.expiresAt;
     final isActive = daysRemaining > 0;
 
-    return SlideTransition(
-      position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-          .animate(
-            CurvedAnimation(
-              parent: _fadeController,
-              curve: AppAnimations.decelerate,
-            ),
-          ),
-      child: Container(
+    return Container(
+        width: double.infinity,
         decoration: ShapeDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -467,251 +302,81 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
               cornerRadius: AppDimensions.radiusXXLarge,
               cornerSmoothing: 1.0,
             ),
-            side: BorderSide(
-              color: isActive
-                  ? AppColors.primary.withValues(alpha: isDark ? 0.3 : 0.15)
-                  : AppColors.error.withValues(alpha: isDark ? 0.3 : 0.15),
-              width: 1.5,
-            ),
           ),
         ),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            // Subtle shine effect
-            Positioned(
-              top: -50,
-              right: -50,
-              child: Transform.rotate(
-                angle: math.pi / 4,
-                child: Container(
-                  width: 150,
-                  height: 150,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        Colors.white.withValues(alpha: isActive ? 0.1 : 0.05),
-                        Colors.white.withValues(alpha: 0),
-                      ],
+        child: Padding(
+          padding: const EdgeInsets.all(AppDimensions.paddingLarge),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Expiry date and remaining days
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    SettingsStrings.subscriptionEnds,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: isDark
+                          ? AppColors.textSecondaryDark
+                          : AppColors.textSecondaryLight,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
-                ),
-              ),
-            ),
-            // Content
-            Padding(
-              padding: const EdgeInsets.all(AppDimensions.paddingLarge),
-              child: Column(
-                children: [
-                  // Header with icon and status
-                  Row(
-                    children: [
-                      _buildStatusIcon(isActive, isDark),
-                      const SizedBox(width: AppDimensions.spacing12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Semantics(
-                              label: isActive
-                                  ? SettingsStrings.activeSubscriptionSemantics
-                                  : SettingsStrings.expiredSubscriptionSemantics,
-                              child: Text(
-                                isActive
-                                    ? SettingsStrings.activeSubscription
-                                    : SettingsStrings.expiredSubscription,
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 16,
-                                  color: isActive
-                                      ? (isDark
-                                          ? AppColors.textPrimaryDark
-                                          : AppColors.textPrimaryLight)
-                                      : AppColors.error,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              SettingsStrings.subscriptionEnds,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: isDark
-                                    ? AppColors.textSecondaryDark
-                                    : AppColors.textSecondaryLight,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
+                  const SizedBox(height: 4),
+                  Semantics(
+                    label: '${SettingsStrings.expiresOn} ${_formatDate(expiresAt)}',
+                    child: Text(
+                      _formatDate(expiresAt),
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 20,
+                        color: isDark
+                            ? AppColors.textPrimaryDark
+                            : AppColors.textPrimaryLight,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Semantics(
+                    label: SettingsStrings.daysRemainingSemantics
+                        .replaceAll('@days', daysRemaining.toString()),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: ShapeDecoration(
+                        color: (isActive
+                                ? AppColors.success
+                                : AppColors.error)
+                            .withValues(alpha: isDark ? 0.2 : 0.1),
+                        shape: SmoothRectangleBorder(
+                          borderRadius: SmoothBorderRadius(
+                            cornerRadius: AppDimensions.radiusFull,
+                            cornerSmoothing: 1.0,
+                          ),
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: AppDimensions.spacing20),
-
-                  // Progress section
-                  Row(
-                    children: [
-                      // Circular progress indicator
-                      _buildCircularProgress(progress, isActive, isDark),
-                      const SizedBox(width: AppDimensions.spacing16),
-                      // Text info
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Semantics(
-                              label: '${SettingsStrings.expiresOn} ${_formatDate(expiresAt)}',
-                              child: Text(
-                                _formatDate(expiresAt),
-                                style: theme.textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 20,
-                                  color: isDark
-                                      ? AppColors.textPrimaryDark
-                                      : AppColors.textPrimaryLight,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Semantics(
-                              label: SettingsStrings.daysRemainingSemantics
-                                  .replaceAll('@days', daysRemaining.toString()),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                decoration: ShapeDecoration(
-                                  color: (isActive
-                                          ? AppColors.success
-                                          : AppColors.error)
-                                      .withValues(alpha: isDark ? 0.2 : 0.1),
-                                  shape: SmoothRectangleBorder(
-                                    borderRadius: SmoothBorderRadius(
-                                      cornerRadius: AppDimensions.radiusFull,
-                                      cornerSmoothing: 1.0,
-                                    ),
-                                  ),
-                                ),
-                                child: Text(
-                                  SettingsStrings.daysRemainingLabel
-                                      .replaceAll('@days', daysRemaining.toString()),
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: isActive
-                                        ? AppColors.success
-                                        : AppColors.error,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
+                      child: Text(
+                        SettingsStrings.daysRemainingLabel
+                            .replaceAll('@days', daysRemaining.toString()),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isActive
+                              ? AppColors.success
+                              : AppColors.error,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusIcon(bool isActive, bool isDark) {
-    return AnimatedContainer(
-      duration: AppAnimations.normal,
-      width: AppDimensions.statusIconSize,
-      height: AppDimensions.statusIconSize,
-      decoration: ShapeDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: isActive
-              ? [
-                  AppColors.primary.withValues(alpha: 0.2),
-                  AppColors.accent.withValues(alpha: 0.15),
-                ]
-              : [
-                  AppColors.error.withValues(alpha: 0.2),
-                  AppColors.warning.withValues(alpha: 0.15),
-                ],
-        ),
-        shape: SmoothRectangleBorder(
-          borderRadius: SmoothBorderRadius(
-            cornerRadius: 14,
-            cornerSmoothing: 1.0,
-          ),
-        ),
-      ),
-      child: Icon(
-        isActive
-            ? SolarLinearIcons.calendarMark
-            : SolarLinearIcons.closeCircle,
-        size: 26,
-        color: isActive ? AppColors.primary : AppColors.error,
-      ),
-    );
-  }
-
-  Widget _buildCircularProgress(double progress, bool isActive, bool isDark) {
-    final progressPercent = (progress * 100).toInt();
-    return AnimatedBuilder(
-      animation: _progressAnimation,
-      builder: (context, child) {
-        return SizedBox(
-          width: AppDimensions.circularProgressSize,
-          height: AppDimensions.circularProgressSize,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              // Background circle
-              CustomPaint(
-                size: const Size.square(AppDimensions.circularProgressSize),
-                painter: _CircularProgressPainter(
-                  progress: 0,
-                  strokeWidth: AppDimensions.progressStrokeWidth,
-                  color: isDark
-                      ? AppColors.surfaceDark
-                      : AppColors.surfaceLight,
-                ),
-              ),
-              // Progress arc
-              CustomPaint(
-                size: const Size.square(AppDimensions.circularProgressSize),
-                painter: _CircularProgressPainter(
-                  progress: progress * _progressAnimation.value,
-                  strokeWidth: AppDimensions.progressStrokeWidth,
-                  color: isActive ? AppColors.primary : AppColors.error,
-                  hasGradient: true,
-                  isDark: isDark,
-                ),
-              ),
-              // Center percentage text
-              Text(
-                '$progressPercent%',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                  color: isActive ? AppColors.primary : AppColors.error,
-                ),
-              ),
-              // Semantics wrapper for accessibility
-              Positioned.fill(
-                child: Semantics(
-                  label: SettingsStrings.subscriptionProgressSemantics
-                      .replaceAll('@percent', progressPercent.toString()),
-                  excludeSemantics: true,
-                  child: const SizedBox.shrink(),
-                ),
               ),
             ],
           ),
-        );
-      },
-    );
+        ),
+      );
   }
 
   Widget _buildSubscriptionPlansSection() {
@@ -817,84 +482,4 @@ class _ErrorBoundaryScope extends InheritedWidget {
   @override
   bool updateShouldNotify(covariant _ErrorBoundaryScope oldWidget) =>
       onError != oldWidget.onError;
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Custom Painter for Circular Progress
-// ─────────────────────────────────────────────────────────────────
-class _CircularProgressPainter extends CustomPainter {
-  final double progress;
-  final double strokeWidth;
-  final Color color;
-  final bool hasGradient;
-  final bool isDark;
-
-  _CircularProgressPainter({
-    required this.progress,
-    required this.strokeWidth,
-    required this.color,
-    this.hasGradient = false,
-    this.isDark = false,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = (size.width - strokeWidth) / 2;
-
-    // Background paint
-    final bgPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round;
-
-    // Progress paint
-    final progressPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round;
-
-    if (hasGradient) {
-      progressPaint.shader = SweepGradient(
-        startAngle: -math.pi / 2,
-        endAngle: math.pi * 2,
-        colors: [
-          AppColors.primary,
-          AppColors.accent,
-        ].map((c) => isDark ? c.withValues(alpha: 0.9) : c).toList(),
-        stops: const [0.0, 1.0],
-      ).createShader(Rect.fromCircle(center: center, radius: radius));
-    }
-
-    // Draw background circle
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      -math.pi / 2,
-      math.pi * 2,
-      false,
-      bgPaint,
-    );
-
-    // Draw progress arc
-    if (progress > 0) {
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        -math.pi / 2,
-        math.pi * 2 * progress,
-        false,
-        progressPaint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _CircularProgressPainter oldDelegate) {
-    // Only repaint when progress or color changes
-    // isDark and hasGradient rarely change, so we exclude them
-    return oldDelegate.progress != progress ||
-        oldDelegate.color != color ||
-        oldDelegate.strokeWidth != strokeWidth;
-  }
 }

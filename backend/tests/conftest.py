@@ -1,6 +1,6 @@
 """
 Al-Mudeer Test Fixtures
-Shared pytest fixtures for backend testing
+Shared fixtures for backend testing
 """
 
 import os
@@ -19,7 +19,7 @@ def pytest_configure(config):
 # Set test environment
 os.environ["TESTING"] = "1"
 os.environ["DB_TYPE"] = "sqlite"
-os.environ["DATABASE_PATH"] = "test_almudeer.db"
+os.environ["DATABASE_PATH"] = ":memory:"
 os.environ["ADMIN_KEY"] = "test-admin-key"
 os.environ["ENCRYPTION_KEY"] = "test-encryption-key-for-tests"
 os.environ["JWT_SECRET_KEY"] = "test-jwt-secret-key-at-least-thirty-two-chars-long"
@@ -47,236 +47,121 @@ async def test_app():
 async def test_client(test_app):
     """Create async test client"""
     from httpx import AsyncClient, ASGITransport
-    
+
     transport = ASGITransport(app=test_app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
 
 
 @pytest.fixture
-def sample_license_key() -> str:
-    """Return a sample license key for testing"""
-    return "MUDEER-TEST-1234-5678"
+def sample_license_key():
+    """Sample license key for tests"""
+    return "test-license-key-12345"
 
 
 @pytest.fixture
-def sample_message() -> dict:
-    """Return a sample message for testing"""
-    return {
-        "body": "مرحباً، أريد الاستفسار عن الأسعار",
-        "sender_name": "أحمد محمد",
-        "sender_contact": "+963912345678",
-        "channel": "telegram",
-    }
-
-
-@pytest.fixture
-def auth_headers(sample_license_key) -> dict:
-    """Return authentication headers"""
+def sample_license_headers(sample_license_key):
+    """Sample headers with license key"""
     return {"X-License-Key": sample_license_key}
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=False)
 async def db_session():
-    """Create a test database session with schema initialized"""
-    from db_helper import get_db
-    from models.base import init_enhanced_tables, init_customers_and_analytics
-
-    # 1. Initialize Base Tables (License Keys, Legacy)
-    async with get_db() as db:
-        # Initialize License Keys (Fundamental)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS license_keys (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key_hash TEXT UNIQUE NOT NULL,
-                license_key TEXT,  -- For backward compatibility with some tests
-                license_key_encrypted TEXT,
-                full_name TEXT NOT NULL,
-                profile_image_url TEXT,
-                username TEXT UNIQUE,
-                is_active BOOLEAN DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                expires_at TIMESTAMP,
-                last_seen_at TIMESTAMP,
-                referral_code TEXT UNIQUE,
-                referred_by_id INTEGER,
-                is_trial BOOLEAN DEFAULT 0,
-                referral_count INTEGER DEFAULT 0,
-                phone TEXT,
-                token_version INTEGER DEFAULT 1
-            )
-        """)
-        # Initialize Legacy Tables
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS usage_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                license_key_id INTEGER REFERENCES license_keys(id),
-                action_type TEXT NOT NULL,
-                input_preview TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS crm_entries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                license_key_id INTEGER REFERENCES license_keys(id),
-                sender_name TEXT,
-                sender_contact TEXT,
-                message_type TEXT,
-                intent TEXT,
-                extracted_data TEXT,
-                original_message TEXT,
-                draft_response TEXT,
-                status TEXT DEFAULT 'جديد',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP
-            )
-        """)
-
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS knowledge_documents (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                license_key_id INTEGER NOT NULL REFERENCES license_keys(id),
-                user_id TEXT,
-                source TEXT DEFAULT 'manual',
-                text TEXT,
-                file_path TEXT,
-                file_size INTEGER,
-                mime_type TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP,
-                deleted_at TIMESTAMP
-            )
-        """)
-        
-        # Users table for JWT authentication
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT,
-                password_hash TEXT NOT NULL,
-                license_key_id INTEGER,
-                role TEXT DEFAULT 'user',
-                is_active BOOLEAN DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_login TIMESTAMP,
-                FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
-            )
-        """)
-        
-        # Customers table
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS customers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                license_key_id INTEGER NOT NULL,
-                name TEXT,
-                contact TEXT UNIQUE NOT NULL,
-                phone TEXT,
-                company TEXT,
-                notes TEXT,
-                tags TEXT,
-                last_contact_at TIMESTAMP,
-                is_vip BOOLEAN DEFAULT FALSE,
-                has_whatsapp BOOLEAN DEFAULT FALSE,
-                has_telegram BOOLEAN DEFAULT FALSE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
-            )
-        """)
-        
-        # Initialize tasks table (needed for task sharing tests)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                license_key_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                description TEXT,
-                status TEXT DEFAULT 'pending',
-                priority TEXT DEFAULT 'medium',
-                due_date TIMESTAMP,
-                completed_at TIMESTAMP,
-                is_completed BOOLEAN DEFAULT 0,
-                created_by TEXT,
-                assigned_to TEXT,
-                visibility TEXT DEFAULT 'private',
-                is_deleted BOOLEAN DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
-            )
-        """)
-        
-        # Initialize task_shares table
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS task_shares (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id INTEGER NOT NULL,
-                license_key_id INTEGER NOT NULL,
-                shared_with_user_id TEXT NOT NULL,
-                permission TEXT NOT NULL DEFAULT 'read',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                created_by TEXT,
-                expires_at TIMESTAMP,
-                deleted_at TIMESTAMP,
-                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-                FOREIGN KEY (license_key_id) REFERENCES license_keys(id) ON DELETE CASCADE,
-                UNIQUE(task_id, shared_with_user_id)
-            )
-        """)
-        
-        await db.commit()
-
-    # 2. Initialize customers and analytics tables FIRST (needed for foreign keys)
-    await init_customers_and_analytics()
+    """Create a test database session with schema initialized.
     
-    # 3. Initialize Enhanced Tables (using model functions)
-    # These functions manage their own DB connections/transactions
-    await init_enhanced_tables()
+    Note: This fixture is NOT autouse. Tests that need database
+    should explicitly request it. Tests using mocks should not.
+    """
+    from db_helper import get_db
+    import aiosqlite
+    import tempfile
 
-    # 4. Ensure library_items has created_by column (migration for tests)
-    async with get_db() as db:
-        try:
-            await db.execute("ALTER TABLE library_items ADD COLUMN created_by TEXT")
-            await db.commit()
-        except:
-            pass  # Column already exists
-
-    # 4. Seed Data and Yield Session
-    async with get_db() as db:
-        # Seed test license key
-        import hashlib
-        test_key = "MUDEER-TEST-1234-5678"
-        key_hash = hashlib.sha256(test_key.encode()).hexdigest()
-
-        await db.execute("""
-            INSERT OR IGNORE INTO license_keys (key_hash, full_name, is_active)
-            VALUES (?, ?, ?)
-        """, (key_hash, "Test Company", 1))
-
-        # Seed test users for sharing tests
-        test_users = [
-            ('user1', 'User One'),
-            ('user2', 'User Two'),
-            ('owner', 'Owner User'),
-            ('reader', 'Reader User'),
-            ('editor', 'Editor User'),
-            ('admin', 'Admin User'),
-            ('shared', 'Shared User'),
-            ('recipient', 'Recipient Test'),
-            ('owner_test', 'Owner Test'),
-        ]
-        for username, name in test_users:
+    # Use a unique test database file per test to avoid locking
+    temp_db = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
+    temp_db_path = temp_db.name
+    temp_db.close()
+    
+    try:
+        async with aiosqlite.connect(temp_db_path) as db:
+            # Initialize License Keys
             await db.execute("""
-                INSERT OR IGNORE INTO users (name, license_key_id, is_active, role, password_hash)
-                VALUES (?, 1, 1, 'user', 'hashed_pw')
-            """, (name,))
+                CREATE TABLE IF NOT EXISTS license_keys (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key_hash TEXT UNIQUE NOT NULL,
+                    license_key TEXT,
+                    license_key_encrypted TEXT,
+                    full_name TEXT NOT NULL,
+                    profile_image_url TEXT,
+                    username TEXT UNIQUE,
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP,
+                    last_seen_at TIMESTAMP,
+                    referral_code TEXT UNIQUE,
+                    referred_by_id INTEGER,
+                    is_trial BOOLEAN DEFAULT 0,
+                    referral_count INTEGER DEFAULT 0,
+                    phone TEXT,
+                    token_version INTEGER DEFAULT 1
+                )
+            """)
+            
+            # Initialize outbox_messages
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS outbox_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    license_key_id INTEGER NOT NULL,
+                    channel TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    edited_at TIMESTAMP,
+                    edit_count INTEGER DEFAULT 0,
+                    edited_by TEXT,
+                    original_body TEXT,
+                    deleted_at TIMESTAMP,
+                    recipient_contact TEXT,
+                    recipient_id INTEGER,
+                    FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
+                )
+            """)
+            
+            # Initialize inbox_messages
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS inbox_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    license_key_id INTEGER NOT NULL,
+                    channel TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    status TEXT DEFAULT 'new',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    edited_at TIMESTAMP,
+                    platform_message_id TEXT,
+                    sender_contact TEXT,
+                    FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
+                )
+            """)
+            
+            await db.commit()
+        
+        yield temp_db_path
+    finally:
+        try:
+            os.unlink(temp_db_path)
+        except:
+            pass
 
-        await db.commit()
-        yield db
 
 @pytest.fixture
 async def seeded_license(db_session):
-    """Ensure database has a test license key"""
-    return "MUDEER-TEST-1234-5678"
+    """Create a seeded license key for testing"""
+    import aiosqlite
+    
+    async with aiosqlite.connect(db_session) as db:
+        await db.execute("""
+            INSERT INTO license_keys (key_hash, license_key, full_name, username, is_active)
+            VALUES (?, ?, ?, ?, ?)
+        """, ("test-hash", "test-key", "Test User", "testuser", 1))
+        await db.commit()
+    
+    yield db_session

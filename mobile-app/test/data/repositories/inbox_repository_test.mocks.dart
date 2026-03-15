@@ -972,6 +972,18 @@ class MockPersistentCacheService extends _i1.Mock
           as _i5.Future<void>);
 
   @override
+  _i5.Future<_i10.CacheEntry<T>?> getWithMeta<T>(
+    String? boxName,
+    String? key, {
+    Duration? expiry,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(#getWithMeta, [boxName, key], {#expiry: expiry}),
+            returnValue: _i5.Future<_i10.CacheEntry<T>?>.value(),
+          )
+          as _i5.Future<_i10.CacheEntry<T>?>);
+
+  @override
   _i5.Future<T?> get<T>(String? boxName, String? key, {Duration? expiry}) =>
       (super.noSuchMethod(
             Invocation.method(#get, [boxName, key], {#expiry: expiry}),

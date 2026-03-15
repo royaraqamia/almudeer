@@ -157,11 +157,13 @@ class MockCustomersProvider extends _i1.Mock implements _i2.CustomersProvider {
   _i5.Future<void> loadCustomers({
     bool? refresh = false,
     bool? triggerSync = true,
+    bool? skipAutoRefresh = false,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#loadCustomers, [], {
               #refresh: refresh,
               #triggerSync: triggerSync,
+              #skipAutoRefresh: skipAutoRefresh,
             }),
             returnValue: _i5.Future<void>.value(),
             returnValueForMissingStub: _i5.Future<void>.value(),
@@ -622,6 +624,7 @@ class MockConversationDetailProvider extends _i1.Mock
     String? lastSeenAt,
     bool? isOnline = false,
     bool? fresh = true,
+    bool? skipAutoRefresh = false,
   }) =>
       (super.noSuchMethod(
             Invocation.method(
@@ -633,6 +636,7 @@ class MockConversationDetailProvider extends _i1.Mock
                 #lastSeenAt: lastSeenAt,
                 #isOnline: isOnline,
                 #fresh: fresh,
+                #skipAutoRefresh: skipAutoRefresh,
               },
             ),
             returnValue: _i5.Future<void>.value(),

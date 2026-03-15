@@ -36,8 +36,9 @@ class _ChatSelectionScreenState extends State<ChatSelectionScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<InboxProvider>().loadConversations();
-      context.read<CustomersProvider>().loadCustomers();
+      // Load from cache only - no API calls for offline-first experience
+      context.read<InboxProvider>().loadConversations(skipAutoRefresh: true);
+      context.read<CustomersProvider>().loadCustomers(skipAutoRefresh: true);
     });
   }
 

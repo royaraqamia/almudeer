@@ -281,6 +281,20 @@ class CalculatorProvider extends ChangeNotifier {
     return balance == 0;
   }
 
+  /// Transforms log(x) to ln(x)/ln(10) for base 10 logarithm
+  /// math_expressions library uses ln() for natural logarithm, not log()
+  String _transformLogToLog10(String expr) {
+    // Simple approach: replace log(...) with ln(...)/ln(10)
+    // Use regex to find log(...) patterns and transform them
+    return expr.replaceAllMapped(
+      RegExp(r'log\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)'),
+      (match) {
+        final content = match.group(1);
+        return 'ln($content)/ln(10)';
+      },
+    );
+  }
+
   /// Validates domain constraints for scientific functions
   /// Returns error message if invalid, null if valid
   String? _validateScientificFunctions(String expr) {
@@ -365,8 +379,10 @@ class CalculatorProvider extends ChangeNotifier {
       finalExpression = finalExpression.replaceAll('÷', '/');
 
       // Scientific functions mapping for math_expressions library
-      // The library uses: sin, cos, tan, log (base 10), ln (natural log), sqrt
-      // No transformation needed for these functions
+      // The library uses: sin, cos, tan, log (natural log), ln (natural log), sqrt
+      // Transform log(x) to log(x)/log(10) for base 10 logarithm (user expectation)
+      // Use a pattern that matches log(...) where ... is any content up to matching )
+      finalExpression = _transformLogToLog10(finalExpression);
 
       // Enhanced Percentage Logic:
       // Case 1: num + val% => num + (num * val/100)
@@ -474,7 +490,9 @@ class CalculatorProvider extends ChangeNotifier {
       finalExpression = finalExpression.replaceAll('÷', '/');
 
       // Scientific functions are supported by math_expressions library:
-      // sin, cos, tan, log (base 10), ln (natural log), sqrt
+      // sin, cos, tan, log (natural log), ln (natural log), sqrt
+      // Transform log(x) to log(x)/log(10) for base 10 logarithm (user expectation)
+      finalExpression = _transformLogToLog10(finalExpression);
 
       // Handle percentage with any operator (+, -, *, /, ×, ÷)
       finalExpression = finalExpression.replaceAllMapped(
@@ -549,12 +567,12 @@ class CalculatorProvider extends ChangeNotifier {
           } else {
             entryStr = '';
           }
+          // Clean timestamps from entries for display purposes only
+          // Don't re-save here to avoid unnecessary writes and potential data loss
           entryStr = _cleanTimestampFromEntry(entryStr);
           return entryStr;
         }).where((e) => e.isNotEmpty).toList();
-        
-        await prefs.setString(key, jsonEncode(_history));
-        
+
         debugPrint(
           'Calculator: Loaded ${_history.length} history entries from local storage',
         );
@@ -604,11 +622,13 @@ class CalculatorProvider extends ChangeNotifier {
       );
 
       // Sync to backend with debouncing
-      if (_userId == null || _userId!.isEmpty) {
+      // Capture userId at call time to prevent race conditions
+      final syncUserId = _userId;
+      if (syncUserId == null || syncUserId.isEmpty) {
         debugPrint('Calculator: Skipping backend sync - no userId');
       } else {
-        debugPrint('Calculator: Scheduling backend sync with userId: $_userId');
-        _scheduleSyncToBackend();
+        debugPrint('Calculator: Scheduling backend sync with userId: $syncUserId');
+        _scheduleSyncToBackend(syncUserId);
       }
 
       notifyListeners();
@@ -618,7 +638,9 @@ class CalculatorProvider extends ChangeNotifier {
   }
 
   /// Schedule sync with debouncing to prevent rapid API calls
-  void _scheduleSyncToBackend() {
+  /// 
+  /// [capturedUserId] The user ID to sync for (captured at call time to prevent race conditions)
+  void _scheduleSyncToBackend(String capturedUserId) {
     final now = DateTime.now();
     final timeSinceLastSync = _lastSyncTime != null
         ? now.difference(_lastSyncTime!)
@@ -628,21 +650,30 @@ class CalculatorProvider extends ChangeNotifier {
     if (timeSinceLastSync < _syncDebounceDelay) {
       final remainingDelay = _syncDebounceDelay - timeSinceLastSync;
       debugPrint(
-        'Calculator: Debouncing sync, waiting ${remainingDelay.inMilliseconds}ms',
+        'Calculator: Debouncing sync, waiting ${remainingDelay.inMilliseconds}ms for user: $capturedUserId',
       );
       Future.delayed(remainingDelay, () {
-        if (_userId != null && _userId!.isNotEmpty) {
-          _syncToBackend();
+        // Only sync if userId hasn't changed since scheduling
+        if (_userId == capturedUserId && capturedUserId.isNotEmpty) {
+          _syncToBackend(capturedUserId);
+        } else {
+          debugPrint(
+            'Calculator: Cancelled scheduled sync - userId changed from $capturedUserId to $_userId',
+          );
         }
       });
     } else {
       // Sync immediately
-      _syncToBackend();
+      _syncToBackend(capturedUserId);
     }
   }
 
-  Future<void> _syncToBackend({int retryCount = 0}) async {
-    if (_userId == null || _userId!.isEmpty) return;
+  Future<void> _syncToBackend(String syncUserId, {int retryCount = 0}) async {
+    // Validate userId - prevent sync if user changed or is null
+    if (syncUserId.isEmpty || _userId == null || _userId!.isEmpty) {
+      debugPrint('Calculator: Sync cancelled - invalid userId (sync: $syncUserId, current: $_userId)');
+      return;
+    }
 
     // Prevent concurrent syncs
     if (_isSyncing) {
@@ -650,8 +681,14 @@ class CalculatorProvider extends ChangeNotifier {
       return;
     }
 
-    // Capture userId for race condition prevention
-    final syncUserId = _userId;
+    // Double-check userId before starting sync
+    if (_userId != syncUserId) {
+      debugPrint(
+        'Calculator: Sync cancelled - userId changed from $syncUserId to $_userId',
+      );
+      return;
+    }
+
     _syncingUserId = syncUserId;
     _isSyncing = true;
     _syncStatus = SyncStatus.syncing;
@@ -681,13 +718,13 @@ class CalculatorProvider extends ChangeNotifier {
       // Retry with exponential backoff
       if (retryCount < _maxSyncRetries) {
         debugPrint(
-          'Calculator: Retrying sync in ${_syncRetryDelay.inSeconds}s (attempt ${retryCount + 1}/$_maxSyncRetries)',
+          'Calculator: Retrying sync in ${_syncRetryDelay.inSeconds}s (attempt ${retryCount + 1}/$_maxSyncRetries) for user: $syncUserId',
         );
         await Future.delayed(_syncRetryDelay);
-        await _syncToBackend(retryCount: retryCount + 1);
+        await _syncToBackend(syncUserId, retryCount: retryCount + 1);
       } else {
         debugPrint(
-          'Calculator: Max retries reached. History saved locally but not synced to backend.',
+          'Calculator: Max retries reached. History saved locally but not synced to backend for user: $syncUserId',
         );
         _syncStatus = SyncStatus.failed;
       }
@@ -731,7 +768,7 @@ class CalculatorProvider extends ChangeNotifier {
       // Only merge if backend has history
       // If backend is empty, keep local history (it might be new unsynced data)
       if (backendHistory.isNotEmpty) {
-        // Merge: prefer backend as source of truth, but add any local-only entries
+        // Merge: backend is source of truth, but preserve local-only entries
         final combined = <String>[];
         final seenEntries = <String>{};
 
@@ -745,9 +782,11 @@ class CalculatorProvider extends ChangeNotifier {
         }
 
         // Add local-only entries (not already in backend)
+        // Clean timestamps from local entries for consistent comparison
         for (final entry in _history) {
-          if (seenEntries.add(entry)) {
-            combined.add(entry);
+          final cleanEntry = _cleanTimestampFromEntry(entry);
+          if (cleanEntry.isNotEmpty && seenEntries.add(cleanEntry)) {
+            combined.add(cleanEntry);
           }
         }
 
@@ -783,11 +822,25 @@ class CalculatorProvider extends ChangeNotifier {
   }
 
   /// Clear history from backend (used on logout)
-  Future<void> _clearBackendHistory() async {
-    if (_userId == null || _userId!.isEmpty) return;
+  /// 
+  /// [capturedUserId] The user ID captured at call time to prevent race conditions
+  Future<void> _clearBackendHistory(String capturedUserId) async {
+    // Validate userId - prevent clear if user changed
+    if (capturedUserId.isEmpty || _userId == null || _userId!.isEmpty) {
+      debugPrint('Calculator: Clear cancelled - invalid userId (captured: $capturedUserId, current: $_userId)');
+      return;
+    }
+
+    // Double-check userId before clearing
+    if (_userId != capturedUserId) {
+      debugPrint(
+        'Calculator: Clear cancelled - userId changed from $capturedUserId to $_userId',
+      );
+      return;
+    }
 
     try {
-      debugPrint('Calculator: Clearing backend history for userId: $_userId');
+      debugPrint('Calculator: Clearing backend history for userId: $capturedUserId');
 
       // Use dedicated calculator history endpoint
       await _settingsRepository.clearCalculatorHistory();
@@ -796,22 +849,28 @@ class CalculatorProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('Calculator: Failed to clear backend history: $e');
       logger.error('Calculator: Failed to clear backend history', error: e);
+      rethrow;
     }
   }
 
-  void clearHistory() async {
+  Future<void> clearHistory() async {
     try {
+      // Capture userId to prevent race conditions
+      final clearUserId = _userId;
+
       _history.clear();
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_getHistoryKey());
       notifyListeners();
 
-      // Also clear from backend
-      if (_userId != null && _userId!.isNotEmpty) {
-        await _clearBackendHistory();
+      // Also clear from backend with race condition check
+      if (clearUserId != null && clearUserId.isNotEmpty) {
+        await _clearBackendHistory(clearUserId);
       }
     } catch (e) {
       debugPrint('Calculator: Failed to clear history: $e');
+      logger.error('Calculator: Failed to clear history', error: e);
+      rethrow;
     }
   }
 

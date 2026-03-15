@@ -344,6 +344,8 @@ class ConversationDetailProvider extends ChangeNotifier {
   /// Load conversation detail
   /// Now includes LRU memory management to prevent unbounded growth
   /// P1-7 FIX: Added access order tracking for proper LRU eviction
+  /// 
+  /// [skipAutoRefresh] - if true, only load from cache and skip API call (for instant offline-first experience)
   Future<void> loadConversation(
     String senderContact, {
     String? senderName,
@@ -351,6 +353,7 @@ class ConversationDetailProvider extends ChangeNotifier {
     String? lastSeenAt,
     bool isOnline = false,
     bool fresh = true,
+    bool skipAutoRefresh = false,
   }) async {
     // FIX: Clean up timers for previous contact before switching
     final previousContact = _activeContact;
@@ -424,6 +427,16 @@ class ConversationDetailProvider extends ChangeNotifier {
         }
       } catch (e) {
         debugPrint('Cache read error for $senderContact: $e');
+      }
+
+      // 3. Skip API call if skipAutoRefresh is true (offline-first experience)
+      if (skipAutoRefresh) {
+        // Ensure state is loaded after cache load
+        _memoryStates[senderContact] = ConversationState.loaded;
+        if (_activeContact == senderContact) {
+          notifyListeners();
+        }
+        return;
       }
 
       try {
@@ -1683,6 +1696,19 @@ class ConversationDetailProvider extends ChangeNotifier {
           '[ConversationDetailProvider] Using targetContact=$targetContact for message update (activeContact=$_activeContact)',
         );
 
+        // If force_refresh is true, always reload the conversation to ensure consistency
+        // This is used when peer edits messages and we need to update our cache
+        if (forceRefresh) {
+          debugPrint(
+            '[ConversationDetailProvider] force_refresh=true, reloading conversation for contact=$targetContact',
+          );
+          // Clear cached messages for this contact to force fresh fetch
+          _memoryMessages.remove(targetContact);
+          // Reload from server with fresh data
+          loadConversation(targetContact, fresh: true);
+          return;
+        }
+
         if (_memoryMessages.containsKey(targetContact)) {
           final current = _memoryMessages[targetContact] ?? [];
           // Peer-to-peer sync: Recipients use 'alm_{outboxId}' as platformMessageId
@@ -1723,16 +1749,12 @@ class ConversationDetailProvider extends ChangeNotifier {
             debugPrint(
               '[ConversationDetailProvider] Message not found in local cache. Available message IDs: ${current.map((m) => '${m.id}(platform:${m.platformMessageId})').join(', ')}',
             );
-            // If message not found and force_refresh is true, reload the conversation
-            if (forceRefresh) {
-              debugPrint(
-                '[ConversationDetailProvider] force_refresh=true, reloading conversation for contact=$targetContact',
-              );
-              // Clear cached messages for this contact to force fresh fetch
-              _memoryMessages.remove(targetContact);
-              // Reload from server
-              loadConversation(targetContact, fresh: true);
-            }
+            // Message not found in cache - reload conversation
+            debugPrint(
+              '[ConversationDetailProvider] Reloading conversation for contact=$targetContact (message not in cache)',
+            );
+            _memoryMessages.remove(targetContact);
+            loadConversation(targetContact, fresh: true);
           }
         } else {
           debugPrint(

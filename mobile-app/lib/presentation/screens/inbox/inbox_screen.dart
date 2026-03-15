@@ -43,9 +43,10 @@ class _InboxScreenState extends State<InboxScreen>
       vsync: this,
     );
 
-    // Load initial data
+    // Load cached data ONLY - no auto-fetch for instant offline-first experience
+    // Fresh data will be fetched only when user pulls to refresh or cache expires
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<InboxProvider>().loadConversations();
+      context.read<InboxProvider>().loadConversations(skipAutoRefresh: true);
       _staggerController.forward();
     });
   }
@@ -99,6 +100,11 @@ class _InboxScreenState extends State<InboxScreen>
     widget.onNavigateToCustomers?.call();
   }
 
+  /// Handle pull-to-refresh
+  Future<void> _handleRefresh() async {
+    await context.read<InboxProvider>().loadConversations(forceRefresh: true);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -137,71 +143,75 @@ class _InboxScreenState extends State<InboxScreen>
             ),
             // Content with pull-to-refresh
             Expanded(
-              child: Consumer<InboxProvider>(
-                builder: (context, inbox, _) {
-                  // Show cached data immediately - no skeleton loader
-                  // Only show empty state if no conversations
-                  if (inbox.conversations.isEmpty) {
-                    return const SizedBox.shrink();
-                  }
+              child: RefreshIndicator(
+                onRefresh: _handleRefresh,
+                color: AppColors.primary,
+                child: Consumer<InboxProvider>(
+                  builder: (context, inbox, _) {
+                    // Show cached data immediately - no skeleton loader
+                    // Only show empty state if no conversations
+                    if (inbox.conversations.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
 
-                  return ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.only(
-                      bottom: AppDimensions.listBottomPadding,
-                    ),
-                    itemCount:
-                        inbox.filteredConversations.length +
-                        (inbox.hasMore && inbox.searchQuery.isEmpty ? 1 : 0),
-                    itemBuilder: (context, index) {
-                      if (index >= inbox.filteredConversations.length) {
-                        // Load more indicator
-                        return const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(
-                              AppDimensions.paddingMedium,
-                            ),
-                            child: SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  AppColors.primary,
+                    return ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.only(
+                        bottom: AppDimensions.listBottomPadding,
+                      ),
+                      itemCount:
+                          inbox.filteredConversations.length +
+                          (inbox.hasMore && inbox.searchQuery.isEmpty ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (index >= inbox.filteredConversations.length) {
+                          // Load more indicator
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(
+                                AppDimensions.paddingMedium,
+                              ),
+                              child: SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    AppColors.primary,
+                                  ),
                                 ),
                               ),
                             ),
+                          );
+                        }
+
+                        final conversation = inbox.filteredConversations[index];
+                        final isLast =
+                            index == inbox.filteredConversations.length - 1 &&
+                            !inbox.hasMore;
+                        return _buildAnimatedTile(
+                          index: index,
+                          child: InboxConversationTile(
+                            conversation: conversation,
+                            isSelectionMode: inbox.isSelectionMode,
+                            isSelected: inbox.isSelected(conversation.id),
+                            onSelectionChanged: (selected) {
+                              inbox.toggleSelection(conversation.id);
+                            },
+                            onTap: () {
+                              if (inbox.isSelectionMode) {
+                                inbox.toggleSelection(conversation.id);
+                              } else {
+                                _openConversation(conversation);
+                              }
+                            },
+                            onApprove: () => _navigateToAction(conversation),
+                            isLast: isLast,
                           ),
                         );
-                      }
-
-                      final conversation = inbox.filteredConversations[index];
-                      final isLast =
-                          index == inbox.filteredConversations.length - 1 &&
-                          !inbox.hasMore;
-                      return _buildAnimatedTile(
-                        index: index,
-                        child: InboxConversationTile(
-                          conversation: conversation,
-                          isSelectionMode: inbox.isSelectionMode,
-                          isSelected: inbox.isSelected(conversation.id),
-                          onSelectionChanged: (selected) {
-                            inbox.toggleSelection(conversation.id);
-                          },
-                          onTap: () {
-                            if (inbox.isSelectionMode) {
-                              inbox.toggleSelection(conversation.id);
-                            } else {
-                              _openConversation(conversation);
-                            }
-                          },
-                          onApprove: () => _navigateToAction(conversation),
-                          isLast: isLast,
-                        ),
-                      );
-                    },
-                  );
-                },
+                      },
+                    );
+                  },
+                ),
               ),
             ),
           ],

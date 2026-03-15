@@ -41,8 +41,9 @@ class BrowserTab {
   /// Dispose resources to prevent memory leaks
   void dispose() {
     snapshot = null; // Clear image data
-    // Note: WebViewController doesn't have a dispose method in webview_flutter
-    // but clearing references helps GC
+    
+    // Clear WebView resources to reduce memory pressure
+    controller.clearCache();
   }
 }
 
@@ -98,12 +99,13 @@ class _BrowserScreenState extends State<BrowserScreen> {
     }
     _tabs.clear();
 
-    // Clear reader controller JavaScript channels
+    // Clear reader controller resources
     try {
       _readerController.removeJavaScriptChannel('ImageLongPressChannel');
     } catch (_) {
       // Channel may not exist, ignore
     }
+    _readerController.clearCache();
 
     _urlController.dispose();
     _searchTextController.dispose();

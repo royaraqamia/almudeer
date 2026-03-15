@@ -6,6 +6,7 @@ import '../../../core/api/api_client.dart';
 import '../../../core/api/endpoints.dart';
 import '../../../core/services/persistent_cache_service.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/pending_operations_service.dart';
 import '../models/conversation.dart';
 import '../models/inbox_message.dart';
 import '../datasources/local/inbox_local_datasource.dart';
@@ -47,16 +48,19 @@ class InboxRepository {
   final PersistentCacheService _cache;
   final ConnectivityService _connectivityService;
   final InboxLocalDataSource _localDataSource;
+  final PendingOperationsService _pendingOps;
 
   InboxRepository({
     ApiClient? apiClient,
     PersistentCacheService? cache,
     ConnectivityService? connectivityService,
     InboxLocalDataSource? localDataSource,
+    PendingOperationsService? pendingOperationsService,
   }) : _apiClient = apiClient ?? ApiClient(),
        _cache = cache ?? PersistentCacheService(),
        _connectivityService = connectivityService ?? ConnectivityService(),
-       _localDataSource = localDataSource ?? InboxLocalDataSource();
+       _localDataSource = localDataSource ?? InboxLocalDataSource(),
+       _pendingOps = pendingOperationsService ?? PendingOperationsService();
 
   ApiClient get apiClient => _apiClient;
 
@@ -531,6 +535,9 @@ class InboxRepository {
   }
 
   /// Edit an outbox message
+  /// 
+  /// Performs optimistic update locally, then syncs to server when online.
+  /// If offline, queues the edit for later synchronization.
   Future<Map<String, dynamic>> editMessage(
     int messageId,
     String newBody,
@@ -540,7 +547,7 @@ class InboxRepository {
       throw ArgumentError('Cannot edit unsynced message (id: $messageId)');
     }
 
-    // Local Update
+    // Local Update (optimistic)
     await _localDataSource.updateMessageStatus(
       messageId,
       'replied',
@@ -548,22 +555,50 @@ class InboxRepository {
     );
 
     if (_connectivityService.isOnline) {
-      final result = await _apiClient.patch(
-        '/api/integrations/messages/$messageId/edit',
-        body: {'body': newBody},
-      );
-
-      // On success, update local DB with server-confirmed 'edited_at'
-      if (result['success'] == true) {
-        await applyRemoteMessageEdit(
-          messageId,
-          newBody,
-          result['edited_at'] as String?,
+      try {
+        final result = await _apiClient.patch(
+          '/api/integrations/messages/$messageId/edit',
+          body: {'body': newBody},
         );
+
+        // On success, update local DB with server-confirmed 'edited_at'
+        if (result['success'] == true) {
+          await applyRemoteMessageEdit(
+            messageId,
+            newBody,
+            result['edited_at'] as String?,
+          );
+          // Remove from pending operations if it was queued
+          await _pendingOps.completeOperation('edit_$messageId');
+        }
+        return result;
+      } on MessageSendException catch (e) {
+        // If network error, queue for retry
+        if (e.errorType == MessageSendErrorType.network) {
+          debugPrint('[InboxRepository] Edit failed (network), queuing for retry');
+          await _queueEditOperation(messageId, newBody);
+          return {'success': true, 'pending': true};
+        }
+        rethrow;
       }
-      return result;
+    } else {
+      // Offline - queue the edit for later sync
+      debugPrint('[InboxRepository] Offline, queueing edit for message $messageId');
+      await _queueEditOperation(messageId, newBody);
+      return {'success': true, 'pending': true};
     }
-    return {'success': true, 'pending': true};
+  }
+
+  /// Queue an edit operation for later synchronization
+  Future<void> _queueEditOperation(int messageId, String newBody) async {
+    await _pendingOps.addOperation(
+      type: 'edit',
+      payload: {
+        'message_id': messageId,
+        'new_body': newBody,
+      },
+      priority: OperationPriority.medium,
+    );
   }
 
   /// Apply a remote edit to the local database (called when WebSocket event is received)

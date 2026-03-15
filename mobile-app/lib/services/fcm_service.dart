@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -65,11 +66,20 @@ class FcmService {
   String? _fcmToken;
   bool _isInitialized = false;
 
+  /// Track if background handler has been registered to prevent duplicate registration
+  static bool _backgroundHandlerRegistered = false;
+
   /// Atomic counter for notification IDs to avoid collisions
   int _notificationIdCounter = 0;
 
   /// Android notification group key for message grouping
   static const String _groupKey = 'com.almudeer.messages';
+
+  /// Debounce timer for token registration to prevent duplicate calls
+  Timer? _tokenRegistrationDebounce;
+
+  /// Debounce duration for token registration
+  static const Duration _tokenRegistrationDebounceDuration = Duration(seconds: 2);
 
   /// Get the current FCM token
   String? get fcmToken => _fcmToken;
@@ -87,10 +97,16 @@ class FcmService {
     if (_isInitialized) return;
 
     try {
-      // Set up background handler
-      FirebaseMessaging.onBackgroundMessage(
-        _firebaseMessagingBackgroundHandler,
-      );
+      // Set up background handler only once
+      if (!_backgroundHandlerRegistered) {
+        FirebaseMessaging.onBackgroundMessage(
+          _firebaseMessagingBackgroundHandler,
+        );
+        _backgroundHandlerRegistered = true;
+        debugPrint('FCM: Background handler registered');
+      } else {
+        debugPrint('FCM: Background handler already registered, skipping');
+      }
 
       // Request notification permission (Android 13+)
       final settings = await _messaging.requestPermission(
@@ -495,12 +511,21 @@ class FcmService {
   ///
   /// Retries up to [maxRetries] times with exponential backoff.
   /// Safe to call before authentication - will skip if not authenticated.
+  /// Uses debouncing to prevent duplicate registration calls.
   Future<void> registerTokenWithBackend({int maxRetries = 3}) async {
     if (_fcmToken == null) {
       debugPrint('FCM: No token to register');
       return;
     }
-    await _registerTokenWithRetry(_fcmToken!, maxRetries);
+
+    // Cancel any pending registration to avoid duplicates
+    _tokenRegistrationDebounce?.cancel();
+
+    // Debounce token registration to prevent duplicate calls
+    _tokenRegistrationDebounce = Timer(
+      _tokenRegistrationDebounceDuration,
+      () => _registerTokenWithRetry(_fcmToken!, maxRetries),
+    );
   }
 
   /// Internal method to register token with retry logic
@@ -773,4 +798,9 @@ class FcmService {
     }
   }
 
+  /// Dispose resources to prevent memory leaks
+  void dispose() {
+    _tokenRegistrationDebounce?.cancel();
+    _tokenRegistrationDebounce = null;
+  }
 }

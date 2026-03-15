@@ -300,6 +300,7 @@ class LibraryProvider extends ChangeNotifier {
     int? customerId,
     bool refresh = false,
     bool loadMore = false,
+    bool skipAutoRefresh = false,
   }) async {
     // FIX P2-3: Cleanup stale progress entries periodically
     _cleanupStaleProgressEntries();
@@ -346,6 +347,15 @@ class LibraryProvider extends ChangeNotifier {
       if (!_hasMore || _isFetchingMore || _isLoading) return;
       _currentPage++;
       _isFetchingMore = true;
+    }
+
+    // Skip remote fetch if skipAutoRefresh is true (offline-first experience)
+    if (skipAutoRefresh) {
+      // Just load from cache and return
+      _loadCachedItemsForCurrentCategory();
+      _isLoading = false;
+      notifyListeners();
+      return;
     }
 
     // FIX: Debounce rapid category/query changes to prevent excessive API calls

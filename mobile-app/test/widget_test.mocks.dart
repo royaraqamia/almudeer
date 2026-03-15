@@ -197,7 +197,8 @@ class MockPendingOperationsService extends _i1.Mock
     required String? type,
     required Map<String, dynamic>? payload,
     String? customId,
-    required String? accountHash,
+    String? accountHash,
+    _i5.OperationPriority? priority,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#addOperation, [], {
@@ -205,6 +206,7 @@ class MockPendingOperationsService extends _i1.Mock
               #payload: payload,
               #customId: customId,
               #accountHash: accountHash,
+              #priority: priority,
             }),
             returnValue: _i3.Future<void>.value(),
             returnValueForMissingStub: _i3.Future<void>.value(),
@@ -215,6 +217,15 @@ class MockPendingOperationsService extends _i1.Mock
   _i3.Future<void> removeOperation(String? id) =>
       (super.noSuchMethod(
             Invocation.method(#removeOperation, [id]),
+            returnValue: _i3.Future<void>.value(),
+            returnValueForMissingStub: _i3.Future<void>.value(),
+          )
+          as _i3.Future<void>);
+
+  @override
+  _i3.Future<void> completeOperation(String? id) =>
+      (super.noSuchMethod(
+            Invocation.method(#completeOperation, [id]),
             returnValue: _i3.Future<void>.value(),
             returnValueForMissingStub: _i3.Future<void>.value(),
           )

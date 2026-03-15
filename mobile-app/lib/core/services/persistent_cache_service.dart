@@ -2,6 +2,19 @@ import 'dart:convert';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter/foundation.dart';
 
+/// Cache entry with metadata for tracking cache age and expiry
+class CacheEntry<T> {
+  final T data;
+  final DateTime cachedAt;
+  final bool isExpired;
+
+  CacheEntry({
+    required this.data,
+    required this.cachedAt,
+    required this.isExpired,
+  });
+}
+
 /// A generic persistent cache service using Hive.
 ///
 /// Features:
@@ -92,9 +105,10 @@ class PersistentCacheService {
     }
   }
 
-  /// Get data from cache
+  /// Get data from cache with metadata
   /// P0-3 FIX: Added box-specific TTL defaults
-  Future<T?> get<T>(String boxName, String key, {Duration? expiry}) async {
+  /// Returns CacheEntry with data, timestamp, and expiry status
+  Future<CacheEntry<T>?> getWithMeta<T>(String boxName, String key, {Duration? expiry}) async {
     try {
       final box = await _getBox(boxName);
       final rawData = box.get(key);
@@ -102,7 +116,7 @@ class PersistentCacheService {
 
       final entry = jsonDecode(rawData) as Map<String, dynamic>;
       final cachedAt = DateTime.parse(entry['cached_at'] as String);
-      
+
       // P2-8 FIX: Use provided expiry, or entry-specific expiry, or box-specific default
       Duration effectiveExpiry;
       if (expiry != null) {
@@ -129,18 +143,31 @@ class PersistentCacheService {
         }
       }
 
-      if (DateTime.now().difference(cachedAt) > effectiveExpiry) {
-        await box.delete(key);
-        return null;
-      }
-
-      return entry['data'] as T;
+      final isExpired = DateTime.now().difference(cachedAt) > effectiveExpiry;
+      
+      // Don't delete expired data - let caller decide
+      return CacheEntry<T>(
+        data: entry['data'] as T,
+        cachedAt: cachedAt,
+        isExpired: isExpired,
+      );
     } catch (e) {
       debugPrint(
         '[PersistentCacheService] Error getting data from $boxName/$key: $e',
       );
       return null;
     }
+  }
+
+  /// Get data from cache (legacy method for backward compatibility)
+  Future<T?> get<T>(String boxName, String key, {Duration? expiry}) async {
+    final entry = await getWithMeta<T>(boxName, key, expiry: expiry);
+    if (entry?.isExpired == true) {
+      // Delete expired entry
+      await delete(boxName, key);
+      return null;
+    }
+    return entry?.data;
   }
 
   /// Delete a specific key

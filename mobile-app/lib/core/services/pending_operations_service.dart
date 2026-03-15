@@ -300,17 +300,21 @@ class PendingOperationsService extends ChangeNotifier {
     required String type,
     required Map<String, dynamic> payload,
     String? customId,
-    required String
-    accountHash, // P0-2 FIX: Required for multi-account isolation
+    String? accountHash, // Made optional - will use current account if not provided
+    OperationPriority? priority,
   }) async {
     await _ensureInitialized();
+
+    // Use provided accountHash or get current account hash
+    final actualAccountHash = accountHash ?? await _getAccountHash();
 
     final operation = PendingOperation(
       id: customId ?? '${type}_${DateTime.now().millisecondsSinceEpoch}',
       type: type,
-      accountHash: accountHash,
+      accountHash: actualAccountHash,
       payload: payload,
       createdAt: DateTime.now(),
+      priority: priority,
     );
 
     _operations.add(operation);
@@ -318,8 +322,22 @@ class PendingOperationsService extends ChangeNotifier {
     notifyListeners();
 
     debugPrint(
-      '[PendingOperationsService] Added operation: ${operation.id} for account: $accountHash',
+      '[PendingOperationsService] Added operation: ${operation.id} for account: $actualAccountHash',
     );
+  }
+
+  /// Get current account hash for operations
+  Future<String> _getAccountHash() async {
+    // Try to get from secure storage or use a default
+    // This is a simplified version - in production, use proper account management
+    const key = 'current_account_hash';
+    String? hash = await _secureStorage.read(key: key);
+    if (hash == null) {
+      // Generate a default hash (this should be replaced with actual account logic)
+      hash = 'default_${DateTime.now().millisecondsSinceEpoch}';
+      await _secureStorage.write(key: key, value: hash);
+    }
+    return hash;
   }
 
   /// Remove an operation after successful sync
@@ -331,6 +349,11 @@ class PendingOperationsService extends ChangeNotifier {
     notifyListeners();
 
     debugPrint('[PendingOperationsService] Removed operation: $id');
+  }
+
+  /// Mark an operation as complete (alias for removeOperation)
+  Future<void> completeOperation(String id) async {
+    await removeOperation(id);
   }
 
   /// Get operations ready for retry (respecting backoff)

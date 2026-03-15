@@ -166,40 +166,69 @@ class AdBlockerService {
   }
 
   Future<void> _fetchHostsFile() async {
-    try {
-      debugPrint('[AdBlocker] Fetching hosts file...');
-      final client = http.Client();
-      final response = await client
-          .get(Uri.parse(_hostsUrl))
-          .timeout(const Duration(seconds: 30));
+    final maxRetries = 3;
+    int attempt = 0;
 
-      if (response.statusCode == 200) {
-        final lines = response.body.split('\n');
-        final newHosts = <String>[];
+    while (attempt < maxRetries) {
+      try {
+        debugPrint('[AdBlocker] Fetching hosts file... (attempt ${attempt + 1}/$maxRetries)');
+        final client = http.Client();
+        // Shorter timeout with retry: 10 seconds per attempt = max 30 seconds total
+        final response = await client
+            .get(Uri.parse(_hostsUrl))
+            .timeout(const Duration(seconds: 10));
 
-        for (final line in lines) {
-          final trimmed = line.trim();
-          if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
+        if (response.statusCode == 200) {
+          final lines = response.body.split('\n');
+          final newHosts = <String>[];
 
-          final parts = trimmed.split(RegExp(r'\s+'));
-          if (parts.length >= 2) {
-            final host = parts[1].toLowerCase();
-            if (host != 'localhost' && !host.startsWith('127.0.0.1')) {
-              newHosts.add(host);
-              _blockedHosts.add(host);
+          for (final line in lines) {
+            final trimmed = line.trim();
+            if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
+
+            final parts = trimmed.split(RegExp(r'\s+'));
+            if (parts.length >= 2) {
+              final host = parts[1].toLowerCase();
+              if (host != 'localhost' && !host.startsWith('127.0.0.1')) {
+                newHosts.add(host);
+                _blockedHosts.add(host);
+              }
             }
           }
+
+          final box = await Hive.openBox('adblock_cache');
+          await box.put(_cacheKey, jsonEncode(newHosts));
+          await box.put(_timestampKey, DateTime.now().millisecondsSinceEpoch);
+
+          debugPrint('[AdBlocker] Fetched and cached ${newHosts.length} hosts');
+          client.close();
+          return; // Success
         }
-
-        final box = await Hive.openBox('adblock_cache');
-        await box.put(_cacheKey, jsonEncode(newHosts));
-        await box.put(_timestampKey, DateTime.now().millisecondsSinceEpoch);
-
-        debugPrint('[AdBlocker] Fetched and cached ${newHosts.length} hosts');
+        client.close();
+        
+        // Non-200 response - retry
+        attempt++;
+        if (attempt < maxRetries) {
+          await Future.delayed(Duration(milliseconds: 500 * attempt));
+        }
+      } on TimeoutException catch (e) {
+        attempt++;
+        debugPrint('[AdBlocker] Timeout on attempt $attempt: $e');
+        if (attempt < maxRetries) {
+          // Exponential backoff: 500ms, 1000ms, 2000ms
+          await Future.delayed(Duration(milliseconds: 500 * attempt));
+        } else {
+          debugPrint('[AdBlocker] Failed to fetch hosts after $maxRetries attempts: $e');
+        }
+      } catch (e) {
+        attempt++;
+        debugPrint('[AdBlocker] Error on attempt $attempt: $e');
+        if (attempt < maxRetries) {
+          await Future.delayed(Duration(milliseconds: 500 * attempt));
+        } else {
+          debugPrint('[AdBlocker] Failed to fetch hosts after $maxRetries attempts: $e');
+        }
       }
-      client.close();
-    } catch (e) {
-      debugPrint('[AdBlocker] Failed to fetch hosts: $e');
     }
   }
 

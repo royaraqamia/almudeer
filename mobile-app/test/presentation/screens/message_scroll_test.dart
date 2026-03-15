@@ -67,6 +67,7 @@ class MockProvider extends ChangeNotifier
     String? lastSeenAt,
     bool isOnline = false,
     bool fresh = true,
+    bool skipAutoRefresh = false,
   }) async {}
   @override
   void setReplyMessage(InboxMessage? message) {}

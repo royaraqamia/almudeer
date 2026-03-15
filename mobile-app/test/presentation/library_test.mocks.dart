@@ -3,18 +3,19 @@
 // Do not manually edit this file.
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'dart:async' as _i6;
+import 'dart:async' as _i7;
 
 import 'package:almudeer_mobile_app/core/api/api_client.dart' as _i2;
 import 'package:almudeer_mobile_app/core/services/persistent_cache_service.dart'
-    as _i9;
-import 'package:almudeer_mobile_app/data/models/library_item.dart' as _i3;
+    as _i10;
+import 'package:almudeer_mobile_app/data/local/library_database.dart' as _i3;
+import 'package:almudeer_mobile_app/data/models/library_item.dart' as _i4;
 import 'package:almudeer_mobile_app/data/repositories/library_repository.dart'
-    as _i5;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart' as _i7;
-import 'package:http/http.dart' as _i4;
+    as _i6;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart' as _i8;
+import 'package:http/http.dart' as _i5;
 import 'package:mockito/mockito.dart' as _i1;
-import 'package:mockito/src/dummies.dart' as _i8;
+import 'package:mockito/src/dummies.dart' as _i9;
 
 // ignore_for_file: type=lint
 // ignore_for_file: avoid_redundant_argument_values
@@ -36,20 +37,26 @@ class _FakeApiClient_0 extends _i1.SmartFake implements _i2.ApiClient {
     : super(parent, parentInvocation);
 }
 
-class _FakeLibraryItem_1 extends _i1.SmartFake implements _i3.LibraryItem {
-  _FakeLibraryItem_1(Object parent, Invocation parentInvocation)
+class _FakeLibraryDatabase_1 extends _i1.SmartFake
+    implements _i3.LibraryDatabase {
+  _FakeLibraryDatabase_1(Object parent, Invocation parentInvocation)
     : super(parent, parentInvocation);
 }
 
-class _FakeResponse_2 extends _i1.SmartFake implements _i4.Response {
-  _FakeResponse_2(Object parent, Invocation parentInvocation)
+class _FakeLibraryItem_2 extends _i1.SmartFake implements _i4.LibraryItem {
+  _FakeLibraryItem_2(Object parent, Invocation parentInvocation)
+    : super(parent, parentInvocation);
+}
+
+class _FakeResponse_3 extends _i1.SmartFake implements _i5.Response {
+  _FakeResponse_3(Object parent, Invocation parentInvocation)
     : super(parent, parentInvocation);
 }
 
 /// A class which mocks [LibraryRepository].
 ///
 /// See the documentation for Mockito's code generation for more information.
-class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
+class MockLibraryRepository extends _i1.Mock implements _i6.LibraryRepository {
   MockLibraryRepository() {
     _i1.throwOnMissingStub(this);
   }
@@ -63,12 +70,20 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
           as _i2.ApiClient);
 
   @override
-  _i6.Stream<void> get syncStream =>
+  _i7.Stream<void> get syncStream =>
       (super.noSuchMethod(
             Invocation.getter(#syncStream),
-            returnValue: _i6.Stream<void>.empty(),
+            returnValue: _i7.Stream<void>.empty(),
           )
-          as _i6.Stream<void>);
+          as _i7.Stream<void>);
+
+  @override
+  _i3.LibraryDatabase get db =>
+      (super.noSuchMethod(
+            Invocation.getter(#db),
+            returnValue: _FakeLibraryDatabase_1(this, Invocation.getter(#db)),
+          )
+          as _i3.LibraryDatabase);
 
   @override
   bool get isDisposed =>
@@ -76,7 +91,7 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
           as bool);
 
   @override
-  _i6.Stream<List<_i3.LibraryItem>> getItemsStream({
+  _i7.Stream<List<_i4.LibraryItem>> getItemsStream({
     int? customerId,
     String? category,
     String? searchQuery,
@@ -93,12 +108,12 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
               #pageSize: pageSize,
               #skipCacheEmission: skipCacheEmission,
             }),
-            returnValue: _i6.Stream<List<_i3.LibraryItem>>.empty(),
+            returnValue: _i7.Stream<List<_i4.LibraryItem>>.empty(),
           )
-          as _i6.Stream<List<_i3.LibraryItem>>);
+          as _i7.Stream<List<_i4.LibraryItem>>);
 
   @override
-  _i6.Future<int> createNote({
+  _i7.Future<int> createNote({
     required String? title,
     required String? content,
     int? customerId,
@@ -111,12 +126,12 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
               #customerId: customerId,
               #localId: localId,
             }),
-            returnValue: _i6.Future<int>.value(0),
+            returnValue: _i7.Future<int>.value(0),
           )
-          as _i6.Future<int>);
+          as _i7.Future<int>);
 
   @override
-  _i6.Future<_i3.LibraryItem> uploadFile({
+  _i7.Future<_i4.LibraryItem> uploadFile({
     required String? filePath,
     String? title,
     int? customerId,
@@ -131,8 +146,8 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
               #onProgress: onProgress,
               #tempId: tempId,
             }),
-            returnValue: _i6.Future<_i3.LibraryItem>.value(
-              _FakeLibraryItem_1(
+            returnValue: _i7.Future<_i4.LibraryItem>.value(
+              _FakeLibraryItem_2(
                 this,
                 Invocation.method(#uploadFile, [], {
                   #filePath: filePath,
@@ -144,10 +159,10 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
               ),
             ),
           )
-          as _i6.Future<_i3.LibraryItem>);
+          as _i7.Future<_i4.LibraryItem>);
 
   @override
-  _i6.Future<void> updateItem(
+  _i7.Future<void> updateItem(
     int? itemId, {
     String? title,
     String? content,
@@ -159,111 +174,111 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
               [itemId],
               {#title: title, #content: content, #customerId: customerId},
             ),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<void> deleteItem(int? itemId) =>
+  _i7.Future<void> deleteItem(int? itemId) =>
       (super.noSuchMethod(
             Invocation.method(#deleteItem, [itemId]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<void> bulkDelete(List<int>? itemIds) =>
+  _i7.Future<void> bulkDelete(List<int>? itemIds) =>
       (super.noSuchMethod(
             Invocation.method(#bulkDelete, [itemIds]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<void> restoreItem(int? itemId) =>
+  _i7.Future<void> restoreItem(int? itemId) =>
       (super.noSuchMethod(
             Invocation.method(#restoreItem, [itemId]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<void> syncPendingActions() =>
+  _i7.Future<void> syncPendingActions() =>
       (super.noSuchMethod(
             Invocation.method(#syncPendingActions, []),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<void> scheduleSync() =>
+  _i7.Future<void> scheduleSync() =>
       (super.noSuchMethod(
             Invocation.method(#scheduleSync, []),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<int> getStorageUsage() =>
+  _i7.Future<int> getStorageUsage() =>
       (super.noSuchMethod(
             Invocation.method(#getStorageUsage, []),
-            returnValue: _i6.Future<int>.value(0),
+            returnValue: _i7.Future<int>.value(0),
           )
-          as _i6.Future<int>);
+          as _i7.Future<int>);
 
   @override
-  _i6.Future<bool> hasEnoughStorage(int? fileSizeBytes) =>
+  _i7.Future<bool> hasEnoughStorage(int? fileSizeBytes) =>
       (super.noSuchMethod(
             Invocation.method(#hasEnoughStorage, [fileSizeBytes]),
-            returnValue: _i6.Future<bool>.value(false),
+            returnValue: _i7.Future<bool>.value(false),
           )
-          as _i6.Future<bool>);
+          as _i7.Future<bool>);
 
   @override
-  _i6.Future<Map<String, int>> getStorageDetails() =>
+  _i7.Future<Map<String, int>> getStorageDetails() =>
       (super.noSuchMethod(
             Invocation.method(#getStorageDetails, []),
-            returnValue: _i6.Future<Map<String, int>>.value(<String, int>{}),
+            returnValue: _i7.Future<Map<String, int>>.value(<String, int>{}),
           )
-          as _i6.Future<Map<String, int>>);
+          as _i7.Future<Map<String, int>>);
 
   @override
-  _i6.Future<Map<String, dynamic>> exportLibraryItems({String? category}) =>
+  _i7.Future<Map<String, dynamic>> exportLibraryItems({String? category}) =>
       (super.noSuchMethod(
             Invocation.method(#exportLibraryItems, [], {#category: category}),
-            returnValue: _i6.Future<Map<String, dynamic>>.value(
+            returnValue: _i7.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i6.Future<Map<String, dynamic>>);
+          as _i7.Future<Map<String, dynamic>>);
 
   @override
-  _i6.Future<int> importLibraryItems(Map<String, dynamic>? importData) =>
+  _i7.Future<int> importLibraryItems(Map<String, dynamic>? importData) =>
       (super.noSuchMethod(
             Invocation.method(#importLibraryItems, [importData]),
-            returnValue: _i6.Future<int>.value(0),
+            returnValue: _i7.Future<int>.value(0),
           )
-          as _i6.Future<int>);
+          as _i7.Future<int>);
 
   @override
-  _i6.Future<String?> saveExportToFile(
+  _i7.Future<String?> saveExportToFile(
     Map<String, dynamic>? exportData,
     String? filename,
   ) =>
       (super.noSuchMethod(
             Invocation.method(#saveExportToFile, [exportData, filename]),
-            returnValue: _i6.Future<String?>.value(),
+            returnValue: _i7.Future<String?>.value(),
           )
-          as _i6.Future<String?>);
+          as _i7.Future<String?>);
 
   @override
-  _i6.Future<Map<String, dynamic>> shareItem({
+  _i7.Future<Map<String, dynamic>> shareItem({
     required int? itemId,
     required String? sharedWithUserId,
     String? permission = 'read',
@@ -276,43 +291,43 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
               #permission: permission,
               #expiresInDays: expiresInDays,
             }),
-            returnValue: _i6.Future<Map<String, dynamic>>.value(
+            returnValue: _i7.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i6.Future<Map<String, dynamic>>);
+          as _i7.Future<Map<String, dynamic>>);
 
   @override
-  _i6.Future<List<_i3.LibraryItem>> getSharedWithMe({String? permission}) =>
+  _i7.Future<List<_i4.LibraryItem>> getSharedWithMe({String? permission}) =>
       (super.noSuchMethod(
             Invocation.method(#getSharedWithMe, [], {#permission: permission}),
-            returnValue: _i6.Future<List<_i3.LibraryItem>>.value(
-              <_i3.LibraryItem>[],
+            returnValue: _i7.Future<List<_i4.LibraryItem>>.value(
+              <_i4.LibraryItem>[],
             ),
           )
-          as _i6.Future<List<_i3.LibraryItem>>);
+          as _i7.Future<List<_i4.LibraryItem>>);
 
   @override
-  _i6.Future<List<Map<String, dynamic>>> listItemShares(int? itemId) =>
+  _i7.Future<List<Map<String, dynamic>>> listItemShares(int? itemId) =>
       (super.noSuchMethod(
             Invocation.method(#listItemShares, [itemId]),
-            returnValue: _i6.Future<List<Map<String, dynamic>>>.value(
+            returnValue: _i7.Future<List<Map<String, dynamic>>>.value(
               <Map<String, dynamic>>[],
             ),
           )
-          as _i6.Future<List<Map<String, dynamic>>>);
+          as _i7.Future<List<Map<String, dynamic>>>);
 
   @override
-  _i6.Future<void> removeShare(int? shareId) =>
+  _i7.Future<void> removeShare(int? shareId) =>
       (super.noSuchMethod(
             Invocation.method(#removeShare, [shareId]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<void> updateSharePermission({
+  _i7.Future<void> updateSharePermission({
     required int? shareId,
     required String? permission,
   }) =>
@@ -321,13 +336,13 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
               #shareId: shareId,
               #permission: permission,
             }),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<Map<String, dynamic>> pairDevice({
+  _i7.Future<Map<String, dynamic>> pairDevice({
     required String? deviceId,
     required String? deviceName,
     String? pairingCode,
@@ -338,39 +353,39 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
               #deviceName: deviceName,
               #pairingCode: pairingCode,
             }),
-            returnValue: _i6.Future<Map<String, dynamic>>.value(
+            returnValue: _i7.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i6.Future<Map<String, dynamic>>);
+          as _i7.Future<Map<String, dynamic>>);
 
   @override
-  _i6.Future<List<Map<String, dynamic>>> listPairedDevices() =>
+  _i7.Future<List<Map<String, dynamic>>> listPairedDevices() =>
       (super.noSuchMethod(
             Invocation.method(#listPairedDevices, []),
-            returnValue: _i6.Future<List<Map<String, dynamic>>>.value(
+            returnValue: _i7.Future<List<Map<String, dynamic>>>.value(
               <Map<String, dynamic>>[],
             ),
           )
-          as _i6.Future<List<Map<String, dynamic>>>);
+          as _i7.Future<List<Map<String, dynamic>>>);
 
   @override
-  _i6.Future<void> unpairDevice(int? pairingId) =>
+  _i7.Future<void> unpairDevice(int? pairingId) =>
       (super.noSuchMethod(
             Invocation.method(#unpairDevice, [pairingId]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<void> recordDeviceConnection(int? pairingId) =>
+  _i7.Future<void> recordDeviceConnection(int? pairingId) =>
       (super.noSuchMethod(
             Invocation.method(#recordDeviceConnection, [pairingId]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
   void dispose() => super.noSuchMethod(
@@ -379,60 +394,60 @@ class MockLibraryRepository extends _i1.Mock implements _i5.LibraryRepository {
   );
 
   @override
-  _i6.Future<List<_i3.LibraryItem>> getTrashItems() =>
+  _i7.Future<List<_i4.LibraryItem>> getTrashItems() =>
       (super.noSuchMethod(
             Invocation.method(#getTrashItems, []),
-            returnValue: _i6.Future<List<_i3.LibraryItem>>.value(
-              <_i3.LibraryItem>[],
+            returnValue: _i7.Future<List<_i4.LibraryItem>>.value(
+              <_i4.LibraryItem>[],
             ),
           )
-          as _i6.Future<List<_i3.LibraryItem>>);
+          as _i7.Future<List<_i4.LibraryItem>>);
 
   @override
-  _i6.Future<void> restoreFromTrash(int? itemId) =>
+  _i7.Future<void> restoreFromTrash(int? itemId) =>
       (super.noSuchMethod(
             Invocation.method(#restoreFromTrash, [itemId]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<void> deletePermanently(int? itemId) =>
+  _i7.Future<void> deletePermanently(int? itemId) =>
       (super.noSuchMethod(
             Invocation.method(#deletePermanently, [itemId]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<void> emptyTrash() =>
+  _i7.Future<void> emptyTrash() =>
       (super.noSuchMethod(
             Invocation.method(#emptyTrash, []),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<List<Map<String, dynamic>>> getItemVersions(int? itemId) =>
+  _i7.Future<List<Map<String, dynamic>>> getItemVersions(int? itemId) =>
       (super.noSuchMethod(
             Invocation.method(#getItemVersions, [itemId]),
-            returnValue: _i6.Future<List<Map<String, dynamic>>>.value(
+            returnValue: _i7.Future<List<Map<String, dynamic>>>.value(
               <Map<String, dynamic>>[],
             ),
           )
-          as _i6.Future<List<Map<String, dynamic>>>);
+          as _i7.Future<List<Map<String, dynamic>>>);
 
   @override
-  _i6.Future<void> restoreVersion(int? itemId, int? versionId) =>
+  _i7.Future<void> restoreVersion(int? itemId, int? versionId) =>
       (super.noSuchMethod(
             Invocation.method(#restoreVersion, [itemId, versionId]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 }
 
 /// A class which mocks [ApiClient].
@@ -444,7 +459,7 @@ class MockApiClient extends _i1.Mock implements _i2.ApiClient {
   }
 
   @override
-  set secureStorage(_i7.FlutterSecureStorage? storage) => super.noSuchMethod(
+  set secureStorage(_i8.FlutterSecureStorage? storage) => super.noSuchMethod(
     Invocation.setter(#secureStorage, storage),
     returnValueForMissingStub: null,
   );
@@ -456,23 +471,23 @@ class MockApiClient extends _i1.Mock implements _i2.ApiClient {
   );
 
   @override
-  _i6.Future<String?> getLicenseKey() =>
+  _i7.Future<String?> getLicenseKey() =>
       (super.noSuchMethod(
             Invocation.method(#getLicenseKey, []),
-            returnValue: _i6.Future<String?>.value(),
+            returnValue: _i7.Future<String?>.value(),
           )
-          as _i6.Future<String?>);
+          as _i7.Future<String?>);
 
   @override
-  _i6.Future<int?> getLicenseId([String? overrideKey]) =>
+  _i7.Future<int?> getLicenseId([String? overrideKey]) =>
       (super.noSuchMethod(
             Invocation.method(#getLicenseId, [overrideKey]),
-            returnValue: _i6.Future<int?>.value(),
+            returnValue: _i7.Future<int?>.value(),
           )
-          as _i6.Future<int?>);
+          as _i7.Future<int?>);
 
   @override
-  _i6.Future<void> setLicenseInfo({
+  _i7.Future<void> setLicenseInfo({
     required String? key,
     int? id,
     String? accessToken,
@@ -487,59 +502,59 @@ class MockApiClient extends _i1.Mock implements _i2.ApiClient {
               #refreshToken: refreshToken,
               #updateActivePointer: updateActivePointer,
             }),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<void> clearLicenseKey() =>
+  _i7.Future<void> clearLicenseKey() =>
       (super.noSuchMethod(
             Invocation.method(#clearLicenseKey, []),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<bool> isAuthenticated() =>
+  _i7.Future<bool> isAuthenticated() =>
       (super.noSuchMethod(
             Invocation.method(#isAuthenticated, []),
-            returnValue: _i6.Future<bool>.value(false),
+            returnValue: _i7.Future<bool>.value(false),
           )
-          as _i6.Future<bool>);
+          as _i7.Future<bool>);
 
   @override
-  _i6.Future<String> getAccountCacheHash() =>
+  _i7.Future<String> getAccountCacheHash() =>
       (super.noSuchMethod(
             Invocation.method(#getAccountCacheHash, []),
-            returnValue: _i6.Future<String>.value(
-              _i8.dummyValue<String>(
+            returnValue: _i7.Future<String>.value(
+              _i9.dummyValue<String>(
                 this,
                 Invocation.method(#getAccountCacheHash, []),
               ),
             ),
           )
-          as _i6.Future<String>);
+          as _i7.Future<String>);
 
   @override
-  _i6.Future<String?> getAccessToken([String? overrideKey]) =>
+  _i7.Future<String?> getAccessToken([String? overrideKey]) =>
       (super.noSuchMethod(
             Invocation.method(#getAccessToken, [overrideKey]),
-            returnValue: _i6.Future<String?>.value(),
+            returnValue: _i7.Future<String?>.value(),
           )
-          as _i6.Future<String?>);
+          as _i7.Future<String?>);
 
   @override
-  _i6.Future<String?> getRefreshToken([String? overrideKey]) =>
+  _i7.Future<String?> getRefreshToken([String? overrideKey]) =>
       (super.noSuchMethod(
             Invocation.method(#getRefreshToken, [overrideKey]),
-            returnValue: _i6.Future<String?>.value(),
+            returnValue: _i7.Future<String?>.value(),
           )
-          as _i6.Future<String?>);
+          as _i7.Future<String?>);
 
   @override
-  _i6.Future<Map<String, dynamic>> get(
+  _i7.Future<Map<String, dynamic>> get(
     String? endpoint, {
     Map<String, String>? queryParams,
     bool? requiresAuth = true,
@@ -555,14 +570,14 @@ class MockApiClient extends _i1.Mock implements _i2.ApiClient {
                 #overrideLicenseKey: overrideLicenseKey,
               },
             ),
-            returnValue: _i6.Future<Map<String, dynamic>>.value(
+            returnValue: _i7.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i6.Future<Map<String, dynamic>>);
+          as _i7.Future<Map<String, dynamic>>);
 
   @override
-  _i6.Future<Map<String, dynamic>> post(
+  _i7.Future<Map<String, dynamic>> post(
     String? endpoint, {
     Map<String, dynamic>? body,
     bool? requiresAuth = true,
@@ -578,14 +593,14 @@ class MockApiClient extends _i1.Mock implements _i2.ApiClient {
                 #overrideLicenseKey: overrideLicenseKey,
               },
             ),
-            returnValue: _i6.Future<Map<String, dynamic>>.value(
+            returnValue: _i7.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i6.Future<Map<String, dynamic>>);
+          as _i7.Future<Map<String, dynamic>>);
 
   @override
-  _i6.Future<Map<String, dynamic>> put(
+  _i7.Future<Map<String, dynamic>> put(
     String? endpoint, {
     Map<String, dynamic>? body,
     bool? requiresAuth = true,
@@ -601,14 +616,14 @@ class MockApiClient extends _i1.Mock implements _i2.ApiClient {
                 #overrideLicenseKey: overrideLicenseKey,
               },
             ),
-            returnValue: _i6.Future<Map<String, dynamic>>.value(
+            returnValue: _i7.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i6.Future<Map<String, dynamic>>);
+          as _i7.Future<Map<String, dynamic>>);
 
   @override
-  _i6.Future<Map<String, dynamic>> patch(
+  _i7.Future<Map<String, dynamic>> patch(
     String? endpoint, {
     Map<String, dynamic>? body,
     bool? requiresAuth = true,
@@ -624,14 +639,14 @@ class MockApiClient extends _i1.Mock implements _i2.ApiClient {
                 #overrideLicenseKey: overrideLicenseKey,
               },
             ),
-            returnValue: _i6.Future<Map<String, dynamic>>.value(
+            returnValue: _i7.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i6.Future<Map<String, dynamic>>);
+          as _i7.Future<Map<String, dynamic>>);
 
   @override
-  _i6.Future<Map<String, dynamic>> delete(
+  _i7.Future<Map<String, dynamic>> delete(
     String? endpoint, {
     Map<String, String>? queryParams,
     bool? requiresAuth = true,
@@ -647,14 +662,14 @@ class MockApiClient extends _i1.Mock implements _i2.ApiClient {
                 #overrideLicenseKey: overrideLicenseKey,
               },
             ),
-            returnValue: _i6.Future<Map<String, dynamic>>.value(
+            returnValue: _i7.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i6.Future<Map<String, dynamic>>);
+          as _i7.Future<Map<String, dynamic>>);
 
   @override
-  _i6.Future<_i4.Response> getRaw(
+  _i7.Future<_i5.Response> getRaw(
     String? url, {
     bool? requiresAuth = false,
     String? overrideLicenseKey,
@@ -668,8 +683,8 @@ class MockApiClient extends _i1.Mock implements _i2.ApiClient {
                 #overrideLicenseKey: overrideLicenseKey,
               },
             ),
-            returnValue: _i6.Future<_i4.Response>.value(
-              _FakeResponse_2(
+            returnValue: _i7.Future<_i5.Response>.value(
+              _FakeResponse_3(
                 this,
                 Invocation.method(
                   #getRaw,
@@ -682,10 +697,10 @@ class MockApiClient extends _i1.Mock implements _i2.ApiClient {
               ),
             ),
           )
-          as _i6.Future<_i4.Response>);
+          as _i7.Future<_i5.Response>);
 
   @override
-  _i6.Future<Map<String, dynamic>> uploadMultipleFiles(
+  _i7.Future<Map<String, dynamic>> uploadMultipleFiles(
     String? endpoint, {
     required List<MapEntry<String, String>>? files,
     Map<String, String>? fields,
@@ -709,14 +724,14 @@ class MockApiClient extends _i1.Mock implements _i2.ApiClient {
                 #retryCount: retryCount,
               },
             ),
-            returnValue: _i6.Future<Map<String, dynamic>>.value(
+            returnValue: _i7.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i6.Future<Map<String, dynamic>>);
+          as _i7.Future<Map<String, dynamic>>);
 
   @override
-  _i6.Future<Map<String, dynamic>> uploadFile(
+  _i7.Future<Map<String, dynamic>> uploadFile(
     String? endpoint, {
     required String? filePath,
     required String? fieldName,
@@ -738,11 +753,11 @@ class MockApiClient extends _i1.Mock implements _i2.ApiClient {
                 #onProgress: onProgress,
               },
             ),
-            returnValue: _i6.Future<Map<String, dynamic>>.value(
+            returnValue: _i7.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i6.Future<Map<String, dynamic>>);
+          as _i7.Future<Map<String, dynamic>>);
 
   @override
   void scheduleProactiveRefresh() => super.noSuchMethod(
@@ -761,22 +776,22 @@ class MockApiClient extends _i1.Mock implements _i2.ApiClient {
 ///
 /// See the documentation for Mockito's code generation for more information.
 class MockPersistentCacheService extends _i1.Mock
-    implements _i9.PersistentCacheService {
+    implements _i10.PersistentCacheService {
   MockPersistentCacheService() {
     _i1.throwOnMissingStub(this);
   }
 
   @override
-  _i6.Future<void> initialize() =>
+  _i7.Future<void> initialize() =>
       (super.noSuchMethod(
             Invocation.method(#initialize, []),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<void> put(
+  _i7.Future<void> put(
     String? boxName,
     String? key,
     dynamic data, {
@@ -784,52 +799,64 @@ class MockPersistentCacheService extends _i1.Mock
   }) =>
       (super.noSuchMethod(
             Invocation.method(#put, [boxName, key, data], {#expiry: expiry}),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<T?> get<T>(String? boxName, String? key, {Duration? expiry}) =>
+  _i7.Future<_i10.CacheEntry<T>?> getWithMeta<T>(
+    String? boxName,
+    String? key, {
+    Duration? expiry,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(#getWithMeta, [boxName, key], {#expiry: expiry}),
+            returnValue: _i7.Future<_i10.CacheEntry<T>?>.value(),
+          )
+          as _i7.Future<_i10.CacheEntry<T>?>);
+
+  @override
+  _i7.Future<T?> get<T>(String? boxName, String? key, {Duration? expiry}) =>
       (super.noSuchMethod(
             Invocation.method(#get, [boxName, key], {#expiry: expiry}),
-            returnValue: _i6.Future<T?>.value(),
+            returnValue: _i7.Future<T?>.value(),
           )
-          as _i6.Future<T?>);
+          as _i7.Future<T?>);
 
   @override
-  _i6.Future<void> delete(String? boxName, String? key) =>
+  _i7.Future<void> delete(String? boxName, String? key) =>
       (super.noSuchMethod(
             Invocation.method(#delete, [boxName, key]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<void> clearBox(String? boxName) =>
+  _i7.Future<void> clearBox(String? boxName) =>
       (super.noSuchMethod(
             Invocation.method(#clearBox, [boxName]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<void> deleteByPrefix(String? boxName, String? prefix) =>
+  _i7.Future<void> deleteByPrefix(String? boxName, String? prefix) =>
       (super.noSuchMethod(
             Invocation.method(#deleteByPrefix, [boxName, prefix]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 
   @override
-  _i6.Future<void> clearAll() =>
+  _i7.Future<void> clearAll() =>
       (super.noSuchMethod(
             Invocation.method(#clearAll, []),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i7.Future<void>);
 }

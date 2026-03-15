@@ -244,35 +244,47 @@ class InboxProvider extends ChangeNotifier {
 
   /// Load conversations with cache-first approach (WhatsApp/Telegram pattern)
   ///
-  /// Shows cached data instantly, then fetches fresh data in background.
+  /// Shows cached data instantly, then fetches fresh data in background ONLY if cache is old.
   /// No loading spinner if cache exists!
-  Future<void> loadConversations({bool refresh = false}) async {
+  /// 
+  /// [forceRefresh] - if true, always fetch fresh data (user pulled to refresh)
+  /// [skipAutoRefresh] - if true, only load cache and never auto-fetch (for app resume)
+  Future<void> loadConversations({
+    bool refresh = false,
+    bool forceRefresh = false,
+    bool skipAutoRefresh = false,
+  }) async {
     // If already loading, skip to avoid double fetch
-    if (_state == InboxState.loading && !refresh) {
+    if (_state == InboxState.loading && !refresh && !forceRefresh) {
       return;
     }
 
     _errorMessage = null;
 
     // 1. ALWAYS check persistent cache first for instant display
-    if (!refresh) {
+    bool hasValidCache = false;
+    bool cacheIsExpired = false;
+    
+    if (!refresh && !forceRefresh) {
       try {
         final apiClient = _inboxRepository.apiClient;
         final accountHash = await apiClient.getAccountCacheHash();
         final cache = PersistentCacheService();
-        final cachedData = await cache.get<Map<String, dynamic>>(
+        final cacheEntry = await cache.getWithMeta<Map<String, dynamic>>(
           PersistentCacheService.boxInbox,
           '${accountHash}_list_0',
         );
 
-        if (cachedData != null) {
-          final response = ConversationsResponse.fromJson(cachedData);
+        if (cacheEntry != null) {
+          final response = ConversationsResponse.fromJson(cacheEntry.data);
           _conversations = response.conversations;
           _statusCounts = response.statusCounts;
           _total = response.total;
           _hasMore = response.hasMore;
           _state = InboxState.loaded;
           _ensureSavedMessagesEntry();
+          hasValidCache = true;
+          cacheIsExpired = cacheEntry.isExpired;
           notifyListeners();
         } else if (_conversations.isEmpty) {
           _state = InboxState.loading;
@@ -286,54 +298,64 @@ class InboxProvider extends ChangeNotifier {
       }
     }
 
-    // 2. Fetch fresh data silently in background
-    try {
-      final responseModel = await _inboxRepository.getConversations(
-        limit: 25,
-        offset: 0,
-      );
-
-      _conversations = responseModel.conversations.map((c) {
-        // Apply local read state override
-        if (_locallyReadConversations.containsKey(c.id)) {
-          final readTime = _locallyReadConversations[c.id]!;
-          final msgTime = DateTime.tryParse(c.createdAt) ?? DateTime(0);
-
-          // If we read it locally AFTER the last message time, it should be read
-          if (readTime.isAfter(msgTime)) {
-            return c.copyWith(unreadCount: 0);
-          } else {
-            // New message arrived after our local read, so it's validly unread
-            // We can stop tracking this specific read event
-            // Note: We don't remove inside map to be safe during iteration,
-            // but here we are mapping. We'll clean up lazily or just keep it.
-            // Ideally we remove it if it's stale.
-          }
-        }
-        return c;
-      }).toList();
-
-      _total = responseModel.total;
-      _hasMore = responseModel.hasMore;
-      _statusCounts = responseModel.statusCounts;
-
-      _state = InboxState.loaded;
-      _ensureSavedMessagesEntry();
-
-      // Update persistent cache with the merged/corrected data
-      _updatePersistentCache();
-
-      // FIX: P2-4.3 - Prefetch messages for top conversations
-      _prefetchTopConversations();
-    } catch (e) {
-      // Don't show error state for offline - just keep showing cached data
-      // Only show error if we have no cached data at all
-      if (_conversations.isEmpty) {
-        _state = InboxState.loaded; // Show empty state instead of error
-      }
+    // 2. Skip auto-refresh if requested (e.g., app resume - rely on WebSocket for updates)
+    if (skipAutoRefresh) {
+      return;
     }
 
-    notifyListeners();
+    // 3. Fetch fresh data if:
+    //    - forceRefresh is true (user pulled to refresh), OR
+    //    - cache is expired, OR
+    //    - no valid cache exists
+    if (forceRefresh || cacheIsExpired || !hasValidCache) {
+      try {
+        final responseModel = await _inboxRepository.getConversations(
+          limit: 25,
+          offset: 0,
+        );
+
+        _conversations = responseModel.conversations.map((c) {
+          // Apply local read state override
+          if (_locallyReadConversations.containsKey(c.id)) {
+            final readTime = _locallyReadConversations[c.id]!;
+            final msgTime = DateTime.tryParse(c.createdAt) ?? DateTime(0);
+
+            // If we read it locally AFTER the last message time, it should be read
+            if (readTime.isAfter(msgTime)) {
+              return c.copyWith(unreadCount: 0);
+            } else {
+              // New message arrived after our local read, so it's validly unread
+              // We can stop tracking this specific read event
+              // Note: We don't remove inside map to be safe during iteration,
+              // but here we are mapping. We'll clean up lazily or just keep it.
+              // Ideally we remove it if it's stale.
+            }
+          }
+          return c;
+        }).toList();
+
+        _total = responseModel.total;
+        _hasMore = responseModel.hasMore;
+        _statusCounts = responseModel.statusCounts;
+
+        _state = InboxState.loaded;
+        _ensureSavedMessagesEntry();
+
+        // Update persistent cache with the merged/corrected data
+        _updatePersistentCache();
+
+        // FIX: P2-4.3 - Prefetch messages for top conversations
+        _prefetchTopConversations();
+      } catch (e) {
+        // Don't show error state for offline - just keep showing cached data
+        // Only show error if we have no cached data at all
+        if (_conversations.isEmpty) {
+          _state = InboxState.loaded; // Show empty state instead of error
+        }
+      }
+
+      notifyListeners();
+    }
   }
 
   /// Load more conversations (pagination)
@@ -408,8 +430,9 @@ class InboxProvider extends ChangeNotifier {
 
   /// Called when app resumes from background
   void onAppResume() {
-    // Sync unread status to ensure badges are correct
-    refresh();
+    // Load cached data only - no API call
+    // WebSocket handles real-time updates, user can pull-to-refresh if needed
+    loadConversations(skipAutoRefresh: true);
   }
 
   // ============ WebSocket Integration ============

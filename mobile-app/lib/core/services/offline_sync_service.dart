@@ -266,6 +266,12 @@ class OfflineSyncService extends ChangeNotifier {
           replyToBodyPreview: operation.payload['replyToBodyPreview'],
         );
         break;
+      case 'edit':
+        await _inboxRepository.editMessage(
+          operation.payload['message_id'],
+          operation.payload['new_body'],
+        );
+        break;
       case 'delete':
         await _inboxRepository.deleteMessage(operation.payload['messageId']);
         break;

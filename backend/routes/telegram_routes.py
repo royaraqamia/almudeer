@@ -120,69 +120,189 @@ async def telegram_webhook(
     request: Request,
     background_tasks: BackgroundTasks
 ):
-    """Receive Telegram webhook updates"""
+    """Receive Telegram webhook updates with robust attachment handling"""
+    import httpx
+    from services.file_storage_service import get_file_storage
+    
     update = await request.json()
     parsed = TelegramService.parse_update(update)
-    if not parsed or parsed["is_bot"]: return {"ok": True}
-    if parsed["chat_type"] != "private": return {"ok": True}
-    
+    if not parsed or parsed["is_bot"]: 
+        return {"ok": True}
+    if parsed["chat_type"] != "private": 
+        return {"ok": True}
+
     config = await get_telegram_config(license_id)
-    if not config or not config.get("is_active"): return {"ok": True}
-    
+    if not config or not config.get("is_active"): 
+        return {"ok": True}
+
     # Avoid loop
-    if config.get("bot_username") == parsed.get("username"): return {"ok": True}
-    
+    if config.get("bot_username") == parsed.get("username"): 
+        return {"ok": True}
+
     sender_contact = parsed["username"] if parsed["username"] else f"tg:{parsed['user_id']}"
     sender_name = f"{parsed.get('first_name', '')} {parsed.get('last_name', '')}".strip() or "Telegram User"
-    
+
+    # Parse attachments from the update
     attachments = parsed.get("attachments", [])
+    body_text = parsed.get("text", "")
+    
+    # Download and process attachments if present
     if attachments:
         try:
             bot = TelegramBotManager.get_bot(license_id, config["bot_token"])
-            from services.file_storage_service import get_file_storage
-            import mimetypes
+            file_storage = get_file_storage()
             
-            for att in attachments:
-                if att.get("file_id"):
-                    # Download file regardless of size (subject to Telegram API limits ~20MB)
-                    file_info = await bot.get_file(att["file_id"])
-                    if file_info and file_info.get("file_path"):
-                        content = await bot.download_file(file_info["file_path"])
-                        if content:
-                            # Save to persistent storage
-                            filename = att.get("file_name") or f"{att.get('type', 'file')}_{att['file_id']}"
-                            # Fix extension logic if needed or let storage handle it
-                            
-                            rel_path, abs_url = get_file_storage().save_file(
-                                content=content,
-                                filename=filename,
-                                mime_type=att.get("mime_type")
-                            )
-                            
-                            att["url"] = abs_url
-                            att["path"] = rel_path
-                            att["size"] = len(content)
-                            
-                            # Keep base64 for very small images (< 200KB) for instant preview
-                            if len(content) < 200 * 1024 and att.get("type") == "photo":
-                                att["base64"] = base64.b64encode(content).decode('utf-8')
+            processed_attachments = []
+            download_errors = []
+            
+            for idx, att in enumerate(attachments):
+                file_id = att.get("file_id")
+                if not file_id:
+                    logger.warning(f"Attachment {idx} missing file_id, skipping")
+                    continue
+                
+                try:
+                    # Get file info from Telegram
+                    file_info = await bot.get_file(file_id)
+                    if not file_info or not file_info.get("file_path"):
+                        download_errors.append(f"File info not available for attachment {idx}")
+                        continue
+                    
+                    # Download file content
+                    content = await bot.download_file(file_info["file_path"])
+                    if not content:
+                        download_errors.append(f"Failed to download content for attachment {idx}")
+                        continue
+                    
+                    # Determine filename with proper extension
+                    filename = att.get("file_name")
+                    if not filename:
+                        ext = _get_extension_for_mime(att.get("mime_type", ""))
+                        filename = f"{att.get('type', 'file')}_{file_id}{ext}"
+                    
+                    # Save to persistent storage
+                    rel_path, abs_url = file_storage.save_file(
+                        content=content,
+                        filename=filename,
+                        mime_type=att.get("mime_type", "application/octet-stream")
+                    )
+                    
+                    # Build complete attachment object
+                    processed_att = {
+                        "type": att.get("type", "file"),
+                        "mime_type": att.get("mime_type", "application/octet-stream"),
+                        "file_id": file_id,
+                        "url": abs_url,
+                        "path": rel_path,
+                        "file_size": len(content),
+                        "size": len(content),
+                        "filename": filename,
+                        "file_name": filename,
+                    }
+                    
+                    # Add base64 for instant preview on small files
+                    # Images < 200KB, other files < 100KB
+                    size_threshold = 200 * 1024 if att.get("type") == "photo" else 100 * 1024
+                    if len(content) < size_threshold:
+                        try:
+                            processed_att["base64"] = base64.b64encode(content).decode('utf-8')
+                        except Exception as b64_err:
+                            logger.warning(f"Failed to encode attachment {idx} as base64: {b64_err}")
+                    
+                    processed_attachments.append(processed_att)
+                    
+                except httpx.TimeoutException as e:
+                    logger.error(f"Timeout downloading attachment {idx}: {e}")
+                    download_errors.append(f"Timeout for attachment {idx}")
+                    # Keep attachment with file_id only - will be downloaded on-demand
+                    att["download_pending"] = True
+                    processed_attachments.append(att)
+                except Exception as e:
+                    logger.error(f"Error processing attachment {idx}: {e}", exc_info=True)
+                    download_errors.append(f"Error for attachment {idx}: {str(e)}")
+                    # Keep attachment with file_id only - will be downloaded on-demand
+                    att["download_pending"] = True
+                    processed_attachments.append(att)
+            
+            # Use processed attachments
+            attachments = processed_attachments
+            
+            if download_errors:
+                logger.warning(f"Attachment download warnings: {download_errors}")
+                
         except Exception as e:
-            print(f"Error processing Telegram attachments: {e}")
-
+            logger.error(f"Critical error in attachment processing: {e}", exc_info=True)
+            # Don't fail the message - save with original attachments (file_id only)
+    
+    # Ensure body text is never empty when attachments exist
+    if not body_text or not body_text.strip():
+        if attachments:
+            # Create descriptive fallback based on attachment types
+            attachment_types = [att.get("type", "file") for att in attachments]
+            if len(attachments) == 1:
+                att_type = attachment_types[0]
+                if att_type == "photo":
+                    body_text = "📷 صورة"
+                elif att_type == "video":
+                    body_text = "🎥 فيديو"
+                elif att_type == "voice":
+                    body_text = "🎤 رسالة صوتية"
+                elif att_type == "audio":
+                    body_text = "🎵 ملف صوتي"
+                elif att_type == "document":
+                    body_text = "📄 ملف"
+                else:
+                    body_text = "📎 مرفق"
+            else:
+                body_text = f"📎 {len(attachments)} مرفقات"
+        else:
+            body_text = "(بدون نص)"
+    
+    # Save the message to inbox
     msg_id = await save_inbox_message(
         license_id=license_id,
         channel="telegram_bot",
-        body=parsed["text"],
+        body=body_text,
         sender_name=sender_name,
         sender_contact=sender_contact,
         sender_id=parsed["user_id"],
         channel_message_id=str(parsed["message_id"]),
         received_at=parsed["date"],
-        attachments=attachments,
+        attachments=attachments if attachments else None,
         is_forwarded=parsed.get("is_forwarded", False)
     )
-    pass
+    
+    if msg_id > 0:
+        logger.info(f"Saved Telegram message {msg_id} with {len(attachments)} attachments")
+    else:
+        logger.warning(f"Message not saved (filtered/blocked) for license {license_id}")
+    
     return {"ok": True}
+
+
+def _get_extension_for_mime(mime_type: str) -> str:
+    """Get file extension from MIME type"""
+    if not mime_type:
+        return ""
+    
+    mime_to_ext = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "video/mp4": ".mp4",
+        "video/quicktime": ".mov",
+        "audio/mpeg": ".mp3",
+        "audio/ogg": ".ogg",
+        "audio/wav": ".wav",
+        "application/pdf": ".pdf",
+        "application/msword": ".doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+        "text/plain": ".txt",
+        "text/csv": ".csv",
+    }
+    
+    return mime_to_ext.get(mime_type, ".bin")
 
 # ============ Telegram Phone Routes (MTProto) ============
 

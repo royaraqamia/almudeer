@@ -15,70 +15,34 @@ class BrowserHistoryScreen extends StatefulWidget {
   State<BrowserHistoryScreen> createState() => _BrowserHistoryScreenState();
 }
 
-class _BrowserHistoryScreenState extends State<BrowserHistoryScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _BrowserHistoryScreenState extends State<BrowserHistoryScreen> {
   final BrowserHistoryService _historyService = BrowserHistoryService();
   final BrowserBookmarkService _bookmarkService = BrowserBookmarkService();
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
   @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-  }
-
-  @override
   void dispose() {
-    _tabController.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('السجل والإشارات'),
-        centerTitle: true,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(100),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'بحث...',
-                    prefixIcon: const Icon(SolarLinearIcons.magnifer),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  onChanged: (value) {
-                    setState(() {
-                      _searchQuery = value.toLowerCase();
-                    });
-                  },
-                ),
-              ),
-              TabBar(
-                controller: _tabController,
-                tabs: const [
-                  Tab(text: 'السجل', icon: Icon(SolarLinearIcons.history)),
-                  Tab(text: 'الإشارات', icon: Icon(SolarLinearIcons.bookmark)),
-                ],
-              ),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('السجل والإشارات'),
+          centerTitle: true,
+          bottom: const TabBar(
+            labelPadding: EdgeInsets.zero,
+            tabs: [
+              Tab(text: 'السجل', icon: Icon(SolarLinearIcons.history)),
+              Tab(text: 'الإشارات', icon: Icon(SolarLinearIcons.bookmark)),
             ],
           ),
-        ),
-        actions: [
+          actions: [
           PopupMenuButton<String>(
             onSelected: (value) async {
               if (value == 'clear_history') {
@@ -140,13 +104,38 @@ class _BrowserHistoryScreenState extends State<BrowserHistoryScreen>
           ),
         ],
       ),
-      body: TabBarView(
-        controller: _tabController,
+      body: Column(
         children: [
-          _HistoryList(service: _historyService, searchQuery: _searchQuery),
-          _BookmarkList(service: _bookmarkService, searchQuery: _searchQuery),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'بحث...',
+                prefixIcon: const Icon(SolarLinearIcons.magnifer),
+                contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value.toLowerCase();
+                });
+              },
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                _HistoryList(service: _historyService, searchQuery: _searchQuery),
+                _BookmarkList(service: _bookmarkService, searchQuery: _searchQuery),
+              ],
+            ),
+          ),
         ],
       ),
+    ),
     );
   }
 }

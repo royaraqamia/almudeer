@@ -207,45 +207,51 @@ class _CustomersViewState extends State<_CustomersView>
           return _buildPremiumEmptyState(theme);
         }
 
-        return ListView.builder(
-          controller: _scrollController,
-          padding: const EdgeInsets.only(bottom: 120, top: 8),
-          itemCount:
-              provider.customers.length + (provider.isLoadingMore ? 1 : 0),
-          itemBuilder: (context, index) {
-            if (index == provider.customers.length) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Center(
-                  child: SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: AppColors.primary,
+        return RefreshIndicator(
+          onRefresh: () async {
+            await provider.loadCustomers(refresh: true);
+          },
+          color: AppColors.primary,
+          child: ListView.builder(
+            controller: _scrollController,
+            padding: const EdgeInsets.only(bottom: 120, top: 8),
+            itemCount:
+                provider.customers.length + (provider.isLoadingMore ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (index == provider.customers.length) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.primary,
+                      ),
                     ),
                   ),
+                );
+              }
+
+              final customer = provider.customers[index];
+              final isLast = index == provider.customers.length - 1;
+              return _buildAnimatedSection(
+                delay: 0.1 + (index * 0.03).clamp(0.0, 0.5),
+                child: PremiumCustomerTile(
+                  customer: customer,
+                  onTap: () => _openCustomerDetail(customer),
+                  isLast: isLast,
+                  isSelected: provider.selectedIds.contains(customer.id),
+                  isSelectionMode: provider.isSelectionMode,
+                  onLongPress: () {
+                    Haptics.heavyTap();
+                    provider.toggleSelection(customer.id);
+                  },
                 ),
               );
-            }
-
-            final customer = provider.customers[index];
-            final isLast = index == provider.customers.length - 1;
-            return _buildAnimatedSection(
-              delay: 0.1 + (index * 0.03).clamp(0.0, 0.5),
-              child: PremiumCustomerTile(
-                customer: customer,
-                onTap: () => _openCustomerDetail(customer),
-                isLast: isLast,
-                isSelected: provider.selectedIds.contains(customer.id),
-                isSelectionMode: provider.isSelectionMode,
-                onLongPress: () {
-                  Haptics.heavyTap();
-                  provider.toggleSelection(customer.id);
-                },
-              ),
-            );
-          },
+            },
+          ),
         );
       },
     );

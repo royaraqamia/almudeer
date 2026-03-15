@@ -168,7 +168,8 @@ class CustomersProvider extends ChangeNotifier {
       }
     });
 
-    loadCustomers();
+    // Load from cache only - no API call for offline-first experience
+    loadCustomers(skipAutoRefresh: true);
   }
 
   void _handleRemoteCustomerUpdate(
@@ -227,6 +228,7 @@ class CustomersProvider extends ChangeNotifier {
   Future<void> loadCustomers({
     bool refresh = false,
     bool triggerSync = true,
+    bool skipAutoRefresh = false,
   }) async {
     _error = null;
 
@@ -266,7 +268,12 @@ class CustomersProvider extends ChangeNotifier {
       notifyListeners();
     }
 
-    // 2. Fresh Data Sync
+    // 2. Skip API call if skipAutoRefresh is true (offline-first experience)
+    if (skipAutoRefresh) {
+      return;
+    }
+
+    // 3. Fresh Data Sync
     try {
       final response = await _repository.getCustomers(
         page: _currentPage,

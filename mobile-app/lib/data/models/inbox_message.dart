@@ -389,7 +389,29 @@ class InboxMessage {
           if (e is String) {
             return {'url': e, 'type': 'file'};
           }
-          return Map<String, dynamic>.from(e as Map);
+          // Normalize attachment fields for consistency
+          final att = Map<String, dynamic>.from(e as Map);
+          
+          // Ensure file_name and filename are both set if either exists
+          if (att['file_name'] == null && att['filename'] != null) {
+            att['file_name'] = att['filename'];
+          } else if (att['filename'] == null && att['file_name'] != null) {
+            att['filename'] = att['file_name'];
+          }
+          
+          // Ensure size and file_size are both set if either exists
+          if (att['size'] == null && att['file_size'] != null) {
+            att['size'] = att['file_size'];
+          } else if (att['file_size'] == null && att['size'] != null) {
+            att['file_size'] = att['size'];
+          }
+          
+          // Handle download_pending attachments (backend is still downloading)
+          if (att['download_pending'] == true) {
+            att['isDownloading'] = true;
+          }
+          
+          return att;
         }).toList();
       }
     }
@@ -459,8 +481,23 @@ class InboxMessage {
                 json['filename'] ??
                 fallbackUrl.split('/').last,
             'file_size': json['file_size'],
+            'size': json['file_size'] ?? json['size'],
           },
         ];
+      }
+    }
+    
+    // Handle base64 attachments (for instant preview)
+    if (attachmentsList != null && attachmentsList.isNotEmpty) {
+      for (var att in attachmentsList) {
+        // If attachment has base64 but no URL, create a data URL
+        if (att['base64'] != null && att['base64'].toString().isNotEmpty) {
+          if (att['url'] == null || att['url'].toString().isEmpty) {
+            final mimeType = att['mime_type'] as String? ?? 'application/octet-stream';
+            att['dataUrl'] = 'data:$mimeType;base64,${att['base64']}';
+            att['url'] = att['dataUrl'];
+          }
+        }
       }
     }
 

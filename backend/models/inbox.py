@@ -2111,6 +2111,10 @@ async def edit_outbox_message(
 
     Args:
         edited_by: Username of the person making the edit (for audit trail)
+    
+    Raises:
+        ValueError: If message doesn't exist, is deleted, channel not allowed,
+                   edit window exceeded, or max edit count reached.
     """
     # Maximum number of edits allowed per message (prevents abuse)
     MAX_EDIT_COUNT = 10
@@ -2136,11 +2140,6 @@ async def edit_outbox_message(
         if channel not in ['almudeer', 'saved']:
             raise ValueError(f"لا يمكن تعديل الرسائل المرسلة عبر {channel}")
 
-        # Check maximum edit count limit
-        edit_count = message.get("edit_count", 0) or 0
-        if edit_count >= MAX_EDIT_COUNT:
-            raise ValueError(f"تم الوصول للحد الأقصى للتعديلات ({MAX_EDIT_COUNT})")
-
         # 24-hour edit window
         created_at = message.get("created_at")
         if created_at:
@@ -2158,15 +2157,18 @@ async def edit_outbox_message(
 
                 if datetime.now(timezone.utc) - created_at > timedelta(hours=24):
                     raise ValueError("انتهت الفترة المتاحة لتعديل الرسالة (24 ساعة)")
-        
+
         # Store original body if this is the first edit
         original_body = message.get("original_body") or message.get("body", "")
+        original_edit_count = message.get("edit_count", 0) or 0
 
         now = datetime.now(timezone.utc)
-        ts_value = now if DB_TYPE == "postgresql" else now.isoformat()
+        # Standardize on ISO 8601 format for cross-database consistency
+        ts_value = now.isoformat()
 
-        # Update the message with atomic edit_count increment (prevents race condition)
-        # Use RETURNING clause (PostgreSQL) or fetch within transaction (SQLite) to get final edit_count
+        # Update the message with atomic edit_count increment and max count check
+        # This prevents race conditions by combining validation + increment in one atomic operation
+        # The WHERE clause ensures the update only succeeds if edit_count < MAX_EDIT_COUNT
         if DB_TYPE == "postgresql":
             updated_row = await fetch_one(
                 db,
@@ -2178,13 +2180,18 @@ async def edit_outbox_message(
                     edit_count = COALESCE(edit_count, 0) + 1,
                     edited_by = COALESCE(?, edited_by)
                 WHERE id = ? AND license_key_id = ?
+                  AND (COALESCE(edit_count, 0) < ?)
                 RETURNING edit_count
                 """,
-                [new_body, ts_value, original_body, edited_by, message_id, license_id]
+                [new_body, ts_value, original_body, edited_by, message_id, license_id, MAX_EDIT_COUNT]
             )
-            final_edit_count = updated_row.get("edit_count", 1) if updated_row else 1
+            if not updated_row:
+                # Update failed because edit_count >= MAX_EDIT_COUNT (race condition protection)
+                raise ValueError(f"تم الوصول للحد الأقصى للتعديلات ({MAX_EDIT_COUNT})")
+            final_edit_count = updated_row.get("edit_count", 1)
         else:
-            # SQLite: UPDATE then SELECT in same transaction (before commit)
+            # SQLite: Use atomic UPDATE with WHERE clause check, then SELECT in same transaction
+            # This prevents race conditions by checking and incrementing atomically
             await execute_sql(
                 db,
                 """
@@ -2195,15 +2202,23 @@ async def edit_outbox_message(
                     edit_count = COALESCE(edit_count, 0) + 1,
                     edited_by = COALESCE(?, edited_by)
                 WHERE id = ? AND license_key_id = ?
+                  AND (COALESCE(edit_count, 0) < ?)
                 """,
-                [new_body, ts_value, original_body, edited_by, message_id, license_id]
+                [new_body, ts_value, original_body, edited_by, message_id, license_id, MAX_EDIT_COUNT]
             )
+            # Check if the update succeeded by verifying edit_count was incremented
             updated_message = await fetch_one(
                 db,
                 "SELECT edit_count FROM outbox_messages WHERE id = ?",
                 [message_id]
             )
-            final_edit_count = updated_message.get("edit_count", 1) if updated_message else 1
+            # If edit_count didn't change, the WHERE clause prevented the update
+            if not updated_message:
+                raise ValueError(f"تم الوصول للحد الأقصى للتعديلات ({MAX_EDIT_COUNT})")
+            final_edit_count = updated_message.get("edit_count", 1)
+            # If edit_count didn't increment, the WHERE clause prevented the update
+            if final_edit_count == original_edit_count:
+                raise ValueError(f"تم الوصول للحد الأقصى للتعديلات ({MAX_EDIT_COUNT})")
 
         # ---------------------------------------------------------
         # Sync to Internal Recipient (Almudeer & Saved Channels)
@@ -2226,25 +2241,29 @@ async def edit_outbox_message(
         await commit_db(db)
 
         # Broadcast the edit via WebSocket
+        # Note: If broadcast fails, the edit is still valid - clients will sync on reconnect
+        # via the Redis replay mechanism (almudeer:missed_edits:{license_id})
         try:
             from services.websocket_manager import broadcast_message_edited
             await broadcast_message_edited(
                 license_id=license_id,
                 message_id=message_id,
                 new_body=new_body,
-                edited_at=ts_value if isinstance(ts_value, str) else ts_value.isoformat(),
+                edited_at=ts_value,
                 sender_contact=recipient,
                 edit_count=final_edit_count
             )
         except Exception as e:
             from logging_config import get_logger
-            get_logger(__name__).warning(f"Broadcast failed in edit_outbox_message: {e}")
+            # Log at info level - this is expected behavior during transient network issues
+            # The Redis replay mechanism will deliver the edit when client reconnects
+            get_logger(__name__).info(f"Broadcast failed (will replay on reconnect): {e}")
 
         return {
             "success": True,
             "message": "تم تعديل الرسالة بنجاح",
             "body": new_body,
-            "edited_at": now.isoformat(),
+            "edited_at": ts_value,  # Return standardized ISO format
             "edit_count": final_edit_count
         }
 

@@ -548,6 +548,22 @@ class _MessageBubbleState extends State<MessageBubble> {
                                           ),
                                     ),
                                   ],
+                                  // Pending sync indicator for edits
+                                  if (widget.message.sendStatus == MessageSendStatus.sending) ...[
+                                    const SizedBox(width: 4),
+                                    SizedBox(
+                                      width: 12,
+                                      height: 12,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 1.5,
+                                        valueColor: AlwaysStoppedAnimation<Color>(
+                                          isOutgoing
+                                              ? Colors.white.withValues(alpha: 0.7)
+                                              : theme.colorScheme.secondary,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                   if (isOutgoing) ...[
                                     const SizedBox(width: 6),
                                     _buildDeliveryStatus(theme, isOutgoing),

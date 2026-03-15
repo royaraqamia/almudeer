@@ -369,52 +369,75 @@ class TelegramListenerService:
                         else:
                              recipient_contact = recipient_id
 
-                        # Handle media for outgoing
-                        # (Reused code for media extraction - refactor if possible but copy-paste is safer for now)
+                        # Handle media for outgoing messages
                         attachments = []
                         if event.message.media:
                             try:
+                                # Skip huge files > 20MB
                                 size = 0
                                 is_voice = False
-                                if hasattr(event.message.media, "document") and event.message.media.document:
+                                file_type = "file"
+                                
+                                # Determine media type
+                                if hasattr(event.message.media, "photo"):
+                                    file_type = "photo"
+                                    mime_type = "image/jpeg"
+                                elif hasattr(event.message.media, "video"):
+                                    file_type = "video"
+                                    mime_type = event.message.media.video.mime_type if hasattr(event.message.media.video, 'mime_type') else "video/mp4"
+                                    size = event.message.media.video.size if hasattr(event.message.media.video, 'size') else 0
+                                elif hasattr(event.message.media, "voice"):
+                                    file_type = "voice"
+                                    is_voice = True
+                                    mime_type = event.message.media.voice.mime_type if hasattr(event.message.media.voice, 'mime_type') else "audio/ogg"
+                                    size = event.message.media.voice.size if hasattr(event.message.media.voice, 'size') else 0
+                                elif hasattr(event.message.media, "audio"):
+                                    file_type = "audio"
+                                    mime_type = event.message.media.audio.mime_type if hasattr(event.message.media.audio, 'mime_type') else "audio/mpeg"
+                                    size = event.message.media.audio.size if hasattr(event.message.media.audio, 'size') else 0
+                                elif hasattr(event.message.media, "document"):
+                                    file_type = "document"
+                                    mime_type = event.message.media.document.mime_type
                                     size = event.message.media.document.size
                                     for attribute in event.message.media.document.attributes:
                                         if hasattr(attribute, 'voice') and attribute.voice:
                                             is_voice = True
+                                            file_type = "voice"
                                             break
+                                else:
+                                    mime_type = "application/octet-stream"
                                 
                                 if size < 20 * 1024 * 1024:
                                     file_bytes = await event.message.download_media(file=bytes)
                                     if file_bytes:
-                                        mime_type = "application/octet-stream"
-                                        if hasattr(event.message.media, "photo"):
-                                            mime_type = "image/jpeg"
-                                        elif hasattr(event.message.media, "document"):
-                                            mime_type = event.message.media.document.mime_type
-                                        
                                         filename = f"tg_out_{channel_message_id}"
                                         rel_path, abs_url = get_file_storage().save_file(
                                             content=file_bytes,
                                             filename=filename,
                                             mime_type=mime_type
                                         )
-                                        
+
                                         b64_data = None
-                                        if size < 1 * 1024 * 1024:
+                                        size_threshold = 200 * 1024 if file_type == "photo" else 100 * 1024
+                                        if size < size_threshold:
                                             try:
                                                 b64_data = base64.b64encode(file_bytes).decode('utf-8')
-                                            except: pass
-                                            
+                                            except Exception as b64_err:
+                                                logger.debug(f"Failed to encode attachment as base64: {b64_err}")
+
                                         attachments.append({
-                                            "type": "voice" if is_voice else mime_type,
+                                            "type": file_type,
                                             "mime_type": mime_type,
                                             "url": abs_url,
                                             "path": rel_path,
                                             "base64": b64_data,
                                             "filename": filename,
-                                            "size": size
+                                            "file_name": filename,
+                                            "size": size,
+                                            "file_size": size
                                         })
-                            except: pass
+                            except Exception as media_err:
+                                logger.error(f"Failed to process outgoing media: {media_err}")
 
                         from models.inbox import save_synced_outbox_message
                         await save_synced_outbox_message(
@@ -466,55 +489,113 @@ class TelegramListenerService:
                         logger.info(f"Telegram real-time message filtered: {reason}")
                         return
 
-                    # 4. Handle Media (Photo/Voice)
+                    # 4. Handle Media (Photo/Voice/Video/Document)
                     attachments = []
                     if event.message.media:
                         try:
-                            # Skip huge files > 20MB
+                            # Skip huge files > 20MB (Telegram API limit)
                             size = 0
                             is_voice = False
-                            if hasattr(event.message.media, "document") and event.message.media.document:
+                            file_type = "file"
+                            
+                            # Determine media type and size
+                            if hasattr(event.message.media, "photo"):
+                                file_type = "photo"
+                                mime_type = "image/jpeg"
+                            elif hasattr(event.message.media, "video"):
+                                file_type = "video"
+                                mime_type = event.message.media.video.mime_type if hasattr(event.message.media.video, 'mime_type') else "video/mp4"
+                                size = event.message.media.video.size if hasattr(event.message.media.video, 'size') else 0
+                            elif hasattr(event.message.media, "voice"):
+                                file_type = "voice"
+                                is_voice = True
+                                mime_type = event.message.media.voice.mime_type if hasattr(event.message.media.voice, 'mime_type') else "audio/ogg"
+                                size = event.message.media.voice.size if hasattr(event.message.media.voice, 'size') else 0
+                            elif hasattr(event.message.media, "audio"):
+                                file_type = "audio"
+                                mime_type = event.message.media.audio.mime_type if hasattr(event.message.media.audio, 'mime_type') else "audio/mpeg"
+                                size = event.message.media.audio.size if hasattr(event.message.media.audio, 'size') else 0
+                            elif hasattr(event.message.media, "document"):
+                                file_type = "document"
+                                mime_type = event.message.media.document.mime_type
                                 size = event.message.media.document.size
-                                # Check if it's a voice note
+                                # Check if it's actually a voice note disguised as document
                                 for attribute in event.message.media.document.attributes:
                                     if hasattr(attribute, 'voice') and attribute.voice:
                                         is_voice = True
+                                        file_type = "voice"
                                         break
+                            else:
+                                mime_type = "application/octet-stream"
                             
+                            # Download if within size limit
                             if size < 20 * 1024 * 1024:
-                                file_bytes = await event.message.download_media(file=bytes)
-                                if file_bytes:
-                                    mime_type = "application/octet-stream"
-                                    if hasattr(event.message.media, "photo"):
-                                        mime_type = "image/jpeg"
-                                    elif hasattr(event.message.media, "document"):
-                                        mime_type = event.message.media.document.mime_type
-                                    
-                                    # Save to file system (Premium Storage)
-                                    filename = f"tg_{channel_message_id}"
-                                    rel_path, abs_url = get_file_storage().save_file(
-                                        content=file_bytes,
-                                        filename=filename,
-                                        mime_type=mime_type
-                                    )
-                                        
-                                    # We keep base64 only for very small files (< 1MB) as optimization,
-                                    # otherwise only store the URL to keep DB lean.
-                                    b64_data = None
-                                    if size < 1 * 1024 * 1024:
-                                        b64_data = base64.b64encode(file_bytes).decode('utf-8')
-                                        
-                                    attachments.append({
-                                        "type": "voice" if is_voice else mime_type,
-                                        "mime_type": mime_type,
-                                        "url": abs_url,
-                                        "path": rel_path,
-                                        "base64": b64_data,
-                                        "filename": filename,
-                                        "size": size
-                                    })
+                                try:
+                                    file_bytes = await event.message.download_media(file=bytes)
+                                    if file_bytes:
+                                        # Save to file system (Premium Storage)
+                                        filename = f"tg_{channel_message_id}"
+                                        rel_path, abs_url = get_file_storage().save_file(
+                                            content=file_bytes,
+                                            filename=filename,
+                                            mime_type=mime_type
+                                        )
+
+                                        # Add base64 for instant preview on small files
+                                        # Images < 200KB, other files < 100KB
+                                        b64_data = None
+                                        size_threshold = 200 * 1024 if file_type == "photo" else 100 * 1024
+                                        if size < size_threshold:
+                                            try:
+                                                b64_data = base64.b64encode(file_bytes).decode('utf-8')
+                                            except Exception as b64_err:
+                                                logger.debug(f"Failed to encode attachment as base64: {b64_err}")
+
+                                        attachments.append({
+                                            "type": file_type,
+                                            "mime_type": mime_type,
+                                            "url": abs_url,
+                                            "path": rel_path,
+                                            "base64": b64_data,
+                                            "filename": filename,
+                                            "file_name": filename,
+                                            "size": size,
+                                            "file_size": size
+                                        })
+                                except Exception as download_err:
+                                    logger.error(f"Failed to download media for message {channel_message_id}: {download_err}")
+                            else:
+                                logger.warning(f"Media too large ({size} bytes) for message {channel_message_id}, skipping download")
+                                # Still create attachment placeholder
+                                attachments.append({
+                                    "type": file_type,
+                                    "mime_type": mime_type,
+                                    "size": size,
+                                    "file_size": size,
+                                    "download_pending": True,
+                                    "error": "File too large"
+                                })
                         except Exception as media_e:
-                            logger.debug(f"Failed to download real-time media: {media_e}")
+                            logger.error(f"Error processing media for message {channel_message_id}: {media_e}", exc_info=True)
+
+                    # Ensure body text is never empty when attachments exist
+                    if not body or not body.strip():
+                        if attachments:
+                            att_type = attachments[0].get("type", "file")
+                            if att_type == "photo":
+                                body = "📷 صورة"
+                            elif att_type == "video":
+                                body = "🎥 فيديو"
+                            elif att_type == "voice":
+                                body = "🎤 رسالة صوتية"
+                            elif att_type == "audio":
+                                body = "🎵 ملف صوتي"
+                            elif att_type == "document":
+                                body = "📄 ملف"
+                            else:
+                                body = "📎 مرفق"
+                        else:
+                            body = "(بدون نص)"
 
                     # 5. Save to Inbox
                     from models.inbox import save_inbox_message
@@ -528,7 +609,7 @@ class TelegramListenerService:
                         sender_id=str(sender.id),
                         channel_message_id=channel_message_id,
                         received_at=event.message.date,
-                        attachments=attachments,
+                        attachments=attachments if attachments else None,
                         is_forwarded=is_forwarded,
                         reply_to_platform_id=reply_to_platform_id
                     )

@@ -100,16 +100,12 @@ class MockSettingsRepository extends _i1.Mock
   _i5.Future<List<String>> getCalculatorHistory() =>
       (super.noSuchMethod(
             Invocation.method(#getCalculatorHistory, []),
-            returnValue: _i5.Future<List<String>>.value(
-              <String>[],
-            ),
+            returnValue: _i5.Future<List<String>>.value(<String>[]),
           )
           as _i5.Future<List<String>>);
 
   @override
-  _i5.Future<void> updateCalculatorHistory(
-    List<String>? history,
-  ) =>
+  _i5.Future<void> updateCalculatorHistory(List<String>? history) =>
       (super.noSuchMethod(
             Invocation.method(#updateCalculatorHistory, [history]),
             returnValue: _i5.Future<void>.value(),

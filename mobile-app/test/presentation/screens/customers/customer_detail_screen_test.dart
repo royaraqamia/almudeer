@@ -66,6 +66,7 @@ void main() {
         fresh: anyNamed('fresh'),
         lastSeenAt: anyNamed('lastSeenAt'),
         isOnline: anyNamed('isOnline'),
+        skipAutoRefresh: anyNamed('skipAutoRefresh'),
       )).thenAnswer((_) async {});
     });
 

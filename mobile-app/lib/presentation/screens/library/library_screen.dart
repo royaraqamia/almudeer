@@ -52,10 +52,11 @@ class _LibraryScreenState extends State<LibraryScreen>
     final currentType = _selectedType;
     Future.microtask(() {
       if (mounted) {
-        // Catch errors to prevent unhandled future rejections
+        // Load from cache only - no API call for offline-first experience
+        // Fresh data will be fetched only when user pulls to refresh
         context
             .read<LibraryProvider>()
-            .fetchItems(category: currentType)
+            .fetchItems(category: currentType, skipAutoRefresh: true)
             .catchError((error) {
               debugPrint('[LibraryScreen] Initial fetch failed: $error');
               // Don't rethrow - error is logged and provider handles its own error state

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/constants/colors.dart';
 import '../../../core/extensions/channel_color_extension.dart';
 import '../../../data/models/conversation.dart';
 import '../../../data/models/inbox_message.dart';
@@ -33,15 +34,32 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.conversation.senderContact != null) {
+        // Load from cache only - no API call for instant offline-first experience
+        // Fresh data will be fetched only when user pulls to refresh
         _detailProvider.loadConversation(
           widget.conversation.senderContact!,
           senderName: widget.conversation.senderName, // Optimistic name
           channel: widget.conversation.channel,
           lastSeenAt: widget.conversation.lastSeenAt,
           isOnline: widget.conversation.isOnline,
+          skipAutoRefresh: true,
         );
       }
     });
+  }
+
+  /// Handle pull-to-refresh
+  Future<void> _handleRefresh() async {
+    if (widget.conversation.senderContact != null) {
+      await _detailProvider.loadConversation(
+        widget.conversation.senderContact!,
+        senderName: widget.conversation.senderName,
+        channel: widget.conversation.channel,
+        lastSeenAt: widget.conversation.lastSeenAt,
+        isOnline: widget.conversation.isOnline,
+        skipAutoRefresh: false,
+      );
+    }
   }
 
   @override
@@ -163,20 +181,24 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                     Column(
                       children: [
                         Expanded(
-                          child: messages.isEmpty
-                              ? EmptyConversationState(
-                                  channel: widget.conversation.channel,
-                                  channelColor:
-                                      widget.conversation.channel.channelColor,
-                                )
-                              : MessageListView(
-                                  messages: messages,
-                                  channelColor:
-                                      widget.conversation.channel.channelColor,
-                                  displayName: widget.conversation.displayName,
-                                  onReply: _handleReply,
-                                  highlightMessageId: searchResultId,
-                                ),
+                          child: RefreshIndicator(
+                            onRefresh: _handleRefresh,
+                            color: AppColors.primary,
+                            child: messages.isEmpty
+                                ? EmptyConversationState(
+                                    channel: widget.conversation.channel,
+                                    channelColor:
+                                        widget.conversation.channel.channelColor,
+                                  )
+                                : MessageListView(
+                                    messages: messages,
+                                    channelColor:
+                                        widget.conversation.channel.channelColor,
+                                    displayName: widget.conversation.displayName,
+                                    onReply: _handleReply,
+                                    highlightMessageId: searchResultId,
+                                  ),
+                          ),
                         ),
 
                         // Message Input Section
