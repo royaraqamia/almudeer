@@ -97,18 +97,18 @@ class MockSettingsRepository extends _i1.Mock
           as _i5.Future<_i3.UserPreferences>);
 
   @override
-  _i5.Future<List<Map<String, dynamic>>> getCalculatorHistory() =>
+  _i5.Future<List<String>> getCalculatorHistory() =>
       (super.noSuchMethod(
             Invocation.method(#getCalculatorHistory, []),
-            returnValue: _i5.Future<List<Map<String, dynamic>>>.value(
-              <Map<String, dynamic>>[],
+            returnValue: _i5.Future<List<String>>.value(
+              <String>[],
             ),
           )
-          as _i5.Future<List<Map<String, dynamic>>>);
+          as _i5.Future<List<String>>);
 
   @override
   _i5.Future<void> updateCalculatorHistory(
-    List<Map<String, dynamic>>? history,
+    List<String>? history,
   ) =>
       (super.noSuchMethod(
             Invocation.method(#updateCalculatorHistory, [history]),

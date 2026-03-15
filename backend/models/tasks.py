@@ -489,15 +489,24 @@ def _parse_comment_row(row: dict) -> dict:
         row['attachments'] = []
     return row
 
-async def create_task(license_id: int, task_data: dict) -> dict:
+async def create_task(license_id: int, task_data: dict, user_id: str = None) -> dict:
     """Create or update a task atomically (Upsert) with LWW
 
     FIX BUG-004: Enhanced LWW with client timestamp + server timestamp for better conflict resolution.
     FIX: Use database-agnostic syntax for clock skew tolerance (works on both SQLite and PostgreSQL).
     FIX: Configurable clock skew tolerance via environment variable (default: 5 seconds).
+    
+    FIX: Added support for shared tasks - when a user syncs a task shared with them,
+    the task exists with the owner's license_key_id, not the user's. We now handle this
+    by checking task_shares for permission before allowing the sync.
+    
+    Args:
+        license_id: The user's license_id (from JWT)
+        task_data: Task data to create/update
+        user_id: The user's ID (required for shared task access check)
     """
     import os
-    
+
     # FIX: Configurable clock skew tolerance (default 5 seconds, max 60 seconds)
     # Environment variable: TASK_LWW_CLOCK_SKEW_SECONDS
     try:
@@ -505,7 +514,7 @@ async def create_task(license_id: int, task_data: dict) -> dict:
         clock_skew_seconds = max(1, min(clock_skew_seconds, 60))  # Clamp between 1-60 seconds
     except (ValueError, TypeError):
         clock_skew_seconds = 5  # Fallback to default
-    
+
     async with get_db() as db:
         try:
             # Convert list to JSON string if needed
@@ -545,6 +554,11 @@ async def create_task(license_id: int, task_data: dict) -> dict:
                     AND excluded.updated_at >= tasks.updated_at
                 """
 
+            # FIX: Modified ON CONFLICT to handle shared tasks
+            # The WHERE clause now allows updates when:
+            # 1. Task belongs to user's license (tasks.license_key_id = ?)
+            # 2. OR task is shared with user (via task_shares subquery)
+            # This prevents "Task not found after INSERT" errors when syncing shared tasks
             await execute_sql(db, f"""
                 INSERT INTO tasks (
                     id, license_key_id, title, description, is_completed, due_date,
@@ -571,7 +585,17 @@ async def create_task(license_id: int, task_data: dict) -> dict:
                     is_deleted = 0,
                     updated_at = excluded.updated_at,
                     synced_at = CURRENT_TIMESTAMP
-                WHERE tasks.license_key_id = ? AND (
+                WHERE (
+                    tasks.license_key_id = ?
+                    OR EXISTS (
+                        SELECT 1 FROM task_shares ts
+                        WHERE ts.task_id = tasks.id
+                        AND ts.shared_with_user_id = ?
+                        AND ts.license_key_id = ?
+                        AND ts.deleted_at IS NULL
+                        AND (ts.expires_at IS NULL OR ts.expires_at > ?)
+                    )
+                ) AND (
                     tasks.updated_at IS NULL
                     OR excluded.updated_at > tasks.updated_at
                     OR ({clock_skew_condition})
@@ -598,13 +622,16 @@ async def create_task(license_id: int, task_data: dict) -> dict:
                 task_data.get('visibility', 'shared'),
                 0,  # is_deleted = 0 for new inserts
                 updated_at,
-                license_id  # For the WHERE clause in ON CONFLICT
+                license_id,  # For the WHERE clause (owner's license check)
+                user_id or str(license_id),  # For task_shares check (shared_with_user_id)
+                license_id,  # For task_shares check (license_key_id in task_shares)
+                datetime.now(timezone.utc)  # For expires_at check
             ))
-            
+
             # Fetch the task in the SAME transaction to verify it was created/updated
             # This avoids potential issues with transaction isolation and timing
             result = await _get_task_by_id_raw(db, license_id, task_data['id'])
-            
+
             if not result:
                 # LWW conflict resolution rejected the update - this happens when:
                 # 1. Client's updated_at is older than server's (outside clock skew tolerance)
@@ -614,22 +641,52 @@ async def create_task(license_id: int, task_data: dict) -> dict:
                     f"LWW conflict resolution rejected task {task_data.get('id')}: client version stale. "
                     f"Client updated_at: {updated_at}"
                 )
-            
+
             await commit_db(db)
-            
+
             # If the upsert was rejected, fetch the existing task to return to the client
             # This ensures the client receives the current server version
             if not result:
                 async with get_db() as db2:
                     result = await _get_task_by_id_raw(db2, license_id, task_data['id'])
-                
+
+                # FIX: If still no result, check if this is a shared task
+                # The task might exist with a different license_key_id (owner's license)
+                if not result and user_id:
+                    # Check if task exists with a different license (shared task scenario)
+                    task_with_other_license = await fetch_one(db2, """
+                        SELECT t.* FROM tasks t
+                        INNER JOIN task_shares ts ON t.id = ts.task_id
+                        WHERE t.id = ?
+                        AND ts.shared_with_user_id = ?
+                        AND ts.deleted_at IS NULL
+                        AND (ts.expires_at IS NULL OR ts.expires_at > ?)
+                        AND t.is_deleted = 0
+                    """, (task_data['id'], user_id, datetime.now(timezone.utc)))
+                    
+                    if task_with_other_license:
+                        # This is a shared task - return it with proper permission info
+                        result = dict(task_with_other_license)
+                        # Add share_permission to the result
+                        share_info = await fetch_one(db2, """
+                            SELECT permission FROM task_shares
+                            WHERE task_id = ? AND shared_with_user_id = ?
+                            AND deleted_at IS NULL
+                            AND (expires_at IS NULL OR expires_at > ?)
+                        """, (task_data['id'], user_id, datetime.now(timezone.utc)))
+                        if share_info:
+                            result['share_permission'] = share_info.get('permission')
+                        logger.info(
+                            f"Task {task_data.get('id')} synced as shared task (owner license: {task_with_other_license.get('license_key_id')})"
+                        )
+
                 # If still no result, the task truly doesn't exist - this is an actual error
                 if not result:
                     logger.error(
                         f"Task {task_data.get('id')} not found after INSERT - "
                         f"possible constraint violation or permission issue"
                     )
-            
+
             return result
         except Exception as e:
             # Transaction will be automatically rolled back by the context manager

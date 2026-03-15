@@ -8,12 +8,11 @@ import '../../core/utils/logger.dart';
 /// Calculator provider with user-specific history sync and robust error handling.
 ///
 /// Production-ready features:
-/// - Per-user history isolation with timestamp preservation
+/// - Per-user history isolation
 /// - Backend sync with retry logic and debouncing
 /// - Graceful error handling with detailed logging
 /// - Sync status tracking with telemetry
 /// - Race condition prevention during user switching
-/// - Proper structured data format: {entry, timestamp}
 class CalculatorProvider extends ChangeNotifier {
   // Constants - extracted for maintainability
   static const int _maxExpressionLength = 500;
@@ -24,7 +23,7 @@ class CalculatorProvider extends ChangeNotifier {
 
   String _expression = '';
   String _result = '';
-  List<Map<String, dynamic>> _history = []; // List of {entry, timestamp}
+  List<String> _history = [];
   String? _userId;
   SyncStatus _syncStatus = SyncStatus.idle;
   final SettingsRepository _settingsRepository;
@@ -36,7 +35,7 @@ class CalculatorProvider extends ChangeNotifier {
 
   String get expression => _expression;
   String get result => _result;
-  List<Map<String, dynamic>> get history => _history;
+  List<String> get history => _history;
   String? get userId => _userId;
   SyncStatus get syncStatus => _syncStatus;
 
@@ -123,22 +122,18 @@ class CalculatorProvider extends ChangeNotifier {
           jsonDecode(anonymousJson),
         );
 
-        // Convert legacy string format to structured format with timestamps
+        // Convert legacy format to simple string list
         final anonymousHistory = anonymousHistoryRaw
             .map((e) {
               if (e is String) {
-                // Legacy format: just the entry string
-                return {
-                  'entry': e,
-                  'timestamp': DateTime.now().toIso8601String(),
-                };
-              } else if (e is Map<String, dynamic>) {
-                // Already structured format - preserve existing timestamp
                 return e;
+              } else if (e is Map<String, dynamic>) {
+                // Extract entry from old structured format
+                return e['entry'] as String?;
               }
               return null;
             })
-            .whereType<Map<String, dynamic>>()
+            .whereType<String>()
             .toList();
 
         debugPrint(
@@ -147,21 +142,19 @@ class CalculatorProvider extends ChangeNotifier {
 
         // Merge with existing user history, avoiding duplicates
         final existingJson = prefs.getString(userKey);
-        List<Map<String, dynamic>> userHistory = [];
+        List<String> userHistory = [];
         if (existingJson != null) {
-          userHistory = List<Map<String, dynamic>>.from(
-            (jsonDecode(existingJson) as List<dynamic>)
-                .whereType<Map<String, dynamic>>(),
+          userHistory = List<String>.from(
+            jsonDecode(existingJson) as List<dynamic>,
           );
         }
 
         // Combine, avoiding duplicates by entry content, keeping most recent first
         final seenEntries = <String>{};
-        var combined = <Map<String, dynamic>>[];
+        var combined = <String>[];
 
         for (final entry in [...anonymousHistory, ...userHistory]) {
-          final entryContent = entry['entry'] as String?;
-          if (entryContent != null && seenEntries.add(entryContent)) {
+          if (entry.isNotEmpty && seenEntries.add(entry)) {
             combined.add(entry);
           }
         }
@@ -545,7 +538,25 @@ class CalculatorProvider extends ChangeNotifier {
       final historyJson = prefs.getString(key);
       if (historyJson != null) {
         final historyRaw = List<dynamic>.from(jsonDecode(historyJson));
-        _history = historyRaw.whereType<Map<String, dynamic>>().toList();
+        // Migrate old Map format to simple strings and clean timestamps
+        _history = historyRaw.map((e) {
+          String entryStr;
+          if (e is String) {
+            entryStr = e;
+          } else if (e is Map<String, dynamic>) {
+            entryStr = e['entry'] as String? ?? '';
+          } else {
+            entryStr = '';
+          }
+          // Clean timestamp from entry string if present
+          // Format: "5+5 = 10 2024-01-01" or "5+5 = 10 2024/01/01"
+          entryStr = _cleanTimestampFromEntry(entryStr);
+          return entryStr;
+        }).where((e) => e.isNotEmpty).toList();
+        
+        // Save cleaned history back to storage
+        await prefs.setString(key, jsonEncode(_history));
+        
         debugPrint(
           'Calculator: Loaded ${_history.length} history entries from local storage',
         );
@@ -560,15 +571,20 @@ class CalculatorProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Remove timestamp suffix from entry string
+  /// Handles formats like: "5+5 = 10 2024-01-01" or "5+5 = 10 2024/01/01 10:00"
+  String _cleanTimestampFromEntry(String entry) {
+    // Pattern to match date/timestamp at the end of the string
+    // Matches: YYYY-MM-DD, YYYY/MM/DD, with optional time
+    final timestampPattern = RegExp(
+      r'\s+\d{4}[-/]\d{2}[-/]\d{2}(\s+\d{2}:\d{2}(:\d{2})?)?$',
+    );
+    return entry.replaceAll(timestampPattern, '').trim();
+  }
+
   Future<void> _addToHistory(String entry) async {
     try {
-      // CRITICAL: Structured format with timestamp preservation
-      final historyEntry = {
-        'entry': entry,
-        'timestamp': DateTime.now().toIso8601String(),
-      };
-
-      _history.insert(0, historyEntry);
+      _history.insert(0, entry);
       if (_history.length > _maxHistoryEntries) {
         _history.removeLast();
       }
@@ -708,28 +724,22 @@ class CalculatorProvider extends ChangeNotifier {
       // Only merge if backend has history
       // If backend is empty, keep local history (it might be new unsynced data)
       if (backendHistory.isNotEmpty) {
-        // CRITICAL: Preserve timestamps from backend
         // Merge: prefer backend as source of truth, but add any local-only entries
-        final combined = <Map<String, dynamic>>[];
+        final combined = <String>[];
         final seenEntries = <String>{};
 
-        // Add backend entries first (source of truth) - preserve timestamps!
+        // Add backend entries first (source of truth)
         for (final entry in backendHistory) {
-          final entryContent = entry['entry'] as String? ?? '';
-          final timestamp = entry['timestamp'] as String? ?? DateTime.now().toIso8601String();
-
-          if (entryContent.isNotEmpty && seenEntries.add(entryContent)) {
-            combined.add({
-              'entry': entryContent,
-              'timestamp': timestamp,
-            });
+          // Clean any timestamps from backend entries
+          final cleanEntry = _cleanTimestampFromEntry(entry);
+          if (cleanEntry.isNotEmpty && seenEntries.add(cleanEntry)) {
+            combined.add(cleanEntry);
           }
         }
 
         // Add local-only entries (not already in backend)
         for (final entry in _history) {
-          final entryContent = entry['entry'] as String?;
-          if (entryContent != null && seenEntries.add(entryContent)) {
+          if (seenEntries.add(entry)) {
             combined.add(entry);
           }
         }

@@ -239,32 +239,9 @@ class PreferencesUpdate(BaseModel):
 
 # ============ Calculator History Schemas ============
 
-class CalculatorHistoryEntry(BaseModel):
-    """Schema for a single calculator history entry with timestamp"""
-    entry: str = Field(..., min_length=1, max_length=500)
-    timestamp: str  # ISO 8601 format
-
-    @field_validator('entry')
-    @classmethod
-    def sanitize_entry(cls, v):
-        """Sanitize calculator entry to prevent XSS/injection"""
-        if not v:
-            return v
-        # Remove potentially dangerous characters/patterns
-        # Keep: Arabic, English, numbers, math operators, parentheses, common functions
-        # Block: < > " ' ` \ and control characters
-        import re
-        # Strip HTML-like tags
-        v = re.sub(r'<[^>]*>', '', v)
-        # Remove control characters except newline/tab
-        v = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', v)
-        # Limit length
-        return v[:500]
-
-
 class CalculatorHistoryUpdate(BaseModel):
-    """Schema for updating calculator history"""
-    history: List[CalculatorHistoryEntry] = Field(default_factory=list)
+    """Schema for updating calculator history - simple string list"""
+    history: List[str] = Field(default_factory=list)
 
     @field_validator('history')
     @classmethod
@@ -278,7 +255,7 @@ class CalculatorHistoryUpdate(BaseModel):
 class CalculatorHistoryResponse(BaseModel):
     """Schema for calculator history response"""
     success: bool
-    history: List[CalculatorHistoryEntry]
+    history: List[str]
 
 
 # ============ Athkar Schemas ============
@@ -510,14 +487,15 @@ async def get_calculator_history(
 ):
     """
     Get user's calculator history for cross-device sync.
-    
-    Returns structured history entries with timestamps.
+
+    Returns simple string list of calculation entries.
     """
+    import re
+    
     prefs = await get_preferences(license["license_id"])
     raw_history = prefs.get('calculator_history', [])
-    
+
     # Parse history - could be JSON string or already parsed list
-    history_entries = []
     if isinstance(raw_history, str):
         try:
             import json
@@ -526,24 +504,24 @@ async def get_calculator_history(
                 raw_history = parsed
         except (json.JSONDecodeError, TypeError):
             raw_history = []
-    
-    # Convert to structured entries
+
+    # Convert to simple string list
+    history_strings = []
     if isinstance(raw_history, list):
         for item in raw_history:
             if isinstance(item, dict):
-                # Structured format: {entry, timestamp}
-                history_entries.append(CalculatorHistoryEntry(
-                    entry=item.get('entry', ''),
-                    timestamp=item.get('timestamp', datetime.utcnow().isoformat())
-                ))
+                # Old structured format: {entry, timestamp} - extract just entry
+                entry = item.get('entry', '')
+                # Clean any timestamp suffix from entry
+                if entry:
+                    entry = re.sub(r'\s+\d{4}[-/]\d{2}[-/]\d{2}(\s+\d{2}:\d{2}(:\d{2})?)?$', '', entry).strip()
+                history_strings.append(entry)
             elif isinstance(item, str):
-                # Legacy format: just the entry string
-                history_entries.append(CalculatorHistoryEntry(
-                    entry=item,
-                    timestamp=datetime.utcnow().isoformat()
-                ))
-    
-    return CalculatorHistoryResponse(success=True, history=history_entries)
+                # Clean any timestamp suffix from entry
+                entry = re.sub(r'\s+\d{4}[-/]\d{2}[-/]\d{2}(\s+\d{2}:\d{2}(:\d{2})?)?$', '', item).strip()
+                history_strings.append(entry)
+
+    return CalculatorHistoryResponse(success=True, history=history_strings)
 
 
 @router.patch("/calculator/history")
@@ -555,32 +533,25 @@ async def update_calculator_history(
 ):
     """
     Update user's calculator history for cross-device sync.
-    
-    Accepts structured history entries with timestamps.
-    Stores as JSON array in user_preferences.
+
+    Accepts simple string list. Stores as JSON array in user_preferences.
     """
     import json
-    
-    # Convert to structured format for storage
-    history_data = [
-        {
-            'entry': entry.entry,
-            'timestamp': entry.timestamp
-        }
-        for entry in data.history
-    ]
-    
+
+    # Store as simple string list
+    history_data = data.history
+
     # Log for monitoring
     logger.info(
         f"Calculator history updated: {len(history_data)} entries for license {license['license_id']}",
         extra={"license_id": license["license_id"], "entry_count": len(history_data)}
     )
-    
+
     await update_preferences(
         license["license_id"],
         calculator_history=json.dumps(history_data)
     )
-    
+
     return {"success": True, "message": "تم حفظ سجل الحاسبة"}
 
 

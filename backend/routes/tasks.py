@@ -259,13 +259,14 @@ async def create_new_task(
     task_dict["attachments"] = processed_attachments
     if not task_dict.get("created_by"):
         task_dict["created_by"] = user["user_id"]
-        
+
     try:
-        result = await create_task(license_id, task_dict)
-        
+        # FIX: Pass user_id for shared task access check
+        result = await create_task(license_id, task_dict, user_id=user["user_id"])
+
         # Note: If result differs from input (e.g., LWW conflict resolution used server version),
         # the client will receive the server's version and can update its local state.
-        
+
         # Safety check: If result is still None, there was an actual error (e.g., constraint violation)
         if not result:
             logger.error(
@@ -682,7 +683,8 @@ async def update_existing_task(
 
                 # Create the spawned task
                 from models.tasks import create_task
-                await create_task(license_id, cloned_task)
+                # FIX: Pass user_id for shared task access check
+                await create_task(license_id, cloned_task, user_id=user["user_id"])
 
                 # Broadcaster: Notify all clients to pull the newly spawned task
                 background_tasks.add_task(broadcast_task_sync, license_id, task_id=new_task_id, change_type="create")

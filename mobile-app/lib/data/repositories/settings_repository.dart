@@ -83,20 +83,19 @@ class SettingsRepository {
   }
 
   /// Get calculator history from dedicated endpoint
-  Future<List<Map<String, dynamic>>> getCalculatorHistory() async {
+  Future<List<String>> getCalculatorHistory() async {
     try {
       final response = await _apiClient.get(Endpoints.calculatorHistory);
-      
+
       if (response.containsKey('history') && response['history'] is List) {
         final List<dynamic> historyList = response['history'];
         return historyList.map((item) {
-          if (item is Map<String, dynamic>) {
-            return {
-              'entry': item['entry'] as String? ?? '',
-              'timestamp': item['timestamp'] as String? ?? DateTime.now().toIso8601String(),
-            };
+          if (item is String) {
+            return item;
+          } else if (item is Map<String, dynamic>) {
+            return item['entry'] as String? ?? '';
           }
-          return <String, dynamic>{};
+          return '';
         }).where((item) => item.isNotEmpty).toList();
       }
       return [];
@@ -107,16 +106,11 @@ class SettingsRepository {
   }
 
   /// Update calculator history via dedicated endpoint
-  Future<void> updateCalculatorHistory(List<Map<String, dynamic>> history) async {
+  Future<void> updateCalculatorHistory(List<String> history) async {
     try {
-      final historyData = history.map((entry) => {
-        'entry': entry['entry'] as String,
-        'timestamp': entry['timestamp'] as String,
-      }).toList();
-
       await _apiClient.patch(
         Endpoints.calculatorHistory,
-        body: {'history': historyData},
+        body: {'history': history},
       );
     } catch (e) {
       debugPrint('SettingsRepository: Failed to update calculator history: $e');

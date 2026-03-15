@@ -78,7 +78,8 @@ async def add_global_task(
         # Issue #12: Add audit trail
         task_data["created_by"] = admin_key
 
-        result = await create_task(0, task_data)
+        # FIX: Pass user_id=None for global tasks (no specific user context)
+        result = await create_task(0, task_data, user_id=None)
 
         # Trigger real-time sync across all clients
         background_tasks.add_task(broadcast_global_sync, "task_sync")

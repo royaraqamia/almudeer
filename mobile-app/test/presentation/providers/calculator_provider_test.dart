@@ -39,9 +39,9 @@ void main() {
       calculatorProvider.append('+');
       calculatorProvider.append('5');
       await calculatorProvider.evaluate();
-      
+
       final user1History = List.from(calculatorProvider.history);
-      expect(user1History.any((e) => e['entry'].toString().startsWith('5+5 = 10')), isTrue);
+      expect(user1History.any((e) => e.toString().startsWith('5+5 = 10')), isTrue);
 
       // User 2 - should have separate history
       await calculatorProvider.setUserId('user2');
@@ -52,12 +52,12 @@ void main() {
       calculatorProvider.append('×');
       calculatorProvider.append('2');
       await calculatorProvider.evaluate();
-      expect(calculatorProvider.history.any((e) => e['entry'].toString().startsWith('2×2 = 4')), isTrue);
+      expect(calculatorProvider.history.any((e) => e.toString().startsWith('2×2 = 4')), isTrue);
 
       // Back to User 1 - should still have original history
       await calculatorProvider.setUserId('user1');
-      expect(calculatorProvider.history.any((e) => e['entry'].toString().startsWith('5+5 = 10')), isTrue);
-      expect(calculatorProvider.history.any((e) => e['entry'].toString().startsWith('2×2 = 4')), isFalse);
+      expect(calculatorProvider.history.any((e) => e.toString().startsWith('5+5 = 10')), isTrue);
+      expect(calculatorProvider.history.any((e) => e.toString().startsWith('2×2 = 4')), isFalse);
     });
 
     test('Operator replacement works correctly', () async {

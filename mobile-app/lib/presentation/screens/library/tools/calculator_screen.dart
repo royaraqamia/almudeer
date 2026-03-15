@@ -559,9 +559,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
                         : AppColors.borderLight.withValues(alpha: 0.3),
                   ),
                   itemBuilder: (context, index) {
-                    final entryMap = provider.history[index];
-                    // Display format: extract entry from structured format
-                    final displayEntry = entryMap['entry'] as String? ?? '';
+                    final displayEntry = provider.history[index];
                     return Container(
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(12),
