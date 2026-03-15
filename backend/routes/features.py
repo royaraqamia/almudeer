@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Union
 from datetime import datetime, timedelta
 import logging
+import re
 
 from models import (
     get_customers,
@@ -489,9 +490,8 @@ async def get_calculator_history(
     Get user's calculator history for cross-device sync.
 
     Returns simple string list of calculation entries.
+    Cleans any timestamps from entries on read.
     """
-    import re
-    
     prefs = await get_preferences(license["license_id"])
     raw_history = prefs.get('calculator_history', [])
 
@@ -505,21 +505,22 @@ async def get_calculator_history(
         except (json.JSONDecodeError, TypeError):
             raw_history = []
 
-    # Convert to simple string list
+    # Convert to simple string list and clean timestamps
     history_strings = []
     if isinstance(raw_history, list):
         for item in raw_history:
+            entry = ''
             if isinstance(item, dict):
                 # Old structured format: {entry, timestamp} - extract just entry
                 entry = item.get('entry', '')
-                # Clean any timestamp suffix from entry
-                if entry:
-                    entry = re.sub(r'\s+\d{4}[-/]\d{2}[-/]\d{2}(\s+\d{2}:\d{2}(:\d{2})?)?$', '', entry).strip()
-                history_strings.append(entry)
             elif isinstance(item, str):
-                # Clean any timestamp suffix from entry
-                entry = re.sub(r'\s+\d{4}[-/]\d{2}[-/]\d{2}(\s+\d{2}:\d{2}(:\d{2})?)?$', '', item).strip()
-                history_strings.append(entry)
+                entry = item
+            
+            # Clean any timestamp suffix from entry
+            # Matches formats like: " 2024-01-01", " 2024/01/01 10:30", " 2024-01-01T10:30:00Z"
+            if entry:
+                entry = re.sub(r'\s+\d{4}[-/T]\d{2}[-/]\d{2}([T\s]\d{2}:\d{2}(:\d{2})?([.,]\d+)?(Z|[+-]\d{2}:\d{2})?)?$', '', entry).strip()
+            history_strings.append(entry)
 
     return CalculatorHistoryResponse(success=True, history=history_strings)
 
@@ -534,12 +535,16 @@ async def update_calculator_history(
     """
     Update user's calculator history for cross-device sync.
 
-    Accepts simple string list. Stores as JSON array in user_preferences.
+    Accepts simple string list. Cleans timestamps and stores as JSON array.
     """
     import json
 
-    # Store as simple string list
-    history_data = data.history
+    # Clean any timestamps from entries before storing
+    history_data = []
+    for entry in data.history:
+        # Clean any timestamp suffix from entry
+        cleaned = re.sub(r'\s+\d{4}[-/T]\d{2}[-/]\d{2}([T\s]\d{2}:\d{2}(:\d{2})?([.,]\d+)?(Z|[+-]\d{2}:\d{2})?)?$', '', entry).strip()
+        history_data.append(cleaned)
 
     # Log for monitoring
     logger.info(

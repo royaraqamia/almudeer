@@ -704,7 +704,8 @@ async def create_task(license_id: int, task_data: dict, user_id: str = None) -> 
 
                                 if task_with_other_license:
                                     # This is a shared task - return it with proper permission info
-                                    result = dict(task_with_other_license)
+                                    # FIX: Parse the row through _parse_task_row to convert JSON strings to lists
+                                    result = _parse_task_row(dict(task_with_other_license))
                                     # Add share_permission to the result
                                     share_info = await fetch_one(db2, """
                                         SELECT permission FROM task_shares

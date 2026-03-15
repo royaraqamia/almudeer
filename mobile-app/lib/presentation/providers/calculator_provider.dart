@@ -538,23 +538,21 @@ class CalculatorProvider extends ChangeNotifier {
       final historyJson = prefs.getString(key);
       if (historyJson != null) {
         final historyRaw = List<dynamic>.from(jsonDecode(historyJson));
-        // Migrate old Map format to simple strings and clean timestamps
         _history = historyRaw.map((e) {
           String entryStr;
           if (e is String) {
             entryStr = e;
           } else if (e is Map<String, dynamic>) {
             entryStr = e['entry'] as String? ?? '';
+          } else if (e is Map) {
+            entryStr = e['entry'] as String? ?? '';
           } else {
             entryStr = '';
           }
-          // Clean timestamp from entry string if present
-          // Format: "5+5 = 10 2024-01-01" or "5+5 = 10 2024/01/01"
           entryStr = _cleanTimestampFromEntry(entryStr);
           return entryStr;
         }).where((e) => e.isNotEmpty).toList();
         
-        // Save cleaned history back to storage
         await prefs.setString(key, jsonEncode(_history));
         
         debugPrint(
@@ -573,13 +571,22 @@ class CalculatorProvider extends ChangeNotifier {
 
   /// Remove timestamp suffix from entry string
   /// Handles formats like: "5+5 = 10 2024-01-01" or "5+5 = 10 2024/01/01 10:00"
+  /// or "5+5 = 10 2024-01-01T10:30:00Z"
   String _cleanTimestampFromEntry(String entry) {
+    if (entry.isEmpty) return entry;
+    
     // Pattern to match date/timestamp at the end of the string
-    // Matches: YYYY-MM-DD, YYYY/MM/DD, with optional time
+    // Matches: YYYY-MM-DD, YYYY/MM/DD, YYYY-MM-DDTHH:MM:SS, with optional time
     final timestampPattern = RegExp(
-      r'\s+\d{4}[-/]\d{2}[-/]\d{2}(\s+\d{2}:\d{2}(:\d{2})?)?$',
+      r'\s+\d{4}[-/T]\d{2}[-/]\d{2}([T\s]\d{2}:\d{2}(:\d{2})?([.,]\d+)?(Z|[+-]\d{2}:\d{2})?)?$',
     );
-    return entry.replaceAll(timestampPattern, '').trim();
+    
+    String cleaned = entry.replaceAll(timestampPattern, '').trim();
+    
+    // Also clean any JSON-like timestamp patterns
+    cleaned = cleaned.replaceAll(RegExp(r'\s*\{[^}]*timestamp[^}]*\}\s*'), '').trim();
+    
+    return cleaned;
   }
 
   Future<void> _addToHistory(String entry) async {
