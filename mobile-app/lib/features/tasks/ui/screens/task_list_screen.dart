@@ -316,13 +316,18 @@ class _TaskListScreenState extends State<TaskListScreen> {
                     final task = overdue[index];
                     return StaggeredAnimatedItem(
                       index: index,
-                      child: TaskListItem(
-                        task: task,
-                        isSelectionMode: provider.isSelectionMode,
-                        isSelected: provider.selectedIds.contains(task.id),
-                        onSelectionChanged: (_) =>
-                            provider.toggleSelection(task.id),
-                        onComplete: () => showConfetti(context),
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                          bottom: AppDimensions.spacing12,
+                        ),
+                        child: TaskListItem(
+                          task: task,
+                          isSelectionMode: provider.isSelectionMode,
+                          isSelected: provider.selectedIds.contains(task.id),
+                          onSelectionChanged: (_) =>
+                              provider.toggleSelection(task.id),
+                          onComplete: () => showConfetti(context),
+                        ),
                       ),
                     );
                   }, childCount: overdue.length),
@@ -333,13 +338,18 @@ class _TaskListScreenState extends State<TaskListScreen> {
                     final task = todayTasksList[index];
                     return StaggeredAnimatedItem(
                       index: index + overdue.length,
-                      child: TaskListItem(
-                        task: task,
-                        isSelectionMode: provider.isSelectionMode,
-                        isSelected: provider.selectedIds.contains(task.id),
-                        onSelectionChanged: (_) =>
-                            provider.toggleSelection(task.id),
-                        onComplete: () => showConfetti(context),
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                          bottom: AppDimensions.spacing12,
+                        ),
+                        child: TaskListItem(
+                          task: task,
+                          isSelectionMode: provider.isSelectionMode,
+                          isSelected: provider.selectedIds.contains(task.id),
+                          onSelectionChanged: (_) =>
+                              provider.toggleSelection(task.id),
+                          onComplete: () => showConfetti(context),
+                        ),
                       ),
                     );
                   }, childCount: todayTasksList.length),
@@ -350,13 +360,18 @@ class _TaskListScreenState extends State<TaskListScreen> {
                     final task = laterTasks[index];
                     return StaggeredAnimatedItem(
                       index: index + overdue.length + todayTasksList.length,
-                      child: TaskListItem(
-                        task: task,
-                        isSelectionMode: provider.isSelectionMode,
-                        isSelected: provider.selectedIds.contains(task.id),
-                        onSelectionChanged: (_) =>
-                            provider.toggleSelection(task.id),
-                        onComplete: () => showConfetti(context),
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                          bottom: AppDimensions.spacing12,
+                        ),
+                        child: TaskListItem(
+                          task: task,
+                          isSelectionMode: provider.isSelectionMode,
+                          isSelected: provider.selectedIds.contains(task.id),
+                          onSelectionChanged: (_) =>
+                              provider.toggleSelection(task.id),
+                          onComplete: () => showConfetti(context),
+                        ),
                       ),
                     );
                   }, childCount: laterTasks.length),
@@ -371,13 +386,18 @@ class _TaskListScreenState extends State<TaskListScreen> {
                           overdue.length +
                           todayTasksList.length +
                           laterTasks.length,
-                      child: TaskListItem(
-                        task: task,
-                        isSelectionMode: provider.isSelectionMode,
-                        isSelected: provider.selectedIds.contains(task.id),
-                        onSelectionChanged: (_) =>
-                            provider.toggleSelection(task.id),
-                        onComplete: () => showConfetti(context),
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                          bottom: AppDimensions.spacing12,
+                        ),
+                        child: TaskListItem(
+                          task: task,
+                          isSelectionMode: provider.isSelectionMode,
+                          isSelected: provider.selectedIds.contains(task.id),
+                          onSelectionChanged: (_) =>
+                              provider.toggleSelection(task.id),
+                          onComplete: () => showConfetti(context),
+                        ),
                       ),
                     );
                   }, childCount: completedTasks.length),
@@ -395,12 +415,17 @@ class _TaskListScreenState extends State<TaskListScreen> {
             return ReorderableDelayedDragStartListener(
               key: ValueKey(task.id),
               index: index,
-              child: TaskListItem(
-                task: task,
-                isSelectionMode: provider.isSelectionMode,
-                isSelected: provider.selectedIds.contains(task.id),
-                onSelectionChanged: (_) => provider.toggleSelection(task.id),
-                onComplete: () => showConfetti(context),
+              child: Padding(
+                padding: const EdgeInsets.only(
+                  bottom: AppDimensions.spacing12,
+                ),
+                child: TaskListItem(
+                  task: task,
+                  isSelectionMode: provider.isSelectionMode,
+                  isSelected: provider.selectedIds.contains(task.id),
+                  onSelectionChanged: (_) => provider.toggleSelection(task.id),
+                  onComplete: () => showConfetti(context),
+                ),
               ),
             );
           },

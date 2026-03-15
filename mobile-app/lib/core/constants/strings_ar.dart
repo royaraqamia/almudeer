@@ -28,6 +28,18 @@ class AppStrings {
   static const String addNewAccount = 'إضافة حساب جديد';
   static const String removeAccount = 'حذف الحساب';
   static const String confirmRemoveAccount = 'هل أنت متأكد من حذف هذا الحساب؟';
+  static const String showAllAccounts = 'إظهار الكل';
+  static const String showLessAccounts = 'إظهار أقل';
+  static const String longPressToRemove = 'اضغط مطولاً للحذف';
+  static const String loginSubtitle = 'أدخِل مفتاح الاشتراك للمتابعة';
+  static const String activeAccount = 'الحساب النشط';
+  static const String licenseKeyFormatHint = 'التنسيق: MUDEER-XXXX-XXXX-XXXX';
+  static const String loginEmptyStateHint = 'احصل على مفتاحك عبر واتساب للبدء';
+  static const String or = 'أو';
+  static const String rateLimitWarning =
+      'لحماية حسابك، يرجى الانتظار قليلًا قبل المحاولة مجددًا';
+  static const String pasteFromClipboard = 'لصق من الحافظة';
+  static const String clear = 'مسح';
 
   // Login Errors - Apple HIG: Clear, actionable, not alarming
   static const String errorLicenseRequired =

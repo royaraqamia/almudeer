@@ -36,7 +36,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
   late AnimationController _progressController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _progressAnimation;
-  late bool _prefersReducedMotion;
+  bool _prefersReducedMotion = false;
 
   // Cache for formatted dates to avoid redundant Hijri conversions
   final Map<String, String> _dateCache = {};
@@ -44,8 +44,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
   @override
   void initState() {
     super.initState();
-    _prefersReducedMotion = AppAnimations.prefersReducedMotion(context);
     _initAnimations();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Initialize prefersReducedMotion here since it requires MediaQuery
+    _prefersReducedMotion = AppAnimations.prefersReducedMotion(context);
   }
 
   void _initAnimations() {

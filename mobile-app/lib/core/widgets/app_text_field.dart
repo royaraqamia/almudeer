@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:figma_squircle/figma_squircle.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
 import '../constants/colors.dart';
@@ -48,11 +49,13 @@ class AppTextField extends StatefulWidget {
   final TextStyle? style;
   final TextStyle? hintStyle;
   final bool useFloatingLabel;
-  
+
   // Apple HIG: Auto-capitalization controls
   final bool autocorrect;
   final bool enableSuggestions;
   final TextCapitalization textCapitalization;
+  final List<TextInputFormatter>? inputFormatters;
+  final bool autofocus;
 
   const AppTextField({
     super.key,
@@ -94,6 +97,8 @@ class AppTextField extends StatefulWidget {
     this.autocorrect = false,
     this.enableSuggestions = false,
     this.textCapitalization = TextCapitalization.none,
+    this.inputFormatters,
+    this.autofocus = false,
   });
 
   @override
@@ -350,11 +355,10 @@ class _AppTextFieldState extends State<AppTextField> {
                       : TextAlign.left),
               textDirection: Directionality.of(context),
               focusNode: _focusNode,
-              textAlignVertical:
-                  widget.textAlignVertical ??
-                  (isMultiline
-                      ? TextAlignVertical.center
-                      : TextAlignVertical.center),
+              // Only set textAlignVertical for multiline fields to avoid vertical caret movement issues
+              textAlignVertical: isMultiline
+                  ? (widget.textAlignVertical ?? TextAlignVertical.center)
+                  : widget.textAlignVertical,
               style:
                   widget.style ??
                   TextStyle(
@@ -370,6 +374,8 @@ class _AppTextFieldState extends State<AppTextField> {
               autocorrect: widget.autocorrect,
               enableSuggestions: widget.enableSuggestions,
               textCapitalization: widget.textCapitalization,
+              inputFormatters: widget.inputFormatters,
+              autofocus: widget.autofocus,
               decoration: InputDecoration(
                 hintText: widget.useFloatingLabel ? null : widget.hintText,
                 hintStyle:

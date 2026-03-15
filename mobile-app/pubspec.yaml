@@ -126,6 +126,7 @@ dependencies:
     git: https://github.com/justkawal/excel.git
   equatable: 2.0.8
   app_links: 7.0.0
+  characters: ^1.4.0
 
 
 dev_dependencies:

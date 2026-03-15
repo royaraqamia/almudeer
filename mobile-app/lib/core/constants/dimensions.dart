@@ -34,6 +34,14 @@ class AppDimensions {
   static const double paddingLarge = 24.0;
   static const double paddingXLarge = 32.0;
 
+  // Responsive breakpoints
+  static const double breakpointSmallHeight = 600.0;
+  static const double loginCardMaxWidth = 480.0;
+  static const double loginCardPaddingSmall = 24.0;
+  static const double loginCardPaddingLarge = 36.0;
+  static const double loginCardHorizontalPaddingSmall = 20.0;
+  static const double loginCardHorizontalPaddingLarge = 24.0;
+
   // ─────────────────────────────────────────────────────────────────
   // Border Radius (Component-Specific Naming)
   // Web uses --radius: 0.625rem = 10px as base
@@ -43,6 +51,7 @@ class AppDimensions {
   static const double radiusDefault = 10.0; // Matches web --radius
   static const double radiusLarge = 12.0;
   static const double radiusXLarge = 16.0;
+  static const double radiusLoginCard = 20.0; // Unified login card radius
   static const double radiusXXLarge = 24.0;
   static const double radiusFull = 999.0;
   
@@ -125,4 +134,73 @@ class AppDimensions {
   static const int animationDurationFast = 150;
   static const int animationDurationMedium = 300;
   static const int animationDurationSlow = 500;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Login Screen Dimensions
+  // ─────────────────────────────────────────────────────────────────
+  // Icon container
+  static const double loginIconContainerSize = 88.0;
+  static const double loginIconSize = 42.0;
+
+  // Spacing
+  static const double loginIconMarginTop = 28.0;
+  static const double loginTitleMarginTop = 8.0;
+  static const double loginSubtitleMarginTop = 8.0;
+  static const double loginFieldMarginTop = 32.0;
+  static const double loginButtonMarginTop = 16.0;
+  static const double loginErrorMarginTop = 16.0;
+  static const double loginAccountsMarginTop = 24.0;
+  static const double loginWhatsAppMarginTop = 24.0; // Reduced from 48px
+
+  // Typography
+  static const double loginTitleSize = 24.0;
+  static const double loginSubtitleSize = 15.0;
+  static const double loginLabelSize = 14.0;
+  static const double loginHintSize = 12.0;
+  static const double loginErrorSize = 13.0;
+  static const double loginShowMoreSize = 14.0;
+  static const double loginEmptyStateSize = 13.0;
+
+  // Account card
+  static const double accountCardPaddingHorizontal = 16.0;
+  static const double accountCardPaddingVertical = 12.0;
+  static const double accountCardMarginBottom = 8.0;
+  static const double accountAvatarRadius = 20.0;
+  static const double accountNameSize = 14.0;
+  static const double accountUsernameSize = 12.0;
+  static const double accountBadgePaddingHorizontal = 8.0;
+  static const double accountBadgePaddingVertical = 4.0;
+  static const double accountIconSize = 20.0;
+  static const double accountBadgeIconSize = 14.0;
+  static const double accountActiveScale = 1.02; // Subtle scale for active state
+
+  // Error message
+  static const double errorPadding = 12.0;
+  static const double errorIconSize = 20.0;
+  static const double errorIconMarginEnd = 12.0;
+
+  // Header
+  static const double headerLogoHeight = 32.0;
+  static const double headerLogoMarginEnd = 8.0;
+  static const double headerTitleSize = 20.0;
+
+  // WhatsApp button
+  static const double whatsappIconSize = 20.0;
+  static const double whatsappDividerMarginTop = 24.0;
+  static const double whatsappDividerMarginBottom = 16.0;
+
+  // Show more/less button
+  static const double showMoreMarginTop = 4.0;
+  static const double showMoreMarginBottom = 8.0;
+  static const double showMoreLabelMarginEnd = 4.0;
+  static const double showMoreLabelMarginBottom = 12.0;
+
+  // Screen spacing
+  static const double loginScreenTopPaddingSmall = 16.0;
+  static const double loginScreenTopPaddingLarge = 24.0;
+  static const double loginScreenHeaderMarginSmall = 24.0;
+  static const double loginScreenHeaderMarginLarge = 32.0;
+
+  // Saved accounts list
+  static const int loginMaxVisibleAccounts = 4;
 }
