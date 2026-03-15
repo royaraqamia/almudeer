@@ -62,8 +62,6 @@ class _MessageInputSectionState extends State<MessageInputSection> {
   // Editing State
   int? _lastEditingId;
 
-  // Sending State
-  bool _isSending = false;
 
   // UI State
   bool _showEmoji = false;
@@ -109,49 +107,24 @@ class _MessageInputSectionState extends State<MessageInputSection> {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
-    // FIX: Prevent double-send and show loading state
-    if (_isSending) return;
-
     Haptics.lightTap();
     _controller.clear();
 
-    try {
-      setState(() {
-        _isSending = true;
-      });
-
-      await widget.onSend(
-        text,
-        replyToPlatformId: widget.replyToPlatformId,
-        replyToBodyPreview: widget.replyToBodyPreview,
-      );
-
-      // Clear draft on successful send
-      if (mounted) {
-        final provider = context.read<ConversationDetailProvider>();
-        final contact = provider.senderContact;
-        if (contact != null) {
-          provider.clearDraft(contact);
-        }
-      }
-
-      if (widget.onCancelReply != null) widget.onCancelReply!();
-    } catch (_) {
-      // Re-enable send on error
-      if (mounted) {
-        setState(() {
-          _isSending = false;
-        });
-      }
-      rethrow;
-    } finally {
-      // Always reset sending state
-      if (mounted) {
-        setState(() {
-          _isSending = false;
-        });
+    // Clear draft and reply immediately for better UX
+    if (mounted) {
+      final provider = context.read<ConversationDetailProvider>();
+      final contact = provider.senderContact;
+      if (contact != null) {
+        provider.clearDraft(contact);
       }
     }
+    if (widget.onCancelReply != null) widget.onCancelReply!();
+
+    await widget.onSend(
+      text,
+      replyToPlatformId: widget.replyToPlatformId,
+      replyToBodyPreview: widget.replyToBodyPreview,
+    );
   }
 
   Timer? _typingTimer;
@@ -666,16 +639,7 @@ class _MessageInputSectionState extends State<MessageInputSection> {
             highlightColor: AppColors.primary.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(26),
             child: Center(
-              child: _isSending
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : isRtl == TextDirection.rtl
+              child: isRtl == TextDirection.rtl
                   ? const Icon(
                       SolarBoldIcons.plain2,
                       color: Colors.white,

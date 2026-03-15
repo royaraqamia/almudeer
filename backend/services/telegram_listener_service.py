@@ -62,10 +62,21 @@ class TelegramListenerService:
         # Replaces local PID file to support multiple deployments sharing a DB (e.g. Railway Rolling Updates)
         # Use a fixed key for Telegram Service (e.g. 884848)
         from services.distributed_lock import DistributedLock
-        
-        self.distributed_lock = DistributedLock(lock_id=884848, lock_name="telegram_listener")
+
+        # Callback to restart monitor task if lock is re-acquired after connection recovery
+        async def on_lock_reacquired():
+            logger.info("Lock re-acquired, restarting session monitor...")
+            if not self.monitor_task or self.monitor_task.done():
+                self.monitor_task = asyncio.create_task(self._monitor_sessions())
+                logger.info("Session monitor task restarted.")
+
+        self.distributed_lock = DistributedLock(
+            lock_id=884848,
+            lock_name="telegram_listener",
+            on_reacquire_callback=on_lock_reacquired
+        )
         acquired = await self.distributed_lock.acquire()
-        
+
         if not acquired:
             logger.warning("Telegram Listener Lock is held by another process/deployment. Entering Standby Mode.")
             # We do NOT return or stop completely - we just don't start the monitor task.

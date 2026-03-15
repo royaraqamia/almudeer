@@ -6,12 +6,12 @@ import '../../../../core/constants/colors.dart';
 import '../../../providers/settings_provider.dart';
 import '../../../widgets/animated_toast.dart';
 import '../../../widgets/custom_dialog.dart';
-import '../../../../core/widgets/app_gradient_button.dart';
 
 // Sub-widgets
 import 'integrations/integration_card.dart';
 import 'integrations/channel_settings_form.dart';
 import 'integrations/telegram_setup_form.dart';
+import 'integrations/telegram_phone_setup_form.dart';
 
 class IntegrationsSection extends StatefulWidget {
   const IntegrationsSection({super.key});
@@ -128,19 +128,8 @@ class _IntegrationsSectionState extends State<IntegrationsSection>
   Future<void> _saveSetup(String type) async {
     final settingsProvider = context.read<SettingsProvider>();
     if (type == 'telegram_phone') {
-      final result = await Navigator.of(
-        context,
-      ).pushNamed('/integrations/telegram-phone-setup');
-      if (result == true) {
-        setState(() => _loadingStates['telegram_phone'] = true);
-        await settingsProvider.loadIntegrations();
-        if (mounted) {
-          setState(() {
-            _loadingStates['telegram_phone'] = false;
-            _expandedStates['telegram_phone'] = true;
-          });
-        }
-      }
+      // Set loading state for telegram_phone - actual flow is handled inline
+      setState(() => _loadingStates['telegram_phone'] = true);
       return;
     }
 
@@ -248,26 +237,22 @@ class _IntegrationsSectionState extends State<IntegrationsSection>
           onSave: () => _saveSetup(type),
         );
       case 'telegram_phone':
-        return Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              const Text(
-                'يمكنك ربط حسابك الشخصي في تيليجرام لتتمكن من الرد على الرسائل مباشرة من داخل التطبيق.',
-                style: TextStyle(height: 1.5, fontSize: 13),
-                textAlign: TextAlign.right,
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: AppGradientButton(
-                  onPressed: () => _saveSetup(type),
-                  text: 'بدء الربط برقم الهاتف',
-                  gradientColors: const [Color(0xFF2563EB), Color(0xFF0891B2)],
-                ),
-              ),
-            ],
-          ),
+        return TelegramPhoneSetupForm(
+          onComplete: () async {
+            final settingsProvider = context.read<SettingsProvider>();
+            AnimatedToast.success(context, 'تم ربط Telegram بنجاح!');
+            setState(() {
+              _loadingStates['telegram_phone'] = false;
+              _expandedStates['telegram_phone'] = true;
+            });
+            await settingsProvider.loadIntegrations();
+          },
+          onError: (error) {
+            AnimatedToast.error(context, error);
+            setState(() {
+              _loadingStates['telegram_phone'] = false;
+            });
+          },
         );
       default:
         return const SizedBox.shrink();

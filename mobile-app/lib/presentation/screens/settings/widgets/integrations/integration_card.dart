@@ -29,6 +29,9 @@ class IntegrationCard extends StatelessWidget {
     final isConnected = data['is_connected'] as bool? ?? false;
     final color = data['color'] as Color;
     final isDark = theme.brightness == Brightness.dark;
+    final type = data['type'] as String?;
+    final isTelegramPhone = type == 'telegram_phone';
+    final shouldExpand = isExpanded || (isLoading && isTelegramPhone);
 
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0, end: isConnected ? 1 : 0),
@@ -71,15 +74,17 @@ class IntegrationCard extends StatelessWidget {
         children: [
           // Header
           InkWell(
-            onTap: () => onExpandChanged(!isExpanded),
+            onTap: isTelegramPhone && isLoading
+                ? null
+                : () => onExpandChanged(!isExpanded),
             borderRadius: BorderRadius.only(
               topLeft: const Radius.circular(AppDimensions.radiusLarge),
               topRight: const Radius.circular(AppDimensions.radiusLarge),
               bottomLeft: Radius.circular(
-                isExpanded ? 0 : AppDimensions.radiusLarge,
+                shouldExpand ? 0 : AppDimensions.radiusLarge,
               ),
               bottomRight: Radius.circular(
-                isExpanded ? 0 : AppDimensions.radiusLarge,
+                shouldExpand ? 0 : AppDimensions.radiusLarge,
               ),
             ),
             child: Padding(
@@ -164,7 +169,7 @@ class IntegrationCard extends StatelessWidget {
                         ),
                       ),
                     )
-                  else
+                  else if (!isTelegramPhone)
                     AnimatedRotation(
                       duration: const Duration(milliseconds: 200),
                       turns: isExpanded ? 0.5 : 0,
@@ -191,7 +196,7 @@ class IntegrationCard extends StatelessWidget {
           AnimatedSize(
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeInOut,
-            child: isExpanded
+            child: shouldExpand
                 ? Container(
                     width: double.infinity,
                     decoration: BoxDecoration(
