@@ -233,12 +233,14 @@ async def save_fcm_token(
             if DB_TYPE == "postgresql" and device_id:
                 # When device_id is provided, we can use it for atomic upsert
                 # The UPSERT handles: same device registering with a new token (token refresh)
+                # Note: Use ON CONFLICT (columns) instead of ON CONFLICT ON CONSTRAINT
+                # because the unique index may not exist or may have a different name
                 result = await fetch_one(
                     db,
                     """
                     INSERT INTO fcm_tokens (license_key_id, user_id, token, platform, device_id, updated_at)
                     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    ON CONFLICT ON CONSTRAINT idx_fcm_device_license_unique DO UPDATE SET
+                    ON CONFLICT (device_id, license_key_id) DO UPDATE SET
                         license_key_id = EXCLUDED.license_key_id,
                         user_id = EXCLUDED.user_id,
                         token = EXCLUDED.token,
@@ -249,7 +251,7 @@ async def save_fcm_token(
                     """,
                     [license_id, user_id, token, platform, device_id]
                 )
-                
+
                 if result:
                     # Clean up any orphaned tokens without device_id for this license
                     await execute_sql(
@@ -306,13 +308,15 @@ async def save_fcm_token(
             
             # No existing record found, insert new one
             if DB_TYPE == "postgresql":
-                # PostgreSQL: UPSERT on token constraint
+                # PostgreSQL: UPSERT on token unique index
+                # Use ON CONFLICT (token) instead of ON CONFLICT ON CONSTRAINT
+                # because the unique index may not exist or may have a different name
                 result = await fetch_one(
                     db,
                     """
                     INSERT INTO fcm_tokens (license_key_id, user_id, token, platform, device_id, updated_at)
                     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    ON CONFLICT ON CONSTRAINT idx_fcm_token_unique DO UPDATE SET
+                    ON CONFLICT (token) DO UPDATE SET
                         license_key_id = EXCLUDED.license_key_id,
                         user_id = EXCLUDED.user_id,
                         platform = EXCLUDED.platform,
@@ -323,7 +327,7 @@ async def save_fcm_token(
                     """,
                     [license_id, user_id, token, platform, device_id]
                 )
-                
+
                 if result:
                     if device_id:
                         await execute_sql(
