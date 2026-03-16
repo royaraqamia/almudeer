@@ -477,7 +477,10 @@ async def process_whatsapp_change(phone_number_id: str, payload: dict, value: di
                     body=body_text,
                     received_at=msg.get("timestamp"),
                     attachments=attachments if attachments else None,
-                    is_forwarded=msg.get("is_forwarded", False)
+                    is_forwarded=msg.get("is_forwarded", False),
+                    reply_to_platform_id=msg.get("reply_to_platform_id"),
+                    reply_to_body_preview=msg.get("reply_to_body_preview"),
+                    reply_to_sender_name=msg.get("reply_to_sender_name")
                 )
 
                 # 6. Create Notification

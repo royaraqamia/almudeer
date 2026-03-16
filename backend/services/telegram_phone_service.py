@@ -712,6 +712,44 @@ class TelegramPhoneService:
                                 phone = "+" + phone
                             sender_contact = phone or (f"@{sender.username}" if sender.username else str(sender.id))
                         
+                        # Extract reply context
+                        reply_to_platform_id = None
+                        reply_to_body_preview = None
+                        reply_to_sender_name = None
+                        
+                        if message.reply_to and hasattr(message.reply_to, 'reply_to_msg_id'):
+                            reply_to_platform_id = str(message.reply_to.reply_to_msg_id)
+                            
+                            # Try to fetch the replied message for context
+                            try:
+                                replied_message = await message.get_reply_message()
+                                if replied_message:
+                                    # Extract body preview
+                                    replied_text = replied_message.text or replied_message.message or ""
+                                    if not replied_text:
+                                        # Check for media
+                                        if replied_message.photo:
+                                            replied_text = "[صورة]"
+                                        elif replied_message.voice:
+                                            replied_text = "[رسالة صوتية]"
+                                        elif replied_message.audio:
+                                            replied_text = "[ملف صوتي]"
+                                        elif replied_message.video:
+                                            replied_text = "[فيديو]"
+                                        elif replied_message.document:
+                                            replied_text = "[ملف]"
+                                    reply_to_body_preview = replied_text[:100] if replied_text else None
+                                    
+                                    # Extract sender name
+                                    replied_sender = await replied_message.get_sender()
+                                    if replied_sender:
+                                        sender_first = getattr(replied_sender, 'first_name', '') or ''
+                                        sender_last = getattr(replied_sender, 'last_name', '') or ''
+                                        sender_username = getattr(replied_sender, 'username', '') or ''
+                                        replied_sender_name = f"{sender_first} {sender_last}".strip() or sender_username or "مستخدم"
+                            except Exception as reply_e:
+                                logger.warning(f"Could not fetch replied message context during history sync: {reply_e}")
+
                         messages_data.append({
                             "channel_message_id": str(message.id),
                             "sender_id": str(sender.id) if sender else None,
@@ -725,7 +763,9 @@ class TelegramPhoneService:
                             "is_group": dialog.is_group,
                             "attachments": [],
                             "direction": "incoming", # Mark as incoming
-                            "reply_to_platform_id": str(message.reply_to.reply_to_msg_id) if (message.reply_to and hasattr(message.reply_to, 'reply_to_msg_id')) else None
+                            "reply_to_platform_id": reply_to_platform_id,
+                            "reply_to_body_preview": reply_to_body_preview,
+                            "reply_to_sender_name": reply_to_sender_name
                         })
                         
                         # Handle Media (Photo/Voice/Video/Document)

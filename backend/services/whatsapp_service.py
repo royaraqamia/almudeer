@@ -208,6 +208,18 @@ class WhatsAppService:
                     # Get messages
                     wa_messages = value.get("messages", [])
                     for msg in wa_messages:
+                        # Extract reply context from WhatsApp context object
+                        context = msg.get("context", {})
+                        reply_to_platform_id = context.get("message_id")
+                        reply_to_body_preview = None
+                        reply_to_sender_name = None
+                        
+                        # WhatsApp doesn't provide the full replied message content in webhook
+                        # But we can extract some context if available
+                        if context.get("from"):
+                            # This is the sender of the replied message
+                            reply_to_sender_name = context.get("from")
+                        
                         parsed = {
                             "message_id": msg.get("id"),
                             "from": msg.get("from"),
@@ -216,8 +228,10 @@ class WhatsAppService:
                             "sender_name": contact.get("profile", {}).get("name"),
                             "sender_phone": contact.get("wa_id"),
                             "is_group": bool(msg.get("group_id")),
-                            "reply_to_platform_id": msg.get("context", {}).get("message_id"),
-                            "is_forwarded": bool(msg.get("context", {}).get("forwarded"))
+                            "reply_to_platform_id": reply_to_platform_id,
+                            "reply_to_body_preview": reply_to_body_preview,
+                            "reply_to_sender_name": reply_to_sender_name,
+                            "is_forwarded": bool(context.get("forwarded"))
                         }
                         
                         # Extra check: Some providers/versions put group_id in different places

@@ -290,27 +290,40 @@ async def _send_via_almudeer(
         reply_to_body_preview = None
         reply_to_sender_name = None
         reply_to_id_val = None
-        
+
         # For Almudeer channel, use reply_to_id from outbox message
         # For other channels, use reply_to_platform_id
         reply_identifier = reply_to_platform_id or outbox_msg.get("reply_to_id")
-        
+
         if reply_identifier:
             # Fetch the original message details for reply context
+            # Check both inbox_messages and outbox_messages to handle replies to incoming messages
             original_msg = await fetch_one(
                 db,
                 """
-                SELECT o.id, o.body
-                FROM outbox_messages o
-                WHERE o.id = ?
+                SELECT id, body, sender_name, 'inbox' as source
+                FROM inbox_messages
+                WHERE id = $1
+                UNION ALL
+                SELECT id, body, sender_name, 'outbox' as source
+                FROM outbox_messages
+                WHERE id = $1
+                LIMIT 1
                 """,
                 [int(reply_identifier) if str(reply_identifier).isdigit() else reply_identifier]
             )
             if original_msg:
                 reply_to_id_val = original_msg["id"]
                 reply_to_body_preview = original_msg["body"][:100] if original_msg["body"] else ""
-                # For Almudeer internal messages, the sender is "أنا" (Me) from the recipient's perspective
-                reply_to_sender_name = "أنا"
+                # For Almudeer internal messages:
+                # - If replying to inbox message (received), sender is the original sender
+                # - If replying to outbox message (sent by us), show "أنا" from recipient's perspective
+                if original_msg.get("source") == "inbox":
+                    # Replying to a message we received - show original sender name
+                    reply_to_sender_name = original_msg.get("sender_name") or "مستخدم"
+                else:
+                    # Replying to a message we sent - show "أنا" (Me) from recipient's perspective
+                    reply_to_sender_name = "أنا"
         
         inbox_message_id = await save_inbox_message(
             license_id=recipient_license_id,

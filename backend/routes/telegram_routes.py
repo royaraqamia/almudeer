@@ -269,7 +269,10 @@ async def telegram_webhook(
         channel_message_id=str(parsed["message_id"]),
         received_at=parsed["date"],
         attachments=attachments if attachments else None,
-        is_forwarded=parsed.get("is_forwarded", False)
+        is_forwarded=parsed.get("is_forwarded", False),
+        reply_to_platform_id=parsed.get("reply_to_platform_id"),
+        reply_to_body_preview=parsed.get("reply_to_body_preview"),
+        reply_to_sender_name=parsed.get("reply_to_sender_name")
     )
     
     if msg_id > 0:

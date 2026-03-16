@@ -316,7 +316,45 @@ class TelegramListenerService:
                         sender_contact = str(sender.id)
                         
                     channel_message_id = str(event.message.id)
-                    reply_to_platform_id = str(event.message.reply_to.reply_to_msg_id) if (event.message.reply_to and hasattr(event.message.reply_to, 'reply_to_msg_id')) else None
+                    
+                    # Extract reply context
+                    reply_to_platform_id = None
+                    reply_to_body_preview = None
+                    reply_to_sender_name = None
+                    
+                    if event.message.reply_to and hasattr(event.message.reply_to, 'reply_to_msg_id'):
+                        reply_to_platform_id = str(event.message.reply_to.reply_to_msg_id)
+                        
+                        # Try to fetch the replied message for context
+                        try:
+                            replied_message = await event.message.get_reply_message()
+                            if replied_message:
+                                # Extract body preview
+                                replied_text = replied_message.text or replied_message.message or ""
+                                if not replied_text:
+                                    # Check for media
+                                    if replied_message.photo:
+                                        replied_text = "[صورة]"
+                                    elif replied_message.voice:
+                                        replied_text = "[رسالة صوتية]"
+                                    elif replied_message.audio:
+                                        replied_text = "[ملف صوتي]"
+                                    elif replied_message.video:
+                                        replied_text = "[فيديو]"
+                                    elif replied_message.document:
+                                        replied_text = "[ملف]"
+                                reply_to_body_preview = replied_text[:100] if replied_text else None
+                                
+                                # Extract sender name
+                                replied_sender = await replied_message.get_sender()
+                                if replied_sender:
+                                    sender_first = getattr(replied_sender, 'first_name', '') or ''
+                                    sender_last = getattr(replied_sender, 'last_name', '') or ''
+                                    sender_username = getattr(replied_sender, 'username', '') or ''
+                                    replied_sender_name = f"{sender_first} {sender_last}".strip() or sender_username or "مستخدم"
+                                    reply_to_sender_name = replied_sender_name
+                        except Exception as reply_e:
+                            logger.warning(f"Could not fetch replied message context: {reply_e}")
 
                     # FIX: Proper Deduplication using Redis (prevents duplicates on service restart)
                     # Use a Redis key with TTL to track recently processed messages
@@ -611,7 +649,9 @@ class TelegramListenerService:
                         received_at=event.message.date,
                         attachments=attachments if attachments else None,
                         is_forwarded=is_forwarded,
-                        reply_to_platform_id=reply_to_platform_id
+                        reply_to_platform_id=reply_to_platform_id,
+                        reply_to_body_preview=reply_to_body_preview,
+                        reply_to_sender_name=reply_to_sender_name
                     )
                     
                     if msg_id:

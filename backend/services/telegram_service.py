@@ -368,6 +368,35 @@ class TelegramService:
                 "file_name": doc.get("file_name")
             })
 
+        # Extract reply context if this message is a reply to another
+        reply_to_message = message.get("reply_to_message")
+        reply_to_platform_id = None
+        reply_to_body_preview = None
+        reply_to_sender_name = None
+
+        if reply_to_message:
+            reply_to_platform_id = str(reply_to_message.get("message_id"))
+            # Extract body preview from replied message
+            replied_text = reply_to_message.get("text") or reply_to_message.get("caption") or ""
+            if not replied_text:
+                # Check for media in replied message
+                if reply_to_message.get("photo"):
+                    replied_text = "[صورة]"
+                elif reply_to_message.get("voice"):
+                    replied_text = "[رسالة صوتية]"
+                elif reply_to_message.get("audio"):
+                    replied_text = "[ملف صوتي]"
+                elif reply_to_message.get("video"):
+                    replied_text = "[فيديو]"
+                elif reply_to_message.get("document"):
+                    replied_text = "[ملف]"
+            reply_to_body_preview = replied_text[:100] if replied_text else None
+            # Extract sender name from replied message
+            replied_from = reply_to_message.get("from", {})
+            replied_sender_name = replied_from.get("first_name", "") + " " + replied_from.get("last_name", "")
+            replied_sender_name = replied_sender_name.strip() or replied_from.get("username") or "مستخدم"
+            reply_to_sender_name = replied_sender_name
+
         result = {
             "update_id": update.get("update_id"),
             "message_id": message.get("message_id"),
@@ -377,14 +406,16 @@ class TelegramService:
             "username": from_user.get("username"),
             "first_name": from_user.get("first_name", ""),
             "last_name": from_user.get("last_name", ""),
-            "text": message.get("text", "") or message.get("caption", ""), 
+            "text": message.get("text", "") or message.get("caption", ""),
             "date": datetime.fromtimestamp(message.get("date", 0)),
             "is_bot": from_user.get("is_bot", False),
             "attachments": attachments,
-            "reply_to_platform_id": str(message.get("reply_to_message", {}).get("message_id")) if message.get("reply_to_message") else None,
+            "reply_to_platform_id": reply_to_platform_id,
+            "reply_to_body_preview": reply_to_body_preview,
+            "reply_to_sender_name": reply_to_sender_name,
             "is_forwarded": bool(message.get("forward_from") or message.get("forward_date"))
         }
-        
+
         # Add fallback body if empty but has attachments (for Inbox visibility)
         if not result["text"] and attachments:
             first_type = attachments[0]["type"]
@@ -398,7 +429,7 @@ class TelegramService:
                 result["text"] = "[فيديو]"
             else:
                 result["text"] = "[ملف]"
-                
+
         return result
 
 
