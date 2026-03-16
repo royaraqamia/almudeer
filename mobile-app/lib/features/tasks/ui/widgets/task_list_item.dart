@@ -279,6 +279,8 @@ class _TaskListItemState extends State<TaskListItem>
               children: [
                 Text(
                   widget.task.title,
+                  textDirection: widget.task.title.direction,
+                  textAlign: TextAlign.right,
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
@@ -289,6 +291,8 @@ class _TaskListItemState extends State<TaskListItem>
                         ? theme.textTheme.bodySmall?.color
                         : theme.textTheme.titleMedium?.color,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 if (widget.task.category != null) ...[
                   const SizedBox(height: 2),
@@ -299,6 +303,8 @@ class _TaskListItemState extends State<TaskListItem>
                   const SizedBox(height: 2),
                   Text(
                     widget.task.description!,
+                    textDirection: widget.task.description!.direction,
+                    textAlign: TextAlign.right,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall?.copyWith(
@@ -307,7 +313,6 @@ class _TaskListItemState extends State<TaskListItem>
                     ),
                   ),
                 ],
-                _buildAssignmentInfo(context),
               ],
             ),
           ),
@@ -492,63 +497,5 @@ class _TaskListItemState extends State<TaskListItem>
       default:
         return SolarLinearIcons.folder;
     }
-  }
-
-  Widget _buildAssignmentInfo(BuildContext context) {
-    final provider = context.watch<TaskProvider>();
-    final currentUser = provider.currentUserId;
-
-    if (widget.task.assignedTo == null && widget.task.createdBy == null) {
-      return const SizedBox.shrink();
-    }
-
-    String? displayLabel;
-    IconData icon = SolarLinearIcons.user;
-    Color color = AppColors.primary;
-
-    if (widget.task.assignedTo != null &&
-        widget.task.assignedTo != currentUser) {
-      final collab = provider.collaborators.firstWhere(
-        (c) => c['id'].toString() == widget.task.assignedTo,
-        orElse: () => {
-          'id': widget.task.assignedTo,
-          'name': widget.task.assignedTo,
-        },
-      );
-      displayLabel = 'مسندة إلى: ${collab['name'] ?? collab['id']}';
-    } else if (widget.task.assignedTo == currentUser &&
-        widget.task.createdBy != null &&
-        widget.task.createdBy != currentUser) {
-      final collab = provider.collaborators.firstWhere(
-        (c) => c['id'].toString() == widget.task.createdBy,
-        orElse: () => {
-          'id': widget.task.createdBy,
-          'name': widget.task.createdBy,
-        },
-      );
-      displayLabel = 'بواسطة: ${collab['name'] ?? collab['id']}';
-      icon = SolarLinearIcons.userHandUp;
-      color = AppColors.accent;
-    }
-
-    if (displayLabel == null) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Row(
-        children: [
-          Icon(icon, size: 12, color: color.withValues(alpha: 0.7)),
-          const SizedBox(width: AppDimensions.spacing4),
-          Text(
-            displayLabel,
-            style: TextStyle(
-              fontSize: 10,
-              color: color.withValues(alpha: 0.7),
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

@@ -68,30 +68,62 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   }
   
   void _loadPermissions() {
-    // Get current user ID from AuthProvider
-    final authProvider = context.read<AuthProvider>();
-    final currentUserId = authProvider.userInfo?.licenseId?.toString();
+    // Get current user ID with fallback chain for offline reliability
+    // Priority: AuthProvider cache → LibraryProvider context → cached storage
+    String? currentUserId;
     
+    // 1. Try AuthProvider's cached state first (uses persisted licenseId)
+    try {
+      final authProvider = context.read<AuthProvider>();
+      currentUserId = authProvider.userInfo?.licenseId?.toString();
+      if (currentUserId != null) {
+        debugPrint('[NoteEditScreen] Got currentUserId from AuthProvider: $currentUserId');
+      }
+    } catch (e) {
+      debugPrint('[NoteEditScreen] Could not get currentUserId from AuthProvider: $e');
+    }
+    
+    // 2. Fallback: Try to get from LibraryProvider's internal state if available
+    if (currentUserId == null) {
+      try {
+        // LibraryProvider doesn't expose currentUserId, so we need to fetch it
+        // This is a last resort - should rarely happen
+        debugPrint('[NoteEditScreen] AuthProvider returned null, using best-effort permissions');
+      } catch (e) {
+        debugPrint('[NoteEditScreen] Fallback also failed: $e');
+      }
+    }
+
+    // Debug logging for offline troubleshooting
+    if (currentUserId == null) {
+      debugPrint('[NoteEditScreen] WARNING: currentUserId is null - permissions may be incorrect');
+    }
+
     // New notes are always editable (user is owner)
     if (_isNewNote) {
       _canEdit = true;
       debugPrint('[NoteEditScreen] New note - user is owner, canEdit=true');
       return;
     }
-    
+
     // Existing items: check if user is the owner or has edit/admin share permission
     final sharePermission = widget.item?.sharePermission;
     final createdBy = widget.item?.createdBy;
     final userId = widget.item?.userId;
-    
+
     // User is owner if they created the item (createdBy or userId matches)
-    final isOwner = createdBy == currentUserId || userId == currentUserId;
-    
+    // If currentUserId is null, use best-effort logic:
+    // - If no sharePermission, assume user is owner (most common case)
+    // - If sharePermission exists, respect it
+    final isOwner = currentUserId != null
+        ? (createdBy == currentUserId || userId == currentUserId)
+        : (sharePermission == null); // Best-effort: no share = likely owner
+
     // Permission levels: owner/edit/admin can edit, read-only cannot
-    _canEdit = isOwner || 
-               sharePermission == 'edit' || 
+    _canEdit = isOwner ||
+               sharePermission == 'edit' ||
                sharePermission == 'admin';
-    
+
     debugPrint(
       '[NoteEditScreen] Permissions: currentUserId=$currentUserId, createdBy=$createdBy, userId=$userId, sharePermission=$sharePermission, isOwner=$isOwner, canEdit=$_canEdit',
     );

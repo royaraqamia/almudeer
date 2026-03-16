@@ -20,7 +20,9 @@ class MessageCacheService {
   static const String _boxName = 'cache';
   static const String _keyConversationsPrefix = 'conversations:';
 
-  static const Duration _cacheExpiry = Duration(days: 7);
+  // OFFLINE-FIRST FIX: Infinite cache (WhatsApp pattern)
+  // Cache never expires - only cleared on explicit user action (logout/clear cache)
+  static const Duration? _cacheExpiry = null; // null = infinite
 
   // FIX P1-2 & P1-8: Single Box<Map> for all caching needs
   Box<Map>? _cacheBox;
@@ -86,11 +88,14 @@ class MessageCacheService {
       // FIX P1-2: cached is already a Map, no need to jsonDecode
       final data = cached as Map<String, dynamic>;
 
-      // Check if expired
-      final cachedAt = DateTime.parse(data['cached_at'] as String);
-      if (DateTime.now().difference(cachedAt) > _cacheExpiry) {
-        await _cacheBox?.delete(key);
-        return null;
+      // OFFLINE-FIRST FIX: Infinite cache - never expire
+      // Only delete if explicitly corrupted
+      if (_cacheExpiry != null) {
+        final cachedAt = DateTime.parse(data['cached_at'] as String);
+        if (DateTime.now().difference(cachedAt) > _cacheExpiry!) {
+          await _cacheBox?.delete(key);
+          return null;
+        }
       }
 
       final messagesList = (data['messages'] as List<dynamic>)
@@ -181,6 +186,7 @@ class MessageCacheService {
   /// Get cached conversations
   /// FIX P1-2: Reads Map directly, no JSON decoding needed
   /// FIX P1-8: Uses consolidated cache box
+  /// OFFLINE-FIRST FIX: Infinite cache - never expire
   Future<List<Conversation>?> getCachedConversations() async {
     await _ensureInitialized();
 
@@ -191,11 +197,13 @@ class MessageCacheService {
       // FIX P1-2: cached is already a Map
       final data = cached as Map<String, dynamic>;
 
-      // Check if expired
-      final cachedAt = DateTime.parse(data['cached_at'] as String);
-      if (DateTime.now().difference(cachedAt) > _cacheExpiry) {
-        await _cacheBox?.delete('$_keyConversationsPrefix all');
-        return null;
+      // OFFLINE-FIRST FIX: Infinite cache - never expire
+      if (_cacheExpiry != null) {
+        final cachedAt = DateTime.parse(data['cached_at'] as String);
+        if (DateTime.now().difference(cachedAt) > _cacheExpiry!) {
+          await _cacheBox?.delete('$_keyConversationsPrefix all');
+          return null;
+        }
       }
 
       final conversationsList = (data['conversations'] as List<dynamic>)
@@ -229,7 +237,7 @@ class MessageCacheService {
 
   /// Get cached conversations by filter key
   ///
-  /// Returns null if cache is empty, expired, or corrupted.
+  /// OFFLINE-FIRST FIX: Infinite cache - never expire (returns null only if empty/corrupted)
   Future<List<Conversation>?> getCachedConversationsByFilter(
     String filterKey,
   ) async {
@@ -244,11 +252,13 @@ class MessageCacheService {
       // FIX P1-2: cached is already a Map, no need to jsonDecode
       final data = cached as Map<String, dynamic>;
 
-      // Check if expired
-      final cachedAt = DateTime.parse(data['cached_at'] as String);
-      if (DateTime.now().difference(cachedAt) > _cacheExpiry) {
-        await _cacheBox?.delete(cacheKey);
-        return null;
+      // OFFLINE-FIRST FIX: Infinite cache - never expire
+      if (_cacheExpiry != null) {
+        final cachedAt = DateTime.parse(data['cached_at'] as String);
+        if (DateTime.now().difference(cachedAt) > _cacheExpiry!) {
+          await _cacheBox?.delete(cacheKey);
+          return null;
+        }
       }
 
       final conversationsList = (data['conversations'] as List<dynamic>)
@@ -286,6 +296,11 @@ class MessageCacheService {
   }
 
   Future<void> _cleanupExpired() async {
+    // OFFLINE-FIRST FIX: Skip cleanup if cache is infinite
+    if (_cacheExpiry == null) {
+      return;
+    }
+
     final keysToDelete = <String>[];
 
     // Check messages cache
@@ -296,7 +311,7 @@ class MessageCacheService {
           // FIX P1-2: cached is already a Map, no need to jsonDecode
           final data = cached as Map<String, dynamic>;
           final cachedAt = DateTime.parse(data['cached_at'] as String);
-          if (DateTime.now().difference(cachedAt) > _cacheExpiry) {
+          if (DateTime.now().difference(cachedAt) > _cacheExpiry!) {
             keysToDelete.add(key);
           }
         } catch (e) {

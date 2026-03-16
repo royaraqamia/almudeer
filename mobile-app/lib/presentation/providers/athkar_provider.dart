@@ -128,7 +128,9 @@ class AthkarProvider extends ChangeNotifier {
         }
       }
     } catch (e, stackTrace) {
-      debugPrint('AthkarProvider: Failed to load athkar progress from server: $e');
+      // OFFLINE-FIRST FIX: Silently ignore server errors - keep local data
+      // Athkar data is already loaded from SharedPreferences in _loadFromStorage()
+      debugPrint('AthkarProvider: Server load failed (likely offline), using local data: $e');
       debugPrint('AthkarProvider: Stack trace: $stackTrace');
     }
   }

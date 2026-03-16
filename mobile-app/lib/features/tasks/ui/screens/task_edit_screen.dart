@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../models/task_model.dart';
 import '../../providers/task_provider.dart';
+import '../../../../presentation/providers/auth_provider.dart';
 import '../../../../core/constants/colors.dart';
 import '../../../../core/constants/dimensions.dart';
 import '../../../../core/utils/haptics.dart';
@@ -117,53 +118,54 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
     _descriptionController.addListener(_onChanged);
   }
 
-  /// FIX BUG #1: Initialize permissions with proper null check for currentUserId
-  /// Waits for TaskProvider to load current user if needed
+  /// Initialize permissions using cached AuthProvider state
+  /// Uses persisted licenseId from SharedPreferences - works offline
   Future<void> _initPermissions() async {
-    // FIX #1: Only handle existing tasks here (new tasks are handled synchronously)
+    // Only handle existing tasks here (new tasks are handled synchronously)
     if (_isNewTask || widget.task == null) {
       return;
     }
 
-    // FIX #3: Set loading state
+    // Set loading state
     if (mounted) {
       setState(() => _isLoadingPermissions = true);
     }
 
     try {
       final provider = context.read<TaskProvider>();
-      // Wait for user to be loaded if needed
-      if (provider.currentUserId == null) {
-        debugPrint('[TaskEditScreen] Waiting for current user to load...');
-        await provider.loadCurrentUser();
-        // Give it a moment to propagate
-        await Future.delayed(const Duration(milliseconds: 50));
-      }
+      String? currentUserId = provider.currentUserId;
 
-      final currentUserId = provider.currentUserId;
-
-      // FIX: Add null check after loading
+      // If currentUserId is null, try to load it from cached AuthProvider state
+      // This ensures offline functionality by using persisted licenseId
       if (currentUserId == null) {
-        debugPrint('[TaskEditScreen] Failed to get currentUserId after loading');
-        if (mounted) {
-          setState(() {
-            _canEdit = false;
-            _canShare = false;
-            _isLoadingPermissions = false;
-          });
+        debugPrint('[TaskEditScreen] currentUserId is null, fetching from AuthProvider cache...');
+        final authProvider = context.read<AuthProvider>();
+        currentUserId = authProvider.userInfo?.licenseId?.toString();
+        
+        if (currentUserId != null) {
+          debugPrint('[TaskEditScreen] Retrieved currentUserId from AuthProvider cache: $currentUserId');
         }
-        return;
       }
 
-      // FIX: Determine if user is the owner
-      // User is owner ONLY if:
-      // 1. They created the task (createdBy == currentUserId)
-      // 2. AND there's no sharePermission (sharePermission == null means not a recipient)
-      //
-      // If sharePermission exists, user is a RECIPIENT with limited permissions
+      // If still null, fall back to TaskProvider's loadCurrentUser (which also uses AuthRepository)
+      if (currentUserId == null) {
+        debugPrint('[TaskEditScreen] AuthProvider cache miss, calling loadCurrentUser...');
+        await provider.loadCurrentUser();
+        currentUserId = provider.currentUserId;
+
+        // Final fallback: try AuthProvider again after load
+        if (currentUserId == null && mounted) {
+          final authProvider = context.read<AuthProvider>();
+          currentUserId = authProvider.userInfo?.licenseId?.toString();
+        }
+      }
+
+      // Calculate permissions from available task data
+      // User is owner if they created the task (createdBy matches currentUserId)
+      // User is recipient if sharePermission exists (limited permissions)
       final isRecipient = widget.task!.sharePermission != null;
       final isOwner = !isRecipient && (widget.task!.createdBy == currentUserId);
-      
+
       _permissionLevel = getEffectivePermission(
         widget.task!.sharePermission,
         isOwner,
@@ -172,7 +174,7 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
       _canShare = canShare(_permissionLevel);
 
       debugPrint(
-        '[TaskEditScreen] Permissions loaded: level=$_permissionLevel, canEdit=$_canEdit, canShare=$_canShare',
+        '[TaskEditScreen] Permissions: currentUserId=$currentUserId, isOwner=$isOwner, isRecipient=$isRecipient, level=$_permissionLevel, canEdit=$_canEdit, canShare=$_canShare',
       );
 
       if (mounted) {
@@ -181,13 +183,22 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
     } catch (e, stackTrace) {
       debugPrint('[TaskEditScreen] Failed to load permissions: $e');
       debugPrint('Stack trace: $stackTrace');
-      // Default to read-only on error
+      // On error, use task data to make best-effort permission check
+      // If task has no sharePermission, assume user is owner (most common case)
+      final isOwner = widget.task!.sharePermission == null;
+      _permissionLevel = getEffectivePermission(
+        widget.task!.sharePermission,
+        isOwner,
+      );
+      _canEdit = canEdit(_permissionLevel);
+      _canShare = canShare(_permissionLevel);
+      
+      debugPrint(
+        '[TaskEditScreen] Using best-effort permissions: level=$_permissionLevel, canEdit=$_canEdit, canShare=$_canShare',
+      );
+      
       if (mounted) {
-        setState(() {
-          _canEdit = false;
-          _canShare = false;
-          _isLoadingPermissions = false;
-        });
+        setState(() => _isLoadingPermissions = false);
       }
     }
   }

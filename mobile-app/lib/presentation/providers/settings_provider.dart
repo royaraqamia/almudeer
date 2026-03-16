@@ -65,7 +65,9 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   /// Load all settings data with cache-first approach
-  /// 
+  ///
+  /// OFFLINE-FIRST FIX: Always show cache first, then background refresh
+  ///
   /// [skipAutoRefresh] - if true, only load from cache and skip API call (for offline-first experience)
   Future<void> loadSettings({bool skipAutoRefresh = false}) async {
     final currentGeneration = _loadGeneration;
@@ -74,9 +76,10 @@ class SettingsProvider extends ChangeNotifier {
     );
     _errorMessage = null;
 
-    bool hasValidCache = false;
+    bool hasCache = false;
 
     // 1. Instant Cache Load for Knowledge Documents
+    // OFFLINE-FIRST FIX: Always show cache instantly
     if (_knowledgeDocuments.isEmpty) {
       _state = SettingsState.loading;
       notifyListeners();
@@ -104,20 +107,35 @@ class SettingsProvider extends ChangeNotifier {
               .toList();
           _state = SettingsState.loaded;
           _knowledgeLoadState = KnowledgeLoadState.loaded;
-          hasValidCache = true;
+          hasCache = true;
           notifyListeners();
+          
+          // OFFLINE-FIRST FIX: Show cache immediately, then background refresh
+          if (!skipAutoRefresh) {
+            _fetchFreshSettingsInBackground(currentGeneration);
+          }
+          return; // Done - cache shown, refresh happens in background
         }
       } catch (_) {
         // Ignore cache errors
       }
     }
 
-    // 2. Skip API call if skipAutoRefresh is true AND we have valid cache
-    if (skipAutoRefresh && hasValidCache) {
+    // 2. Skip API call if skipAutoRefresh is true AND we have cache
+    if (skipAutoRefresh && hasCache) {
       return;
     }
 
     // 3. Fresh Fetch in Background
+    // OFFLINE-FIRST FIX: Never block UI - show cache first, update when fresh data arrives
+    if (!hasCache) {
+      await _fetchFreshSettingsInBackground(currentGeneration);
+    }
+  }
+
+  /// Fetch fresh settings in background without blocking UI
+  /// OFFLINE-FIRST FIX: Non-blocking fetch - cache is always shown first
+  Future<void> _fetchFreshSettingsInBackground(int currentGeneration) async {
     try {
       // Load both preferences and knowledge documents
       final results = await Future.wait([
@@ -138,13 +156,10 @@ class SettingsProvider extends ChangeNotifier {
       _state = SettingsState.loaded;
       _knowledgeLoadState = KnowledgeLoadState.loaded;
     } catch (e) {
-      // Only show error if we have no data at all
-      if (_preferences == null && _knowledgeDocuments.isEmpty) {
-        _errorMessage = 'فشل تحميل الإعدادات: $e';
-        _state = SettingsState.error;
-        _knowledgeLoadState = KnowledgeLoadState.error;
-      }
-
+      // OFFLINE-FIRST FIX: Keep showing cached data when offline
+      // Only log error, don't change UI state
+      debugPrint('[SettingsProvider] Background refresh failed (likely offline): $e');
+      
       // Try to load cached preferences specifically if API failed
       try {
         final localPrefs = await _repository.getLocalPreferences();

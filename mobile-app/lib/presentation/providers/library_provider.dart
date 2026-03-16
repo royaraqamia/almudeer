@@ -350,7 +350,7 @@ class LibraryProvider extends ChangeNotifier {
     }
 
     // Skip remote fetch if skipAutoRefresh is true AND we have cached items
-    // If cache is empty, we must fetch to show data
+    // OFFLINE-FIRST FIX: Always show cache first, then background refresh
     if (skipAutoRefresh) {
       // Load from cache first
       _loadCachedItemsForCurrentCategory();
@@ -358,6 +358,7 @@ class LibraryProvider extends ChangeNotifier {
       if (_items.isNotEmpty) {
         _isLoading = false;
         notifyListeners();
+        // Background refresh will happen via repository stream
         return;
       }
       // Cache is empty - continue to fetch from remote

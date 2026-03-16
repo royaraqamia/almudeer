@@ -406,7 +406,8 @@ class ConversationDetailProvider extends ChangeNotifier {
       _failure = null;
 
       // 2. Load from Disk Cache (Unified Persistent Cache)
-      bool hasValidCache = false;
+      // OFFLINE-FIRST FIX: Always show cache instantly, even if "old"
+      bool hasCache = false;
       try {
         final accountHash = await _inboxRepository.apiClient
             .getAccountCacheHash();
@@ -421,19 +422,24 @@ class ConversationDetailProvider extends ChangeNotifier {
 
           _memoryMessages[senderContact] = cachedMessages;
           _memoryStates[senderContact] = ConversationState.loaded;
-          hasValidCache = true;
+          hasCache = true;
 
           if (_activeContact == senderContact) {
             notifyListeners();
           }
+          
+          // OFFLINE-FIRST FIX: Show cache immediately, then background refresh
+          if (!skipAutoRefresh) {
+            _fetchFreshMessagesInBackground(senderContact, senderName, channel, lastSeenAt, isOnline);
+          }
+          return; // Done - cache shown, refresh happens in background
         }
       } catch (e) {
         debugPrint('Cache read error for $senderContact: $e');
       }
 
-      // 3. Skip API call if skipAutoRefresh is true AND we have valid cache
-      // If cache is empty, we must fetch to show data
-      if (skipAutoRefresh && hasValidCache) {
+      // 3. Skip API call if skipAutoRefresh is true AND we have cache
+      if (skipAutoRefresh && hasCache) {
         // Ensure state is loaded after cache load
         _memoryStates[senderContact] = ConversationState.loaded;
         if (_activeContact == senderContact) {
@@ -442,197 +448,194 @@ class ConversationDetailProvider extends ChangeNotifier {
         return;
       }
 
+      // No cache exists - must fetch
+      await _fetchFreshMessagesInBackground(senderContact, senderName, channel, lastSeenAt, isOnline);
+    }
+  }
+
+  /// Fetch fresh messages in background without blocking UI
+  /// OFFLINE-FIRST FIX: Non-blocking fetch - cache is always shown first
+  Future<void> _fetchFreshMessagesInBackground(
+    String senderContact,
+    String? senderName,
+    String? channel,
+    String? lastSeenAt,
+    bool isOnline,
+  ) async {
+    try {
+      final response = await _inboxRepository.getConversationMessagesCursor(
+        senderContact,
+        limit: 30,
+      );
+
+      final freshMessages = response.messages;
+
+      // P2-15 FIX: Preserve outgoing messages that might not be returned by the API
+      // This handles cases where the backend doesn't return outbox messages correctly
+      // FIX: Include ALL outgoing messages (both positive and negative IDs for optimistic messages)
+      final currentMessages = _memoryMessages[senderContact] ?? [];
+      final outgoingMessages = currentMessages
+          .where((m) => m.direction == 'outgoing')
+          .toList();
+
+      // FIX: Also load unsynced messages from local database
+      List<InboxMessage> localUnsyncedMessages = [];
       try {
-        final response = await _inboxRepository.getConversationMessagesCursor(
-          senderContact,
-          limit: 30,
-        );
+        localUnsyncedMessages = await _inboxRepository.getUnsyncedOutgoingMessages(senderContact);
+      } catch (e) {
+        debugPrint('Error loading unsynced messages: $e');
+      }
 
-        final freshMessages = response.messages;
+      // Merge fresh messages with local outgoing messages
+      // Use a map to avoid duplicates (key by message ID)
+      final mergedMessagesMap = <int, InboxMessage>{};
 
-        // P2-15 FIX: Preserve outgoing messages that might not be returned by the API
-        // This handles cases where the backend doesn't return outbox messages correctly
-        // FIX: Include ALL outgoing messages (both positive and negative IDs for optimistic messages)
-        final currentMessages = _memoryMessages[senderContact] ?? [];
-        final outgoingMessages = currentMessages
-            .where((m) => m.direction == 'outgoing')
-            .toList();
+      // Add all fresh messages from API
+      for (final msg in freshMessages) {
+        mergedMessagesMap[msg.id] = msg;
+      }
 
-        // FIX: Also load unsynced messages from local database
-        List<InboxMessage> localUnsyncedMessages = [];
-        try {
-          localUnsyncedMessages = await _inboxRepository.getUnsyncedOutgoingMessages(senderContact);
-        } catch (e) {
-          debugPrint('Error loading unsynced messages: $e');
-        }
+      // Add in-memory outgoing messages that aren't in the fresh list
+      // For optimistic messages (negative IDs), check if we have a synced version
+      for (final msg in outgoingMessages) {
+        if (msg.id < 0) {
+          // Optimistic message - check if we have a synced version by matching:
+          // 1. outboxId (if available)
+          // 2. body + timestamp (fallback)
+          bool alreadySynced = false;
 
-        // Merge fresh messages with local outgoing messages
-        // Use a map to avoid duplicates (key by message ID)
-        final mergedMessagesMap = <int, InboxMessage>{};
-
-        // Add all fresh messages from API
-        for (final msg in freshMessages) {
-          mergedMessagesMap[msg.id] = msg;
-        }
-
-        // Add in-memory outgoing messages that aren't in the fresh list
-        // For optimistic messages (negative IDs), check if we have a synced version
-        for (final msg in outgoingMessages) {
-          if (msg.id < 0) {
-            // Optimistic message - check if we have a synced version by matching:
-            // 1. outboxId (if available)
-            // 2. body + timestamp (fallback)
-            bool alreadySynced = false;
-            
-            // Check by outboxId first (most reliable)
-            if (msg.outboxId != null) {
-              alreadySynced = freshMessages.any((m) => m.outboxId == msg.outboxId);
-            }
-            
-            // If not found by outboxId, check by body + similar timestamp
-            if (!alreadySynced) {
-              alreadySynced = freshMessages.any((m) {
-                if (m.body != msg.body) return false;
-                // Check if timestamps are within 5 seconds (optimistic was just replaced by synced)
-                try {
-                  final msgTime = DateTime.parse(msg.createdAt);
-                  final freshTime = DateTime.parse(m.createdAt);
-                  return freshTime.difference(msgTime).inSeconds.abs() < 5;
-                } catch (e) {
-                  return false;
-                }
-              });
-            }
-            
-            // Only add optimistic message if no synced version exists
-            if (!alreadySynced) {
-              mergedMessagesMap[msg.id] = msg;
-            }
-          } else {
-            // Regular positive ID message
-            if (!mergedMessagesMap.containsKey(msg.id)) {
-              mergedMessagesMap[msg.id] = msg;
-            }
+          // Check by outboxId first (most reliable)
+          if (msg.outboxId != null) {
+            alreadySynced = freshMessages.any((m) => m.outboxId == msg.outboxId);
           }
-        }
 
-        // Add local unsynced messages from database (not in memory)
-        for (final msg in localUnsyncedMessages) {
-          // Check if already in merged map (from memory or API)
-          final alreadyExists = mergedMessagesMap.values.any((m) {
-            // Match by body + timestamp (since unsynced messages don't have remote_id yet)
-            if (m.body != msg.body) return false;
-            try {
-              final mTime = DateTime.parse(m.createdAt);
-              final msgTime = DateTime.parse(msg.createdAt);
-              return mTime.difference(msgTime).inSeconds.abs() < 2;
-            } catch (e) {
-              return false;
-            }
-          });
-          
-          if (!alreadyExists) {
+          // If not found by outboxId, check by body + similar timestamp
+          if (!alreadySynced) {
+            alreadySynced = freshMessages.any((m) {
+              if (m.body != msg.body) return false;
+              // Check if timestamps are within 5 seconds (optimistic was just replaced by synced)
+              try {
+                final msgTime = DateTime.parse(msg.createdAt);
+                final freshTime = DateTime.parse(m.createdAt);
+                return freshTime.difference(msgTime).inSeconds.abs() < 5;
+              } catch (e) {
+                return false;
+              }
+            });
+          }
+
+          // Only add optimistic message if no synced version exists
+          if (!alreadySynced) {
+            mergedMessagesMap[msg.id] = msg;
+          }
+        } else {
+          // Regular positive ID message
+          if (!mergedMessagesMap.containsKey(msg.id)) {
             mergedMessagesMap[msg.id] = msg;
           }
         }
-        
-        // Convert back to list and sort by created_at
-        final mergedMessages = mergedMessagesMap.values.toList();
-        mergedMessages.sort((a, b) {
-          // Parse ISO 8601 strings to DateTime for comparison
-          DateTime aTime, bTime;
+      }
+
+      // Add local unsynced messages from database (not in memory)
+      for (final msg in localUnsyncedMessages) {
+        // Check if already in merged map (from memory or API)
+        final alreadyExists = mergedMessagesMap.values.any((m) {
+          // Match by body + timestamp (since unsynced messages don't have remote_id yet)
+          if (m.body != msg.body) return false;
           try {
-            aTime = DateTime.parse(a.createdAt);
-            bTime = DateTime.parse(b.createdAt);
+            final mTime = DateTime.parse(m.createdAt);
+            final msgTime = DateTime.parse(msg.createdAt);
+            return mTime.difference(msgTime).inSeconds.abs() < 2;
           } catch (e) {
-            // Fallback to string comparison if parsing fails
-            return b.createdAt.compareTo(a.createdAt);
+            return false;
           }
-          return bTime.millisecondsSinceEpoch.compareTo(aTime.millisecondsSinceEpoch); // DESC order (newest first)
         });
 
-        // Update Memory
-        _memoryMessages[senderContact] = mergedMessages;
-        _memoryCursors[senderContact] = response.nextCursor;
-        _memoryHasMore[senderContact] = response.hasMore;
-        _memoryStates[senderContact] = ConversationState.loaded;
-
-        // Sync presence from fresh API response
-        _memoryOnlineStatus[senderContact] = response.isOnline;
-        if (response.lastSeenAt != null) {
-          _memoryLastSeen[senderContact] = response.lastSeenAt;
+        if (!alreadyExists) {
+          mergedMessagesMap[msg.id] = msg;
         }
+      }
 
-        // Ensure channel is updated if any messages returned
-        if (freshMessages.isNotEmpty) {
-          _memoryChannels[senderContact] = freshMessages.first.channel;
+      // Convert back to list and sort by created_at
+      final mergedMessages = mergedMessagesMap.values.toList();
+      mergedMessages.sort((a, b) {
+        // Parse ISO 8601 strings to DateTime for comparison
+        DateTime aTime, bTime;
+        try {
+          aTime = DateTime.parse(a.createdAt);
+          bTime = DateTime.parse(b.createdAt);
+        } catch (e) {
+          // Fallback to string comparison if parsing fails
+          return b.createdAt.compareTo(a.createdAt);
         }
+        return bTime.millisecondsSinceEpoch.compareTo(aTime.millisecondsSinceEpoch); // DESC order (newest first)
+      });
 
-        // Update Unified Persistent Cache with merged messages (includes unsynced outgoing)
-        final accountHash = await _inboxRepository.apiClient
-            .getAccountCacheHash();
-        await _cache.put(
-          PersistentCacheService.boxInbox,
-          '${accountHash}_messages_$senderContact',
-          {
-            'messages': mergedMessages.map((m) => m.toJson()).toList(),
-            'cached_at': DateTime.now().toIso8601String(),
-          },
-        );
+      // Update Memory
+      _memoryMessages[senderContact] = mergedMessages;
+      _memoryCursors[senderContact] = response.nextCursor;
+      _memoryHasMore[senderContact] = response.hasMore;
+      _memoryStates[senderContact] = ConversationState.loaded;
 
-        // Mark as read
-        _inboxRepository.markConversationRead(senderContact).catchError((e) {
-          debugPrint('Error marking as read: $e');
-        });
+      // Sync presence from fresh API response
+      _memoryOnlineStatus[senderContact] = response.isOnline;
+      if (response.lastSeenAt != null) {
+        _memoryLastSeen[senderContact] = response.lastSeenAt;
+      }
 
-        // 3. Load Draft for this contact (P2-6: Synced from server)
-        final savedDraft = await _cache.get<String>(
-          PersistentCacheService.boxInbox,
-          '${accountHash}_draft_$senderContact',
-        );
-        if (savedDraft != null && savedDraft.isNotEmpty) {
-          _memoryDrafts[senderContact] = savedDraft;
-        } else {
-          // P2-6: Try loading from server if not in local cache
-          final serverDraft = await _inboxRepository.getDraft(senderContact);
-          if (serverDraft != null && serverDraft.isNotEmpty) {
-            _memoryDrafts[senderContact] = serverDraft;
-            // Cache it locally
-            await _cache.put(
-              PersistentCacheService.boxInbox,
-              '${accountHash}_draft_$senderContact',
-              serverDraft,
-            );
-          }
-        }
-      } catch (e) {
-        // Categorize errors for better user feedback
-        final errorStr = e.toString().toLowerCase();
-        if (errorStr.contains('socket') ||
-            errorStr.contains('network') ||
-            errorStr.contains('connection') ||
-            errorStr.contains('timeout')) {
-          _failure = const NetworkFailure('لا يوجد اتصال بالإنترنت');
-        } else if (errorStr.contains('unauthorized') ||
-            errorStr.contains('401') ||
-            errorStr.contains('forbidden')) {
-          _failure = const AuthFailure('انتهت جلسة المستخدم');
-        } else {
-          _failure = const ServerFailure('فشل تحميل المحادثة');
-        }
+      // Ensure channel is updated if any messages returned
+      if (freshMessages.isNotEmpty) {
+        _memoryChannels[senderContact] = freshMessages.first.channel;
+      }
 
-        // Only show error state if we don't have cached messages
-        if ((_memoryMessages[senderContact]?.isEmpty ?? true)) {
-          _memoryStates[senderContact] = ConversationState.error;
+      // Update Unified Persistent Cache with merged messages (includes unsynced outgoing)
+      final accountHash = await _inboxRepository.apiClient
+          .getAccountCacheHash();
+      await _cache.put(
+        PersistentCacheService.boxInbox,
+        '${accountHash}_messages_$senderContact',
+        {
+          'messages': mergedMessages.map((m) => m.toJson()).toList(),
+          'cached_at': DateTime.now().toIso8601String(),
+        },
+      );
+
+      // Mark as read
+      _inboxRepository.markConversationRead(senderContact).catchError((e) {
+        debugPrint('Error marking as read: $e');
+      });
+
+      // 3. Load Draft for this contact (P2-6: Synced from server)
+      final savedDraft = await _cache.get<String>(
+        PersistentCacheService.boxInbox,
+        '${accountHash}_draft_$senderContact',
+      );
+      if (savedDraft != null && savedDraft.isNotEmpty) {
+        _memoryDrafts[senderContact] = savedDraft;
+      } else {
+        // P2-6: Try loading from server if not in local cache
+        final serverDraft = await _inboxRepository.getDraft(senderContact);
+        if (serverDraft != null && serverDraft.isNotEmpty) {
+          _memoryDrafts[senderContact] = serverDraft;
+          // Cache it locally
+          await _cache.put(
+            PersistentCacheService.boxInbox,
+            '${accountHash}_draft_$senderContact',
+            serverDraft,
+          );
         }
-      } finally {
-        // Ensure we are not stuck in loading state even on API failure
-        if (_activeContact == senderContact) {
-          if (_memoryStates[senderContact] == ConversationState.loading) {
-            _memoryStates[senderContact] = ConversationState.loaded;
-          }
-          notifyListeners();
+      }
+    } catch (e) {
+      // OFFLINE-FIRST FIX: Keep showing cached data when offline
+      // Only log error, don't change UI state
+      debugPrint('[ConversationDetailProvider] Background refresh failed (likely offline): $e');
+    } finally {
+      // Ensure we are not stuck in loading state even on API failure
+      if (_activeContact == senderContact) {
+        if (_memoryStates[senderContact] == ConversationState.loading) {
+          _memoryStates[senderContact] = ConversationState.loaded;
         }
+        notifyListeners();
       }
     }
   }

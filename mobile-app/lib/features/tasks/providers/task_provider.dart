@@ -7,6 +7,7 @@ import '../models/task_model.dart';
 import '../models/task_comment_model.dart';
 import '../repositories/task_repository.dart';
 import '../../../data/repositories/auth_repository.dart';
+import '../../../core/api/api_client.dart';
 import '../../../core/services/websocket_service.dart';
 import '../services/task_alarm_service.dart';
 import '../utils/task_logger.dart';
@@ -16,6 +17,7 @@ enum TaskFilter { all, today, upcoming, completed }
 class TaskProvider extends ChangeNotifier {
   final TaskRepository _repository;
   final AuthRepository _authRepository = AuthRepository();
+  final ApiClient _apiClient = ApiClient();
   final WebSocketService? _webSocketService;
 
   StreamSubscription? _syncSubscription;
@@ -575,10 +577,8 @@ class TaskProvider extends ChangeNotifier {
       // FIX: Track sync failure for UI indicator
       _trackSyncFailure(e.toString());
 
-      // Don't show error for offline - just keep showing cached data
-      if (_tasks.isEmpty) {
-        // Show empty state instead of error for offline scenarios
-      }
+      // OFFLINE-FIRST FIX: Keep showing cached data when offline
+      // Don't clear _tasks - preserve cached data
       notifyListeners();
     }
   }
@@ -621,7 +621,18 @@ class TaskProvider extends ChangeNotifier {
           ?.toString(); // Backend uses license_id as user_id (JWT sub claim)
       notifyListeners();
     } catch (e) {
-      debugPrint('Error loading current user: $e');
+      debugPrint('[TaskProvider] Error loading current user: $e');
+      // Offline: try to get cached user ID from secure storage
+      try {
+        final cachedLicenseId = await _apiClient.getLicenseId();
+        if (cachedLicenseId != null) {
+          _currentUserId = cachedLicenseId.toString();
+          debugPrint('[TaskProvider] Loaded cached currentUserId: $_currentUserId');
+          notifyListeners();
+        }
+      } catch (cacheError) {
+        debugPrint('[TaskProvider] Could not load cached user ID: $cacheError');
+      }
     }
   }
 

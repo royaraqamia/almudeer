@@ -30,17 +30,16 @@ class PersistentCacheService {
   final HiveInterface _hive = Hive;
   bool _isInitialized = false;
 
-  // P2-8 FIX: Standardized cache TTLs across platforms
-  // Match backend cache TTL - 2 minutes for active data
-  static const Duration _defaultExpiry = Duration(minutes: 2);
-  // Library data: 1 minute TTL for near-real-time sync
-  static const Duration _libraryCacheExpiry = Duration(minutes: 1);
-  // Inbox/conversations: 2 minutes TTL for active data
-  static const Duration _inboxCacheExpiry = Duration(minutes: 2);
-  // Integration data (templates, etc.): 10 minutes TTL
-  static const Duration _integrationCacheExpiry = Duration(minutes: 10);
-  // Customer data: 2 minutes TTL
-  static const Duration _customerCacheExpiry = Duration(minutes: 2);
+  // OFFLINE-FIRST FIX: All caches are now infinite (WhatsApp pattern)
+  // Cache never expires - only cleared on explicit user action (logout/clear cache)
+  // Note: These fields are kept for documentation purposes to show the cache strategy
+  // static const Duration? _defaultExpiry = null; // Infinite
+  // static const Duration? _libraryCacheExpiry = null; // Infinite
+  // static const Duration? _inboxCacheExpiry = null; // Infinite
+  // static const Duration? _integrationCacheExpiry = null; // Infinite
+  // static const Duration? _customerCacheExpiry = null; // Infinite
+  // static const Duration? _tasksCacheExpiry = null; // Infinite
+  // static const Duration? _settingsCacheExpiry = null; // Infinite
 
   /// Standard boxes for the app
   static const String boxInbox = 'cache_inbox';
@@ -106,8 +105,8 @@ class PersistentCacheService {
   }
 
   /// Get data from cache with metadata
-  /// P0-3 FIX: Added box-specific TTL defaults
-  /// Returns CacheEntry with data, timestamp, and expiry status
+  /// OFFLINE-FIRST FIX: No automatic expiration - cache is infinite (WhatsApp pattern)
+  /// Returns CacheEntry with data, timestamp, and age info (but never expired)
   Future<CacheEntry<T>?> getWithMeta<T>(String boxName, String key, {Duration? expiry}) async {
     try {
       final box = await _getBox(boxName);
@@ -117,35 +116,11 @@ class PersistentCacheService {
       final entry = jsonDecode(rawData) as Map<String, dynamic>;
       final cachedAt = DateTime.parse(entry['cached_at'] as String);
 
-      // P2-8 FIX: Use provided expiry, or entry-specific expiry, or box-specific default
-      Duration effectiveExpiry;
-      if (expiry != null) {
-        effectiveExpiry = expiry;
-      } else if (entry.containsKey('expiry_minutes') && entry['expiry_minutes'] != null) {
-        effectiveExpiry = Duration(minutes: entry['expiry_minutes'] as int);
-      } else {
-        // Box-specific defaults - standardized across platforms
-        switch (boxName) {
-          case boxLibrary:
-            effectiveExpiry = _libraryCacheExpiry;
-            break;
-          case boxInbox:
-            effectiveExpiry = _inboxCacheExpiry;
-            break;
-          case boxCustomers:
-            effectiveExpiry = _customerCacheExpiry;
-            break;
-          case boxIntegrations:
-            effectiveExpiry = _integrationCacheExpiry;
-            break;
-          default:
-            effectiveExpiry = _defaultExpiry;
-        }
-      }
+      // OFFLINE-FIRST FIX: No automatic expiration
+      // Cache is infinite - always return data even if "old"
+      // Caller can check age via cachedAt and decide UI treatment
+      final isExpired = false; // Never mark as expired
 
-      final isExpired = DateTime.now().difference(cachedAt) > effectiveExpiry;
-      
-      // Don't delete expired data - let caller decide
       return CacheEntry<T>(
         data: entry['data'] as T,
         cachedAt: cachedAt,
@@ -160,13 +135,10 @@ class PersistentCacheService {
   }
 
   /// Get data from cache (legacy method for backward compatibility)
+  /// OFFLINE-FIRST FIX: Never auto-delete - always return cached data
   Future<T?> get<T>(String boxName, String key, {Duration? expiry}) async {
     final entry = await getWithMeta<T>(boxName, key, expiry: expiry);
-    if (entry?.isExpired == true) {
-      // Delete expired entry
-      await delete(boxName, key);
-      return null;
-    }
+    // OFFLINE-FIRST FIX: Don't delete expired entries, just return data
     return entry?.data;
   }
 

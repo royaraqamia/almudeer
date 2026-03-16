@@ -244,10 +244,13 @@ class InboxProvider extends ChangeNotifier {
 
   /// Load conversations with cache-first approach (WhatsApp/Telegram pattern)
   ///
-  /// Shows cached data instantly, then fetches fresh data in background ONLY if cache is old.
-  /// No loading spinner if cache exists!
-  /// 
-  /// [forceRefresh] - if true, always fetch fresh data (user pulled to refresh)
+  /// OFFLINE-FIRST FIX:
+  /// 1. ALWAYS show cached data instantly (even if "old")
+  /// 2. Fetch fresh data in background (non-blocking)
+  /// 3. Update cache when fresh data arrives
+  /// 4. NEVER show empty state if cache exists
+  ///
+  /// [forceRefresh] - if true, fetch fresh data in background (UI still shows cache first)
   /// [skipAutoRefresh] - if true, only load cache and never auto-fetch (for app resume)
   Future<void> loadConversations({
     bool refresh = false,
@@ -262,9 +265,8 @@ class InboxProvider extends ChangeNotifier {
     _errorMessage = null;
 
     // 1. ALWAYS check persistent cache first for instant display
-    bool hasValidCache = false;
-    bool cacheIsExpired = false;
-    
+    bool hasCache = false;
+
     if (!refresh && !forceRefresh) {
       try {
         final apiClient = _inboxRepository.apiClient;
@@ -283,9 +285,16 @@ class InboxProvider extends ChangeNotifier {
           _hasMore = response.hasMore;
           _state = InboxState.loaded;
           _ensureSavedMessagesEntry();
-          hasValidCache = true;
-          cacheIsExpired = cacheEntry.isExpired;
+          hasCache = true;
+          
+          // OFFLINE-FIRST FIX: Always show cache immediately
           notifyListeners();
+          
+          // Background refresh only if we have cache and not skipping auto-refresh
+          if (!skipAutoRefresh) {
+            _fetchFreshDataInBackground();
+          }
+          return; // Done - cache shown, refresh happens in background
         } else if (_conversations.isEmpty) {
           _state = InboxState.loading;
           notifyListeners();
@@ -298,64 +307,61 @@ class InboxProvider extends ChangeNotifier {
       }
     }
 
-    // 2. Skip auto-refresh if requested AND we have valid cache
-    // If cache is empty, we must fetch to show data
-    if (skipAutoRefresh && hasValidCache) {
+    // 2. Skip auto-refresh if requested AND we have cache
+    if (skipAutoRefresh && hasCache) {
       return;
     }
 
     // 3. Fetch fresh data if:
     //    - forceRefresh is true (user pulled to refresh), OR
-    //    - cache is expired, OR
-    //    - no valid cache exists
-    if (forceRefresh || cacheIsExpired || !hasValidCache) {
-      try {
-        final responseModel = await _inboxRepository.getConversations(
-          limit: 25,
-          offset: 0,
-        );
+    //    - no cache exists
+    // OFFLINE-FIRST FIX: Never block UI - show cache first, update when fresh data arrives
+    if (forceRefresh || !hasCache) {
+      await _fetchFreshDataInBackground();
+    }
+  }
 
-        _conversations = responseModel.conversations.map((c) {
-          // Apply local read state override
-          if (_locallyReadConversations.containsKey(c.id)) {
-            final readTime = _locallyReadConversations[c.id]!;
-            final msgTime = DateTime.tryParse(c.createdAt) ?? DateTime(0);
+  /// Fetch fresh data in background without blocking UI
+  /// OFFLINE-FIRST FIX: Non-blocking fetch - cache is always shown first
+  Future<void> _fetchFreshDataInBackground() async {
+    try {
+      final responseModel = await _inboxRepository.getConversations(
+        limit: 25,
+        offset: 0,
+      );
 
-            // If we read it locally AFTER the last message time, it should be read
-            if (readTime.isAfter(msgTime)) {
-              return c.copyWith(unreadCount: 0);
-            } else {
-              // New message arrived after our local read, so it's validly unread
-              // We can stop tracking this specific read event
-              // Note: We don't remove inside map to be safe during iteration,
-              // but here we are mapping. We'll clean up lazily or just keep it.
-              // Ideally we remove it if it's stale.
-            }
+      _conversations = responseModel.conversations.map((c) {
+        // Apply local read state override
+        if (_locallyReadConversations.containsKey(c.id)) {
+          final readTime = _locallyReadConversations[c.id]!;
+          final msgTime = DateTime.tryParse(c.createdAt) ?? DateTime(0);
+
+          // If we read it locally AFTER the last message time, it should be read
+          if (readTime.isAfter(msgTime)) {
+            return c.copyWith(unreadCount: 0);
           }
-          return c;
-        }).toList();
-
-        _total = responseModel.total;
-        _hasMore = responseModel.hasMore;
-        _statusCounts = responseModel.statusCounts;
-
-        _state = InboxState.loaded;
-        _ensureSavedMessagesEntry();
-
-        // Update persistent cache with the merged/corrected data
-        _updatePersistentCache();
-
-        // FIX: P2-4.3 - Prefetch messages for top conversations
-        _prefetchTopConversations();
-      } catch (e) {
-        // Don't show error state for offline - just keep showing cached data
-        // Only show error if we have no cached data at all
-        if (_conversations.isEmpty) {
-          _state = InboxState.loaded; // Show empty state instead of error
         }
-      }
+        return c;
+      }).toList();
 
+      _total = responseModel.total;
+      _hasMore = responseModel.hasMore;
+      _statusCounts = responseModel.statusCounts;
+
+      _state = InboxState.loaded;
+      _ensureSavedMessagesEntry();
+
+      // Update persistent cache with the merged/corrected data
+      _updatePersistentCache();
+
+      // FIX: P2-4.3 - Prefetch messages for top conversations
+      _prefetchTopConversations();
+      
       notifyListeners();
+    } catch (e) {
+      // OFFLINE-FIRST FIX: Keep showing cached data when offline
+      // Only log error, don't change UI state
+      debugPrint('[InboxProvider] Background refresh failed (likely offline): $e');
     }
   }
 

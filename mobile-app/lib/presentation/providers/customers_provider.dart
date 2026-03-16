@@ -239,9 +239,10 @@ class CustomersProvider extends ChangeNotifier {
       return;
     }
 
-    bool hasValidCache = false;
+    bool hasCache = false;
 
     // 1. Instant Cache Peek for first page
+    // OFFLINE-FIRST FIX: Always show cache instantly, even if "old"
     if (_currentPage == 1 && _customers.isEmpty) {
       try {
         final cache = PersistentCacheService();
@@ -256,8 +257,14 @@ class CustomersProvider extends ChangeNotifier {
           final responseModel = CustomersResponse.fromJson(cachedData);
           _customers = responseModel.customers;
           _hasNextPage = responseModel.hasMore;
-          hasValidCache = true;
+          hasCache = true;
           notifyListeners();
+          
+          // OFFLINE-FIRST FIX: Show cache immediately, then background refresh
+          if (!skipAutoRefresh) {
+            _fetchFreshCustomersInBackground();
+          }
+          return; // Done - cache shown, refresh happens in background
         } else {
           _isLoading = true;
           notifyListeners();
@@ -271,18 +278,26 @@ class CustomersProvider extends ChangeNotifier {
       notifyListeners();
     }
 
-    // 2. Skip API call if skipAutoRefresh is true AND we have valid cache
-    // If cache is empty, we must fetch to show data
-    if (skipAutoRefresh && hasValidCache) {
+    // 2. Skip API call if skipAutoRefresh is true AND we have cache
+    if (skipAutoRefresh && hasCache) {
       return;
     }
 
-    // 3. Fresh Data Sync
+    // 3. Fresh Data Sync (background if we had cache)
+    // OFFLINE-FIRST FIX: Never block UI - show cache first, update when fresh data arrives
+    if (refresh || !hasCache) {
+      await _fetchFreshCustomersInBackground();
+    }
+  }
+
+  /// Fetch fresh customers in background without blocking UI
+  /// OFFLINE-FIRST FIX: Non-blocking fetch - cache is always shown first
+  Future<void> _fetchFreshCustomersInBackground() async {
     try {
       final response = await _repository.getCustomers(
         page: _currentPage,
         search: _searchQuery,
-        triggerSync: triggerSync,
+        triggerSync: true,
       );
 
       final responseModel = CustomersResponse.fromJson(response);
@@ -297,11 +312,10 @@ class CustomersProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     } catch (e) {
+      // OFFLINE-FIRST FIX: Keep showing cached data when offline
+      // Only log error, don't change UI state
+      debugPrint('[CustomersProvider] Background refresh failed (likely offline): $e');
       _isLoading = false;
-      // Don't show error for offline - just keep showing cached data
-      if (_customers.isEmpty) {
-        // Show empty state instead of error for offline scenarios
-      }
       notifyListeners();
     }
   }

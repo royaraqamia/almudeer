@@ -202,6 +202,12 @@ class MockFcmService extends _i1.Mock implements _i6.FcmService {
             returnValueForMissingStub: _i5.Future<void>.value(),
           )
           as _i5.Future<void>);
+
+  @override
+  void dispose() => super.noSuchMethod(
+    Invocation.method(#dispose, []),
+    returnValueForMissingStub: null,
+  );
 }
 
 /// A class which mocks [FlutterSecureStorage].
