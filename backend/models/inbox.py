@@ -840,7 +840,7 @@ async def get_inbox_conversations(
             lk.id as peer_license_id,
             lk.profile_image_url as avatar_url
             -- NOTE: all_attachments excluded - too large (can be 32MB+ per conversation)
-            -- Use /conversations/{sender_contact}/attachments endpoint instead
+            -- Use /conversations/{{sender_contact}}/attachments endpoint instead
         FROM inbox_conversations ic
         LEFT JOIN license_keys lk ON ic.sender_contact = lk.username AND ic.channel = 'almudeer'
         LEFT JOIN outbox_messages o ON 
