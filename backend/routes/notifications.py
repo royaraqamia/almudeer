@@ -8,7 +8,7 @@ import os
 import re
 import json
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Depends, Header, Request
+from fastapi import APIRouter, HTTPException, Depends, Header, Request, Query
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from dotenv import load_dotenv
@@ -916,24 +916,29 @@ async def cancel_task_alarm(
     }
 
 
+class TaskAlarmAcknowledge(BaseModel):
+    """Acknowledge task alarm request"""
+    alarm_id: int = Field(..., description="Alarm ID")
+    device_id: Optional[str] = Field(None, description="Device ID acknowledging the alarm")
+
+
 @router.post("/alarm/acknowledge")
 async def acknowledge_task_alarm(
-    alarm_id: int = Field(..., description="Alarm ID"),
-    device_id: Optional[str] = Field(None, description="Device ID acknowledging the alarm"),
+    data: TaskAlarmAcknowledge,
     license: dict = Depends(get_current_user)
 ):
     """
     Acknowledge a fired alarm.
-    
+
     This syncs the alarm state across all user devices.
     """
     from services.task_alarm_service import acknowledge_task_alarm
-    
+
     await acknowledge_task_alarm(
-        alarm_id=alarm_id,
-        device_id=device_id
+        alarm_id=data.alarm_id,
+        device_id=data.device_id
     )
-    
+
     return {
         "success": True,
         "message": "تم تأكيد المنبه"
@@ -957,16 +962,21 @@ async def get_alarm_worker_status(
     }
 
 
+class AlarmCleanup(BaseModel):
+    """Cleanup old alarm records request"""
+    days: int = Field(default=7, description="Days to retain acknowledged alarms")
+
+
 @router.post("/alarm/cleanup")
 async def cleanup_alarms(
-    days: int = Field(default=7, description="Days to retain acknowledged alarms"),
+    data: AlarmCleanup,
     _: dict = Depends(verify_admin)
 ):
     """
     Cleanup old alarm records. Admin only.
     """
     from services.task_alarm_service import cleanup_old_alarms, cleanup_stale_pending_alarms
-    
+
     acknowledged_count = await cleanup_old_alarms()
     stale_count = await cleanup_stale_pending_alarms()
 
@@ -1056,7 +1066,7 @@ async def snooze_task_alarm(
 
 @router.get("/alarm/pending")
 async def get_pending_alarms(
-    limit: int = Field(default=100, description="Maximum alarms to fetch"),
+    limit: int = Query(default=100, description="Maximum alarms to fetch"),
     license: dict = Depends(get_current_user)
 ):
     """
