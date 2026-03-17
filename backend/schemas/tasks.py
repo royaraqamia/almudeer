@@ -66,6 +66,9 @@ class TaskBase(BaseModel):
         if v is not None:
             now = datetime.now(timezone.utc)
             max_alarm = now.replace(year=now.year + 1)
+            # Normalize naive datetime to UTC for comparison
+            if v.tzinfo is None:
+                v = v.replace(tzinfo=timezone.utc)
             if v > max_alarm:
                 raise ValueError('alarm_time cannot be more than 1 year in the future')
         return v
@@ -101,6 +104,9 @@ class TaskUpdate(BaseModel):
         if v is not None:
             now = datetime.now(timezone.utc)
             max_alarm = now.replace(year=now.year + 1)
+            # Normalize naive datetime to UTC for comparison
+            if v.tzinfo is None:
+                v = v.replace(tzinfo=timezone.utc)
             if v > max_alarm:
                 raise ValueError('alarm_time cannot be more than 1 year in the future')
         return v
