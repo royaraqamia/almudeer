@@ -565,6 +565,15 @@ class TaskProvider extends ChangeNotifier {
 
       if (triggerSync || currentGeneration == 1) {
         TaskAlarmService().rescheduleAllAlarms(allTasks);
+        
+        // FIX: Sync alarms with backend to restore alarms from other devices
+        // Run in background to not block UI
+        _repository.syncAlarmsWithBackend().then((_) {
+          debugPrint('[TaskProvider] Alarm sync with backend completed');
+        }).catchError((e) {
+          debugPrint('[TaskProvider] Alarm sync error: $e');
+        });
+        
         loadCollaborators();
       }
 

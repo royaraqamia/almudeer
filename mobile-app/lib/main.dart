@@ -83,10 +83,12 @@ void main() async {
   // This ensures seamless transition without flash
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
-  // Set preferred orientations (portrait only for mobile) - fast, non-blocking
+  // Allow both portrait and landscape orientations
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
   ]);
 
   // System UI overlay style will be handled dynamically by the app theme in AppRoot

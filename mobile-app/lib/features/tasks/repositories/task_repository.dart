@@ -11,8 +11,10 @@ import 'dart:async';
 import '../../../core/services/websocket_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/task_logger.dart'; // FIX #8: Centralized logging
+import '../../../core/api/api_client.dart';
 
 class TaskRepository {
+  final ApiClient _apiClient = ApiClient();
   final LocalDatabaseService _databaseService = LocalDatabaseService();
   final TaskSyncService _syncService = TaskSyncService();
   final WebSocketService? _webSocketService;
@@ -885,16 +887,131 @@ class TaskRepository {
         comment.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
-      
+
       // Update cache and LRU
       if (_commentCache.containsKey(taskId)) {
         _commentCache[taskId]!.add(comment);
         _updateCommentCacheAccess(taskId);
       }
-      
+
       _syncController.add(null);
       return true;
     }
     return false;
+  }
+
+  // ============================================================================
+  // ALARM SYNC ACROSS DEVICES (FIX #9, #10)
+  // ============================================================================
+
+  /// Fetch pending alarms from backend for backup/restore across devices
+  Future<List<Map<String, dynamic>>> fetchPendingAlarms() async {
+    try {
+      final response = await _apiClient.get(
+        '/notifications/alarm/pending',
+      );
+
+      if (response['success'] == true) {
+        final alarms = response['alarms'] as List;
+        TaskLogger.alarm('Fetched ${alarms.length} pending alarms from backend');
+        return alarms.cast<Map<String, dynamic>>();
+      }
+      TaskLogger.w('Failed to fetch pending alarms');
+    } catch (e) {
+      TaskLogger.e('Error fetching pending alarms: $e', tag: 'Alarm');
+    }
+    return [];
+  }
+
+  /// Sync local alarms with backend (restore alarms on new device)
+  Future<void> syncAlarmsWithBackend() async {
+    try {
+      // Fetch pending alarms from backend
+      final backendAlarms = await fetchPendingAlarms();
+      
+      if (backendAlarms.isEmpty) {
+        TaskLogger.alarm('No pending alarms on backend to sync');
+        return;
+      }
+
+      // Get all tasks to match alarms
+      final tasks = await getTasks();
+      final taskMap = {for (var task in tasks) task.id: task};
+
+      // Schedule local alarms for backend alarms
+      for (final alarm in backendAlarms) {
+        final taskId = alarm['task_id'] as String;
+        final task = taskMap[taskId];
+        
+        if (task != null) {
+          // Parse alarm time from backend
+          final alarmTimeStr = alarm['alarm_time'] as String?;
+          if (alarmTimeStr != null) {
+            final alarmTime = DateTime.tryParse(alarmTimeStr);
+            if (alarmTime != null && alarmTime.isAfter(DateTime.now())) {
+              // Schedule local alarm
+              final updatedTask = task.copyWith(
+                alarmEnabled: true,
+                alarmTime: alarmTime,
+              );
+              await TaskAlarmService().scheduleAlarm(updatedTask);
+              TaskLogger.alarm('Restored alarm for task $taskId from backend');
+            }
+          }
+        }
+      }
+    } catch (e) {
+      TaskLogger.e('Error syncing alarms with backend: $e', tag: 'Alarm');
+    }
+  }
+
+  /// Acknowledge alarm on backend (sync across devices)
+  Future<bool> acknowledgeAlarmOnBackend({
+    required int alarmId,
+    String? deviceId,
+  }) async {
+    try {
+      final response = await _apiClient.post(
+        '/notifications/alarm/acknowledge',
+        body: {
+          'alarm_id': alarmId,
+          'device_id': deviceId,
+        },
+      );
+
+      if (response['success'] == true) {
+        TaskLogger.alarm('Acknowledged alarm $alarmId on backend');
+        return true;
+      }
+      TaskLogger.w('Failed to acknowledge alarm');
+    } catch (e) {
+      TaskLogger.e('Error acknowledging alarm: $e', tag: 'Alarm');
+    }
+    return false;
+  }
+
+  /// Snooze alarm on backend
+  Future<Map<String, dynamic>?> snoozeAlarmOnBackend({
+    required String taskId,
+    int? alarmId,
+  }) async {
+    try {
+      final response = await _apiClient.post(
+        '/notifications/alarm/snooze',
+        body: {
+          'task_id': taskId,
+          'alarm_id': alarmId,
+        },
+      );
+
+      if (response['success'] == true) {
+        TaskLogger.alarm('Snoozed alarm for task $taskId on backend');
+        return response;
+      }
+      TaskLogger.w('Failed to snooze alarm');
+    } catch (e) {
+      TaskLogger.e('Error snoozing alarm: $e', tag: 'Alarm');
+    }
+    return null;
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,12 +9,9 @@ import 'package:solar_icon_pack/solar_icon_pack.dart';
 import 'package:path/path.dart' as p;
 import '../../../core/services/media_service.dart';
 import '../../../core/utils/premium_toast.dart';
-
+import '../../../core/constants/viewer_constants.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/services/sharing_service.dart';
-
-// P0 FIX: File size limits to prevent memory exhaustion
-const int kMaxCodeFileSize = 5 * 1024 * 1024; // 5MB for code files
 
 /// Maps file extensions to highlight.js language identifiers
 const Map<String, String> _extensionToLanguage = {
@@ -128,15 +126,14 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
   bool _isLoading = true;
   String? _error;
   bool _showLineNumbers = true;
-  double _fontSize = 13.0;
+  double _fontSize = ViewerConstants.defaultCodeFontSize;
   String? _manualLanguage;
 
-  // P0 FIX: Retry logic
+  // Retry logic
   int _retryCount = 0;
-  static const int _maxRetries = 3;
   bool _isSizeError = false;
 
-  // P1 FIX: Search functionality
+  // Search functionality
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
@@ -155,38 +152,80 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
     _loadFile();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadFile() async {
     try {
       final file = File(widget.filePath);
 
-      // P0 FIX: Check if file exists
+      // Check if file exists
       if (!await file.exists()) {
         if (mounted) {
           setState(() {
             _isLoading = false;
             _isSizeError = false;
-            _error = 'الملف غير موجود';
+            _error = ViewerErrorType.fileNotFound.message;
           });
         }
         return;
       }
 
-      // P0 FIX: Check file size
+      // Check file size
       final fileSize = await file.length();
-      if (fileSize > kMaxCodeFileSize) {
+      if (fileSize > ViewerConstants.maxCodeFileSize) {
         if (mounted) {
           setState(() {
             _isLoading = false;
             _isSizeError = true;
             _error =
-                'حجم الملف كبير جداً (${(fileSize / 1024 / 1024).toStringAsFixed(1)} ميجابايت). الحد الأقصى هو ${kMaxCodeFileSize ~/ 1024 ~/ 1024} ميجابايت';
+                'حجم الملف كبير جداً (${(fileSize / 1024 / 1024).toStringAsFixed(1)} ميجابايت). الحد الأقصى هو ${ViewerConstants.maxCodeFileSize ~/ 1024 ~/ 1024} ميجابايت';
           });
         }
         return;
       }
 
-      final content = await file.readAsString();
+      // Read file with timeout to prevent hanging
+      final content = await _readFileWithTimeout(file);
+
       if (mounted) {
+        // Handle empty files
+        if (content.trim().isEmpty) {
+          setState(() {
+            _isLoading = false;
+            _isSizeError = false;
+            _error = ViewerErrorType.emptyFile.message;
+          });
+          return;
+        }
+
+        // Check for binary content (corrupted or wrong file type)
+        // Code files should not contain null bytes or excessive non-printable characters
+        if (content.contains('\u{0000}')) {
+          setState(() {
+            _isLoading = false;
+            _isSizeError = false;
+            _error = ViewerErrorType.corruptedFile.message;
+          });
+          return;
+        }
+
+        // Check for excessive non-printable characters (indicates binary file)
+        final nonPrintableCount = content.codeUnits
+            .where((c) => c < 32 && c != 9 && c != 10 && c != 13).length;
+        if (nonPrintableCount > content.length * 0.1) {
+          // More than 10% non-printable chars = likely binary
+          setState(() {
+            _isLoading = false;
+            _isSizeError = false;
+            _error = ViewerErrorType.corruptedFile.message;
+          });
+          return;
+        }
+
         setState(() {
           _content = content;
           _isLoading = false;
@@ -206,20 +245,42 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
     }
   }
 
-  // P0 FIX: Retry method
-  void _retryLoad() {
-    if (_retryCount < _maxRetries) {
-      setState(() {
-        _retryCount++;
-        _isLoading = true;
-        _error = null;
-        _isSizeError = false;
-      });
-      _loadFile();
+  // Read file with timeout
+  Future<String> _readFileWithTimeout(File file) async {
+    try {
+      return await file.readAsString().timeout(
+        ViewerConstants.fileReadTimeout,
+        onTimeout: () {
+          throw TimeoutException(
+            'انتهت مهلة قراءة الملف (${ViewerConstants.fileReadTimeout.inSeconds} ثانية)',
+          );
+        },
+      );
+    } on TimeoutException catch (e) {
+      throw Exception(e.message);
     }
   }
 
-  // P1 FIX: Search functionality
+  // Retry with exponential backoff
+  void _retryLoad() {
+    if (_retryCount >= ViewerConstants.maxRetries) return;
+
+    final delay = ViewerConstants.retryBaseDelay * (1 << _retryCount);
+
+    setState(() {
+      _retryCount++;
+      _isLoading = true;
+      _error = null;
+      _isSizeError = false;
+    });
+
+    Future.delayed(delay, () {
+      if (mounted) {
+        _loadFile();
+      }
+    });
+  }
+
   void _updateSearchMatches() {
     if (_searchQuery.isEmpty) {
       setState(() {
@@ -407,7 +468,10 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
               ),
               tooltip: 'تصغير الخط',
               onPressed: () =>
-                  setState(() => _fontSize = (_fontSize - 2).clamp(8.0, 48.0)),
+                  setState(() => _fontSize = (_fontSize - 2).clamp(
+                    ViewerConstants.minFontSize,
+                    ViewerConstants.maxFontSize,
+                  )),
             ),
             IconButton(
               icon: Icon(
@@ -416,7 +480,10 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
               ),
               tooltip: 'تكبير الخط',
               onPressed: () =>
-                  setState(() => _fontSize = (_fontSize + 2).clamp(8.0, 48.0)),
+                  setState(() => _fontSize = (_fontSize + 2).clamp(
+                    ViewerConstants.minFontSize,
+                    ViewerConstants.maxFontSize,
+                  )),
             ),
             IconButton(
               icon: Icon(
@@ -482,7 +549,7 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
                   if (_retryCount > 0) ...[
                     const SizedBox(height: 16),
                     Text(
-                      'محاولة $_retryCount من $_maxRetries...',
+                      'محاولة $_retryCount من ${ViewerConstants.maxRetries}...',
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 14,
@@ -493,14 +560,13 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
               ),
             )
           : _error != null
-          ? _buildErrorView()
+          ? _buildErrorView(isDark)
           : _buildCodeView(isDark),
     );
   }
 
-  // P0 FIX: Error view with retry button
-  Widget _buildErrorView() {
-    final canRetry = _retryCount < _maxRetries && !_isSizeError;
+  Widget _buildErrorView(bool isDark) {
+    final canRetry = _retryCount < ViewerConstants.maxRetries && !_isSizeError;
     final theme = Theme.of(context);
 
     return Center(
@@ -518,14 +584,16 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
           Text(
             _isSizeError ? 'حجم الملف كبير جداً' : 'فشل تحميل الملف',
             style: theme.textTheme.titleMedium?.copyWith(
-              color: Colors.white,
+              color: isDark ? Colors.white : Colors.black87,
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 8),
           Text(
             _error!,
-            style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white54),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: isDark ? Colors.white54 : Colors.black54,
+            ),
             textAlign: TextAlign.center,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
@@ -535,7 +603,7 @@ class _CodeViewerScreenState extends State<CodeViewerScreen> {
             ElevatedButton.icon(
               onPressed: _retryLoad,
               icon: const Icon(SolarLinearIcons.refresh),
-              label: Text('إعادة المحاولة (${_maxRetries - _retryCount})'),
+              label: Text('إعادة المحاولة (${ViewerConstants.maxRetries - _retryCount})'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,

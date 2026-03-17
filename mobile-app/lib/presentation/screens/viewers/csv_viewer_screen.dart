@@ -4,13 +4,9 @@ import 'package:solar_icon_pack/solar_icon_pack.dart';
 import 'package:csv/csv.dart';
 import '../../../core/services/media_service.dart';
 import '../../../core/utils/premium_toast.dart';
-
+import '../../../core/constants/viewer_constants.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/services/sharing_service.dart';
-
-// P0 FIX: File size limits and pagination
-const int kMaxCsvFileSize = 5 * 1024 * 1024; // 5MB for CSV files
-const int kCsvRowsPerPage = 100;
 
 class CsvViewerScreen extends StatefulWidget {
   final String filePath;
@@ -27,9 +23,13 @@ class CsvViewerScreen extends StatefulWidget {
 }
 
 class _CsvViewerScreenState extends State<CsvViewerScreen> {
+  // Parsed data (lazy loaded)
   List<List<dynamic>> _data = [];
   List<List<dynamic>> _filteredData = [];
-  List<Map<String, dynamic>> _dataWithIndex = []; // Preserve original order
+  
+  // Store only indices for sorting (memory efficient)
+  List<int> _rowIndices = [];
+  
   bool _isLoading = true;
   String? _error;
   bool _isSearching = false;
@@ -38,12 +38,11 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
   bool _isAscending = true;
   int _originalRowCount = 0;
 
-  // P0 FIX: Retry logic
+  // Retry logic
   int _retryCount = 0;
-  static const int _maxRetries = 3;
   bool _isSizeError = false;
 
-  // P0 FIX: Pagination
+  // Pagination
   int _currentPage = 0;
   int _totalPages = 0;
 
@@ -53,53 +52,89 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
     _loadCsv();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadCsv() async {
     try {
       final file = File(widget.filePath);
 
-      // P0 FIX: Check if file exists
+      // Check if file exists
       if (!await file.exists()) {
         if (mounted) {
           setState(() {
             _isLoading = false;
             _isSizeError = false;
-            _error = 'الملف غير موجود';
+            _error = ViewerErrorType.fileNotFound.message;
           });
         }
         return;
       }
 
-      // P0 FIX: Check file size
+      // Check file size
       final fileSize = await file.length();
-      if (fileSize > kMaxCsvFileSize) {
+      if (fileSize > ViewerConstants.maxCsvFileSize) {
         if (mounted) {
           setState(() {
             _isLoading = false;
             _isSizeError = true;
             _error =
-                'حجم الملف كبير جداً (${(fileSize / 1024 / 1024).toStringAsFixed(1)} ميجابايت). الحد الأقصى هو ${kMaxCsvFileSize ~/ 1024 ~/ 1024} ميجابايت';
+                'حجم الملف كبير جداً (${(fileSize / 1024 / 1024).toStringAsFixed(1)} ميجابايت). الحد الأقصى هو ${ViewerConstants.maxCsvFileSize ~/ 1024 ~/ 1024} ميجابايت';
           });
         }
         return;
       }
 
+      // Read file content once
       final content = await file.readAsString();
 
-      // Use RFC 4180 compliant CSV parser
-      final List<List<dynamic>> data = csv.decoder.convert(content);
-
       if (mounted) {
-        // Store data with original indices for stable sorting
-        final dataWithIndex = <Map<String, dynamic>>[];
-        for (var i = 0; i < data.length; i++) {
-          dataWithIndex.add({'index': i, 'row': data[i]});
+        // Parse CSV using the csv package
+        List<List<dynamic>> data;
+        try {
+          data = csv.decode(content);
+        } catch (e) {
+          setState(() {
+            _isLoading = false;
+            _isSizeError = false;
+            _error = ViewerErrorType.corruptedFile.message;
+          });
+          return;
         }
 
-        final totalPages = (data.length / kCsvRowsPerPage).ceil();
+        // Handle empty files
+        if (data.isEmpty) {
+          setState(() {
+            _isLoading = false;
+            _isSizeError = false;
+            _error = ViewerErrorType.emptyFile.message;
+          });
+          return;
+        }
+
+        // Validate CSV structure (check for corrupted files)
+        // A valid CSV should have consistent column counts (or at least some rows with data)
+        final hasValidStructure = data.any((row) => row.isNotEmpty);
+        if (!hasValidStructure) {
+          setState(() {
+            _isLoading = false;
+            _isSizeError = false;
+            _error = ViewerErrorType.corruptedFile.message;
+          });
+          return;
+        }
+
+        // Store only indices instead of duplicating row data (memory optimization)
+        final rowIndices = List<int>.generate(data.length, (i) => i);
+
+        final totalPages = (data.length / ViewerConstants.defaultRowsPerPage).ceil();
 
         setState(() {
           _data = data;
-          _dataWithIndex = dataWithIndex;
+          _rowIndices = rowIndices;
           _originalRowCount = data.length;
           _totalPages = totalPages > 0 ? totalPages : 1;
           _currentPage = 0;
@@ -120,45 +155,53 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
     }
   }
 
-  // P0 FIX: Retry method
+  // Retry with exponential backoff
   void _retryLoad() {
-    if (_retryCount < _maxRetries) {
-      setState(() {
-        _retryCount++;
-        _isLoading = true;
-        _error = null;
-        _isSizeError = false;
-      });
-      _loadCsv();
-    }
+    if (_retryCount >= ViewerConstants.maxRetries) return;
+
+    final delay = ViewerConstants.retryBaseDelay * (1 << _retryCount);
+
+    setState(() {
+      _retryCount++;
+      _isLoading = true;
+      _error = null;
+      _isSizeError = false;
+    });
+
+    Future.delayed(delay, () {
+      if (mounted) {
+        _loadCsv();
+      }
+    });
   }
 
   void _applyFilterAndSort() {
+    if (_data.isEmpty) return;
+
     final query = _searchController.text.toLowerCase();
 
-    // Keep header separate
-    final header = _dataWithIndex.isNotEmpty
-        ? [_dataWithIndex.first]
-        : <Map<String, dynamic>>[];
+    // Keep header separate (first row)
+    final headerIndex = _rowIndices.isNotEmpty ? _rowIndices.first : -1;
 
-    // Get rest of rows with original indices preserved
-    var rest = _dataWithIndex.skip(1).toList();
+    // Get rest of row indices (skip header)
+    var rest = _rowIndices.skip(1).toList();
 
     // Apply filter
     if (query.isNotEmpty) {
-      rest = rest.where((entry) {
-        final row = entry['row'] as List<dynamic>;
+      rest = rest.where((index) {
+        if (index >= _data.length) return false;
+        final row = _data[index];
         return row.any((cell) => cell.toString().toLowerCase().contains(query));
       }).toList();
     }
 
-    // Apply sort with stable ordering (preserve original order for equal values)
+    // Apply sort with stable ordering (using indices, not duplicating data)
     if (_sortColumnIndex != null) {
       rest.sort((a, b) {
-        final rowA = a['row'] as List<dynamic>;
-        final rowB = b['row'] as List<dynamic>;
-        final indexA = a['index'] as int;
-        final indexB = b['index'] as int;
+        if (a >= _data.length || b >= _data.length) return 0;
+        
+        final rowA = _data[a];
+        final rowB = _data[b];
 
         final valA = _sortColumnIndex! < rowA.length
             ? rowA[_sortColumnIndex!]
@@ -177,33 +220,33 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
           comparison = valA.toString().compareTo(valB.toString());
         }
 
-        // If equal, preserve original order (stable sort)
+        // If equal, preserve original order (stable sort via indices)
         if (comparison == 0) {
-          return indexA.compareTo(indexB);
+          return a.compareTo(b);
         }
 
         return _isAscending ? comparison : -comparison;
       });
     }
 
-    // P0 FIX: Apply pagination
-    final totalPages = (rest.length / kCsvRowsPerPage).ceil();
-    final startIndex = _currentPage * kCsvRowsPerPage;
-    final endIndex = (startIndex + kCsvRowsPerPage).clamp(0, rest.length);
+    // Apply pagination
+    final totalPages = (rest.length / ViewerConstants.defaultRowsPerPage).ceil();
+    final startIndex = _currentPage * ViewerConstants.defaultRowsPerPage;
+    final endIndex = (startIndex + ViewerConstants.defaultRowsPerPage).clamp(0, rest.length);
 
     setState(() {
+      // Build filtered data from indices (memory efficient)
       _filteredData = [
-        ...header.map((e) => e['row'] as List<dynamic>),
+        if (headerIndex >= 0 && headerIndex < _data.length) _data[headerIndex],
         ...rest
             .skip(startIndex)
             .take(endIndex - startIndex)
-            .map((e) => e['row'] as List<dynamic>),
+            .map((index) => _data[index]),
       ];
       _totalPages = totalPages > 0 ? totalPages : 1;
     });
   }
 
-  // P0 FIX: Pagination controls
   void _changePage(int delta) {
     final newPage = (_currentPage + delta).clamp(0, _totalPages - 1);
     if (newPage != _currentPage) {
@@ -320,7 +363,7 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
                   if (_retryCount > 0) ...[
                     const SizedBox(height: 16),
                     Text(
-                      'محاولة $_retryCount من $_maxRetries...',
+                      'محاولة $_retryCount من ${ViewerConstants.maxRetries}...',
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 14,
@@ -337,16 +380,14 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
           : Column(
               children: [
                 Expanded(child: _buildTable(isDark)),
-                // P0 FIX: Pagination controls
                 if (_totalPages > 1) _buildPaginationControls(isDark),
               ],
             ),
     );
   }
 
-  // P0 FIX: Error view with retry button
   Widget _buildErrorView() {
-    final canRetry = _retryCount < _maxRetries && !_isSizeError;
+    final canRetry = _retryCount < ViewerConstants.maxRetries && !_isSizeError;
     final theme = Theme.of(context);
 
     return Center(
@@ -381,7 +422,7 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
             ElevatedButton.icon(
               onPressed: _retryLoad,
               icon: const Icon(SolarLinearIcons.refresh),
-              label: Text('إعادة المحاولة (${_maxRetries - _retryCount})'),
+              label: Text('إعادة المحاولة (${ViewerConstants.maxRetries - _retryCount})'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
@@ -397,7 +438,6 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
     );
   }
 
-  // P0 FIX: Pagination controls widget
   Widget _buildPaginationControls(bool isDark) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -441,12 +481,10 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
       (max, row) => row.length > max ? row.length : max,
     );
 
-    const double cellWidth = 150.0;
-
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: SizedBox(
-        width: maxColumns * cellWidth,
+        width: maxColumns * ViewerConstants.cellWidth,
         child: ListView.builder(
           itemCount: _filteredData.length,
           itemBuilder: (context, index) {
@@ -508,7 +546,7 @@ class _CsvViewerScreenState extends State<CsvViewerScreen> {
                   }
 
                   final Widget cellContainer = Container(
-                    width: cellWidth,
+                    width: ViewerConstants.cellWidth,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
                       vertical: 10,

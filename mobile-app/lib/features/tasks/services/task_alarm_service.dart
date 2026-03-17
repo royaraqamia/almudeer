@@ -25,75 +25,17 @@ class TaskAlarmService {
   bool _isInitialized = false;
   static const String actionComplete = 'action_complete';
 
+  // FIX #4: Cache timezone ID to prevent repeated lookups
+  String? _cachedTimezoneId;
+  DateTime? _lastTimezoneCheck;
+
   Future<void> initialize() async {
     if (_isInitialized) return;
 
     tz.initializeTimeZones();
-    try {
-      final timeZone = await FlutterTimezone.getLocalTimezone();
-      // Fix: Extract timezone ID from the returned string
-      // FlutterTimezone may return "TimezoneInfo(GMT, ...)" instead of just "GMT"
-      String timeZoneId = timeZone.toString().trim();
-
-      // Try to extract timezone ID from TimezoneInfo format
-      if (timeZoneId.startsWith('TimezoneInfo(')) {
-        // Extract the first parameter (timezone abbreviation like GMT, EST, etc.)
-        final match = RegExp(r'TimezoneInfo\(([^,]+)').firstMatch(timeZoneId);
-        if (match != null) {
-          timeZoneId = match.group(1)!.trim();
-        }
-      }
-
-      // FIX: Handle IANA timezone format (e.g., "America/New_York")
-      // and Windows timezone format (e.g., "Eastern Standard Time")
-      if (timeZoneId.contains(' ') && !timeZoneId.contains('/')) {
-        // Likely Windows timezone name, convert to IANA
-        timeZoneId = _convertWindowsToIana(timeZoneId);
-      }
-
-      // Try to get location with the extracted timezone ID
-      try {
-        tz.setLocalLocation(tz.getLocation(timeZoneId));
-        TaskLogger.timezone('primary_success', timeZoneId);
-      } catch (e) {
-        TaskLogger.w('Failed to get location for "$timeZoneId": $e', tag: 'Timezone');
-        
-        // Try common timezone ID formats
-        final fallbackIds = [
-          timeZoneId,
-          timeZoneId.replaceAll(' ', '_'),
-          'Etc/$timeZoneId',
-          // Common IANA timezone mappings for abbreviations
-          ..._getIanaTimezoneFallbacks(timeZoneId),
-          'UTC',
-        ];
-
-        bool located = false;
-        String? successfulFallbackId;
-        
-        for (final id in fallbackIds) {
-          if (id.isEmpty) continue;
-          try {
-            tz.setLocalLocation(tz.getLocation(id));
-            successfulFallbackId = id;
-            located = true;
-            break;
-          } catch (_) {}
-        }
-
-        if (located && successfulFallbackId != null) {
-          TaskLogger.timezone('fallback_success', successfulFallbackId);
-        } else {
-          TaskLogger.timezone('complete_failure', timeZoneId);
-          tz.setLocalLocation(tz.getLocation('UTC'));
-        }
-      }
-    } catch (e) {
-      TaskLogger.e('Timezone error: $e', tag: 'Timezone');
-      try {
-        tz.setLocalLocation(tz.getLocation('UTC'));
-      } catch (_) {}
-    }
+    
+    // FIX #4: Improved timezone handling with better error handling and caching
+    await _initializeTimezone();
 
     const androidSettings = AndroidInitializationSettings(
       '@drawable/ic_notification',
@@ -123,10 +65,18 @@ class TaskAlarmService {
           >();
 
       if (androidPlugin != null) {
-        // Create a critical channel for Alarms
-        // ID changed to v2 to force update on devices that have the old channel
+        // FIX #7: Notification channel migration for existing users
+        // Delete old channel if it exists (from previous versions)
+        try {
+          await androidPlugin.deleteNotificationChannel(channelId: 'task_alarms');
+          TaskLogger.alarm('Deleted old notification channel: task_alarms');
+        } catch (_) {
+          // Old channel may not exist, ignore error
+        }
+        
+        // Create new critical channel for Alarms with v2 ID
         const channel = AndroidNotificationChannel(
-          'task_alarms_v2', // NEW ID
+          'task_alarms_v2',
           'Task Alarms',
           description: 'High priority alarms for scheduled tasks',
           importance: Importance.max, // MAX for Heads-up + Sound
@@ -134,11 +84,12 @@ class TaskAlarmService {
           enableVibration: true,
           sound: RawResourceAndroidNotificationSound(
             'system_ringtone_default',
-          ), // Uses default if not found, or resource
-          audioAttributesUsage: AudioAttributesUsage.alarm, // Treat as Alarm
+          ),
+          audioAttributesUsage: AudioAttributesUsage.alarm,
         );
 
         await androidPlugin.createNotificationChannel(channel);
+        TaskLogger.alarm('Created notification channel: task_alarms_v2');
 
         // Request Permissions
         await _requestAndroidPermissions(androidPlugin);
@@ -153,14 +104,31 @@ class TaskAlarmService {
     AndroidFlutterLocalNotificationsPlugin androidPlugin,
   ) async {
     try {
-      await androidPlugin.requestNotificationsPermission();
-      await androidPlugin.requestExactAlarmsPermission();
+      // Request basic notification permission (Android 13+)
+      final notifGranted = await androidPlugin.requestNotificationsPermission();
+      TaskLogger.alarm('Notification permission: $notifGranted');
+      
+      // FIX #5: Request exact alarm permission with fallback handling
+      // On Android 12+, SCHEDULE_EXACT_ALARM may require special approval
+      try {
+        final exactAlarmGranted = await androidPlugin.requestExactAlarmsPermission();
+        TaskLogger.alarm('Exact alarm permission: $exactAlarmGranted');
+
+        if (exactAlarmGranted != true) {
+          TaskLogger.w('Exact alarm permission denied - alarms may be inexact', tag: 'Alarm');
+          // Note: Alarms will still work but may fire slightly late
+          // User can manually enable in Settings > Apps > Al-Mudeer > Alarms & reminders
+        }
+      } catch (e) {
+        TaskLogger.w('Exact alarm permission request failed: $e', tag: 'Alarm');
+        // Fallback: Alarms will use inexact scheduling (still functional)
+      }
     } catch (e) {
       TaskLogger.e('Error requesting permissions: $e', tag: 'Alarm');
     }
   }
 
-  void _handleNotificationResponse(NotificationResponse details) {
+  void _handleNotificationResponse(NotificationResponse details) async {
     TaskLogger.alarm('Notification clicked/actioned: ${details.payload}');
     if (details.payload != null) {
       try {
@@ -172,6 +140,15 @@ class TaskAlarmService {
             _markTaskAsCompletedLocally(taskId);
           }
           return;
+        }
+
+        // FIX #8: Reschedule recurring alarm if task has recurrence
+        final taskData = data['task'] as Map<String, dynamic>?;
+        if (taskData != null) {
+          final task = TaskModel.fromJson(taskData);
+          if (task.recurrence != null) {
+            await _rescheduleRecurringAlarm(task);
+          }
         }
 
         // Navigate or show task details
@@ -186,11 +163,66 @@ class TaskAlarmService {
     _onTaskAction?.call(taskId, actionComplete);
   }
 
+  // FIX #8: Handle recurring task alarm rescheduling
+  Future<void> _rescheduleRecurringAlarm(TaskModel task) async {
+    if (task.recurrence == null || task.alarmTime == null) {
+      return; // Not recurring
+    }
+
+    DateTime? nextAlarmTime;
+    final now = DateTime.now();
+
+    switch (task.recurrence) {
+      case 'daily':
+        nextAlarmTime = task.alarmTime!.add(const Duration(days: 1));
+        break;
+      case 'weekly':
+        nextAlarmTime = task.alarmTime!.add(const Duration(days: 7));
+        break;
+      case 'monthly':
+        // Add one month, handling month overflow
+        nextAlarmTime = DateTime(
+          task.alarmTime!.year,
+          task.alarmTime!.month + 1,
+          task.alarmTime!.day,
+          task.alarmTime!.hour,
+          task.alarmTime!.minute,
+        );
+        break;
+    }
+
+    if (nextAlarmTime != null && nextAlarmTime.isAfter(now)) {
+      // Create updated task with next alarm time
+      final nextTask = task.copyWith(alarmTime: nextAlarmTime);
+      await scheduleAlarm(nextTask);
+      TaskLogger.alarm(
+        'Rescheduled recurring alarm for "${task.title}" to $nextAlarmTime',
+      );
+    }
+  }
+
   static void Function(String taskId, String action)? _onTaskAction;
   static void setActionCallback(
     void Function(String taskId, String action) callback,
   ) {
     _onTaskAction = callback;
+  }
+
+  // FIX #6: Use incremental counter for notification IDs to prevent hash collisions
+  int _notificationIdCounter = 0;
+  static const int _notificationIdMax = 2147483647; // Max int32
+  
+  // FIX #6: Map task IDs to notification IDs for cancellation
+  final Map<String, int> _taskToNotificationId = {};
+  
+  // FIX #6: Generate unique notification ID
+  int _generateNotificationId(String taskId) {
+    // Use incremental counter to guarantee uniqueness
+    _notificationIdCounter++;
+    if (_notificationIdCounter > _notificationIdMax) {
+      _notificationIdCounter = 1; // Reset before overflow
+    }
+    return _notificationIdCounter;
   }
 
   Future<void> scheduleAlarm(TaskModel task) async {
@@ -206,8 +238,11 @@ class TaskAlarmService {
 
     final scheduledDate = tz.TZDateTime.from(task.alarmTime!, tz.local);
 
-    // Use a unique integer ID
-    final int notificationId = task.id.hashCode.abs();
+    // FIX #6: Use incremental ID instead of hashCode to prevent collisions
+    final int notificationId = _generateNotificationId(task.id);
+    
+    // Store mapping for cancellation lookup
+    _taskToNotificationId[task.id] = notificationId;
 
     const androidDetails = AndroidNotificationDetails(
       'task_alarms_v2',
@@ -254,7 +289,7 @@ class TaskAlarmService {
         scheduledDate: scheduledDate,
         notificationDetails: details,
         androidScheduleMode:
-            AndroidScheduleMode.alarmClock, // Critical for reliability
+            AndroidScheduleMode.inexactAllowWhileIdle,
         payload: jsonEncode({
           'type': 'task_alarm',
           'task_id': task.id,
@@ -264,7 +299,26 @@ class TaskAlarmService {
 
       TaskLogger.alarm('Scheduled alarm for ${task.title} at $scheduledDate (ID: $notificationId)');
     } catch (e) {
-      TaskLogger.e('Failed to schedule alarm: $e', tag: 'Alarm');
+      TaskLogger.e('Failed to schedule alarm with inexactAllowWhileIdle: $e', tag: 'Alarm');
+      // FIX #5: Fallback to exact mode if inexact fails
+      try {
+        await _localNotifications.zonedSchedule(
+          id: notificationId,
+          title: '⏰ تذكير مهمَّة',
+          body: '${task.title}\n${task.description ?? ''}',
+          scheduledDate: scheduledDate,
+          notificationDetails: details,
+          androidScheduleMode: AndroidScheduleMode.exact,
+          payload: jsonEncode({
+            'type': 'task_alarm',
+            'task_id': task.id,
+            'task': task.toJson(),
+          }),
+        );
+        TaskLogger.alarm('Scheduled alarm with exact mode (fallback)');
+      } catch (e2) {
+        TaskLogger.e('Failed with fallback mode: $e2', tag: 'Alarm');
+      }
     }
   }
 
@@ -288,8 +342,10 @@ class TaskAlarmService {
           !task.isCompleted &&
           task.alarmTime != null &&
           task.alarmTime!.isAfter(DateTime.now())) {
-        final int notificationId = task.id.hashCode.abs();
+        // FIX #6: Use incremental ID instead of hashCode
+        final int notificationId = _generateNotificationId(task.id);
         expectedIds.add(notificationId);
+        _taskToNotificationId[task.id] = notificationId;
 
         // Check if this alarm needs to be updated (exists with different time)
         final existingNotification = pendingNotifications.firstWhere(
@@ -344,8 +400,10 @@ class TaskAlarmService {
   }
 
   Future<void> cancelAlarm(String taskId) async {
-    final int notificationId = taskId.hashCode.abs();
+    // FIX #6: Use stored notification ID from mapping, fallback to hashCode
+    final int notificationId = _taskToNotificationId[taskId] ?? taskId.hashCode.abs();
     await _localNotifications.cancel(id: notificationId);
+    _taskToNotificationId.remove(taskId);
     TaskLogger.alarm('Cancelled alarm for task $taskId (ID: $notificationId)');
   }
 
@@ -378,6 +436,102 @@ class TaskAlarmService {
     );
 
     await FlutterCallkitIncoming.showCallkitIncoming(params);
+  }
+
+  /// FIX #4: Improved timezone initialization with caching and better error handling
+  Future<void> _initializeTimezone() async {
+    // Check cache (valid for 1 hour)
+    final now = DateTime.now();
+    if (_cachedTimezoneId != null && 
+        _lastTimezoneCheck != null && 
+        now.difference(_lastTimezoneCheck!).inHours < 1) {
+      TaskLogger.timezone('cache_hit', _cachedTimezoneId!);
+      try {
+        tz.setLocalLocation(tz.getLocation(_cachedTimezoneId!));
+        return;
+      } catch (e) {
+        TaskLogger.w('Cached timezone "$_cachedTimezoneId" failed, refreshing', tag: 'Timezone');
+      }
+    }
+
+    try {
+      final timeZone = await FlutterTimezone.getLocalTimezone();
+      String timeZoneId = _parseTimezoneString(timeZone.toString());
+
+      // Convert Windows timezone to IANA if needed
+      if (timeZoneId.contains(' ') && !timeZoneId.contains('/')) {
+        timeZoneId = _convertWindowsToIana(timeZoneId);
+      }
+
+      // Try to set timezone with fallbacks
+      await _setTimezoneWithFallbacks(timeZoneId);
+      
+    } catch (e) {
+      TaskLogger.e('Timezone initialization error: $e', tag: 'Timezone');
+      // Ultimate fallback to UTC
+      try {
+        tz.setLocalLocation(tz.getLocation('UTC'));
+        _cachedTimezoneId = 'UTC';
+        _lastTimezoneCheck = now;
+        TaskLogger.timezone('fallback_utc', 'UTC');
+      } catch (_) {}
+    }
+  }
+
+  /// FIX #4: Parse timezone string from various formats
+  String _parseTimezoneString(String timeZone) {
+    String timeZoneId = timeZone.trim();
+
+    // Handle TimezoneInfo format: "TimezoneInfo(GMT, ...)"
+    if (timeZoneId.startsWith('TimezoneInfo(')) {
+      final match = RegExp(r'TimezoneInfo\(([^,]+)').firstMatch(timeZoneId);
+      if (match != null) {
+        timeZoneId = match.group(1)!.trim();
+      }
+    }
+
+    return timeZoneId;
+  }
+
+  /// FIX #4: Set timezone with multiple fallback strategies
+  Future<void> _setTimezoneWithFallbacks(String timeZoneId) async {
+    final now = DateTime.now();
+    
+    // Try primary timezone ID
+    try {
+      tz.setLocalLocation(tz.getLocation(timeZoneId));
+      _cachedTimezoneId = timeZoneId;
+      _lastTimezoneCheck = now;
+      TaskLogger.timezone('primary_success', timeZoneId);
+      return;
+    } catch (e) {
+      TaskLogger.w('Primary timezone "$timeZoneId" failed: $e', tag: 'Timezone');
+    }
+
+    // Build fallback list
+    final fallbackIds = <String>[
+      timeZoneId,
+      timeZoneId.replaceAll(' ', '_'),
+      'Etc/$timeZoneId',
+      ..._getIanaTimezoneFallbacks(timeZoneId),
+      'UTC',
+    ];
+
+    // Try each fallback
+    for (final id in fallbackIds) {
+      if (id.isEmpty || id == timeZoneId) continue;
+      try {
+        tz.setLocalLocation(tz.getLocation(id));
+        _cachedTimezoneId = id;
+        _lastTimezoneCheck = now;
+        TaskLogger.timezone('fallback_success', id);
+        return;
+      } catch (_) {}
+    }
+
+    // All fallbacks failed
+    TaskLogger.timezone('complete_failure', timeZoneId);
+    throw Exception('Failed to set timezone: $timeZoneId');
   }
 
   /// FIX: Convert Windows timezone names to IANA format

@@ -298,6 +298,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Failed to start notification retry worker: {e}")
 
+        # Start task alarm worker (checks and sends due alarms)
+        try:
+            from services.task_alarm_service import start_task_alarm_worker
+            await start_task_alarm_worker()
+            logger.info("Task alarm worker started (sends scheduled task alarms)")
+        except Exception as e:
+            logger.warning(f"Failed to start task alarm worker: {e}")
+
         # Initialize task queue worker
         try:
             from workers import TaskWorker
@@ -371,6 +379,13 @@ async def lifespan(app: FastAPI):
         logger.info("Library Trash cleanup worker stopped")
     except Exception as e:
         logger.warning(f"Error stopping Library Trash cleanup: {e}")
+    try:
+        # Stop task alarm worker
+        from services.task_alarm_service import stop_task_alarm_worker
+        await stop_task_alarm_worker()
+        logger.info("Task alarm worker stopped")
+    except Exception as e:
+        logger.warning(f"Error stopping task alarm worker: {e}")
     try:
         if hasattr(app.state, "task_worker"):
             await app.state.task_worker.stop()

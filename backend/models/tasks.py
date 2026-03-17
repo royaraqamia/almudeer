@@ -170,7 +170,13 @@ async def init_tasks_table():
             print("Migrated tasks: added alarm_time")
         except Exception:
             pass
-            
+
+        try:
+            await execute_sql(db, "ALTER TABLE tasks ADD COLUMN snooze_count INTEGER DEFAULT 0")
+            print("Migrated tasks: added snooze_count")
+        except Exception:
+            pass
+
         try:
             await execute_sql(db, "ALTER TABLE tasks ADD COLUMN color INTEGER")
             print("Migrated tasks: added color")
@@ -600,8 +606,8 @@ async def create_task(license_id: int, task_data: dict, user_id: str = None) -> 
                     id, license_key_id, title, description, is_completed, due_date,
                     priority, color, sub_tasks, alarm_enabled, alarm_time, recurrence,
                     category, order_index, created_by, assigned_to, attachments, visibility,
-                    is_deleted, created_at, updated_at, synced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)
+                    snooze_count, is_deleted, created_at, updated_at, synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(id) DO UPDATE SET
                     title = excluded.title,
                     description = excluded.description,
@@ -618,6 +624,7 @@ async def create_task(license_id: int, task_data: dict, user_id: str = None) -> 
                     assigned_to = excluded.assigned_to,
                     attachments = excluded.attachments,
                     visibility = excluded.visibility,
+                    snooze_count = excluded.snooze_count,
                     is_deleted = 0,
                     updated_at = excluded.updated_at,
                     synced_at = CURRENT_TIMESTAMP
@@ -647,6 +654,15 @@ async def create_task(license_id: int, task_data: dict, user_id: str = None) -> 
                 task_data.get('color'),
                 sub_tasks_val,
                 task_data.get('alarm_enabled', False),
+                task_data.get('alarm_time'),
+                task_data.get('recurrence'),
+                task_data.get('category'),
+                task_data.get('order_index', 0.0),
+                task_data.get('created_by'),
+                task_data.get('assigned_to'),
+                json.dumps(task_data.get('attachments', [])) if task_data.get('attachments') else None,
+                task_data.get('visibility', 'shared'),
+                task_data.get('snooze_count', 0),
                 task_data.get('alarm_time'),
                 task_data.get('recurrence'),
                 task_data.get('category'),
@@ -798,15 +814,24 @@ async def update_task(license_id: int, task_id: str, task_data: dict) -> Optiona
 
 async def delete_task(license_id: int, task_id: str) -> bool:
     """Delete a task (soft delete - sets is_deleted flag)
-    
+
     FIX: Use soft delete to maintain data integrity and allow for undo operations.
+    FIX: Cancel all pending alarms when task is deleted.
     """
     async with get_db() as db:
         await execute_sql(db, """
-            UPDATE tasks 
+            UPDATE tasks
             SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP
             WHERE license_key_id = ? AND id = ?
         """, (license_id, task_id))
+        
+        # FIX: Cancel all pending alarms for this task
+        try:
+            from services.task_alarm_service import cancel_task_alarm
+            await cancel_task_alarm(task_id=task_id, license_key_id=license_id)
+        except Exception as e:
+            logger.warning(f"Failed to cancel alarms for deleted task {task_id}: {e}")
+        
         await commit_db(db)
         return True
 

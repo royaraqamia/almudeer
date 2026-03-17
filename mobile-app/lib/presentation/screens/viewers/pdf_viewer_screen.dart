@@ -6,12 +6,8 @@ import 'package:solar_icon_pack/solar_icon_pack.dart';
 import '../../../core/services/media_service.dart';
 import '../../../core/utils/premium_toast.dart';
 import '../../../core/services/sharing_service.dart';
-
+import '../../../core/constants/viewer_constants.dart';
 import '../../../core/constants/colors.dart';
-
-// P0 FIX: File size limits to prevent memory exhaustion
-const int kMaxPdfFileSize = 50 * 1024 * 1024; // 50MB for PDFs
-const int kPdfLoadTimeoutSeconds = 30;
 
 class PdfViewerScreen extends StatefulWidget {
   final String filePath;
@@ -34,16 +30,36 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   String errorMessage = '';
   bool _isHorizontalSwipe = false;
 
-  // P0 FIX: Retry logic
+  // Retry logic with exponential backoff
   int _retryCount = 0;
-  static const int _maxRetries = 3;
   bool _isLoading = true;
   bool _isSizeError = false;
+
+  // PDFViewController reference for cleanup
+  // Note: Stored to track controller lifecycle, used in dispose()
+  PDFViewController? _pdfViewController;
 
   @override
   void initState() {
     super.initState();
     _validateAndLoad();
+  }
+
+  @override
+  void dispose() {
+    // Clean up PDF view controller to prevent memory leaks
+    // Note: flutter_pdfview doesn't expose a public dispose API,
+    // but we can nullify our reference to allow GC
+    if (_pdfViewController != null) {
+      // The controller is managed by the widget tree, but we nullify our reference
+      _pdfViewController = null;
+    }
+    
+    // Force garbage collection hint for large PDF resources
+    isReady = false;
+    pages = null;
+    
+    super.dispose();
   }
 
   Future<void> _validateAndLoad() async {
@@ -54,21 +70,21 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           setState(() {
             _isLoading = false;
             _isSizeError = false;
-            errorMessage = 'الملف غير موجود';
+            errorMessage = ViewerErrorType.fileNotFound.message;
           });
         }
         return;
       }
 
-      // P0 FIX: Check file size
+      // Check file size
       final fileSize = await file.length();
-      if (fileSize > kMaxPdfFileSize) {
+      if (fileSize > ViewerConstants.maxPdfFileSize) {
         if (mounted) {
           setState(() {
             _isLoading = false;
             _isSizeError = true;
             errorMessage =
-                'حجم الملف كبير جداً (${(fileSize / 1024 / 1024).toStringAsFixed(1)} ميجابايت). الحد الأقصى هو ${kMaxPdfFileSize ~/ 1024 ~/ 1024} ميجابايت';
+                'حجم الملف كبير جداً (${(fileSize / 1024 / 1024).toStringAsFixed(1)} ميجابايت). الحد الأقصى هو ${ViewerConstants.maxPdfFileSize ~/ 1024 ~/ 1024} ميجابايت';
           });
         }
         return;
@@ -92,17 +108,24 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     }
   }
 
-  // P0 FIX: Retry method
+  // Retry with exponential backoff: 1s, 2s, 4s
   void _retryLoad() {
-    if (_retryCount < _maxRetries) {
-      setState(() {
-        _retryCount++;
-        _isLoading = true;
-        errorMessage = '';
-        _isSizeError = false;
-      });
-      _validateAndLoad();
-    }
+    if (_retryCount >= ViewerConstants.maxRetries) return;
+
+    final delay = ViewerConstants.retryBaseDelay * (1 << _retryCount);
+
+    setState(() {
+      _retryCount++;
+      _isLoading = true;
+      errorMessage = '';
+      _isSizeError = false;
+    });
+
+    Future.delayed(delay, () {
+      if (mounted) {
+        _validateAndLoad();
+      }
+    });
   }
 
   @override
@@ -111,7 +134,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       appBar: AppBar(
         title: Text(widget.fileName, style: const TextStyle(fontSize: 16)),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, size: 24),
+          icon: const Icon(SolarLinearIcons.arrowRight, size: 24),
           onPressed: () => Navigator.of(context).pop(),
         ),
         actions: [
@@ -143,7 +166,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   if (_retryCount > 0) ...[
                     const SizedBox(height: 16),
                     Text(
-                      'محاولة $_retryCount من $_maxRetries...',
+                      'محاولة $_retryCount من ${ViewerConstants.maxRetries}...',
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 14,
@@ -190,7 +213,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     }
                   },
                   onViewCreated: (PDFViewController pdfViewController) {
-                    // Controller available if needed
+                    // Store controller reference for cleanup
+                    _pdfViewController = pdfViewController;
                   },
                   onLinkHandler: (String? uri) {
                     // Handle link if needed
@@ -225,9 +249,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
-  // P0 FIX: Error view with retry button
+  // Error view with retry button
   Widget _buildErrorView() {
-    final canRetry = _retryCount < _maxRetries && !_isSizeError;
+    final canRetry = _retryCount < ViewerConstants.maxRetries && !_isSizeError;
     final theme = Theme.of(context);
 
     return Center(
@@ -262,7 +286,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             ElevatedButton.icon(
               onPressed: _retryLoad,
               icon: const Icon(SolarLinearIcons.refresh),
-              label: Text('إعادة المحاولة (${_maxRetries - _retryCount})'),
+              label: Text('إعادة المحاولة (${ViewerConstants.maxRetries - _retryCount})'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,

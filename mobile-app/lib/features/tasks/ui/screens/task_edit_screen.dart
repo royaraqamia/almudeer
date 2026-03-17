@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
 import 'package:file_picker/file_picker.dart';
@@ -6,6 +7,8 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:hijri/hijri_calendar.dart';
 import 'package:uuid/uuid.dart';
+import 'package:flutter_linkify/flutter_linkify.dart';
+import 'package:linkify/linkify.dart';
 
 import '../../models/task_model.dart';
 import '../../providers/task_provider.dart';
@@ -15,12 +18,14 @@ import '../../../../core/constants/dimensions.dart';
 import '../../../../core/utils/haptics.dart';
 import '../../../../core/extensions/string_extension.dart';
 import '../../../../core/utils/permission_helper.dart';
+import '../../../../core/utils/url_launcher_utils.dart';
 import '../widgets/hijri_date_picker_dialog.dart';
 import '../widgets/priority_picker.dart';
 import '../../../../presentation/widgets/premium_bottom_sheet.dart';
 import '../../../../presentation/widgets/animated_toast.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../../presentation/widgets/tasks/task_share_dialog.dart';
+import '../../../../presentation/screens/customers/customer_detail_screen.dart';
 
 // FIX: Extract magic numbers to constants
 class _TaskEditConstants {
@@ -67,6 +72,12 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
   late bool _canEdit;
   late bool _canShare;
   bool _isLoadingPermissions = false; // FIX #3: Track permission loading state
+
+  // Mention detection for @username in description
+  // Pattern: @ followed by 2-32 alphanumeric characters (including Arabic), underscores, hyphens
+  // Uses \w for word characters plus Arabic letter ranges
+  static final _mentionPattern = RegExp(r'@([a-zA-Z0-9_\u0600-\u06FF\u0750-\u077F-]{2,32})');
+  List<Map<String, dynamic>>? _descriptionMentions;
 
   @override
   void initState() {
@@ -201,6 +212,45 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
         setState(() => _isLoadingPermissions = false);
       }
     }
+  }
+
+  /// Extract @username mentions from text
+  List<Map<String, dynamic>>? _extractMentions(String text) {
+    final matches = _mentionPattern.allMatches(text);
+    if (matches.isEmpty) return null;
+
+    final mentions = <Map<String, dynamic>>[];
+    final usernames = <String>{};
+
+    for (var match in matches) {
+      final username = match.group(1)!;
+      if (!usernames.contains(username)) {
+        usernames.add(username);
+        mentions.add({
+          'username': username,
+          'position': match.start,
+        });
+      }
+    }
+
+    return mentions.isNotEmpty ? mentions : null;
+  }
+
+  /// Navigate to customer detail screen for @username mention
+  void _navigateToCustomerDetail(String username) {
+    // Navigate to CustomerDetailScreen with username-based customer data
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => CustomerDetailScreen(
+          customer: {
+            'username': username,
+            'name': username,
+            'is_almudeer_user': true,
+            'is_online': false,
+          },
+        ),
+      ),
+    );
   }
 
   @override
@@ -656,19 +706,19 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
           ),
           const SizedBox(height: 16),
           // PERMISSION: Description field - read-only for users without edit permission
-          AppTextField(
-            controller: _descriptionController,
-            hintText: 'التَّفاصيل (اختياري)',
-            prefixIcon: const Icon(
-              SolarLinearIcons.documentText,
-              size: _TaskEditConstants.iconSizeSmall,
-            ),
-            maxLines: null,
-            minLines: 3,
-            borderRadius: AppDimensions.radiusLarge,
-            readOnly: _isLoadingPermissions || !_canEdit,
-            enabled: !_isLoadingPermissions && _canEdit,
-          ),
+          _canEdit && !_isLoadingPermissions
+              ? AppTextField(
+                  controller: _descriptionController,
+                  hintText: 'التَّفاصيل (اختياري)',
+                  prefixIcon: const Icon(
+                    SolarLinearIcons.documentText,
+                    size: _TaskEditConstants.iconSizeSmall,
+                  ),
+                  maxLines: null,
+                  minLines: 3,
+                  borderRadius: AppDimensions.radiusLarge,
+                )
+              : _buildDescriptionReadOnly(theme),
           const SizedBox(height: 16),
           // PERMISSION: Date field - read-only for all (always was), but disable picker for read-only users
           AppTextField(
@@ -1007,5 +1057,171 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
         ),
       ),
     ];
+  }
+
+  /// Build read-only description with clickable links and @mentions
+  Widget _buildDescriptionReadOnly(ThemeData theme) {
+    final description = _descriptionController.text;
+    final isEmpty = description.isEmpty;
+
+    // Extract mentions from the description
+    _descriptionMentions = _extractMentions(description);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
+      ),
+      padding: const EdgeInsets.all(AppDimensions.spacing12),
+      child: isEmpty
+          ? Text(
+              'التَّفاصيل (اختياري)',
+              style: TextStyle(
+                fontFamily: 'IBM Plex Sans Arabic',
+                fontSize: _TaskEditConstants.fontSizeMedium,
+                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+              ),
+              textAlign: TextAlign.right,
+            )
+          : _buildRichTextWithLinksAndMentions(theme, description),
+    );
+  }
+
+  /// Build rich text with both URLs and @username mentions
+  Widget _buildRichTextWithLinksAndMentions(ThemeData theme, String text) {
+    // Parse the text into linkify elements (URLs, emails, etc.)
+    final elements = linkify(
+      text,
+      options: const LinkifyOptions(
+        humanize: false,
+        looseUrl: true,
+      ),
+    );
+
+    // If no mentions, use regular Linkify for URLs only
+    if (_descriptionMentions == null || _descriptionMentions!.isEmpty) {
+      return Linkify(
+        text: text,
+        onOpen: (link) async {
+          await AppLauncher.launchSafeUrl(context, link.url);
+        },
+        options: const LinkifyOptions(
+          humanize: false,
+          looseUrl: true,
+        ),
+        textDirection: text.isArabic ? TextDirection.rtl : TextDirection.ltr,
+        textAlign: text.isArabic ? TextAlign.right : TextAlign.left,
+        style: TextStyle(
+          fontFamily: 'IBM Plex Sans Arabic',
+          fontSize: _TaskEditConstants.fontSizeMedium,
+          color: theme.colorScheme.onSurface,
+        ),
+        linkStyle: const TextStyle(
+          color: AppColors.primary,
+          decoration: TextDecoration.underline,
+        ),
+      );
+    }
+
+    // Build rich text with both URLs and mentions
+    final spans = <TextSpan>[];
+    final mentionMap = <String, Map<String, dynamic>>{};
+
+    // Create a map of username to mention data for quick lookup
+    for (var mention in _descriptionMentions!) {
+      final username = mention['username'] as String;
+      mentionMap[username] = mention;
+    }
+
+    // Process each linkify element
+    for (var element in elements) {
+      if (element is TextElement) {
+        // This is plain text - check for mentions within it
+        _addTextWithMentions(spans, element.text, theme);
+      } else if (element is UrlElement) {
+        // This is a URL - make it clickable
+        spans.add(TextSpan(
+          text: element.url,
+          style: const TextStyle(
+            color: AppColors.primary,
+            decoration: TextDecoration.underline,
+          ),
+          recognizer: TapGestureRecognizer()
+            ..onTap = () async {
+              await AppLauncher.launchSafeUrl(context, element.url);
+            },
+        ));
+      }
+    }
+
+    return RichText(
+      text: TextSpan(
+        style: TextStyle(
+          fontFamily: 'IBM Plex Sans Arabic',
+          fontSize: _TaskEditConstants.fontSizeMedium,
+          color: theme.colorScheme.onSurface,
+        ),
+        children: spans,
+      ),
+      textAlign: text.isArabic ? TextAlign.right : TextAlign.left,
+      textDirection: text.isArabic ? TextDirection.rtl : TextDirection.ltr,
+      maxLines: null, // Allow unlimited lines for wrapping
+      textWidthBasis: TextWidthBasis.parent, // Wrap to parent width
+    );
+  }
+
+  void _addTextWithMentions(
+    List<TextSpan> spans,
+    String text,
+    ThemeData theme,
+  ) {
+    final matches = _mentionPattern.allMatches(text);
+    int lastEnd = 0;
+
+    for (var match in matches) {
+      // Add text before the mention
+      if (match.start > lastEnd) {
+        spans.add(TextSpan(
+          text: text.substring(lastEnd, match.start),
+          style: TextStyle(
+            fontFamily: 'IBM Plex Sans Arabic',
+            fontSize: _TaskEditConstants.fontSizeMedium,
+            color: theme.colorScheme.onSurface,
+          ),
+        ));
+      }
+
+      // Add the mention as a clickable span
+      final username = match.group(1)!;
+      spans.add(TextSpan(
+        text: '@$username',
+        style: const TextStyle(
+          color: AppColors.primary,
+          fontWeight: FontWeight.w600,
+          decoration: TextDecoration.underline,
+          decorationColor: AppColors.primary,
+        ),
+        recognizer: TapGestureRecognizer()
+          ..onTap = () {
+            // Handle mention tap - navigate to customer detail screen
+            Haptics.lightTap();
+            _navigateToCustomerDetail(username);
+          },
+      ));
+
+      lastEnd = match.end;
+    }
+
+    // Add remaining text after the last mention
+    if (lastEnd < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(lastEnd),
+        style: TextStyle(
+          fontFamily: 'IBM Plex Sans Arabic',
+          fontSize: _TaskEditConstants.fontSizeMedium,
+          color: theme.colorScheme.onSurface,
+        ),
+      ));
+    }
   }
 }

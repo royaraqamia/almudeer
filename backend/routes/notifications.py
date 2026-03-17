@@ -6,6 +6,8 @@ Admin broadcast for subscription reminders, team updates, and promotions
 
 import os
 import re
+import json
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, Header, Request
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
@@ -826,4 +828,266 @@ async def cleanup_expired_tokens_endpoint(
         "deleted_count": deleted_count,
         "message": f"تم حذف {deleted_count} توكن منتهي الصلاحية"
     }
+
+
+# ============ Task Alarm Endpoints ============
+
+class TaskAlarmSchedule(BaseModel):
+    """Schedule a task alarm"""
+    task_id: str = Field(..., description="Task ID")
+    alarm_time: datetime = Field(..., description="Alarm time in ISO format")
+    task_title: str = Field(..., description="Task title for notification")
+    task_description: Optional[str] = Field(None, description="Task description")
+
+
+@router.post("/alarm/schedule")
+async def schedule_task_alarm(
+    data: TaskAlarmSchedule,
+    license: dict = Depends(get_current_user)
+):
+    """
+    Schedule a task alarm.
+    
+    The alarm will be sent via FCM push notification at the specified time.
+    Works even if the mobile app is closed.
+    """
+    from services.task_alarm_service import (
+        ensure_task_alarms_table,
+        schedule_task_alarm
+    )
+    
+    # Ensure table exists
+    await ensure_task_alarms_table()
+    
+    # Validate alarm time is not in the past
+    now = datetime.now(timezone.utc)
+    if data.alarm_time < now:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot schedule alarm in the past"
+        )
+    
+    # Schedule the alarm
+    alarm_id = await schedule_task_alarm(
+        task_id=data.task_id,
+        license_key_id=license["license_id"],
+        user_id=license["user_id"],
+        alarm_time=data.alarm_time,
+        task_title=data.task_title,
+        task_description=data.task_description
+    )
+    
+    if alarm_id:
+        return {
+            "success": True,
+            "alarm_id": alarm_id,
+            "message": "تم جدولة المنبه بنجاح"
+        }
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to schedule alarm (may already exist)"
+        )
+
+
+@router.post("/alarm/cancel")
+async def cancel_task_alarm(
+    task_id: str = Field(..., description="Task ID"),
+    license: dict = Depends(get_current_user)
+):
+    """
+    Cancel all pending alarms for a task.
+    """
+    from services.task_alarm_service import cancel_task_alarm
+    
+    await cancel_task_alarm(
+        task_id=task_id,
+        license_key_id=license["license_id"]
+    )
+    
+    return {
+        "success": True,
+        "message": "تم إلغاء المنبه"
+    }
+
+
+@router.post("/alarm/acknowledge")
+async def acknowledge_task_alarm(
+    alarm_id: int = Field(..., description="Alarm ID"),
+    device_id: Optional[str] = Field(None, description="Device ID acknowledging the alarm"),
+    license: dict = Depends(get_current_user)
+):
+    """
+    Acknowledge a fired alarm.
+    
+    This syncs the alarm state across all user devices.
+    """
+    from services.task_alarm_service import acknowledge_task_alarm
+    
+    await acknowledge_task_alarm(
+        alarm_id=alarm_id,
+        device_id=device_id
+    )
+    
+    return {
+        "success": True,
+        "message": "تم تأكيد المنبه"
+    }
+
+
+@router.get("/alarm/status")
+async def get_alarm_worker_status(
+    _: dict = Depends(verify_admin)
+):
+    """
+    Get task alarm worker status. Admin only.
+    """
+    from services.task_alarm_service import get_alarm_worker_status
+    
+    status = get_alarm_worker_status()
+    
+    return {
+        "success": True,
+        "status": status
+    }
+
+
+@router.post("/alarm/cleanup")
+async def cleanup_alarms(
+    days: int = Field(default=7, description="Days to retain acknowledged alarms"),
+    _: dict = Depends(verify_admin)
+):
+    """
+    Cleanup old alarm records. Admin only.
+    """
+    from services.task_alarm_service import cleanup_old_alarms, cleanup_stale_pending_alarms
+    
+    acknowledged_count = await cleanup_old_alarms()
+    stale_count = await cleanup_stale_pending_alarms()
+
+    return {
+        "success": True,
+        "acknowledged_cleaned": acknowledged_count,
+        "stale_cleaned": stale_count,
+        "message": f"تم تنظيف {acknowledged_count + stale_count} سجل منبه"
+    }
+
+
+class TaskAlarmSnooze(BaseModel):
+    """Snooze a task alarm"""
+    task_id: str = Field(..., description="Task ID")
+    alarm_id: Optional[int] = Field(None, description="Alarm ID to snooze")
+
+
+@router.post("/alarm/snooze")
+async def snooze_task_alarm(
+    data: TaskAlarmSnooze,
+    license: dict = Depends(get_current_user)
+):
+    """
+    Snooze a task alarm by ALARM_SNOOZE_MINUTES (5 minutes).
+    
+    Creates a new alarm time = current_time + ALARM_SNOOZE_MINUTES.
+    Respects MAX_SNOOZE_COUNT limit.
+    """
+    from constants.tasks import ALARM_SNOOZE_MINUTES, MAX_SNOOZE_COUNT
+    from services.task_alarm_service import schedule_task_alarm, acknowledge_task_alarm
+    from models.tasks import get_task
+    from datetime import timedelta
+    
+    # Get task to check snooze count
+    task = await get_task(
+        license_id=license["license_id"],
+        task_id=data.task_id,
+        user_id=license["user_id"]
+    )
+    
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Check snooze limit
+    snooze_count = task.get("snooze_count", 0)
+    if snooze_count >= MAX_SNOOZE_COUNT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum snooze count ({MAX_SNOOZE_COUNT}) reached"
+        )
+    
+    # Calculate new alarm time
+    new_alarm_time = datetime.now(timezone.utc) + timedelta(minutes=ALARM_SNOOZE_MINUTES)
+    
+    # Acknowledge current alarm if alarm_id provided
+    if data.alarm_id:
+        await acknowledge_task_alarm(data.alarm_id)
+    
+    # Schedule new snoozed alarm
+    alarm_id = await schedule_task_alarm(
+        task_id=data.task_id,
+        license_key_id=license["license_id"],
+        user_id=license["user_id"],
+        alarm_time=new_alarm_time,
+        task_title=task.get("title", "Task"),
+        task_description=task.get("description")
+    )
+    
+    # Update task snooze count
+    from db_helper import get_db, execute_sql, commit_db
+    async with get_db() as db:
+        await execute_sql(
+            db,
+            "UPDATE tasks SET snooze_count = ? WHERE id = ?",
+            [snooze_count + 1, data.task_id]
+        )
+        await commit_db(db)
+    
+    return {
+        "success": True,
+        "alarm_id": alarm_id,
+        "snooze_count": snooze_count + 1,
+        "new_alarm_time": new_alarm_time.isoformat(),
+        "message": f"تم تأجيل المنبه لمدة {ALARM_SNOOZE_MINUTES} دقائق"
+    }
+
+
+@router.get("/alarm/pending")
+async def get_pending_alarms(
+    limit: int = Field(default=100, description="Maximum alarms to fetch"),
+    license: dict = Depends(get_current_user)
+):
+    """
+    Get pending alarms for the user. Used for backup/restore across devices.
+    """
+    from services.task_alarm_service import ensure_task_alarms_table
+    from db_helper import get_db, fetch_all
+    
+    await ensure_task_alarms_table()
+    
+    async with get_db() as db:
+        rows = await fetch_all(
+            db,
+            """
+            SELECT * FROM task_alarms
+            WHERE license_key_id = ? AND user_id = ? AND status = 'pending'
+            ORDER BY alarm_time ASC
+            LIMIT ?
+            """,
+            [license["license_id"], license["user_id"], limit]
+        )
+        
+        alarms = []
+        for row in rows:
+            alarm_dict = dict(row)
+            # Parse notification data
+            if alarm_dict.get("notification_data"):
+                try:
+                    alarm_dict["notification_data"] = json.loads(alarm_dict["notification_data"])
+                except:
+                    pass
+            alarms.append(alarm_dict)
+        
+        return {
+            "success": True,
+            "alarms": alarms,
+            "count": len(alarms)
+        }
 

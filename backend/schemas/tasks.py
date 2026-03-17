@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+from constants.tasks import MAX_ALARMS_PER_TASK, ALARM_SNOOZE_MINUTES, MAX_SNOOZE_COUNT
 
 class SubTask(BaseModel):
     id: str
@@ -33,6 +34,8 @@ class TaskBase(BaseModel):
     role: Optional[str] = None  # owner, assignee, viewer (computed, not stored)
     # FIX BUG-005: Priority field with proper validation
     priority: str = "medium"  # low, medium, high, urgent
+    # Alarm snooze tracking
+    snooze_count: int = Field(default=0, ge=0, le=MAX_SNOOZE_COUNT)
 
     @field_validator('recurrence')
     @classmethod
@@ -54,6 +57,17 @@ class TaskBase(BaseModel):
     def validate_priority(cls, v):
         if v not in ('low', 'medium', 'high', 'urgent'):
             raise ValueError('priority must be low, medium, high, or urgent')
+        return v
+
+    @field_validator('alarm_time')
+    @classmethod
+    def validate_alarm_time(cls, v):
+        """Validate alarm time is not too far in the future (max 1 year)"""
+        if v is not None:
+            now = datetime.now(timezone.utc)
+            max_alarm = now.replace(year=now.year + 1)
+            if v > max_alarm:
+                raise ValueError('alarm_time cannot be more than 1 year in the future')
         return v
 
 class TaskCreate(TaskBase):
@@ -78,6 +92,18 @@ class TaskUpdate(BaseModel):
     removed_attachments: Optional[List[str]] = None  # FIX: Add support for removing attachments
     priority: Optional[str] = None
     is_deleted: Optional[bool] = None
+    snooze_count: Optional[int] = Field(default=None, ge=0, le=MAX_SNOOZE_COUNT)
+
+    @field_validator('alarm_time')
+    @classmethod
+    def validate_alarm_time(cls, v):
+        """Validate alarm time is not too far in the future (max 1 year)"""
+        if v is not None:
+            now = datetime.now(timezone.utc)
+            max_alarm = now.replace(year=now.year + 1)
+            if v > max_alarm:
+                raise ValueError('alarm_time cannot be more than 1 year in the future')
+        return v
 
 class TaskResponse(TaskBase):
     id: str

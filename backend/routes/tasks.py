@@ -281,6 +281,29 @@ async def create_new_task(
         # Trigger real-time sync across other devices
         background_tasks.add_task(broadcast_task_sync, license_id, task_id=result["id"], change_type="create")
 
+        # FIX: Schedule task alarm if alarm is enabled
+        if task_dict.get("alarm_enabled") and task_dict.get("alarm_time"):
+            try:
+                from services.task_alarm_service import schedule_task_alarm, ensure_task_alarms_table
+                await ensure_task_alarms_table()
+                alarm_time = task_dict["alarm_time"]
+                # Parse datetime if string
+                if isinstance(alarm_time, str):
+                    from datetime import datetime
+                    alarm_time = datetime.fromisoformat(alarm_time.replace('Z', '+00:00'))
+                
+                await schedule_task_alarm(
+                    task_id=result["id"],
+                    license_key_id=license_id,
+                    user_id=user_id,
+                    alarm_time=alarm_time,
+                    task_title=task_dict.get("title", "Task"),
+                    task_description=task_dict.get("description")
+                )
+                logger.info(f"Scheduled alarm for task {result['id']} at {alarm_time}")
+            except Exception as e:
+                logger.warning(f"Failed to schedule alarm for task {result['id']}: {e}")
+
         # FIX LOG-001: Log successful task creation with structured logging
         task_operation_logger.create(
             task_id=result["id"],
@@ -482,6 +505,39 @@ async def update_existing_task(
     result = await update_task(license_id, task_id, update_data)
     if not result:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    # FIX: Schedule/update task alarm if alarm settings changed
+    if "alarm_enabled" in update_data or "alarm_time" in update_data:
+        try:
+            from services.task_alarm_service import (
+                schedule_task_alarm, 
+                cancel_task_alarm,
+                ensure_task_alarms_table
+            )
+            await ensure_task_alarms_table()
+            
+            if update_data.get("alarm_enabled") and update_data.get("alarm_time"):
+                alarm_time = update_data["alarm_time"]
+                # Parse datetime if string
+                if isinstance(alarm_time, str):
+                    from datetime import datetime
+                    alarm_time = datetime.fromisoformat(alarm_time.replace('Z', '+00:00'))
+                
+                await schedule_task_alarm(
+                    task_id=task_id,
+                    license_key_id=license_id,
+                    user_id=user["user_id"],
+                    alarm_time=alarm_time,
+                    task_title=result.get("title", "Task"),
+                    task_description=result.get("description")
+                )
+                logger.info(f"Updated alarm for task {task_id} at {alarm_time}")
+            else:
+                # Alarm disabled or time cleared - cancel pending alarms
+                await cancel_task_alarm(task_id=task_id, license_key_id=license_id)
+                logger.info(f"Cancelled alarm for task {task_id}")
+        except Exception as e:
+            logger.warning(f"Failed to update alarm for task {task_id}: {e}")
 
     # P4-2: Send notification if visibility changed
     if update_data.get("visibility") and update_data["visibility"] != current_task.get("visibility"):

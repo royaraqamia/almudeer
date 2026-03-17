@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';
+import 'package:linkify/linkify.dart';
 
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/dimensions.dart';
@@ -14,6 +16,7 @@ import '../../providers/library_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../../core/extensions/string_extension.dart';
 import '../../widgets/library/share_item_dialog.dart';
+import '../customers/customer_detail_screen.dart';
 
 /// ✅ P1: Enhanced Note Edit Screen
 /// - Clear edit vs read mode distinction
@@ -44,6 +47,12 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   
   // Permission state
   bool _canEdit = true;
+
+  // Mention detection for @username in content
+  // Pattern: @ followed by 2-32 alphanumeric characters (including Arabic), underscores, hyphens
+  // Uses \w for word characters plus Arabic letter ranges
+  static final _mentionPattern = RegExp(r'@([a-zA-Z0-9_\u0600-\u06FF\u0750-\u077F-]{2,32})');
+  List<Map<String, dynamic>>? _contentMentions;
 
   @override
   void initState() {
@@ -217,6 +226,45 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
 
   Future<void> _onOpenLink(LinkableElement link) async {
     await AppLauncher.launchSafeUrl(context, link.url);
+  }
+
+  /// Extract @username mentions from text
+  List<Map<String, dynamic>>? _extractMentions(String text) {
+    final matches = _mentionPattern.allMatches(text);
+    if (matches.isEmpty) return null;
+
+    final mentions = <Map<String, dynamic>>[];
+    final usernames = <String>{};
+
+    for (var match in matches) {
+      final username = match.group(1)!;
+      if (!usernames.contains(username)) {
+        usernames.add(username);
+        mentions.add({
+          'username': username,
+          'position': match.start,
+        });
+      }
+    }
+
+    return mentions.isNotEmpty ? mentions : null;
+  }
+
+  /// Navigate to customer detail screen for @username mention
+  void _navigateToCustomerDetail(String username) {
+    // Navigate to CustomerDetailScreen with username-based customer data
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => CustomerDetailScreen(
+          customer: {
+            'username': username,
+            'name': username,
+            'is_almudeer_user': true,
+            'is_online': false,
+          },
+        ),
+      ),
+    );
   }
 
   @override
@@ -444,7 +492,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     );
   }
 
-  // P1: Read mode with clear visual distinction
+  // P1: Read mode with clear visual distinction and @mention support
   Widget _buildReadMode(ThemeData theme) {
     final content = _contentController.text;
     final isEmpty = content.isEmpty;
@@ -463,33 +511,164 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
           borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
         ),
         padding: const EdgeInsets.all(AppDimensions.spacing12),
-        child: SelectableLinkify(
-          text: isEmpty ? 'اكتب ما تريد هُنا...' : content,
-          onOpen: _onOpenLink,
-          options: const LinkifyOptions(humanize: false, looseUrl: true),
-          onTap: () {
-            Haptics.lightTap();
-            setState(() => _isEditingContent = true);
-            _contentFocusNode.requestFocus();
-          },
-          textAlign: (isEmpty || content.isArabic)
-              ? TextAlign.right
-              : TextAlign.left,
+        child: isEmpty
+            ? Text(
+                'اكتب ما تريد هُنا...',
+                style: TextStyle(
+                  fontFamily: 'IBM Plex Sans Arabic',
+                  fontSize: 16,
+                  height: 1.5,
+                  fontWeight: FontWeight.normal,
+                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                ),
+                textAlign: TextAlign.right,
+              )
+            : _buildRichTextWithLinksAndMentions(theme, content),
+      ),
+    );
+  }
+
+  /// Build rich text with both URLs and @username mentions
+  Widget _buildRichTextWithLinksAndMentions(ThemeData theme, String text) {
+    // Extract mentions from the content
+    _contentMentions = _extractMentions(text);
+
+    // Parse the text into linkify elements (URLs, emails, etc.)
+    final elements = linkify(
+      text,
+      options: const LinkifyOptions(
+        humanize: false,
+        looseUrl: true,
+      ),
+    );
+
+    // If no mentions, use regular Linkify for URLs only
+    if (_contentMentions == null || _contentMentions!.isEmpty) {
+      return SelectableLinkify(
+        text: text,
+        onOpen: _onOpenLink,
+        options: const LinkifyOptions(humanize: false, looseUrl: true),
+        textAlign: text.isArabic ? TextAlign.right : TextAlign.left,
+        textDirection: text.isArabic ? TextDirection.rtl : TextDirection.ltr,
+        style: TextStyle(
+          fontFamily: 'IBM Plex Sans Arabic',
+          fontSize: 16,
+          height: 1.5,
+          fontWeight: FontWeight.normal,
+          color: theme.colorScheme.onSurface,
+        ),
+        linkStyle: const TextStyle(
+          color: AppColors.primary,
+          decoration: TextDecoration.underline,
+        ),
+      );
+    }
+
+    // Build rich text with both URLs and mentions
+    final spans = <TextSpan>[];
+    final mentionMap = <String, Map<String, dynamic>>{};
+
+    // Create a map of username to mention data for quick lookup
+    for (var mention in _contentMentions!) {
+      final username = mention['username'] as String;
+      mentionMap[username] = mention;
+    }
+
+    // Process each linkify element
+    for (var element in elements) {
+      if (element is TextElement) {
+        // This is plain text - check for mentions within it
+        _addTextWithMentions(spans, element.text, theme);
+      } else if (element is UrlElement) {
+        // This is a URL - make it clickable
+        spans.add(TextSpan(
+          text: element.url,
+          style: const TextStyle(
+            color: AppColors.primary,
+            decoration: TextDecoration.underline,
+          ),
+          recognizer: TapGestureRecognizer()
+            ..onTap = () async {
+              await AppLauncher.launchSafeUrl(context, element.url);
+            },
+        ));
+      }
+    }
+
+    return RichText(
+      text: TextSpan(
+        style: TextStyle(
+          fontFamily: 'IBM Plex Sans Arabic',
+          fontSize: 16,
+          height: 1.5,
+          fontWeight: FontWeight.normal,
+          color: theme.colorScheme.onSurface,
+        ),
+        children: spans,
+      ),
+      textAlign: text.isArabic ? TextAlign.right : TextAlign.left,
+      textDirection: text.isArabic ? TextDirection.rtl : TextDirection.ltr,
+      maxLines: null, // Allow unlimited lines for wrapping
+      textWidthBasis: TextWidthBasis.parent, // Wrap to parent width
+    );
+  }
+
+  void _addTextWithMentions(
+    List<TextSpan> spans,
+    String text,
+    ThemeData theme,
+  ) {
+    final matches = _mentionPattern.allMatches(text);
+    int lastEnd = 0;
+
+    for (var match in matches) {
+      // Add text before the mention
+      if (match.start > lastEnd) {
+        spans.add(TextSpan(
+          text: text.substring(lastEnd, match.start),
           style: TextStyle(
             fontFamily: 'IBM Plex Sans Arabic',
             fontSize: 16,
             height: 1.5,
             fontWeight: FontWeight.normal,
-            color: isEmpty
-                ? theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)
-                : theme.colorScheme.onSurface,
+            color: theme.colorScheme.onSurface,
           ),
-          linkStyle: const TextStyle(
-            color: Colors.blue,
-            decoration: TextDecoration.underline,
-          ),
+        ));
+      }
+
+      // Add the mention as a clickable span
+      final username = match.group(1)!;
+      spans.add(TextSpan(
+        text: '@$username',
+        style: const TextStyle(
+          color: AppColors.primary,
+          fontWeight: FontWeight.w600,
+          decoration: TextDecoration.underline,
+          decorationColor: AppColors.primary,
         ),
-      ),
-    );
+        recognizer: TapGestureRecognizer()
+          ..onTap = () {
+            // Handle mention tap - navigate to customer detail screen
+            Haptics.lightTap();
+            _navigateToCustomerDetail(username);
+          },
+      ));
+
+      lastEnd = match.end;
+    }
+
+    // Add remaining text after the last mention
+    if (lastEnd < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(lastEnd),
+        style: TextStyle(
+          fontFamily: 'IBM Plex Sans Arabic',
+          fontSize: 16,
+          height: 1.5,
+          fontWeight: FontWeight.normal,
+          color: theme.colorScheme.onSurface,
+        ),
+      ));
+    }
   }
 }

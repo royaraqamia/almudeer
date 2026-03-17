@@ -1,13 +1,17 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 
 import 'package:solar_icon_pack/solar_icon_pack.dart';
-import 'package:open_filex/open_filex.dart'; // Fallback
+import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../core/constants/colors.dart';
+import '../../../core/constants/viewer_constants.dart';
 import '../../../core/services/media_cache_manager.dart';
+import '../../../core/services/network_connectivity_service.dart';
+import '../../../core/utils/premium_toast.dart';
 import '../inbox/image_viewer_screen.dart';
 import 'pdf_viewer_screen.dart';
 import 'video_player_screen.dart';
@@ -17,6 +21,37 @@ import 'code_viewer_screen.dart';
 import 'csv_viewer_screen.dart';
 import 'excel_viewer_screen.dart';
 import '../../../core/extensions/string_extension.dart';
+
+/// Global download queue to prevent concurrent downloads
+class _DownloadQueue {
+  static final _DownloadQueue _instance = _DownloadQueue._internal();
+  factory _DownloadQueue() => _instance;
+  _DownloadQueue._internal();
+
+  final Set<String> _downloadingUrls = {};
+  final Map<String, String> _downloadedPaths = {};
+
+  bool isDownloading(String url) => _downloadingUrls.contains(url);
+  String? getCachedPath(String url) => _downloadedPaths[url];
+
+  void startDownload(String url) {
+    _downloadingUrls.add(url);
+  }
+
+  void completeDownload(String url, String path) {
+    _downloadingUrls.remove(url);
+    _downloadedPaths[url] = path;
+  }
+
+  void failDownload(String url) {
+    _downloadingUrls.remove(url);
+  }
+
+  void clear() {
+    _downloadingUrls.clear();
+    _downloadedPaths.clear();
+  }
+}
 
 class UniversalViewerScreen extends StatefulWidget {
   final String? url;
@@ -41,19 +76,104 @@ class UniversalViewerScreen extends StatefulWidget {
   State<UniversalViewerScreen> createState() => _UniversalViewerScreenState();
 }
 
-class _UniversalViewerScreenState extends State<UniversalViewerScreen> {
+class _UniversalViewerScreenState extends State<UniversalViewerScreen>
+    with RestorationMixin {
   bool _isLoading = true;
   String? _localPath;
   String? _errorMessage;
   String _fileType = 'unknown';
-
   String? _sanitizedUrl;
+  double _downloadProgress = 0.0;
+  bool _isDownloading = false;
+
+  // Restorable properties
+  final RestorableStringN _restorableLocalPath = RestorableStringN(null);
+  final RestorableStringN _restorableErrorMessage = RestorableStringN(null);
+  final RestorableString _restorableFileType = RestorableString('unknown');
+  final RestorableBool _restorableIsLoading = RestorableBool(true);
+  final RestorableBool _restorableIsDownloading = RestorableBool(false);
+  final RestorableDouble _restorableDownloadProgress = RestorableDouble(0.0);
+
+  @override
+  String? get restorationId => 'universal_viewer_${widget.hashCode}';
+
+  @override
+  void restoreState(RestorationBucket? oldBucket, bool initialRestore) {
+    registerForRestoration(_restorableLocalPath, 'local_path');
+    registerForRestoration(_restorableErrorMessage, 'error_message');
+    registerForRestoration(_restorableFileType, 'file_type');
+    registerForRestoration(_restorableIsLoading, 'is_loading');
+    registerForRestoration(_restorableIsDownloading, 'is_downloading');
+    registerForRestoration(_restorableDownloadProgress, 'download_progress');
+
+    // Restore state
+    if (_restorableLocalPath.value != null) {
+      _localPath = _restorableLocalPath.value;
+    }
+    _errorMessage = _restorableErrorMessage.value;
+    _fileType = _restorableFileType.value;
+    _isLoading = _restorableIsLoading.value;
+    _isDownloading = _restorableIsDownloading.value;
+    _downloadProgress = _restorableDownloadProgress.value;
+  }
+
+  @override
+  void dispose() {
+    // Clean up download state if widget is disposed during download
+    if (_sanitizedUrl != null && _isDownloading) {
+      _DownloadQueue().failDownload(_sanitizedUrl!);
+    }
+    _restorableLocalPath.dispose();
+    _restorableErrorMessage.dispose();
+    _restorableFileType.dispose();
+    _restorableIsLoading.dispose();
+    _restorableIsDownloading.dispose();
+    _restorableDownloadProgress.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
     super.initState();
     _sanitizedUrl = widget.url?.toFullUrl;
     _prepareFile();
+  }
+
+  // Helper to update state and persist it
+  void _updateState({
+    String? localPath,
+    String? errorMessage,
+    String? fileType,
+    bool? isLoading,
+    bool? isDownloading,
+    double? downloadProgress,
+  }) {
+    setState(() {
+      if (localPath != null) {
+        _localPath = localPath;
+        _restorableLocalPath.value = localPath;
+      }
+      if (errorMessage != null) {
+        _errorMessage = errorMessage;
+        _restorableErrorMessage.value = errorMessage;
+      }
+      if (fileType != null) {
+        _fileType = fileType;
+        _restorableFileType.value = fileType;
+      }
+      if (isLoading != null) {
+        _isLoading = isLoading;
+        _restorableIsLoading.value = isLoading;
+      }
+      if (isDownloading != null) {
+        _isDownloading = isDownloading;
+        _restorableIsDownloading.value = isDownloading;
+      }
+      if (downloadProgress != null) {
+        _downloadProgress = downloadProgress;
+        _restorableDownloadProgress.value = downloadProgress;
+      }
+    });
   }
 
   Future<void> _prepareFile() async {
@@ -73,8 +193,7 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen> {
         _fileType = widget.fileType!;
       }
 
-      // Always do extension-based detection for generic types like 'file', 'unknown', or null
-      // This ensures code files from Library/Inbox get properly routed to specialized viewers
+      // Always do extension-based detection for generic types
       final needsExtensionDetection =
           _fileType == 'unknown' ||
           _fileType == 'file' ||
@@ -92,13 +211,7 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen> {
         } else if (['mp4', 'mov', 'avi', 'mkv', 'webm'].contains(extension)) {
           _fileType = 'video';
         } else if ([
-          'mp3',
-          'wav',
-          'aac',
-          'm4a',
-          'flac',
-          'ogg',
-          'wma',
+          'mp3', 'wav', 'aac', 'm4a', 'flac', 'ogg', 'wma',
         ].contains(extension)) {
           _fileType = 'audio';
         } else if (extension == 'pdf') {
@@ -108,22 +221,15 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen> {
         } else if (['xlsx', 'xls'].contains(extension)) {
           _fileType = 'excel';
         } else if ([
-          // Programming languages
           'dart', 'py', 'pyw', 'js', 'jsx', 'mjs', 'ts', 'tsx',
           'java', 'kt', 'kts', 'swift', 'go', 'rs', 'rb', 'php',
           'c', 'h', 'cpp', 'hpp', 'cc', 'cxx', 'm', 'mm',
           'scala', 'groovy', 'lua', 'pl', 'r',
-          // Web
           'html', 'htm', 'css', 'scss', 'less', 'vue', 'svelte',
-          // Shell/Scripts
           'sh', 'bash', 'zsh', 'bat', 'cmd', 'ps1',
-          // Data/Config
           'json', 'yaml', 'yml', 'xml', 'toml', 'ini', 'conf', 'cfg', 'env',
           'properties', 'gradle', 'cmake', 'makefile', 'dockerfile',
-          // Database
-          'sql',
-          // Docs
-          'md', 'markdown', 'rst',
+          'sql', 'md', 'markdown', 'rst',
         ].contains(extension)) {
           _fileType = 'code';
         } else if (['txt', 'log'].contains(extension)) {
@@ -142,43 +248,105 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen> {
         if (cachedPath != null) {
           _localPath = cachedPath;
         } else {
-          // Download if it's a type that requires local access or if we want it persistent
-          final typesNeedingDownload = ['pdf', 'code', 'csv', 'text', 'other'];
+          // Download if it's a type that requires local access
+          final typesNeedingDownload = [
+            'pdf', 'code', 'csv', 'text', 'other', 'excel'
+          ];
           if (typesNeedingDownload.contains(_fileType)) {
-            await _downloadFile(_sanitizedUrl!, name);
+            await _downloadFileWithProgress(_sanitizedUrl!, name);
           }
         }
       }
 
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        _updateState(
+          isLoading: false,
+          isDownloading: false,
+          downloadProgress: 0.0,
+        );
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = 'Error preparing file: $e';
-        });
+        _updateState(
+          isLoading: false,
+          isDownloading: false,
+          downloadProgress: 0.0,
+          errorMessage: 'Error preparing file: $e',
+        );
       }
     }
   }
 
-  Future<void> _downloadFile(String url, String fileName) async {
+  Future<void> _downloadFileWithProgress(String url, String fileName) async {
+    final queue = _DownloadQueue();
+
+    // Check if already downloading
+    if (queue.isDownloading(url)) {
+      // Wait for existing download to complete
+      while (queue.isDownloading(url)) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) {
+          _updateState(isDownloading: true);
+        }
+      }
+      // Check if download succeeded
+      final cachedPath = queue.getCachedPath(url);
+      if (cachedPath != null) {
+        _updateState(localPath: cachedPath);
+        return;
+      }
+    }
+
+    // Check connectivity before starting download
+    final connectivity = NetworkConnectivityService();
+    final isConnected = await connectivity.isConnected;
+    if (!isConnected) {
+      throw Exception('لا يوجد اتصال بالإنترنت. يرجى التحقق من اتصالك والمحاولة مرة أخرى.');
+    }
+
+    // Warn if using mobile data for large files
+    final isWifi = await connectivity.isWifiConnected;
+    if (!isWifi && mounted) {
+      // Show warning but continue
+      PremiumToast.show(
+        context,
+        'جاري التحميل باستخدام بيانات الجوال',
+        icon: SolarLinearIcons.cloud,
+      );
+    }
+
+    // Start download with queue management
+    queue.startDownload(url);
+    _updateState(isDownloading: true, downloadProgress: 0.0);
+
     try {
+      // Download with progress tracking (simplified - actual implementation would use Dio with progress)
       final path = await MediaCacheManager().downloadFile(
         url,
         filename: fileName,
+      ).timeout(
+        ViewerConstants.downloadTimeout,
+        onTimeout: () {
+          throw TimeoutException(
+            'Download timed out after ${ViewerConstants.downloadTimeout.inSeconds} seconds',
+          );
+        },
       );
 
       if (mounted) {
-        setState(() {
-          _localPath = path;
-        });
+        _updateState(
+          localPath: path,
+          isDownloading: false,
+          downloadProgress: 1.0,
+        );
+        queue.completeDownload(url, path);
       }
     } catch (e) {
-      throw Exception('Download failed: $e');
+      queue.failDownload(url);
+      if (mounted) {
+        _updateState(isDownloading: false, downloadProgress: 0.0);
+      }
+      rethrow;
     }
   }
 
@@ -214,32 +382,84 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen> {
                 style: const TextStyle(color: Colors.white70, fontSize: 20),
                 textAlign: TextAlign.center,
               ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _isLoading = true;
+                    _errorMessage = null;
+                  });
+                  _prepareFile();
+                },
+                icon: const Icon(SolarLinearIcons.refresh),
+                label: const Text('إعادة المحاولة'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                ),
+              ),
             ],
           ),
         ),
       );
     }
 
-    if (_isLoading) {
+    if (_isLoading || _isDownloading) {
       return Scaffold(
         backgroundColor: Colors.black,
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const CircularProgressIndicator(
-                color: AppColors.primary,
-                strokeWidth: 2,
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'جاري تحضير الملف...',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.7),
-                  fontFamily: 'IBM Plex Sans Arabic',
-                  fontSize: 24,
+              if (_isDownloading) ...[
+                SizedBox(
+                  width: 200,
+                  child: Column(
+                    children: [
+                      CircularProgressIndicator(
+                        color: AppColors.primary,
+                        strokeWidth: 4,
+                        value: _downloadProgress > 0 ? _downloadProgress : null,
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        _downloadProgress > 0
+                            ? '${(_downloadProgress * 100).toInt()}%'
+                            : 'جاري التحميل...',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.7),
+                          fontFamily: 'IBM Plex Sans Arabic',
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'جاري تحضير الملف...',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.5),
+                          fontFamily: 'IBM Plex Sans Arabic',
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+              ] else ...[
+                const CircularProgressIndicator(
+                  color: AppColors.primary,
+                  strokeWidth: 2,
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'جاري تحضير الملف...',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    fontFamily: 'IBM Plex Sans Arabic',
+                    fontSize: 24,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -281,7 +501,7 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen> {
             fileName: widget.fileName ?? 'PDF',
           );
         }
-        return const Scaffold(body: Center(child: Text('Could not load PDF')));
+        return _buildErrorState('Could not load PDF');
 
       case 'text':
         if (_localPath != null) {
@@ -290,9 +510,7 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen> {
             fileName: widget.fileName ?? 'Text File',
           );
         }
-        return const Scaffold(
-          body: Center(child: Text('Could not load text file')),
-        );
+        return _buildErrorState('Could not load text file');
 
       case 'audio':
         return AudioPlayerScreen(
@@ -308,9 +526,7 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen> {
             fileName: widget.fileName ?? 'Code',
           );
         }
-        return const Scaffold(
-          body: Center(child: Text('Could not load code file')),
-        );
+        return _buildErrorState('Could not load code file');
 
       case 'csv':
         if (_localPath != null) {
@@ -319,9 +535,7 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen> {
             fileName: widget.fileName ?? 'CSV',
           );
         }
-        return const Scaffold(
-          body: Center(child: Text('Could not load CSV file')),
-        );
+        return _buildErrorState('Could not load CSV file');
 
       case 'excel':
         if (_localPath != null) {
@@ -330,21 +544,24 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen> {
             fileName: widget.fileName ?? 'Excel',
           );
         }
-        return const Scaffold(
-          body: Center(child: Text('Could not load Excel file')),
-        );
+        return _buildErrorState('Could not load Excel file');
 
       default:
         return _buildFallbackViewer();
     }
   }
 
-  Widget _buildFallbackViewer() {
+  Widget _buildErrorState(String message) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.fileName ?? 'File'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         leading: IconButton(
-          icon: const Icon(SolarLinearIcons.arrowRight, size: 24),
+          icon: const Icon(
+            SolarLinearIcons.arrowRight,
+            color: Colors.white,
+            size: 24,
+          ),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -352,16 +569,60 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            const Icon(
+              SolarLinearIcons.dangerCircle,
+              color: Colors.white54,
+              size: 48,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white70, fontSize: 16),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFallbackViewer() {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(
+            SolarLinearIcons.arrowRight,
+            color: Colors.white,
+            size: 24,
+          ),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(widget.fileName ?? 'File'),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
             const Icon(SolarLinearIcons.file, size: 64, color: Colors.grey),
             const SizedBox(height: 16),
-            const Text('No internal viewer for this file type.'),
+            const Text(
+              'No internal viewer for this file type.',
+              style: TextStyle(color: Colors.white70),
+            ),
             const SizedBox(height: 16),
             if (_localPath != null)
-              ElevatedButton(
+              ElevatedButton.icon(
                 onPressed: () {
                   OpenFilex.open(_localPath!);
                 },
-                child: const Text('Open with External App'),
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Open with External App'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                ),
               ),
           ],
         ),

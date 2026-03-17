@@ -38,8 +38,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   ChewieController? _chewieController;
   bool _isLoading = true;
   String? _errorMessage;
-  
-  // ISSUE-003: Retry logic
+
+  // Retry logic
   int _retryCount = 0;
   static const int _maxRetries = 3;
   bool _isNetworkError = false;
@@ -48,6 +48,18 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   void initState() {
     super.initState();
     _initializePlayer();
+  }
+
+  @override
+  void dispose() {
+    _videoPlayerController.dispose();
+    _chewieController?.dispose();
+    // Re-enable system UI just in case
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    );
+    super.dispose();
   }
 
   Future<void> _initializePlayer({bool isRetry = false}) async {
@@ -108,41 +120,29 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     } catch (e) {
       setState(() {
         _isLoading = false;
-        _isNetworkError = e is SocketException || 
+        _isNetworkError = e is SocketException ||
                          e.toString().contains('Socket') ||
                          e.toString().contains('Network');
         _errorMessage = 'فشل تحميل الفيديو: ${e.toString()}';
       });
     }
   }
-  
-  // ISSUE-003: Retry with exponential backoff
+
+  // Retry with exponential backoff
   Future<void> _retryInitialization() async {
     if (_retryCount >= _maxRetries) {
       // Max retries reached, show permanent error
       return;
     }
-    
+
     // Exponential backoff: 1s, 2s, 4s
     final delay = Duration(seconds: 1 << _retryCount);
-    
+
     await Future.delayed(delay);
-    
+
     if (mounted) {
       await _initializePlayer(isRetry: true);
     }
-  }
-
-  @override
-  void dispose() {
-    _videoPlayerController.dispose();
-    _chewieController?.dispose();
-    // Re-enable system UI just in case
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: SystemUiOverlay.values,
-    );
-    super.dispose();
   }
 
   @override
@@ -244,8 +244,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       ),
     );
   }
-  
-  // ISSUE-003: Error view with retry button
+
+  // Error view with retry button
   Widget _buildErrorView() {
     final canRetry = _retryCount < _maxRetries;
 
@@ -284,8 +284,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       ],
     );
   }
-
-  // ...
 
   Future<void> _shareVideo(BuildContext context) async {
     String? path = widget.videoFile?.path;

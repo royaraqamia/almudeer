@@ -5,7 +5,6 @@ import '../../providers/audio_player_provider.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
 import '../../../core/services/media_service.dart';
 import '../../../core/utils/premium_toast.dart';
-
 import '../../../core/constants/colors.dart';
 import '../../../core/services/sharing_service.dart';
 
@@ -89,6 +88,13 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
         }
       }
     });
+  }
+
+  @override
+  void dispose() {
+    // Note: We don't stop the audio here as it's managed globally
+    // The audio continues playing in the background after navigation
+    super.dispose();
   }
 
   void _handleBack() {
