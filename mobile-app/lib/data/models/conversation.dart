@@ -383,3 +383,30 @@ class ConversationsResponse {
     );
   }
 }
+
+/// Conversation attachments response
+class ConversationAttachmentsResponse {
+  final String senderContact;
+  final List<Map<String, dynamic>> attachments;
+  final int total;
+
+  ConversationAttachmentsResponse({
+    required this.senderContact,
+    required this.attachments,
+    required this.total,
+  });
+
+  factory ConversationAttachmentsResponse.fromJson(Map<String, dynamic> json) {
+    final attachmentsList =
+        (json['attachments'] as List<dynamic>?)
+            ?.map((e) => Map<String, dynamic>.from(e))
+            .toList() ??
+        [];
+
+    return ConversationAttachmentsResponse(
+      senderContact: json['sender_contact'] as String? ?? '',
+      attachments: attachmentsList,
+      total: json['total'] as int? ?? 0,
+    );
+  }
+}

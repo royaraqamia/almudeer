@@ -271,6 +271,28 @@ class InboxRepository {
     }
   }
 
+  /// Get all attachments for a conversation
+  /// This is separate from messages for performance
+  Future<ConversationAttachmentsResponse> getConversationAttachments(
+    String senderContact, {
+    int limit = 100,
+  }) async {
+    try {
+      final response = await _apiClient.get(
+        Endpoints.conversationAttachments(senderContact),
+        queryParams: {'limit': limit.toString()},
+      );
+      return ConversationAttachmentsResponse.fromJson(response);
+    } catch (e) {
+      debugPrint('Failed to fetch attachments: $e');
+      return ConversationAttachmentsResponse(
+        senderContact: senderContact,
+        attachments: [],
+        total: 0,
+      );
+    }
+  }
+
   /// Get inbox messages
   Future<InboxMessagesResponse> getInboxMessages({
     String? status,

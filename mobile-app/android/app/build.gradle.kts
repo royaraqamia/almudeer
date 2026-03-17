@@ -22,11 +22,11 @@ android {
     signingConfigs {
         create("release") {
             // Priority: Environment Variable > key.properties
-            keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: (keystoreProperties["keyAlias"] as String)
-            keyPassword = System.getenv("ANDROID_KEY_PASSWORD") ?: (keystoreProperties["keyPassword"] as String)
-            storePassword = System.getenv("ANDROID_STORE_PASSWORD") ?: (keystoreProperties["storePassword"] as String)
+            keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: (keystoreProperties["keyAlias"] as String?) ?: "almudeer-release"
+            keyPassword = System.getenv("ANDROID_KEY_PASSWORD") ?: (keystoreProperties["keyPassword"] as String?) ?: ""
+            storePassword = System.getenv("ANDROID_STORE_PASSWORD") ?: (keystoreProperties["storePassword"] as String?) ?: ""
 
-            val storeFilePath = System.getenv("ANDROID_STORE_FILE") ?: (keystoreProperties["storeFile"] as String)
+            val storeFilePath = System.getenv("ANDROID_STORE_FILE") ?: (keystoreProperties["storeFile"] as String?) ?: "almudeer-release-2026.jks"
             storeFile = file(storeFilePath)
         }
     }

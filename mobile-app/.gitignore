@@ -69,3 +69,11 @@ search_results.txt
 # Google/Firebase secrets (NEVER commit these)
 **/google-services.json
 **/GoogleService-Info.plist
+
+# Android signing keys (NEVER commit these - security critical)
+*.jks
+*.keystore
+**/*.jks
+**/*.keystore
+key.properties
+**/key.properties

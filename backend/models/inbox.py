@@ -187,17 +187,19 @@ async def save_inbox_message(
         # ---------------------------------------------------------
         # Canonical Identity Lookup (Prevent Duplicates)
         # ---------------------------------------------------------
-        # If we already know this sender_id (Telegram ID, etc.), use the 
-        # EXISTING sender_contact to ensure conversation threading works 
+        # If we already know this sender_id (Telegram ID, etc.), use the
+        # EXISTING sender_contact to ensure conversation threading works
         # even if the new message has a different format (e.g. username vs phone).
         if sender_id and license_id:
-            # Check for existing contact for this sender_id
+            canonical_contact = None
+            
+            # 1. First check inbox_messages for existing contact
             existing_row = await fetch_one(
                 db,
                 """
-                SELECT sender_contact 
-                FROM inbox_messages 
-                WHERE license_key_id = ? AND sender_id = ? 
+                SELECT sender_contact
+                FROM inbox_messages
+                WHERE license_key_id = ? AND sender_id = ?
                 AND sender_contact IS NOT NULL AND sender_contact != ''
                 LIMIT 1
                 """,
@@ -206,9 +208,31 @@ async def save_inbox_message(
             
             if existing_row and existing_row['sender_contact']:
                 canonical_contact = existing_row['sender_contact']
-                # If incoming contact differs (e.g. is 'username' but we have '+phone'), use canonical
-                if sender_contact != canonical_contact:
-                    sender_contact = canonical_contact
+            
+            # 2. If not found in messages, check inbox_conversations
+            # This handles the case where a conversation exists but no messages yet
+            if not canonical_contact:
+                conv_row = await fetch_one(
+                    db,
+                    """
+                    SELECT sender_contact
+                    FROM inbox_conversations
+                    WHERE license_key_id = ? AND channel = ?
+                    AND sender_contact IS NOT NULL AND sender_contact != ''
+                    AND EXISTS (
+                        SELECT 1 FROM inbox_messages 
+                        WHERE license_key_id = ? AND sender_id = ?
+                    )
+                    LIMIT 1
+                    """,
+                    [license_id, channel, license_id, sender_id]
+                )
+                if conv_row and conv_row['sender_contact']:
+                    canonical_contact = conv_row['sender_contact']
+            
+            # 3. Use canonical contact if incoming contact differs
+            if canonical_contact and sender_contact != canonical_contact:
+                sender_contact = canonical_contact
 
         # ---------------------------------------------------------
         # Fallback: Generate sender_contact if not available
@@ -785,10 +809,10 @@ async def get_inbox_conversations(
             -- Otherwise use inbox delivery_status (for received messages)
             CASE
                 WHEN ic.channel = 'almudeer' AND ic.status IN ('sent', 'approved', 'pending') THEN
-                    (SELECT o.delivery_status 
-                     FROM outbox_messages o 
-                     WHERE o.license_key_id = ic.license_key_id 
-                     AND o.recipient_id = ic.sender_contact 
+                    (SELECT o.delivery_status
+                     FROM outbox_messages o
+                     WHERE o.license_key_id = ic.license_key_id
+                     AND o.recipient_id = ic.sender_contact
                      AND o.id = ic.last_message_id
                      LIMIT 1)
                 ELSE ic.delivery_status
@@ -895,6 +919,53 @@ async def get_conversations_delta(
     async with get_db() as db:
         rows = await fetch_all(db, query, params)
         return [_parse_message_row(dict(row)) for row in rows]
+
+
+async def get_conversation_attachments(
+    license_id: int,
+    sender_contact: str,
+    limit: int = 100
+) -> List[dict]:
+    """
+    Get all attachments for a specific conversation.
+    This is more efficient than including attachments in every conversation query.
+    """
+    async with get_db() as db:
+        # Get attachments from both inbox and outbox
+        rows = await fetch_all(db, """
+            (SELECT 
+                attachments,
+                created_at,
+                'inbox' as direction,
+                sender_name,
+                body,
+                id as message_id
+             FROM inbox_messages
+             WHERE license_key_id = ?
+             AND sender_contact = ?
+             AND attachments IS NOT NULL 
+             AND attachments != '[]'
+             ORDER BY created_at DESC
+             LIMIT ?)
+            UNION ALL
+            (SELECT 
+                attachments,
+                created_at,
+                'outbox' as direction,
+                NULL as sender_name,
+                body,
+                id as message_id
+             FROM outbox_messages
+             WHERE license_key_id = ?
+             AND (recipient_contact = ? OR recipient_id = ?)
+             AND attachments IS NOT NULL 
+             AND attachments != '[]'
+             ORDER BY created_at DESC
+             LIMIT ?)
+            ORDER BY created_at DESC
+        """, [license_id, sender_contact, limit, license_id, sender_contact, sender_contact, limit])
+        
+        return [dict(row) for row in rows]
 
 
 async def get_inbox_conversations_count(

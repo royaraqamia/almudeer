@@ -26,6 +26,8 @@ class Endpoints {
       '/api/integrations/conversations/${Uri.encodeComponent(senderContact)}/clear';
   static String conversationDetail(String senderContact) =>
       '/api/integrations/conversations/${Uri.encodeComponent(senderContact)}';
+  static String conversationAttachments(String senderContact) =>
+      '/api/integrations/conversations/${Uri.encodeComponent(senderContact)}/attachments';
   static String sendMessage(String senderContact) =>
       '/api/integrations/conversations/${Uri.encodeComponent(senderContact)}/send';
   static String inboxMessage(int id) => '/api/integrations/inbox/$id';

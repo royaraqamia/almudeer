@@ -495,7 +495,7 @@ class _ConversationAppBarState extends State<ConversationAppBar> {
                         ),
                       ],
                     ],
-                  ] else ...[
+                  ] else if (widget.conversation.senderContact != '__saved_messages__') ...[
                     const SizedBox(height: 2),
                     Text(
                       ' ${widget.conversation.channelDisplayName}',

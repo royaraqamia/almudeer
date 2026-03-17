@@ -174,6 +174,33 @@ async def get_conversation_messages_paginated(
     result = await get_conversation_messages_cursor(license["license_id"], sender_contact, limit, cursor, direction)
     return {**result, "sender_contact": sender_contact}
 
+
+@router.get("/conversations/{sender_contact:path}/attachments")
+async def get_conversation_attachments_route(
+    sender_contact: str,
+    limit: int = 100,
+    license: dict = Depends(get_license_from_header)
+):
+    """
+    Get all attachments for a specific conversation.
+    This is separate from the messages endpoint for performance.
+    """
+    limit = min(max(1, limit), 200)
+    from models.inbox import get_conversation_attachments
+    
+    attachments = await get_conversation_attachments(
+        license["license_id"], 
+        sender_contact, 
+        limit
+    )
+    
+    return {
+        "sender_contact": sender_contact,
+        "attachments": attachments,
+        "total": len(attachments)
+    }
+
+
 @router.get("/conversations/{sender_contact:path}")
 async def get_conversation_detail(
     sender_contact: str,
