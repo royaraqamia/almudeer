@@ -116,23 +116,23 @@ async def resolve_mentioned_users(
     if db is None:
         db = await get_db().__aenter__()
         should_close = True
-    
+
     try:
         resolved_users = []
         placeholders = ", ".join(["?" for _ in mentions])
-        
+
         query = f"""
             SELECT id, username, full_name, profile_pic_url,
-                   (EXISTS (SELECT 1 FROM customers c 
+                   (EXISTS (SELECT 1 FROM customers c
                             WHERE c.username = lk.username AND c.license_key_id = ?)) as has_customer_profile
             FROM license_keys
             WHERE username IN ({placeholders})
               AND is_active = {is_active_value}
         """
-        
+
         params = [license_id] + list(mentions)
         rows = await fetch_all(db, query, params)
-        
+
         for row in rows:
             resolved_users.append({
                 "username": row["username"],
@@ -142,7 +142,7 @@ async def resolve_mentioned_users(
                 "is_almudeer_user": True,
                 "has_customer_profile": bool(row["has_customer_profile"])
             })
-        
+
         return resolved_users
     except Exception as e:
         # Log error but don't fail the message
@@ -151,7 +151,13 @@ async def resolve_mentioned_users(
         return []
     finally:
         if should_close:
-            await db.__aexit__(None, None, None)
+            try:
+                await db.__aexit__(None, None, None)
+            except Exception as e:
+                # P0-5 FIX: Connection may already be closed or have pending operation
+                # Log but don't propagate - mention resolution is non-critical
+                from logging_config import get_logger
+                get_logger(__name__).warning(f"Failed to close mention utils DB connection: {e}")
 
 
 async def process_message_mentions(
