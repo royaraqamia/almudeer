@@ -3,6 +3,7 @@ Al-Mudeer - Browser History and Bookmarks Models
 Sync browser data across devices with end-to-end encryption support
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 import json
@@ -22,6 +23,8 @@ try:
     from utils.encryption import cookie_encryptor
 except ImportError:
     cookie_encryptor = None
+
+logger = logging.getLogger(__name__)
 
 
 async def init_browser_tables():

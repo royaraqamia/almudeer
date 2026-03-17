@@ -33,6 +33,9 @@ class BrowserTab {
   bool canShowReaderMode = false;
   bool jsInjected = false;
   bool wasRestoredFromSession = false;
+  Timer? loadingTimeoutTimer; // Timer for loading timeout
+  bool hasError = false; // Track WebView errors
+  String? errorMessage; // Store error message
 
   BrowserTab({
     required this.id,
@@ -44,8 +47,12 @@ class BrowserTab {
 
   /// Dispose resources to prevent memory leaks
   void dispose() {
+    // Cancel loading timeout timer
+    loadingTimeoutTimer?.cancel();
+    loadingTimeoutTimer = null;
+
     snapshot = null; // Clear image data
-    
+
     // Clear WebView resources to reduce memory pressure
     controller.clearCache();
   }
@@ -354,6 +361,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
             });
           },
           onPageStarted: (String url) {
+            // Cancel any existing timeout timer
+            tab.loadingTimeoutTimer?.cancel();
+            // Clear any previous error state
+            tab.hasError = false;
+            tab.errorMessage = null;
+
             setState(() {
               tab.isLoading = true;
               tab.url = url;
@@ -361,16 +374,33 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 _urlController.text = url;
               }
             });
-            // Inject ad blocker on page start - always enabled
-            if (!tab.jsInjected) {
-              tab.controller.runJavaScript(_adBlocker.getBlockingJavaScript());
-            }
+
+            // Set timeout to force stop loading after 15 seconds
+            // This prevents infinite loading on SPA/infinite scroll sites
+            tab.loadingTimeoutTimer = Timer(const Duration(seconds: 15), () {
+              if (tab.isLoading) {
+                debugPrint('[Browser] Loading timeout for $url - forcing stop');
+                setState(() {
+                  tab.isLoading = false;
+                  tab.isInitialized = true;
+                });
+                // Stop the WebView loading to prevent background resource usage
+                // Note: stopLoading() was removed in webview_flutter 4.x
+              }
+            });
+
+            // Note: JavaScript injections happen in onPageFinished to ensure
+            // the page is fully loaded before we modify it
           },
           onPageFinished: (String url) async {
+            // Cancel the timeout timer since page finished loading
+            tab.loadingTimeoutTimer?.cancel();
+
             final pageTitle = await tab.controller.getTitle();
             setState(() {
               tab.isLoading = false;
               tab.isInitialized = true; // Mark as initialized after first load
+              tab.hasError = false; // Clear any error state
               if (pageTitle != null && pageTitle.isNotEmpty) {
                 tab.title = pageTitle;
               }
@@ -398,16 +428,22 @@ class _BrowserScreenState extends State<BrowserScreen> {
               }
             }
             _checkReaderModeAvailability(tab.controller);
-            // Inject long press detector only once
+            // Inject JavaScript enhancements only once per page session
             if (!tab.jsInjected) {
-              _injectLongPressDetector(tab.controller);
-              // Inject CSS to allow websites to use their native color scheme
-              _injectNativeColorScheme(tab.controller);
-              // Inject cookie capture for Google and other auth providers
-              _injectCookieCapture(tab.controller, url);
-              // Porn blocker is always enabled
-              tab.controller.runJavaScript(_adBlocker.getBlockingJavaScript());
-              tab.jsInjected = true;
+              try {
+                // Inject long press detector for image context menu
+                _injectLongPressDetector(tab.controller);
+                // Inject CSS to allow websites to use their native color scheme
+                _injectNativeColorScheme(tab.controller);
+                // Inject cookie capture for Google and other auth providers
+                _injectCookieCapture(tab.controller, url);
+                // Porn blocker is always enabled
+                tab.controller.runJavaScript(_adBlocker.getBlockingJavaScript());
+                tab.jsInjected = true;
+              } catch (e) {
+                debugPrint('[Browser] Error injecting JavaScript: $e');
+                // Continue anyway - page should still work without enhancements
+              }
             }
           },
           onNavigationRequest: (NavigationRequest request) {
@@ -453,6 +489,14 @@ class _BrowserScreenState extends State<BrowserScreen> {
             }
 
             return NavigationDecision.navigate;
+          },
+          onWebResourceError: (WebResourceError error) {
+            debugPrint('[Browser] WebResourceError: ${error.description} (errorCode: ${error.errorCode})');
+            setState(() {
+              tab.hasError = true;
+              tab.errorMessage = error.description.toString();
+              tab.isLoading = false;
+            });
           },
         ),
       )
@@ -1291,20 +1335,74 @@ class _BrowserScreenState extends State<BrowserScreen> {
         children: [
           ..._tabs.asMap().entries.map((entry) {
             final isSelected = _activeTabIndex == entry.key;
+            final tab = entry.value;
             // Show overlay only on initial page load (not on subsequent navigations)
             // Restored tabs skip the overlay since they were already loaded
-            final showLoadingOverlay = entry.value.isLoading &&
-                !entry.value.isInitialized &&
-                !entry.value.wasRestoredFromSession;
+            final showLoadingOverlay = tab.isLoading &&
+                !tab.isInitialized &&
+                !tab.wasRestoredFromSession;
+            // Show error overlay when WebView encounters an error
+            final showErrorOverlay = tab.hasError && !tab.isLoading;
             return Offstage(
               offstage: !isSelected,
               child: RepaintBoundary(
-                key: entry.value.id == activeTab.id ? _repaintKey : null,
+                key: tab.id == activeTab.id ? _repaintKey : null,
                 child: Stack(
                   children: [
                     _WebViewWithErrorHandling(
-                      controller: entry.value.controller,
+                      controller: tab.controller,
                     ),
+                    // Error overlay
+                    if (showErrorOverlay)
+                      Positioned.fill(
+                        child: Container(
+                          color: Theme.of(context).scaffoldBackgroundColor,
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  SolarLinearIcons.closeCircle,
+                                  size: 64,
+                                  color: Colors.red[400],
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'فشل تحميل الصفحة',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleLarge
+                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 8),
+                                if (tab.errorMessage != null)
+                                  Text(
+                                    tab.errorMessage!,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(color: Colors.grey),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                const SizedBox(height: 24),
+                                ElevatedButton.icon(
+                                  onPressed: () {
+                                    setState(() {
+                                      tab.hasError = false;
+                                      tab.errorMessage = null;
+                                    });
+                                    tab.controller.reload();
+                                  },
+                                  icon: const Icon(SolarLinearIcons.refresh),
+                                  label: const Text('إعادة المحاولة'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     // Initial loading overlay with smooth fade animation
                     if (showLoadingOverlay)
                       Positioned.fill(
@@ -1323,8 +1421,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
                                       width: 48,
                                       height: 48,
                                       child: CircularProgressIndicator(
-                                        value: entry.value.progress > 0
-                                            ? entry.value.progress
+                                        value: tab.progress > 0
+                                            ? tab.progress
                                             : null,
                                         color: AppColors.primary,
                                         strokeWidth: 3,
@@ -1675,36 +1773,13 @@ class _WebViewWithErrorHandling extends StatefulWidget {
 
 class _WebViewWithErrorHandlingState extends State<_WebViewWithErrorHandling> {
   bool _hasError = false;
-  String _errorMessage = 'حدث خطأ في تحميل الصفحة';
+  final String _errorMessage = 'حدث خطأ في تحميل الصفحة';
 
   @override
   void initState() {
     super.initState();
-    _setupErrorHandling();
-  }
-
-  Future<void> _setupErrorHandling() async {
-    widget.controller.setNavigationDelegate(
-      NavigationDelegate(
-        onWebResourceError: (WebResourceError error) {
-          debugPrint('[WebView] Error: ${error.description}');
-          if (mounted) {
-            setState(() {
-              _hasError = true;
-              _errorMessage = error.description.toString();
-            });
-          }
-        },
-        onPageFinished: (String url) {
-          // Clear error state on successful page load
-          if (mounted && _hasError) {
-            setState(() {
-              _hasError = false;
-            });
-          }
-        },
-      ),
-    );
+    // Note: Error handling is now set up in the main NavigationDelegate
+    // in _addNewTab to avoid overwriting the navigation callbacks
   }
 
   @override
