@@ -106,7 +106,7 @@ async def init_task_alarm_cleanup():
         await execute_sql(
             db,
             "DELETE FROM task_alarms WHERE status = 'acknowledged' AND acknowledged_at < ?",
-            [cutoff.isoformat()]
+            [cutoff]
         )
         await commit_db(db)
 
@@ -148,10 +148,10 @@ async def schedule_task_alarm(
         existing = await fetch_one(
             db,
             """
-            SELECT id FROM task_alarms 
+            SELECT id FROM task_alarms
             WHERE task_id = ? AND alarm_time = ? AND status = 'pending'
             """,
-            [task_id, alarm_time.isoformat()]
+            [task_id, alarm_time]
         )
         
         if existing:
@@ -173,11 +173,11 @@ async def schedule_task_alarm(
         await execute_sql(
             db,
             """
-            INSERT INTO task_alarms 
+            INSERT INTO task_alarms
             (task_id, license_key_id, user_id, alarm_time, notification_data, status)
             VALUES (?, ?, ?, ?, ?, 'pending')
             """,
-            [task_id, license_key_id, user_id, alarm_time.isoformat(), notification_data]
+            [task_id, license_key_id, user_id, alarm_time, notification_data]
         )
         
         await commit_db(db)
@@ -308,7 +308,7 @@ async def get_due_alarms(limit: int = 100) -> List[dict]:
     """
     now = datetime.now(timezone.utc)
     prefetch_cutoff = now + timedelta(seconds=ALARM_PREFETCH_SECONDS)
-    
+
     async with get_db() as db:
         rows = await fetch_all(
             db,
@@ -320,7 +320,7 @@ async def get_due_alarms(limit: int = 100) -> List[dict]:
             ORDER BY alarm_time ASC
             LIMIT ?
             """,
-            [now.isoformat(), ALARM_MAX_RETRIES, limit]
+            [now, ALARM_MAX_RETRIES, limit]
         )
         
         return [dict(row) for row in rows]
@@ -662,10 +662,10 @@ async def cleanup_old_alarms() -> int:
         await execute_sql(
             db,
             """
-            DELETE FROM task_alarms 
+            DELETE FROM task_alarms
             WHERE status = 'acknowledged' AND acknowledged_at < ?
             """,
-            [cutoff.isoformat()]
+            [cutoff]
         )
         await commit_db(db)
         
@@ -691,10 +691,10 @@ async def cleanup_stale_pending_alarms() -> int:
         await execute_sql(
             db,
             """
-            DELETE FROM task_alarms 
+            DELETE FROM task_alarms
             WHERE status = 'pending' AND created_at < ?
             """,
-            [cutoff.isoformat()]
+            [cutoff]
         )
         await commit_db(db)
         
