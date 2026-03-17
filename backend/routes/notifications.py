@@ -890,21 +890,26 @@ async def schedule_task_alarm(
         )
 
 
+class TaskAlarmCancel(BaseModel):
+    """Cancel task alarm request"""
+    task_id: str = Field(..., description="Task ID")
+
+
 @router.post("/alarm/cancel")
 async def cancel_task_alarm(
-    task_id: str = Field(..., description="Task ID"),
+    data: TaskAlarmCancel,
     license: dict = Depends(get_current_user)
 ):
     """
     Cancel all pending alarms for a task.
     """
     from services.task_alarm_service import cancel_task_alarm
-    
+
     await cancel_task_alarm(
-        task_id=task_id,
+        task_id=data.task_id,
         license_key_id=license["license_id"]
     )
-    
+
     return {
         "success": True,
         "message": "تم إلغاء المنبه"
