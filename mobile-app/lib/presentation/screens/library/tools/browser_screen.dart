@@ -10,6 +10,7 @@ import 'package:almudeer_mobile_app/presentation/widgets/animated_toast.dart';
 import 'package:almudeer_mobile_app/core/services/browser_download_manager.dart';
 import 'package:almudeer_mobile_app/core/services/ad_blocker_service.dart';
 import 'package:almudeer_mobile_app/presentation/screens/library/tools/downloads_screen.dart';
+import 'package:almudeer_mobile_app/core/services/browser_cookie_service.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:almudeer_mobile_app/core/models/browser_tab_persistence.dart';
 import 'package:almudeer_mobile_app/core/services/browser_history_service.dart';
@@ -17,6 +18,7 @@ import 'package:almudeer_mobile_app/core/services/browser_bookmark_service.dart'
 import 'package:almudeer_mobile_app/presentation/screens/library/tools/browser_history_screen.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
+import 'dart:async';
 
 class BrowserTab {
   final String id;
@@ -30,12 +32,14 @@ class BrowserTab {
   bool isDesktopMode = false;
   bool canShowReaderMode = false;
   bool jsInjected = false;
+  bool wasRestoredFromSession = false;
 
   BrowserTab({
     required this.id,
     required this.url,
     this.title = 'المتصفح',
     this.isDesktopMode = false,
+    this.wasRestoredFromSession = false,
   });
 
   /// Dispose resources to prevent memory leaks
@@ -62,9 +66,10 @@ class _BrowserScreenState extends State<BrowserScreen> {
   int _activeTabIndex = 0;
   final TextEditingController _urlController = TextEditingController();
   final BrowserDownloadManager _downloadManager = BrowserDownloadManager();
-  final AdBlockerService _adBlocker = AdBlockerService();
+  final PornBlockerService _adBlocker = PornBlockerService();
   final BrowserHistoryService _historyService = BrowserHistoryService();
   final BrowserBookmarkService _bookmarkService = BrowserBookmarkService();
+  final BrowserCookieService _cookieService = BrowserCookieService();
   bool _isRestoring = true;
   bool _isReaderMode = false;
   String? _readerTitle;
@@ -74,6 +79,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
   final TextEditingController _searchTextController = TextEditingController();
   final Set<String> _recentHistoryUrls = {};
   DateTime? _lastHistoryAdd;
+  Timer? _cookieSaveTimer;
 
   @override
   void initState() {
@@ -81,14 +87,39 @@ class _BrowserScreenState extends State<BrowserScreen> {
     _adBlocker.init();
     _historyService.init();
     _bookmarkService.init();
+    _cookieService.initialize();
     _initReaderController();
     _restoreSession();
+
+    // Sync history and bookmarks from backend after a short delay
+    // This ensures the UI is responsive while sync happens in background
+    Future.delayed(const Duration(seconds: 2), () {
+      _syncFromBackend();
+    });
+  }
+
+  /// Sync history and bookmarks from backend
+  Future<void> _syncFromBackend() async {
+    try {
+      // Sync in parallel
+      await Future.wait([
+        _historyService.syncFromBackend(),
+        _bookmarkService.syncFromBackend(),
+      ]);
+      debugPrint('[Browser] Sync completed from backend');
+    } catch (e) {
+      debugPrint('[Browser] Sync error: $e');
+    }
   }
 
   void _initReaderController() {
     _readerController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.transparent);
+    // Note: WebView security is enforced via:
+    // 1. AndroidManifest: EnableSafeBrowsing=true, MetricsEnabled=false
+    // 2. NavigationDelegate: Blocks file://, content://, and unsafe URLs
+    // 3. No hardcoded file/content URL loading in this controller
   }
 
   @override
@@ -109,14 +140,15 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
     _urlController.dispose();
     _searchTextController.dispose();
+    _cookieSaveTimer?.cancel();
     super.dispose();
   }
 
   /// Clear all WebView cache, cookies, and storage (privacy/security)
   Future<void> _clearBrowsingData() async {
     try {
-      // Clear WebView cookies
-      await WebViewCookieManager().clearCookies();
+      // Clear WebView cookies (including persisted storage)
+      await _cookieService.clearCookies();
 
       // Clear cache for all tabs
       for (var tab in _tabs) {
@@ -185,6 +217,13 @@ class _BrowserScreenState extends State<BrowserScreen> {
       return;
     }
 
+    // Restore cookies FIRST before loading any tabs
+    // This ensures login sessions (Google, etc.) are available when pages load
+    await _cookieService.restoreCookies();
+
+    // Restore cookies from backend for cross-device sync
+    await _restoreCookiesFromBackend();
+
     final box = await Hive.openBox<BrowserTabPersistence>('browser_session');
     if (box.isNotEmpty) {
       for (var savedTab in box.values) {
@@ -193,6 +232,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
           title: savedTab.title,
           id: savedTab.id,
           isDesktopMode: savedTab.isDesktopMode,
+          wasRestoredFromSession: true,
         );
       }
       setState(() {
@@ -205,6 +245,26 @@ class _BrowserScreenState extends State<BrowserScreen> {
     } else {
       _addNewTab(url: 'https://google.com');
       setState(() => _isRestoring = false);
+    }
+  }
+
+  /// Restore cookies from backend and set them in WebView
+  Future<void> _restoreCookiesFromBackend() async {
+    try {
+      final cookies = await _cookieService.restoreCookiesFromBackend();
+      for (final cookieData in cookies) {
+        await _cookieService.setCookie(
+          name: cookieData['name'] as String,
+          value: cookieData['value'] as String,
+          domain: cookieData['domain'] as String,
+          path: (cookieData['path'] as String?) ?? '/',
+        );
+      }
+      if (cookies.isNotEmpty) {
+        debugPrint('[Browser] Restored ${cookies.length} cookies from backend');
+      }
+    } catch (e) {
+      debugPrint('[Browser] Error restoring cookies from backend: $e');
     }
   }
 
@@ -221,6 +281,19 @@ class _BrowserScreenState extends State<BrowserScreen> {
         ),
       );
     }
+    // Save cookies with debouncing to prevent excessive saves
+    _debouncedSaveCookies();
+  }
+
+  /// Save cookies with debouncing (wait 2 seconds after last page load)
+  void _debouncedSaveCookies() {
+    _cookieSaveTimer?.cancel();
+    _cookieSaveTimer = Timer(const Duration(seconds: 2), () async {
+      await _cookieService.saveCookies();
+      // Sync to backend for cross-device persistence (always enabled)
+      // Note: We can't extract cookies from WebView, so this is a placeholder
+      // for future enhancement when manual cookie tracking is needed
+    });
   }
 
   void _addNewTab({
@@ -228,6 +301,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
     String? title,
     String? id,
     bool isDesktopMode = false,
+    bool wasRestoredFromSession = false,
   }) {
     // Enforce tab limit - close oldest tab if at limit
     if (_tabs.length >= _maxTabs) {
@@ -249,6 +323,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
       url: url,
       title: title ?? 'المتصفح',
       isDesktopMode: isDesktopMode,
+      wasRestoredFromSession: wasRestoredFromSession,
     );
 
     tab.controller = WebViewController()
@@ -262,6 +337,13 @@ class _BrowserScreenState extends State<BrowserScreen> {
         'ImageLongPressChannel',
         onMessageReceived: (JavaScriptMessage message) {
           _showImageContextMenu(message.message);
+        },
+      )
+      ..addJavaScriptChannel(
+        'CookieCaptureChannel',
+        onMessageReceived: (JavaScriptMessage message) async {
+          // Capture cookies from JavaScript and sync to backend
+          await _captureAndSyncCookies(message.message);
         },
       )
       ..setNavigationDelegate(
@@ -288,6 +370,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
             final pageTitle = await tab.controller.getTitle();
             setState(() {
               tab.isLoading = false;
+              tab.isInitialized = true; // Mark as initialized after first load
               if (pageTitle != null && pageTitle.isNotEmpty) {
                 tab.title = pageTitle;
               }
@@ -320,7 +403,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
               _injectLongPressDetector(tab.controller);
               // Inject CSS to allow websites to use their native color scheme
               _injectNativeColorScheme(tab.controller);
-              // Ad blocker is always enabled - inject again to ensure it's active
+              // Inject cookie capture for Google and other auth providers
+              _injectCookieCapture(tab.controller, url);
+              // Porn blocker is always enabled
               tab.controller.runJavaScript(_adBlocker.getBlockingJavaScript());
               tab.jsInjected = true;
             }
@@ -328,16 +413,19 @@ class _BrowserScreenState extends State<BrowserScreen> {
           onNavigationRequest: (NavigationRequest request) {
             final navUrl = request.url.toLowerCase();
 
+            // SECURITY: Block local file system and content URLs
+            if (navUrl.startsWith('file://') ||
+                navUrl.startsWith('content://') ||
+                navUrl.startsWith('blob:')) {
+              debugPrint('[Browser] Blocked unsafe URL scheme: ${request.url}');
+              return NavigationDecision.prevent;
+            }
+
             if (_adBlocker.isAdultContent(request.url)) {
               AnimatedToast.error(
                 context,
                 'تم حظر هذا الموقع بموجب سياسة المحتوى الآمن',
               );
-              return NavigationDecision.prevent;
-            }
-
-            if (_adBlocker.isBlocked(request.url)) {
-              debugPrint('[Browser] Blocked ad/tracker: ${request.url}');
               return NavigationDecision.prevent;
             }
 
@@ -448,6 +536,94 @@ class _BrowserScreenState extends State<BrowserScreen> {
       })();
     """;
     controller.runJavaScript(script);
+  }
+
+  /// Inject cookie capture JavaScript for auth providers (Google, etc.)
+  void _injectCookieCapture(WebViewController controller, String url) {
+    // Only inject on Google domains and common auth providers
+    final isAuthDomain = url.contains('google.com') ||
+        url.contains('accounts.google') ||
+        url.contains('facebook.com') ||
+        url.contains('linkedin.com');
+
+    if (!isAuthDomain) return;
+
+    const script = """
+      (function() {
+        if (window.__cookieCaptureInjected) return;
+        window.__cookieCaptureInjected = true;
+
+        // Capture cookies after a delay (allow login to complete)
+        setTimeout(function() {
+          try {
+            var cookies = document.cookie.split(';');
+            var cookieData = [];
+            
+            for (var i = 0; i < cookies.length; i++) {
+              var cookie = cookies[i].trim();
+              if (!cookie) continue;
+              
+              var eqIdx = cookie.indexOf('=');
+              if (eqIdx === -1) continue;
+              
+              var name = cookie.substring(0, eqIdx).trim();
+              var value = cookie.substring(eqIdx + 1).trim();
+              
+              // Skip sensitive cookies that shouldn't be synced
+              if (name.startsWith('__Host-') || name.startsWith('__Secure-')) {
+                continue;
+              }
+              
+              cookieData.push({
+                name: name,
+                value: value,
+                domain: window.location.hostname,
+                path: '/'
+              });
+            }
+            
+            if (cookieData.length > 0) {
+              // Send to Flutter via JavaScript channel
+              CookieCaptureChannel.postMessage(JSON.stringify(cookieData));
+            }
+          } catch (e) {
+            console.log('[CookieCapture] Error: ' + e.message);
+          }
+        }, 3000); // Wait 3 seconds after page load
+      })();
+    """;
+    controller.runJavaScript(script);
+  }
+
+  /// Capture cookies from JavaScript and sync to backend
+  Future<void> _captureAndSyncCookies(String jsonData) async {
+    try {
+      final List<dynamic> cookies = jsonDecode(jsonData);
+      if (cookies.isEmpty) return;
+
+      // Filter to important auth cookies only
+      final List<Map<String, dynamic>> authCookies = cookies.where((cookie) {
+        final name = (cookie['name'] as String).toLowerCase();
+        // Capture Google auth cookies
+        return name.contains('sid') ||
+               name.contains('auth') ||
+               name.contains('session') ||
+               name.contains('token') ||
+               name.startsWith('__ut') ||
+               name == 'ssid' ||
+               name == 'hsid' ||
+               name == 'apisid' ||
+               name == 'sapisid';
+      }).map((cookie) => Map<String, dynamic>.from(cookie)).toList();
+
+      if (authCookies.isEmpty) return;
+
+      // Sync to backend
+      await _cookieService.syncCookiesToBackend(authCookies);
+      debugPrint('[Browser] Synced ${authCookies.length} auth cookies to backend');
+    } catch (e) {
+      debugPrint('[Browser] Error capturing cookies: $e');
+    }
   }
 
   Future<void> _captureSnapshot() async {
@@ -1100,13 +1276,13 @@ class _BrowserScreenState extends State<BrowserScreen> {
           ),
         ],
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(2),
+          preferredSize: const Size.fromHeight(3),
           child: activeTab.isLoading
               ? LinearProgressIndicator(
-                  value: activeTab.progress,
-                  backgroundColor: Colors.transparent,
+                  value: activeTab.progress > 0 ? activeTab.progress : null,
+                  backgroundColor: AppColors.primary.withValues(alpha: 0.2),
                   color: AppColors.primary,
-                  minHeight: 2,
+                  minHeight: 3,
                 )
               : const SizedBox.shrink(),
         ),
@@ -1115,12 +1291,64 @@ class _BrowserScreenState extends State<BrowserScreen> {
         children: [
           ..._tabs.asMap().entries.map((entry) {
             final isSelected = _activeTabIndex == entry.key;
+            // Show overlay only on initial page load (not on subsequent navigations)
+            // Restored tabs skip the overlay since they were already loaded
+            final showLoadingOverlay = entry.value.isLoading &&
+                !entry.value.isInitialized &&
+                !entry.value.wasRestoredFromSession;
             return Offstage(
               offstage: !isSelected,
               child: RepaintBoundary(
                 key: entry.value.id == activeTab.id ? _repaintKey : null,
-                child: _WebViewWithErrorHandling(
-                  controller: entry.value.controller,
+                child: Stack(
+                  children: [
+                    _WebViewWithErrorHandling(
+                      controller: entry.value.controller,
+                    ),
+                    // Initial loading overlay with smooth fade animation
+                    if (showLoadingOverlay)
+                      Positioned.fill(
+                        child: AnimatedOpacity(
+                          duration: const Duration(milliseconds: 200),
+                          opacity: 1.0,
+                          child: Container(
+                            color: Theme.of(context).scaffoldBackgroundColor,
+                            child: Semantics(
+                              label: 'جاري تحميل الصفحة',
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    SizedBox(
+                                      width: 48,
+                                      height: 48,
+                                      child: CircularProgressIndicator(
+                                        value: entry.value.progress > 0
+                                            ? entry.value.progress
+                                            : null,
+                                        color: AppColors.primary,
+                                        strokeWidth: 3,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'جاري تحميل الصفحة...',
+                                      style: TextStyle(
+                                        color: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.color,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             );

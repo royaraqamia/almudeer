@@ -5,14 +5,14 @@ import re
 import html
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel, HttpUrl, field_validator
-from typing import Optional
+from typing import Optional, List
 import httpx
 from bs4 import BeautifulSoup
 import bleach
 import tempfile
 import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import OrderedDict
 from dataclasses import dataclass, field
 
@@ -1367,10 +1367,566 @@ async def get_circuit_breaker_status(
     
     # Get all circuit breaker states
     status_data = await _circuit_breaker.get_all_status()
-    
+
     return {
         "total_hosts": len(status_data),
         "open_circuits": sum(1 for s in status_data.values() if s["state"] == "open"),
         "half_open_circuits": sum(1 for s in status_data.values() if s["state"] == "half-open"),
         "hosts": status_data,
     }
+
+
+# ============= Browser Sync API Routes =============
+
+class HistoryEntryCreate(BaseModel):
+    url: str
+    title: str
+    visited_at: Optional[str] = None
+    device_id: Optional[str] = None
+
+
+class HistoryEntryResponse(BaseModel):
+    id: int
+    url: str
+    title: Optional[str]
+    visited_at: str
+    visit_count: int
+    device_id: Optional[str]
+    created_at: str
+
+
+class BookmarkCreate(BaseModel):
+    url: str
+    title: str
+    folder: Optional[str] = "default"
+    icon: Optional[str] = None
+
+
+class BookmarkResponse(BaseModel):
+    id: int
+    url: str
+    title: str
+    folder: str
+    icon: Optional[str]
+    created_at: str
+    updated_at: str
+
+
+class SyncMetadataResponse(BaseModel):
+    last_history_sync_at: Optional[str]
+    last_bookmark_sync_at: Optional[str]
+    updated_at: str
+
+
+class CookieEntry(BaseModel):
+    """Cookie entry for sync"""
+    name: str
+    value: str
+    domain: str
+    path: Optional[str] = "/"
+    expires: Optional[str] = None
+    is_secure: Optional[bool] = False
+    is_http_only: Optional[bool] = False
+    same_site: Optional[str] = "Lax"
+
+
+@router.post("/history/sync", response_model=List[HistoryEntryResponse])
+async def sync_history(
+    request: Request,
+    entries: Optional[List[HistoryEntryCreate]] = None,
+    license_data: dict = Depends(get_license_from_header),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """
+    Sync browser history from client to server.
+    Accepts a list of history entries and adds/updates them.
+    Returns the synced entries with server IDs.
+    
+    Accepts either:
+    - Direct list: [{"url": "...", "title": "...", ...}, ...]
+    - Wrapped: {"entries": [...]}
+    """
+    from models.browser import add_history_entry, get_sync_metadata, update_sync_metadata
+    
+    license_key_id = license_data["id"]
+    user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
+    
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User ID required")
+    
+    # Handle both wrapped and direct list formats
+    if entries is None:
+        try:
+            body = await request.json()
+            if isinstance(body, dict) and 'entries' in body:
+                entries = [HistoryEntryCreate(**e) for e in body['entries']]
+            elif isinstance(body, list):
+                entries = [HistoryEntryCreate(**e) for e in body]
+            else:
+                entries = []
+        except:
+            entries = []
+    
+    if not entries:
+        return []
+    
+    device_id = entries[0].device_id if entries else None
+    synced_entries = []
+    
+    for entry in entries:
+        try:
+            visited_at = None
+            if entry.visited_at:
+                try:
+                    visited_at = datetime.fromisoformat(entry.visited_at.replace('Z', '+00:00'))
+                except:
+                    visited_at = datetime.now(timezone.utc)
+            
+            result = await add_history_entry(
+                license_key_id=license_key_id,
+                url=entry.url,
+                title=entry.title,
+                user_id=user_id,
+                device_id=device_id,
+                visited_at=visited_at
+            )
+            
+            synced_entries.append(HistoryEntryResponse(
+                id=result["id"],
+                url=result["url"],
+                title=result["title"],
+                visited_at=result["visited_at"],
+                visit_count=result["visit_count"],
+                device_id=result.get("device_id"),
+                created_at=datetime.now(timezone.utc).isoformat()
+            ))
+        except Exception as e:
+            logger.error(f"Error syncing history entry {entry.url}: {e}")
+            # Continue with other entries
+    
+    # Update sync metadata
+    await update_sync_metadata(
+        license_key_id=license_key_id,
+        user_id=user_id,
+        device_id=device_id,
+        last_history_sync_at=datetime.now(timezone.utc)
+    )
+    
+    return synced_entries
+
+
+@router.get("/history", response_model=List[HistoryEntryResponse])
+async def get_history(
+    limit: int = 100,
+    offset: int = 0,
+    request: Request = None,
+    license_data: dict = Depends(get_license_from_header),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """Get browser history from server"""
+    from models.browser import get_history as get_history_model
+    
+    license_key_id = license_data["id"]
+    user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
+    
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User ID required")
+    
+    entries = await get_history_model(
+        license_key_id=license_key_id,
+        user_id=user_id,
+        limit=limit,
+        offset=offset
+    )
+    
+    return [
+        HistoryEntryResponse(
+            id=e["id"],
+            url=e["url"],
+            title=e["title"],
+            visited_at=e["visited_at"].isoformat() if e["visited_at"] else datetime.now(timezone.utc).isoformat(),
+            visit_count=e["visit_count"],
+            device_id=e.get("device_id"),
+            created_at=e["created_at"].isoformat() if e["created_at"] else datetime.now(timezone.utc).isoformat()
+        )
+        for e in entries
+    ]
+
+
+@router.delete("/history/{history_id}")
+async def delete_history_entry(
+    history_id: int,
+    request: Request,
+    license_data: dict = Depends(get_license_from_header),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """Delete a browser history entry"""
+    from models.browser import delete_history_entry
+    
+    license_key_id = license_data["id"]
+    user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
+    
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User ID required")
+    
+    await delete_history_entry(
+        license_key_id=license_key_id,
+        history_id=history_id,
+        user_id=user_id
+    )
+    
+    return {"success": True, "message": "History entry deleted"}
+
+
+@router.post("/history/clear")
+async def clear_history(
+    request: Request,
+    license_data: dict = Depends(get_license_from_header),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """Clear all browser history"""
+    from models.browser import clear_history
+    
+    license_key_id = license_data["id"]
+    user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
+    
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User ID required")
+    
+    await clear_history(
+        license_key_id=license_key_id,
+        user_id=user_id
+    )
+    
+    return {"success": True, "message": "History cleared"}
+
+
+@router.post("/bookmarks/sync", response_model=List[BookmarkResponse])
+async def sync_bookmarks(
+    request: Request,
+    bookmarks: Optional[List[BookmarkCreate]] = None,
+    license_data: dict = Depends(get_license_from_header),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """
+    Sync bookmarks from client to server.
+    Accepts a list of bookmarks and adds/updates them.
+    Returns the synced bookmarks with server IDs.
+    
+    Accepts either:
+    - Direct list: [{"url": "...", "title": "...", ...}, ...]
+    - Wrapped: {"bookmarks": [...]}
+    """
+    from models.browser import add_bookmark, get_sync_metadata, update_sync_metadata
+    
+    license_key_id = license_data["id"]
+    user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
+    
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User ID required")
+    
+    # Handle both wrapped and direct list formats
+    if bookmarks is None:
+        try:
+            body = await request.json()
+            if isinstance(body, dict) and 'bookmarks' in body:
+                bookmarks = [BookmarkCreate(**b) for b in body['bookmarks']]
+            elif isinstance(body, list):
+                bookmarks = [BookmarkCreate(**b) for b in body]
+            else:
+                bookmarks = []
+        except:
+            bookmarks = []
+    
+    if not bookmarks:
+        return []
+    
+    synced_bookmarks = []
+    
+    for bookmark in bookmarks:
+        try:
+            result = await add_bookmark(
+                license_key_id=license_key_id,
+                url=bookmark.url,
+                title=bookmark.title,
+                user_id=user_id,
+                folder=bookmark.folder or "default",
+                icon=bookmark.icon
+            )
+            
+            synced_bookmarks.append(BookmarkResponse(
+                id=result["id"],
+                url=result["url"],
+                title=result["title"],
+                folder=result["folder"],
+                icon=result["icon"],
+                created_at=result["created_at"],
+                updated_at=datetime.now(timezone.utc).isoformat()
+            ))
+        except Exception as e:
+            logger.error(f"Error syncing bookmark {bookmark.url}: {e}")
+            # Continue with other bookmarks
+    
+    # Update sync metadata
+    await update_sync_metadata(
+        license_key_id=license_key_id,
+        user_id=user_id,
+        last_bookmark_sync_at=datetime.now(timezone.utc)
+    )
+    
+    return synced_bookmarks
+
+
+@router.get("/bookmarks", response_model=List[BookmarkResponse])
+async def get_bookmarks(
+    folder: Optional[str] = None,
+    request: Request = None,
+    license_data: dict = Depends(get_license_from_header),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """Get bookmarks from server"""
+    from models.browser import get_bookmarks as get_bookmarks_model
+    
+    license_key_id = license_data["id"]
+    user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
+    
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User ID required")
+    
+    bookmarks = await get_bookmarks_model(
+        license_key_id=license_key_id,
+        user_id=user_id,
+        folder=folder
+    )
+    
+    return [
+        BookmarkResponse(
+            id=b["id"],
+            url=b["url"],
+            title=b["title"],
+            folder=b["folder"],
+            icon=b.get("icon"),
+            created_at=b["created_at"].isoformat() if b["created_at"] else datetime.now(timezone.utc).isoformat(),
+            updated_at=b["updated_at"].isoformat() if b["updated_at"] else datetime.now(timezone.utc).isoformat()
+        )
+        for b in bookmarks
+    ]
+
+
+@router.delete("/bookmarks/{bookmark_id}")
+async def delete_bookmark(
+    bookmark_id: int,
+    request: Request,
+    license_data: dict = Depends(get_license_from_header),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """Delete a bookmark"""
+    from models.browser import delete_bookmark
+    
+    license_key_id = license_data["id"]
+    user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
+    
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User ID required")
+    
+    await delete_bookmark(
+        license_key_id=license_key_id,
+        bookmark_id=bookmark_id,
+        user_id=user_id
+    )
+    
+    return {"success": True, "message": "Bookmark deleted"}
+
+
+@router.post("/bookmarks/clear")
+async def clear_bookmarks(
+    request: Request,
+    license_data: dict = Depends(get_license_from_header),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """Clear all bookmarks"""
+    from models.browser import clear_bookmarks
+    
+    license_key_id = license_data["id"]
+    user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
+    
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User ID required")
+    
+    await clear_bookmarks(
+        license_key_id=license_key_id,
+        user_id=user_id
+    )
+    
+    return {"success": True, "message": "Bookmarks cleared"}
+
+
+@router.get("/sync/metadata", response_model=SyncMetadataResponse)
+async def get_sync_metadata(
+    request: Request,
+    license_data: dict = Depends(get_license_from_header),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """Get sync metadata for the current user"""
+    from models.browser import get_sync_metadata as get_metadata
+    
+    license_key_id = license_data["id"]
+    user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
+    
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User ID required")
+    
+    metadata = await get_metadata(
+        license_key_id=license_key_id,
+        user_id=user_id
+    )
+    
+    if not metadata:
+        # Return default metadata if none exists
+        return SyncMetadataResponse(
+            last_history_sync_at=None,
+            last_bookmark_sync_at=None,
+            updated_at=datetime.now(timezone.utc).isoformat()
+        )
+
+    return SyncMetadataResponse(
+        last_history_sync_at=metadata["last_history_sync_at"].isoformat() if metadata["last_history_sync_at"] else None,
+        last_bookmark_sync_at=metadata["last_bookmark_sync_at"].isoformat() if metadata["last_bookmark_sync_at"] else None,
+        updated_at=metadata["updated_at"].isoformat() if metadata["updated_at"] else datetime.now(timezone.utc).isoformat()
+    )
+
+
+# ============= Browser Cookie Sync API =============
+
+class CookieSyncRequest(BaseModel):
+    """Request for cookie sync"""
+    cookies: List[CookieEntry]
+    device_id: Optional[str] = None
+
+
+class CookieSyncResponse(BaseModel):
+    """Response for cookie sync"""
+    success: bool
+    cookies_synced: int
+    message: str
+
+
+@router.post("/cookies/sync", response_model=CookieSyncResponse)
+async def sync_cookies(
+    request: Request,
+    sync_data: CookieSyncRequest,
+    license_data: dict = Depends(get_license_from_header),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """
+    Sync browser cookies from client to server.
+    Stores cookies securely for cross-device session persistence.
+    """
+    from models.browser import save_user_cookies
+
+    license_key_id = license_data["id"]
+    user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
+
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User ID required")
+
+    device_id = sync_data.device_id
+
+    try:
+        cookies_synced = await save_user_cookies(
+            license_key_id=license_key_id,
+            user_id=user_id,
+            device_id=device_id,
+            cookies=[cookie.model_dump() for cookie in sync_data.cookies],
+        )
+
+        return CookieSyncResponse(
+            success=True,
+            cookies_synced=cookies_synced,
+            message=f"Successfully synced {cookies_synced} cookies",
+        )
+    except Exception as e:
+        logger.error(f"Error syncing cookies: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to sync cookies: {str(e)}")
+
+
+@router.get("/cookies", response_model=List[CookieEntry])
+async def get_cookies(
+    request: Request,
+    domain: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    license_data: dict = Depends(get_license_from_header),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """
+    Get synced cookies from server.
+    Optionally filter by domain.
+    Supports pagination (default: 100 cookies, max: 500).
+    """
+    from models.browser import get_user_cookies
+
+    license_key_id = license_data["id"]
+    user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
+
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User ID required")
+
+    # Enforce max limit
+    limit = min(limit, 500)
+
+    try:
+        cookies = await get_user_cookies(
+            license_key_id=license_key_id,
+            user_id=user_id,
+            domain=domain,
+            limit=limit,
+            offset=offset,
+        )
+
+        return [
+            CookieEntry(
+                name=cookie["name"],
+                value=cookie["value"],
+                domain=cookie["domain"],
+                path=cookie.get("path", "/"),
+                expires=cookie.get("expires"),
+                is_secure=cookie.get("is_secure", False),
+                is_http_only=cookie.get("is_http_only", False),
+                same_site=cookie.get("same_site", "Lax"),
+            )
+            for cookie in cookies
+        ]
+    except Exception as e:
+        logger.error(f"Error getting cookies: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get cookies: {str(e)}")
+
+
+@router.delete("/cookies", response_model=dict)
+async def clear_cookies(
+    request: Request,
+    license_data: dict = Depends(get_license_from_header),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """
+    Clear all synced cookies from server.
+    """
+    from models.browser import clear_user_cookies
+
+    license_key_id = license_data["id"]
+    user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
+
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User ID required")
+
+    try:
+        await clear_user_cookies(
+            license_key_id=license_key_id,
+            user_id=user_id,
+        )
+
+        return {"success": True, "message": "All cookies cleared"}
+    except Exception as e:
+        logger.error(f"Error clearing cookies: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to clear cookies: {str(e)}")
+

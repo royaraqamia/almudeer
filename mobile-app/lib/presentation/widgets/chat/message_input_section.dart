@@ -16,6 +16,7 @@ import '../../../core/extensions/string_extension.dart';
 import '../animated_toast.dart';
 import 'reply_preview.dart';
 import 'multi_image_preview_dialog.dart';
+import 'mention_autocomplete.dart';
 
 /// Message input section with emoji and send functionality
 class MessageInputSection extends StatefulWidget {
@@ -62,6 +63,12 @@ class _MessageInputSectionState extends State<MessageInputSection> {
   // Editing State
   int? _lastEditingId;
 
+  // Mention Autocomplete State
+  String? _mentionQuery;
+  final double _mentionOffsetX = 0;
+  final double _mentionOffsetY = 0;
+  final LayerLink _layerLink = LayerLink();
+  OverlayEntry? _mentionOverlayEntry;
 
   // UI State
   bool _showEmoji = false;
@@ -98,6 +105,7 @@ class _MessageInputSectionState extends State<MessageInputSection> {
 
   @override
   void dispose() {
+    _hideMentionAutocomplete();
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -141,6 +149,9 @@ class _MessageInputSectionState extends State<MessageInputSection> {
       provider.saveDraft(text);
     }
 
+    // Check for @mention pattern
+    _checkForMention(text);
+
     if (widget.onTypingChanged == null) return;
 
     if (!_isTyping && text.isNotEmpty) {
@@ -161,6 +172,98 @@ class _MessageInputSectionState extends State<MessageInputSection> {
         context.read<ConversationDetailProvider>().setTypingStatus(false);
       }
     });
+  }
+
+  /// Check for @mention pattern and show/hide autocomplete
+  void _checkForMention(String text) {
+    final cursorPosition = _controller.selection.baseOffset;
+    if (cursorPosition < 0 || cursorPosition > text.length) return;
+
+    // Find the word before cursor
+    final textBeforeCursor = text.substring(0, cursorPosition);
+    final words = textBeforeCursor.split(RegExp(r'\s+'));
+    final lastWord = words.last;
+
+    // Check if last word starts with @
+    if (lastWord.startsWith('@')) {
+      final query = lastWord.substring(1); // Remove @
+      if (query.isNotEmpty && query.length <= 32) {
+        // Valid username length
+        setState(() {
+          _mentionQuery = query;
+        });
+        _showMentionAutocomplete();
+        return;
+      }
+    }
+
+    // Hide autocomplete if no valid mention
+    _hideMentionAutocomplete();
+  }
+
+  /// Show mention autocomplete overlay
+  void _showMentionAutocomplete() {
+    _hideMentionAutocomplete(); // Hide any existing overlay first
+
+    _mentionOverlayEntry = OverlayEntry(
+      builder: (context) => GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: _hideMentionAutocomplete, // Dismiss on tap outside
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Container(
+                color: Colors.transparent,
+              ),
+            ),
+            Positioned(
+              left: 16.0, // Adjust based on your layout
+              bottom: MediaQuery.of(context).viewInsets.bottom + 80,
+              child: CompositedTransformFollower(
+                link: _layerLink,
+                offset: Offset(0, -_mentionOffsetY),
+                child: MentionAutocomplete(
+                  query: _mentionQuery ?? '',
+                  offsetX: _mentionOffsetX,
+                  offsetY: _mentionOffsetY,
+                  onMentionSelected: _handleMentionSelection,
+                  onDismiss: _hideMentionAutocomplete,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    Overlay.of(context).insert(_mentionOverlayEntry!);
+  }
+
+  /// Hide mention autocomplete overlay
+  void _hideMentionAutocomplete() {
+    _mentionOverlayEntry?.remove();
+    _mentionOverlayEntry = null;
+    _mentionQuery = null;
+  }
+
+  /// Handle mention selection from autocomplete
+  void _handleMentionSelection(String username) {
+    final text = _controller.text;
+    final cursorPosition = _controller.selection.baseOffset;
+
+    // Find the start of the @mention
+    final textBeforeCursor = text.substring(0, cursorPosition);
+    final atIndex = textBeforeCursor.lastIndexOf('@');
+
+    if (atIndex != -1) {
+      // Replace @query with @username
+      final newText = text.replaceRange(atIndex, cursorPosition, '@$username ');
+      _controller.text = newText;
+      _controller.selection = TextSelection.collapsed(offset: atIndex + username.length + 2);
+
+      _hideMentionAutocomplete();
+      Haptics.lightTap();
+    }
   }
 
   void _toggleEmoji() {

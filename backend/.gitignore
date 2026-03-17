@@ -57,6 +57,35 @@ dump.rdb
 # Migration scripts with credentials - NEVER commit these!
 scripts/*_with_creds.py
 scripts/*_local.py
+migrate_production_*.py
+add_*_column.py
+migrate_*.py
+!migrate.py
+
+# Verification and diagnostic scripts (temporary)
+verify_*.py
+check_*.py
+debug_*.py
+diagnose_*.py
+inspect_*.py
+fix_*.py
+backup.py
+cleanup_*.py
+reset_*.py
+revoke_*.py
+test_*.py
+!tests/
+
+# Deployment scripts
+migrate_on_railway.sh
+setup_*.py
+
+# Database scripts
+database_unified.py
+create_schema.py
+apply_*.py
+backfill_*.py
+fix_*.py
 
 # OS files
 .DS_Store

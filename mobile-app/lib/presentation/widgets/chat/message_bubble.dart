@@ -8,16 +8,16 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:figma_squircle/figma_squircle.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter_linkify/flutter_linkify.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/colors.dart';
 import '../../../data/models/inbox_message.dart';
 import '../../providers/conversation_detail_provider.dart';
 import '../../screens/inbox/image_viewer_screen.dart';
 import '../../utils/chat_grouping_helper.dart';
+import '../../screens/customers/customer_detail_screen.dart';
 import 'audio_file_bubble.dart';
 import 'file_message_bubble.dart';
 import 'video_message_bubble.dart';
@@ -27,6 +27,7 @@ import 'task_bubble.dart';
 import '../../../core/utils/haptics.dart';
 import '../../../core/extensions/string_extension.dart';
 import '../../../core/services/media_cache_manager.dart';
+import 'mention_text.dart';
 
 /// Premium message bubble with glassmorphism and RTL-correct alignment
 class MessageBubble extends StatefulWidget {
@@ -484,18 +485,9 @@ class _MessageBubbleState extends State<MessageBubble> {
                                     ),
 
                               if (widget.message.body.isNotEmpty)
-                                Linkify(
+                                MentionText(
                                   text: widget.message.body.safeUtf16,
-                                  onOpen: (link) async {
-                                    final url = Uri.parse(link.url);
-                                    if (await canLaunchUrl(url)) {
-                                      await launchUrl(url);
-                                    }
-                                  },
-                                  options: const LinkifyOptions(
-                                    humanize: false,
-                                    looseUrl: true,
-                                  ),
+                                  mentions: widget.message.mentions,
                                   textDirection: widget.message.body.direction,
                                   textAlign: widget.message.body.isArabic
                                       ? TextAlign.right
@@ -508,12 +500,27 @@ class _MessageBubbleState extends State<MessageBubble> {
                                         ? Colors.white
                                         : theme.textTheme.bodyMedium?.color,
                                   ),
-                                  linkStyle: TextStyle(
+                                  mentionStyle: TextStyle(
                                     color: isOutgoing
                                         ? Colors.white.withValues(alpha: 0.9)
-                                        : theme.colorScheme.primary,
+                                        : AppColors.primary,
+                                    fontWeight: FontWeight.w600,
                                     decoration: TextDecoration.underline,
+                                    decorationColor: isOutgoing
+                                        ? Colors.white.withValues(alpha: 0.9)
+                                        : AppColors.primary,
                                   ),
+                                  onMentionTap: (username) {
+                                    // Navigate to customer detail screen
+                                    _navigateToCustomerDetail(context, username);
+                                  },
+                                  onUrlTap: (url) async {
+                                    // Open URL in browser
+                                    final uri = Uri.parse(url);
+                                    if (await canLaunchUrl(uri)) {
+                                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                    }
+                                  },
                                 ),
 
                               const SizedBox(height: 6),
@@ -1139,6 +1146,24 @@ class _MessageBubbleState extends State<MessageBubble> {
     } catch (e) {
       return '';
     }
+  }
+
+  /// Navigate to customer detail screen when a @username mention is tapped
+  void _navigateToCustomerDetail(BuildContext context, String username) {
+    Haptics.lightTap();
+    // Navigate using the existing CustomerDetailScreen with username-based customer data
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => CustomerDetailScreen(
+          customer: {
+            'username': username,
+            'name': username,
+            'is_almudeer_user': true,
+            'is_online': false,
+          },
+        ),
+      ),
+    );
   }
 
   Widget _buildForwardedIndicator(ThemeData theme, bool isOutgoing) {

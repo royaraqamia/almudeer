@@ -8,7 +8,7 @@ import 'package:solar_icon_pack/solar_icon_pack.dart';
 class AppLauncher {
   AppLauncher._();
 
-  static final AdBlockerService _adBlocker = AdBlockerService();
+  static final PornBlockerService _adBlocker = PornBlockerService();
 
   /// Launches a URL after verifying it's safe (not adult content)
   static Future<void> launchSafeUrl(

@@ -78,6 +78,16 @@ COOKIE_SETTINGS = {
 }
 
 
+# ============ Cookie Encryption Settings ============
+
+# Encryption key for browser cookies (base64-encoded 32-byte key)
+# Generate with: python -c "import base64, os; print(base64.b64encode(os.urandom(32)).decode())"
+COOKIE_ENCRYPTION_KEY = os.getenv("COOKIE_ENCRYPTION_KEY", "")
+
+# Fernet encryption for cookie values
+ENCRYPT_COOKIES = bool(COOKIE_ENCRYPTION_KEY)
+
+
 # ============ Password Policy ============
 
 PASSWORD_MIN_LENGTH = int(os.getenv("PASSWORD_MIN_LENGTH", "8"))

@@ -182,6 +182,11 @@ async def save_inbox_message(
     import json
     attachments_json = json.dumps(attachments) if attachments else None
 
+    # Process @username mentions
+    from utils.mention_utils import process_message_mentions
+    _, mention_entities, _ = await process_message_mentions(body, license_id)
+    mentions_json = json.dumps(mention_entities) if mention_entities else None
+
     async with get_db() as db:
 
         # ---------------------------------------------------------
@@ -283,12 +288,13 @@ async def save_inbox_message(
         await execute_sql(
             db,
             """
-            INSERT INTO inbox_messages 
+            INSERT INTO inbox_messages
                 (license_key_id, channel, channel_message_id, sender_id, sender_name,
                  sender_contact, subject, body, received_at, attachments,
                  reply_to_platform_id, reply_to_body_preview, reply_to_sender_name,
-                 reply_to_id, platform_message_id, platform_status, original_sender, status, is_forwarded)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 reply_to_id, platform_message_id, platform_status, original_sender, status, is_forwarded,
+                 mentions)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 license_id,
@@ -309,7 +315,8 @@ async def save_inbox_message(
                 platform_status,
                 original_sender,
                 status or 'analyzed',
-                is_forwarded
+                is_forwarded,
+                mentions_json
             ],
         )
 
@@ -364,6 +371,7 @@ async def save_inbox_message(
                         "unread_count": unread_count,
                         "is_forwarded": bool(is_forwarded),
                         "attachments": attachments,
+                        "mentions": mention_entities,  # Include mentions for @username handling
                         "sequence": None,  # Will be set by reliable broadcast service
                     }
                 ))
@@ -476,6 +484,11 @@ async def create_outbox_message(
     import json
     attachments_json = json.dumps(attachments) if attachments else None
 
+    # Process @username mentions
+    from utils.mention_utils import process_message_mentions
+    _, mention_entities, _ = await process_message_mentions(body, license_id)
+    mentions_json = json.dumps(mention_entities) if mention_entities else None
+
     async with get_db() as db:
 
         await execute_sql(
@@ -483,14 +496,14 @@ async def create_outbox_message(
             """
             INSERT INTO outbox_messages
                 (inbox_message_id, license_key_id, channel, recipient_id,
-                 subject, body, attachments,
+                 subject, body, attachments, mentions,
                  reply_to_platform_id, reply_to_body_preview, reply_to_id,
                  reply_to_sender_name, is_forwarded)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 inbox_message_id, license_id, channel, recipient_id,
-                subject, body, attachments_json,
+                subject, body, attachments_json, mentions_json,
                 reply_to_platform_id, reply_to_body_preview, reply_to_id,
                 reply_to_sender_name, is_forwarded
             ],
@@ -597,6 +610,13 @@ async def approve_outbox_message(message_id: int, edited_body: str = None):
                             attachments = json.loads(msg_data["attachments"])
                         except: pass
 
+                    # Parse mentions
+                    mentions = []
+                    if msg_data.get("mentions") and isinstance(msg_data["mentions"], str):
+                        try:
+                            mentions = json.loads(msg_data["mentions"])
+                        except: pass
+
                     evt_data = {
                         "id": msg_data["id"],
                         "outbox_id": msg_data["id"],
@@ -608,6 +628,7 @@ async def approve_outbox_message(message_id: int, edited_body: str = None):
                         "direction": "outgoing",
                         "timestamp": ts_value.isoformat() if hasattr(ts_value, 'isoformat') else str(ts_value),
                         "attachments": attachments,
+                        "mentions": mentions,  # Include mentions for @username handling
                         "is_forwarded": bool(msg_data.get("is_forwarded", False))
                     }
                     await broadcast_message_status_update(lic_id, evt_data)
@@ -3619,10 +3640,10 @@ def _parse_message_row(row: Optional[dict]) -> Optional[dict]:
     """Parse JSON fields and normalize status for UI."""
     if not row:
         return None
-    
+
     # Standardize as dict
     msg = dict(row)
-    
+
     # Parse attachments safely
     import json
     if "attachments" in msg and isinstance(msg["attachments"], str):
@@ -3630,6 +3651,13 @@ def _parse_message_row(row: Optional[dict]) -> Optional[dict]:
             msg["attachments"] = json.loads(msg["attachments"])
         except:
             msg["attachments"] = []
+
+    # Parse mentions safely
+    if "mentions" in msg and isinstance(msg["mentions"], str):
+        try:
+            msg["mentions"] = json.loads(msg["mentions"])
+        except:
+            msg["mentions"] = []
 
     # Normalize status for outgoing messages in consistent UI format
     # 'approved' means it's ready to go, and usually shown as 'sending' in UI

@@ -19,6 +19,24 @@ from .base import (
     ROLES,
 )
 
+# Browser Sync
+from .browser import (
+    init_browser_tables,
+    # History
+    add_history_entry,
+    get_history,
+    delete_history_entry,
+    clear_history,
+    # Bookmarks
+    add_bookmark,
+    get_bookmarks,
+    delete_bookmark,
+    clear_bookmarks,
+    # Sync Metadata
+    update_sync_metadata,
+    get_sync_metadata,
+)
+
 
 # Telegram configuration
 from .telegram_config import (
@@ -117,6 +135,18 @@ __all__ = [
     "init_models",
     "aiosqlite",
     "ROLES",
+    # Browser Sync
+    "init_browser_tables",
+    "add_history_entry",
+    "get_history",
+    "delete_history_entry",
+    "clear_history",
+    "add_bookmark",
+    "get_bookmarks",
+    "delete_bookmark",
+    "clear_bookmarks",
+    "update_sync_metadata",
+    "get_sync_metadata",
     # Telegram
     "save_telegram_config",
     "get_telegram_config",

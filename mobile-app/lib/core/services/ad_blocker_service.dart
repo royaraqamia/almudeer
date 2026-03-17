@@ -4,10 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:http/http.dart' as http;
 
-class AdBlockerService {
-  static final AdBlockerService _instance = AdBlockerService._internal();
-  factory AdBlockerService() => _instance;
-  AdBlockerService._internal();
+/// Blocks porn/adult content in the browser
+/// Ads and trackers are NOT blocked - only adult content
+class PornBlockerService {
+  static final PornBlockerService _instance = PornBlockerService._internal();
+  factory PornBlockerService() => _instance;
+  PornBlockerService._internal();
 
   // StevenBlack hosts file with porn/adult content blocking
   static const String _hostsUrl =
@@ -20,53 +22,9 @@ class AdBlockerService {
   Completer<void>? _initCompleter;
 
   Set<String> get blockedHosts => _blockedHosts;
-  // AdBlocker is ALWAYS enabled - no option to disable
+  // Porn blocker is ALWAYS enabled - no option to disable
   bool get isEnabled => true;
   bool get isInitialized => _isInitialized;
-
-  // Built-in ad/tracker blocking patterns
-  static const List<String> _builtinBlockedPatterns = [
-    'doubleclick.net',
-    'googlesyndication.com',
-    'googleadservices.com',
-    'google-analytics.com',
-    'googletagmanager.com',
-    'facebook.com/tr',
-    'facebook.net/en_US/fbevents',
-    'analytics.twitter.com',
-    'ads.twitter.com',
-    'ads.linkedin.com',
-    'pixel.linkedin.com',
-    'ads.youtube.com',
-    'pagead2.googlesyndication.com',
-    'adservice.google.com',
-    'ad.doubleclick.net',
-    'static.ads-twitter.com',
-    'ads.yahoo.com',
-    'analytics.yahoo.com',
-    'scorecardresearch.com',
-    'newrelic.com',
-    'hotjar.com',
-    'fullstory.com',
-    'mixpanel.com',
-    'segment.com',
-    'adroll.com',
-    'criteo.com',
-    'outbrain.com',
-    'taboola.com',
-    'zedo.com',
-    'advertising.com',
-    'adtech.com',
-    'adnxs.com',
-    'rubiconproject.com',
-    'pubmatic.com',
-    'openx.net',
-    'casalemedia.com',
-    'adsrvr.org',
-    'bluekai.com',
-    'adsymptotic.com',
-    'adservice.google',
-  ];
 
   // Comprehensive adult content keywords for 100% reliable blocking
   static const List<String> _adultKeywords = [
@@ -128,11 +86,6 @@ class AdBlockerService {
     _initCompleter = Completer<void>();
 
     try {
-      // Always load built-in blocking patterns
-      for (final pattern in _builtinBlockedPatterns) {
-        _blockedHosts.add(pattern.toLowerCase());
-      }
-
       try {
         final box = await Hive.openBox('adblock_cache');
         final cachedHosts = box.get(_cacheKey) as String?;
@@ -147,14 +100,14 @@ class AdBlockerService {
           final List<dynamic> hosts = jsonDecode(cachedHosts);
           _blockedHosts.addAll(hosts.cast<String>());
           debugPrint(
-            '[AdBlocker] Loaded ${_blockedHosts.length} hosts from cache',
+            '[PornBlocker] Loaded ${_blockedHosts.length} hosts from cache',
           );
         } else {
           // Fetch in background, don't block initialization
           unawaited(_fetchHostsFile());
         }
       } catch (e) {
-        debugPrint('[AdBlocker] Init error: $e');
+        debugPrint('[PornBlocker] Init error: $e');
       }
 
       _isInitialized = true;
@@ -171,7 +124,7 @@ class AdBlockerService {
 
     while (attempt < maxRetries) {
       try {
-        debugPrint('[AdBlocker] Fetching hosts file... (attempt ${attempt + 1}/$maxRetries)');
+        debugPrint('[PornBlocker] Fetching hosts file... (attempt ${attempt + 1}/$maxRetries)');
         final client = http.Client();
         // Shorter timeout with retry: 10 seconds per attempt = max 30 seconds total
         final response = await client
@@ -200,12 +153,12 @@ class AdBlockerService {
           await box.put(_cacheKey, jsonEncode(newHosts));
           await box.put(_timestampKey, DateTime.now().millisecondsSinceEpoch);
 
-          debugPrint('[AdBlocker] Fetched and cached ${newHosts.length} hosts');
+          debugPrint('[PornBlocker] Fetched and cached ${newHosts.length} hosts');
           client.close();
           return; // Success
         }
         client.close();
-        
+
         // Non-200 response - retry
         attempt++;
         if (attempt < maxRetries) {
@@ -213,20 +166,20 @@ class AdBlockerService {
         }
       } on TimeoutException catch (e) {
         attempt++;
-        debugPrint('[AdBlocker] Timeout on attempt $attempt: $e');
+        debugPrint('[PornBlocker] Timeout on attempt $attempt: $e');
         if (attempt < maxRetries) {
           // Exponential backoff: 500ms, 1000ms, 2000ms
           await Future.delayed(Duration(milliseconds: 500 * attempt));
         } else {
-          debugPrint('[AdBlocker] Failed to fetch hosts after $maxRetries attempts: $e');
+          debugPrint('[PornBlocker] Failed to fetch hosts after $maxRetries attempts: $e');
         }
       } catch (e) {
         attempt++;
-        debugPrint('[AdBlocker] Error on attempt $attempt: $e');
+        debugPrint('[PornBlocker] Error on attempt $attempt: $e');
         if (attempt < maxRetries) {
           await Future.delayed(Duration(milliseconds: 500 * attempt));
         } else {
-          debugPrint('[AdBlocker] Failed to fetch hosts after $maxRetries attempts: $e');
+          debugPrint('[PornBlocker] Failed to fetch hosts after $maxRetries attempts: $e');
         }
       }
     }
@@ -282,36 +235,18 @@ class AdBlockerService {
   }
 
   /// Check if URL should be blocked - ALWAYS ACTIVE
-  /// Ad blocking and adult content blocking cannot be disabled
+  /// Only blocks porn/adult content - ads and trackers are allowed
   bool isBlocked(String url) {
     if (url.isEmpty) return false;
 
-    // Safety first: always block adult content regardless
-    if (isAdultContent(url)) return true;
-
-    try {
-      final uri = Uri.parse(url);
-      final host = uri.host.toLowerCase();
-
-      for (final blocked in _blockedHosts) {
-        if (host == blocked || host.endsWith('.$blocked')) {
-          return true;
-        }
-      }
-    } catch (e) {
-      return false;
-    }
-
-    return false;
+    // Only block adult/porn content
+    return isAdultContent(url);
   }
 
-  /// Get the blocking JavaScript - always returns active blocker
+  /// Get the blocking JavaScript - only blocks porn sites
   String getBlockingJavaScript() {
-    // Include both built-in patterns and a subset of blocked hosts
-    // to avoid extreme lag with tens of thousands of hosts.
-    // The full list is still blocked at the navigation level in Dart.
+    // Only include adult content patterns - no ad/tracker blocking
     final allPatterns = <String>{
-      ..._builtinBlockedPatterns,
       ..._adultKeywords.map((k) => '$k.com'),
       ..._adultKeywords.map((k) => 'www.$k.com'),
     };
@@ -319,8 +254,8 @@ class AdBlockerService {
 
     return '''
 (function() {
-  if (window.__adblockInjected) return;
-  window.__adblockInjected = true;
+  if (window.__pornblockerInjected) return;
+  window.__pornblockerInjected = true;
 
   const blockedPatterns = [$topTrackers];
 
@@ -332,34 +267,34 @@ class AdBlockerService {
     return false;
   }
 
-  // Block XMLHttpRequest
+  // Block XMLHttpRequest to porn sites
   const originalXHROpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function(method, url) {
     if (isMatch(url)) {
-      console.log('[AdBlocker] Blocked XHR:', url);
+      console.log('[PornBlocker] Blocked XHR:', url);
       return;
     }
     return originalXHROpen.apply(this, arguments);
   };
 
-  // Block Fetch
+  // Block Fetch to porn sites
   const originalFetch = window.fetch;
   window.fetch = function(url, options) {
     const urlStr = typeof url === 'string' ? url : (url ? url.url : '');
     if (urlStr && isMatch(urlStr)) {
-      console.log('[AdBlocker] Blocked Fetch:', urlStr);
+      console.log('[PornBlocker] Blocked Fetch:', urlStr);
       return Promise.resolve(new Response('', { status: 200 }));
     }
     return originalFetch.apply(this, arguments);
   };
 
-  // Block Image loading
+  // Block Image loading from porn sites
   const originalImageSrc = Object.getOwnPropertyDescriptor(Image.prototype, 'src');
   if (originalImageSrc) {
     Object.defineProperty(Image.prototype, 'src', {
       set: function(value) {
         if (value && isMatch(value)) {
-          console.log('[AdBlocker] Blocked Image:', value);
+          console.log('[PornBlocker] Blocked Image:', value);
           return;
         }
         originalImageSrc.set.call(this, value);
@@ -370,35 +305,7 @@ class AdBlockerService {
     });
   }
 
-  // Hide common ad elements
-  const style = document.createElement('style');
-  style.textContent = `
-    [id*="google_ads"], [id*="ad-"], [id*="ads-"], [id*="advert"],
-    [class*="google_ads"], [class*="ad-"], [class*="ads-"], [class*="advert"],
-    [class*="advertisement"], [class*="banner-ad"], [class*="sponsored"],
-    iframe[src*="doubleclick"], iframe[src*="googlesyndication"],
-    iframe[src*="googleadservices"], iframe[src*="facebook.com/plugins"],
-    div[data-ad], div[data-ad-slot], ins.adsbygoogle,
-    .ad-container, .ad-wrapper, .ad-banner, .ad-unit
-    { display: none !important; visibility: hidden !important; height: 0 !important; width: 0 !important; }
-  `;
-  document.head.appendChild(style);
-
-  // Remove existing ad iframes
-  document.querySelectorAll('iframe').forEach(function(iframe) {
-    if (iframe.src && isMatch(iframe.src)) {
-      iframe.remove();
-    }
-  });
-
-  // Remove existing ad scripts
-  document.querySelectorAll('script').forEach(function(script) {
-    if (script.src && isMatch(script.src)) {
-      script.remove();
-    }
-  });
-
-  console.log('[AdBlocker] Injected - always active');
+  console.log('[PornBlocker] Injected - blocks porn sites only');
 })();
 ''';
   }

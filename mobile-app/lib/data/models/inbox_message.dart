@@ -118,6 +118,9 @@ class InboxMessage {
   /// Sender info
   final String? senderUsername;
 
+  /// Username mentions in the message
+  final List<Map<String, dynamic>>? mentions;
+
   /// License key (backend internal - included for completeness)
   final int? licenseKeyId;
 
@@ -194,6 +197,8 @@ class InboxMessage {
     this.processedAt,
     // Sender info
     this.senderUsername,
+    // Mentions
+    this.mentions,
     // License key
     this.licenseKeyId,
   });
@@ -315,6 +320,7 @@ class InboxMessage {
     String? sentiment,
     bool? isRead,
     String? deletedAt,
+    List<Map<String, dynamic>>? mentions,
   }) {
     return InboxMessage(
       id: id ?? this.id,
@@ -357,6 +363,7 @@ class InboxMessage {
       sentiment: sentiment ?? this.sentiment,
       isRead: isRead ?? this.isRead,
       deletedAt: deletedAt ?? this.deletedAt,
+      mentions: mentions ?? this.mentions,
     );
   }
 
@@ -581,6 +588,12 @@ class InboxMessage {
       processedAt: json['processed_at'] as String?,
       // Sender info
       senderUsername: json['sender_username'] as String?,
+      // Mentions
+      mentions: json['mentions'] is List
+          ? (json['mentions'] as List)
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList()
+          : null,
       // License key
       licenseKeyId: json['license_key_id'] as int?,
     );
@@ -652,6 +665,8 @@ class InboxMessage {
       'processed_at': processedAt,
       // Sender info
       'sender_username': senderUsername,
+      // Mentions
+      'mentions': mentions,
       // License key
       'license_key_id': licenseKeyId,
     };

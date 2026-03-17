@@ -7,6 +7,7 @@ import 'package:almudeer_mobile_app/core/models/browser_bookmark.dart';
 import 'package:intl/intl.dart';
 import 'package:almudeer_mobile_app/presentation/widgets/custom_dialog.dart';
 import 'package:almudeer_mobile_app/presentation/widgets/animated_toast.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 class BrowserHistoryScreen extends StatefulWidget {
   const BrowserHistoryScreen({super.key});
@@ -20,6 +21,26 @@ class _BrowserHistoryScreenState extends State<BrowserHistoryScreen> {
   final BrowserBookmarkService _bookmarkService = BrowserBookmarkService();
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  Box<BrowserHistoryEntry>? _historyBox;
+  Box<BrowserBookmark>? _bookmarkBox;
+
+  @override
+  void initState() {
+    super.initState();
+    // Ensure both boxes are initialized
+    Future.wait([
+      _historyService.init().then((_) {
+        setState(() {
+          _historyBox = Hive.box<BrowserHistoryEntry>('browser_history');
+        });
+      }),
+      _bookmarkService.init().then((_) {
+        setState(() {
+          _bookmarkBox = Hive.box<BrowserBookmark>('browser_bookmarks');
+        });
+      }),
+    ]);
+  }
 
   @override
   void dispose() {
@@ -56,7 +77,7 @@ class _BrowserHistoryScreenState extends State<BrowserHistoryScreen> {
                 );
                 if (confirmed == true) {
                   await _historyService.clearHistory();
-                  setState(() {});
+                  // No need for setState - ValueListenableBuilder handles rebuild
                 }
               } else if (value == 'clear_bookmarks') {
                 final confirmed = await CustomDialog.show<bool>(
@@ -69,7 +90,7 @@ class _BrowserHistoryScreenState extends State<BrowserHistoryScreen> {
                 );
                 if (confirmed == true) {
                   await _bookmarkService.clearAll();
-                  setState(() {});
+                  // No need for setState - ValueListenableBuilder handles rebuild
                 }
               }
             },
@@ -128,8 +149,24 @@ class _BrowserHistoryScreenState extends State<BrowserHistoryScreen> {
           Expanded(
             child: TabBarView(
               children: [
-                _HistoryList(service: _historyService, searchQuery: _searchQuery),
-                _BookmarkList(service: _bookmarkService, searchQuery: _searchQuery),
+                if (_historyBox == null)
+                  const Center(child: CircularProgressIndicator())
+                else
+                  ValueListenableBuilder(
+                    valueListenable: _historyBox!.listenable(),
+                    builder: (context, Box<BrowserHistoryEntry> box, _) {
+                      return _HistoryList(service: _historyService, searchQuery: _searchQuery);
+                    },
+                  ),
+                if (_bookmarkBox == null)
+                  const Center(child: CircularProgressIndicator())
+                else
+                  ValueListenableBuilder(
+                    valueListenable: _bookmarkBox!.listenable(),
+                    builder: (context, Box<BrowserBookmark> box, _) {
+                      return _BookmarkList(service: _bookmarkService, searchQuery: _searchQuery);
+                    },
+                  ),
               ],
             ),
           ),

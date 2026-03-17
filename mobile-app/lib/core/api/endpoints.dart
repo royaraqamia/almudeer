@@ -149,6 +149,22 @@ class Endpoints {
   // Browser Tool
   static const String browserScrape = '/api/browser/scrape';
   static const String browserPreview = '/api/browser/preview';
+  
+  // Browser Sync
+  static const String browserHistorySync = '/api/browser/history/sync';
+  static const String browserHistory = '/api/browser/history';
+  static String browserHistoryEntry(int id) => '/api/browser/history/$id';
+  static const String browserHistoryClear = '/api/browser/history/clear';
+  static const String browserBookmarksSync = '/api/browser/bookmarks/sync';
+  static const String browserBookmarks = '/api/browser/bookmarks';
+  static String browserBookmark(int id) => '/api/browser/bookmarks/$id';
+  static const String browserBookmarksClear = '/api/browser/bookmarks/clear';
+  static const String browserSyncMetadata = '/api/browser/sync/metadata';
+  static const String browserSyncToggle = '/api/browser/sync/toggle';
+
+  // Browser Cookie Sync
+  static const String browserCookiesSync = '/api/browser/cookies/sync';
+  static const String browserCookies = '/api/browser/cookies';
 
   // Sync
   static const String syncBatch = '/api/v1/sync/batch';

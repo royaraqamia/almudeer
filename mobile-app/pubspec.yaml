@@ -116,6 +116,7 @@ dependencies:
   csv: ^7.1.0  # RFC 4180 compliant CSV parsing
   math_expressions: 3.1.0
   flutter_linkify: 6.0.0
+  linkify: 5.0.0
   flutter_callkit_incoming: ^3.0.0
   receive_sharing_intent: 1.8.1
   nearby_connections: 4.3.0

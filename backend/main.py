@@ -65,6 +65,7 @@ from schemas import (
 from models import (
     init_enhanced_tables,
     init_customers_and_analytics,
+    init_browser_tables,
     get_preferences,
     get_recent_conversation,
 )
@@ -165,6 +166,7 @@ async def lifespan(app: FastAPI):
             create_task_queue_table(),
             ensure_message_edit_delete_schema(),
             init_qr_tables(),
+            init_browser_tables(),
         ]
         
         results = await asyncio.gather(*init_tasks, return_exceptions=True)
