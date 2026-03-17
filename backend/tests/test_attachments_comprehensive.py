@@ -95,7 +95,7 @@ class TestTelegramWebhookAttachments:
     async def test_parse_photo_with_caption(self):
         """Test parsing Telegram photo with caption"""
         from services.telegram_service import TelegramService
-        
+
         update = {
             "update_id": 123457,
             "message": {
@@ -109,12 +109,15 @@ class TestTelegramWebhookAttachments:
                 "caption": "Check out this photo! 📷"
             }
         }
-        
+
         parsed = TelegramService.parse_update(update)
-        
-        assert parsed["text"] == "Check out this photo! 📷"
+
+        # Caption is stored in attachment, not in text field
+        # But text gets a fallback placeholder for inbox display
+        assert parsed["text"] == "[صورة]"  # Fallback for media-only messages
         assert len(parsed["attachments"]) == 1
         assert parsed["attachments"][0]["type"] == "photo"
+        assert parsed["attachments"][0]["caption"] == "Check out this photo! 📷"
     
     @pytest.mark.asyncio
     async def test_parse_voice_message(self):
@@ -208,7 +211,7 @@ class TestTelegramWebhookAttachments:
     async def test_parse_multiple_attachments(self):
         """Test parsing message with multiple attachment types"""
         from services.telegram_service import TelegramService
-        
+
         # Note: Telegram typically sends one media type per message
         # But we test the parser handles various types
         update = {
@@ -224,11 +227,14 @@ class TestTelegramWebhookAttachments:
                 "caption": "Photo with caption"
             }
         }
-        
+
         parsed = TelegramService.parse_update(update)
-        
+
         assert len(parsed["attachments"]) == 1
-        assert parsed["text"] == "Photo with caption"
+        # Caption is stored in attachment, not in text field
+        # Text gets fallback placeholder for inbox display
+        assert parsed["text"] == "[صورة]"
+        assert parsed["attachments"][0]["caption"] == "Photo with caption"
 
 
 class TestTelegramWebhookHandler:
@@ -522,16 +528,21 @@ class TestAttachmentErrorHandling:
     async def test_missing_file_id_handling(self):
         """Test handling of missing file_id"""
         from services.telegram_service import TelegramService
-        
+
         update = {
             "message": {
-                "photo": [{}],  # Missing file_id
+                "photo": [
+                    {"file_size": 1000, "width": 100, "height": 100}  # Missing file_id
+                ],
             }
         }
-        
-        # Should not crash
+
+        # Should not crash - but will have empty file_id
         parsed = TelegramService.parse_update(update)
         assert parsed is not None
+        assert len(parsed["attachments"]) == 1
+        # file_id will be empty but shouldn't crash
+        assert parsed["attachments"][0]["file_id"] == ""
 
 
 class TestGetExtensionForMime:

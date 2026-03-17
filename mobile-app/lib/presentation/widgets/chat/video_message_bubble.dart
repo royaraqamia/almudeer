@@ -7,6 +7,7 @@ import '../video_thumbnail_widget.dart';
 
 import '../../../core/services/media_cache_manager.dart';
 import '../../widgets/animated_toast.dart';
+import 'caption_text.dart';
 
 class VideoMessageBubble extends StatefulWidget {
   final Map<String, dynamic> attachment;
@@ -151,113 +152,137 @@ class _VideoMessageBubbleState extends State<VideoMessageBubble> {
 
   @override
   Widget build(BuildContext context) {
+    final caption = widget.attachment['caption'] as String?;
+    
     return GestureDetector(
       onTap: () => _openVideo(context),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          width: 220,
-          height: 140, // Slightly taller for better aspect
-          margin: const EdgeInsets.only(bottom: 4),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.8), // Base
-            border: Border.all(
-              color: widget.isOutgoing
-                  ? widget.color.withValues(alpha: 0.3)
-                  : Theme.of(context).dividerColor,
-              width: 1,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Video thumbnail
+          ClipRRect(
+            borderRadius: caption != null && caption.isNotEmpty
+                ? const BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
+                  )
+                : BorderRadius.circular(16),
+            child: Container(
+              width: 220,
+              height: 140, // Slightly taller for better aspect
+              margin: const EdgeInsets.only(bottom: 4),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.8), // Base
+                border: Border.all(
+                  color: widget.isOutgoing
+                      ? widget.color.withValues(alpha: 0.3)
+                      : Theme.of(context).dividerColor,
+                  width: 1,
+                ),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // 1. Video Thumbnail (if local path available)
+                  if (_localPath != null)
+                    Positioned.fill(
+                      child: VideoThumbnailWidget(
+                        videoUrl: _localPath!,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+
+                  // 2. Dark Gradient Overlay
+                  Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.black54,
+                          Colors.transparent,
+                          Colors.black54,
+                        ],
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                      ),
+                    ),
+                  ),
+
+                  // 2. Play Button / Download with Glassmorphism
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.5),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Center(
+                      child: _isDownloading
+                          ? _buildDetailedProgressIndicator()
+                          : Icon(
+                              _localPath != null
+                                  ? SolarBoldIcons.play
+                                  : SolarLinearIcons.download,
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                    ),
+                  ),
+
+                  // 3. Label / Size Badge
+                  Positioned(
+                    bottom: 8,
+                    right: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            SolarBoldIcons.videocamera,
+                            color: Colors.white,
+                            size: 12,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'فيديو',
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            borderRadius: BorderRadius.circular(16),
           ),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              // 1. Video Thumbnail (if local path available)
-              if (_localPath != null)
-                Positioned.fill(
-                  child: VideoThumbnailWidget(
-                    videoUrl: _localPath!,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-
-              // 2. Dark Gradient Overlay
-              Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.black54,
-                      Colors.transparent,
-                      Colors.black54,
-                    ],
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                  ),
-                ),
+          // Caption
+          if (caption != null && caption.isNotEmpty)
+            CaptionText(
+              caption: caption,
+              isOutgoing: widget.isOutgoing,
+              theme: Theme.of(context),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(16),
+                bottomRight: Radius.circular(16),
               ),
-
-              // 2. Play Button / Download with Glassmorphism
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.5),
-                    width: 1.5,
-                  ),
-                ),
-                child: Center(
-                  child: _isDownloading
-                      ? _buildDetailedProgressIndicator()
-                      : Icon(
-                          _localPath != null
-                              ? SolarBoldIcons.play
-                              : SolarLinearIcons.download,
-                          color: Colors.white,
-                          size: 24,
-                        ),
-                ),
-              ),
-
-              // 3. Label / Size Badge
-              Positioned(
-                bottom: 8,
-                right: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.7),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        SolarBoldIcons.videocamera,
-                        color: Colors.white,
-                        size: 12,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'فيديو',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+            ),
+        ],
       ),
     );
   }

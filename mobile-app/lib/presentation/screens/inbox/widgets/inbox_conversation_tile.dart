@@ -37,6 +37,7 @@ class InboxConversationTile extends StatefulWidget {
   final VoidCallback? onMarkUnread;
   final bool isTyping;
   final Function(int conversationId)? onDeleteWithUndo;
+  final String? draftText;
 
   const InboxConversationTile({
     super.key,
@@ -54,6 +55,7 @@ class InboxConversationTile extends StatefulWidget {
     this.canSelectSavedMessages = false,
     this.isTyping = false,
     this.onDeleteWithUndo,
+    this.draftText,
   });
 
   @override
@@ -122,6 +124,73 @@ class _InboxConversationTileState extends State<InboxConversationTile>
         preview.startsWith('فيديو') ||
         preview.startsWith('ملف') ||
         preview.startsWith('صوتي');
+  }
+
+  /// Check if conversation has a draft
+  bool get _hasDraft => widget.draftText != null &&
+                        widget.draftText!.isNotEmpty &&
+                        widget.conversation.senderContact != null &&
+                        widget.conversation.senderContact != '__saved_messages__';
+
+  /// Get the preview text to display (draft or regular message preview)
+  String get _previewText {
+    if (_hasDraft) {
+      return widget.draftText!;
+    }
+    return widget.conversation.displayPreview;
+  }
+
+  /// Get the color for regular message preview text
+  Color? _getPreviewColor(ThemeData theme, bool hasUnread) {
+    if (widget.conversation.messageCount == 0) {
+      return AppColors.primary;
+    }
+    if (hasUnread) {
+      return theme.textTheme.bodyMedium?.color;
+    }
+    return theme.hintColor;
+  }
+
+  /// Build draft text with colored prefix
+  Widget _buildDraftText(ThemeData theme, bool hasUnread) {
+    final draftText = widget.draftText ?? '';
+    final prefix = 'مسودَّة: ';
+    final previewColor = _getPreviewColor(theme, hasUnread);
+    final prefixColor = theme.hintColor.withValues(alpha: 0.7);
+
+    // Determine text direction based on draft content
+    final textDirection = draftText.isArabic ? TextDirection.rtl : TextDirection.ltr;
+
+    return RichText(
+      text: TextSpan(
+        style: theme.textTheme.bodyMedium?.copyWith(
+          fontWeight: FontWeight.normal,
+          height: 1.5,
+        ),
+        children: [
+          TextSpan(
+            text: prefix,
+            style: TextStyle(
+              color: prefixColor,
+              fontWeight: FontWeight.normal,
+              fontStyle: FontStyle.normal,
+            ),
+          ),
+          TextSpan(
+            text: draftText,
+            style: TextStyle(
+              color: previewColor,
+              fontWeight: FontWeight.normal,
+              fontStyle: FontStyle.normal,
+            ),
+          ),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      textAlign: TextAlign.right,
+      textDirection: textDirection,
+    );
   }
 
   /// Build typing indicator with animated dots
@@ -306,14 +375,28 @@ class _InboxConversationTileState extends State<InboxConversationTile>
                                 ],
                               ),
 
-                              if (widget.conversation.displayPreview.isNotEmpty)
+                              if (_previewText.isNotEmpty)
                                 Row(
                                   children: [
-                                    // Attachment indicator
+                                    // Attachment indicator (only for non-draft messages)
                                     if (_hasAttachments &&
-                                        !widget.isTyping) ...[
+                                        !widget.isTyping &&
+                                        !_hasDraft) ...[
                                       Icon(
                                         SolarLinearIcons.paperclip,
+                                        size: AppDimensions.iconSmall,
+                                        color: theme.hintColor.withValues(
+                                          alpha: 0.7,
+                                        ),
+                                      ),
+                                      const SizedBox(
+                                        width: AppDimensions.spacing4,
+                                      ),
+                                    ],
+                                    // Draft indicator icon
+                                    if (_hasDraft) ...[
+                                      Icon(
+                                        SolarLinearIcons.pen,
                                         size: AppDimensions.iconSmall,
                                         color: theme.hintColor.withValues(
                                           alpha: 0.7,
@@ -327,36 +410,19 @@ class _InboxConversationTileState extends State<InboxConversationTile>
                                     Expanded(
                                       child: widget.isTyping
                                           ? _buildTypingIndicator(theme)
-                                          : Text(
-                                              widget
-                                                  .conversation
-                                                  .displayPreview,
-                                              textDirection: widget
-                                                  .conversation
-                                                  .displayPreview
-                                                  .direction,
-                                              textAlign: TextAlign.right,
-                                              style: theme.textTheme.bodyMedium
-                                                  ?.copyWith(
-                                                    fontWeight:
-                                                        FontWeight.normal,
-                                                    color:
-                                                        widget
-                                                                .conversation
-                                                                .messageCount ==
-                                                            0
-                                                        ? AppColors.primary
-                                                        : (hasUnread
-                                                              ? theme
-                                                                    .textTheme
-                                                                    .bodyMedium
-                                                                    ?.color
-                                                              : theme
-                                                                    .hintColor),
+                                          : _hasDraft
+                                              ? _buildDraftText(theme, hasUnread)
+                                              : Text(
+                                                  _previewText,
+                                                  textDirection: _previewText.direction,
+                                                  textAlign: TextAlign.right,
+                                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                                    fontWeight: FontWeight.normal,
+                                                    color: _getPreviewColor(theme, hasUnread),
                                                   ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
                                     ),
                                   ],
                                 ),

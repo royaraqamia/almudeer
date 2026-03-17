@@ -7,6 +7,7 @@ import '../../../core/constants/animations.dart';
 import '../../../core/utils/haptics.dart';
 import '../../../data/models/conversation.dart';
 import '../../providers/inbox_provider.dart';
+import '../../providers/conversation_detail_provider.dart';
 import 'conversation_detail_screen.dart';
 
 import 'widgets/inbox_conversation_tile.dart';
@@ -188,24 +189,39 @@ class _InboxScreenState extends State<InboxScreen>
                         final isLast =
                             index == inbox.filteredConversations.length - 1 &&
                             !inbox.hasMore;
+                        
+                        // Skip draft check for conversations without senderContact
+                        final contact = conversation.senderContact;
+                        final hasValidContact = contact != null && 
+                                                contact.isNotEmpty && 
+                                                contact != '__saved_messages__';
+                        
                         return _buildAnimatedTile(
                           index: index,
-                          child: InboxConversationTile(
-                            conversation: conversation,
-                            isSelectionMode: inbox.isSelectionMode,
-                            isSelected: inbox.isSelected(conversation.id),
-                            onSelectionChanged: (selected) {
-                              inbox.toggleSelection(conversation.id);
+                          child: Consumer<ConversationDetailProvider>(
+                            builder: (context, conversationDetailProvider, _) {
+                              final draftText = hasValidContact
+                                  ? conversationDetailProvider.getDraft(contact)
+                                  : '';
+                              return InboxConversationTile(
+                                conversation: conversation,
+                                isSelectionMode: inbox.isSelectionMode,
+                                isSelected: inbox.isSelected(conversation.id),
+                                onSelectionChanged: (selected) {
+                                  inbox.toggleSelection(conversation.id);
+                                },
+                                onTap: () {
+                                  if (inbox.isSelectionMode) {
+                                    inbox.toggleSelection(conversation.id);
+                                  } else {
+                                    _openConversation(conversation);
+                                  }
+                                },
+                                onApprove: () => _navigateToAction(conversation),
+                                isLast: isLast,
+                                draftText: draftText.isEmpty ? null : draftText,
+                              );
                             },
-                            onTap: () {
-                              if (inbox.isSelectionMode) {
-                                inbox.toggleSelection(conversation.id);
-                              } else {
-                                _openConversation(conversation);
-                              }
-                            },
-                            onApprove: () => _navigateToAction(conversation),
-                            isLast: isLast,
                           ),
                         );
                       },

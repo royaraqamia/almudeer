@@ -303,69 +303,82 @@ class TelegramService:
 
         # Media extraction
         attachments = []
-        
+
+        # Extract caption once for all media types
+        # CRITICAL: Normalize empty/whitespace captions to None
+        raw_caption = message.get("caption", "")
+        caption = raw_caption if raw_caption and raw_caption.strip() else None
+
         # Photos (get largest)
         if message.get("photo"):
             # Photos are list of sizes, last one is largest
             largest = message["photo"][-1]
             attachments.append({
                 "type": "photo",
-                "file_id": largest["file_id"],
-                "file_size": largest.get("file_size", 0)
+                "file_id": largest.get("file_id", ""),
+                "file_size": largest.get("file_size", 0),
+                "caption": caption
             })
-            
+
         # Voice
         if message.get("voice"):
             voice = message["voice"]
             attachments.append({
-                "type": "voice", 
-                "file_id": voice["file_id"],
+                "type": "voice",
+                "file_id": voice.get("file_id", ""),
                 "mime_type": voice.get("mime_type", "audio/ogg"),
-                "file_size": voice.get("file_size", 0)
+                "file_size": voice.get("file_size", 0),
+                "caption": caption
             })
-            
+
         # Audio
         if message.get("audio"):
             audio = message["audio"]
             attachments.append({
                 "type": "audio",
-                "file_id": audio["file_id"],
+                "file_id": audio.get("file_id", ""),
                 "mime_type": audio.get("mime_type", "audio/mpeg"),
-                "file_size": audio.get("file_size", 0)
+                "file_size": audio.get("file_size", 0),
+                "caption": caption
             })
 
         # Video
         if message.get("video"):
             video = message["video"]
+            video_file_id = video.get("file_id", "")
             attachments.append({
                 "type": "video",
-                "file_id": video["file_id"],
+                "file_id": video_file_id,
                 "mime_type": video.get("mime_type", "video/mp4"),
                 "file_size": video.get("file_size", 0),
-                "file_name": video.get("file_name", f"video_{video['file_id']}.mp4")
+                "file_name": video.get("file_name", f"video_{video_file_id}.mp4"),
+                "caption": caption
             })
 
         # Video Note (Rounded video)
         if message.get("video_note"):
             vnote = message["video_note"]
+            vnote_file_id = vnote.get("file_id", "")
             attachments.append({
                 "type": "video",
-                "file_id": vnote["file_id"],
+                "file_id": vnote_file_id,
                 "mime_type": "video/mp4",
                 "file_size": vnote.get("file_size", 0),
-                "file_name": f"videonote_{vnote['file_id']}.mp4",
-                "metadata": {"is_video_note": True}
+                "file_name": f"videonote_{vnote_file_id}.mp4",
+                "metadata": {"is_video_note": True},
+                "caption": caption
             })
-            
+
         # Document
         if message.get("document"):
             doc = message["document"]
             attachments.append({
                 "type": "document",
-                "file_id": doc["file_id"],
+                "file_id": doc.get("file_id", ""),
                 "mime_type": doc.get("mime_type", "application/octet-stream"),
                 "file_size": doc.get("file_size", 0),
-                "file_name": doc.get("file_name")
+                "file_name": doc.get("file_name"),
+                "caption": caption
             })
 
         # Extract reply context if this message is a reply to another
@@ -406,7 +419,7 @@ class TelegramService:
             "username": from_user.get("username"),
             "first_name": from_user.get("first_name", ""),
             "last_name": from_user.get("last_name", ""),
-            "text": message.get("text", "") or message.get("caption", ""),
+            "text": message.get("text", ""),  # Only use actual text, not caption
             "date": datetime.fromtimestamp(message.get("date", 0)),
             "is_bot": from_user.get("is_bot", False),
             "attachments": attachments,
@@ -417,6 +430,7 @@ class TelegramService:
         }
 
         # Add fallback body if empty but has attachments (for Inbox visibility)
+        # This ensures messages with only attachments (no text) still show in inbox
         if not result["text"] and attachments:
             first_type = attachments[0]["type"]
             if first_type == "photo":

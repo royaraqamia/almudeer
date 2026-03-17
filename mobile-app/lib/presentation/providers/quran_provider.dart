@@ -13,12 +13,36 @@ Map<String, dynamic> _parseTafsirJson(String jsonString) {
   return json.decode(jsonString) as Map<String, dynamic>;
 }
 
+/// Mushaf display type
+enum MushafType {
+  uthmani,      // Standard Uthmani script
+  indopak,      // IndoPak script (South Asian)
+  tajweed,      // Tajweed-colored text
+  simple,       // Simple text (no diacritics)
+}
+
+/// Translation language
+enum TranslationLanguage {
+  english,
+  urdu,
+  none,
+}
+
 class QuranProvider extends ChangeNotifier {
+  // Persistence keys
   static const String _lastSurahKey = 'quran_last_surah';
   static const String _lastVerseKey = 'quran_last_verse';
   static const String _fontSizeKey = 'quran_font_size';
   static const String _showTafsirKey = 'quran_show_tafsir';
   static const String _selectedTafsirKey = 'quran_selected_tafsir';
+  static const String _mushafTypeKey = 'quran_mushaf_type';
+  static const String _translationKey = 'quran_translation';
+  static const String _playbackSpeedKey = 'quran_playback_speed';
+  static const String _autoScrollKey = 'quran_auto_scroll';
+  static const String _repeatModeKey = 'quran_repeat_mode';
+  static const String _repeatStartKey = 'quran_repeat_start';
+  static const String _repeatEndKey = 'quran_repeat_end';
+  static const String _remoteTafsirKey = 'quran_remote_tafsir_cache';
 
   final OfflineSyncService? _syncService;
   int? _lastSurah;
@@ -34,12 +58,24 @@ class QuranProvider extends ChangeNotifier {
   final Set<String> _pendingTafsirRequests = {}; // Track verses being fetched
   bool _tafsirLoaded = false;
   bool _tafsirLoadFailed = false;  // Track if tafsir failed to load
+  static const int _maxRemoteTafsirCacheSize = 200; // LRU cache limit
 
-  static const String _remoteTafsirKey = 'quran_remote_tafsir_cache';
-  static const int _maxRemoteTafsirCacheSize = 200; // LRU cache limit to prevent storage bloat
+  // New features for Phase 1
+  MushafType _mushafType = MushafType.uthmani;
+  TranslationLanguage _translation = TranslationLanguage.none;
+  double _playbackSpeed = 1.0;
+  bool _autoScroll = true;
+  bool _repeatMode = false;
+  int? _repeatStartVerse;
+  int? _repeatEndVerse;
+
+  // Verse timing data for audio sync
+  final Map<String, List<Map<String, dynamic>>> _verseTimingCache = {};
+  final Set<String> _pendingTimingRequests = {};
 
   QuranProvider({OfflineSyncService? syncService}) : _syncService = syncService;
 
+  // Getters
   int? get lastSurah => _lastSurah;
   int? get lastVerse => _lastVerse;
   double get fontSize => _fontSize;
@@ -49,6 +85,13 @@ class QuranProvider extends ChangeNotifier {
   bool get isLoadingTafsir => _isLoadingTafsir;
   bool get isTafsirAvailable => _tafsirLoaded && !_tafsirLoadFailed;
   bool get isTafsirLoadFailed => _tafsirLoadFailed;
+  MushafType get mushafType => _mushafType;
+  TranslationLanguage get translation => _translation;
+  double get playbackSpeed => _playbackSpeed;
+  bool get autoScroll => _autoScroll;
+  bool get repeatMode => _repeatMode;
+  int? get repeatStartVerse => _repeatStartVerse;
+  int? get repeatEndVerse => _repeatEndVerse;
 
   /// Check if a specific verse's tafsir is being fetched
   bool isTafsirPending(int surah, int verse) {
@@ -63,6 +106,25 @@ class QuranProvider extends ChangeNotifier {
     _fontSize = prefs.getDouble(_fontSizeKey) ?? 22.0;
     _showTafsir = prefs.getBool(_showTafsirKey) ?? true;
     _selectedTafsir = prefs.getString(_selectedTafsirKey) ?? 'local';
+    
+    // Load new Phase 1 settings
+    final mushafTypeStr = prefs.getString(_mushafTypeKey) ?? 'uthmani';
+    _mushafType = MushafType.values.firstWhere(
+      (e) => e.name == mushafTypeStr,
+      orElse: () => MushafType.uthmani,
+    );
+    
+    final translationStr = prefs.getString(_translationKey) ?? 'none';
+    _translation = TranslationLanguage.values.firstWhere(
+      (e) => e.name == translationStr,
+      orElse: () => TranslationLanguage.none,
+    );
+    
+    _playbackSpeed = prefs.getDouble(_playbackSpeedKey) ?? 1.0;
+    _autoScroll = prefs.getBool(_autoScrollKey) ?? true;
+    _repeatMode = prefs.getBool(_repeatModeKey) ?? false;
+    _repeatStartVerse = prefs.getInt(_repeatStartKey);
+    _repeatEndVerse = prefs.getInt(_repeatEndKey);
 
     final remoteCacheStr = prefs.getString(_remoteTafsirKey);
     if (remoteCacheStr != null) {
@@ -430,6 +492,224 @@ class QuranProvider extends ChangeNotifier {
     if (_lastSurah == null || _lastVerse == null) return 'لم يتم القراءة بعد';
     final surahName = quran.getSurahNameArabic(_lastSurah!);
     return 'سورة $surahName، الآية $_lastVerse';
+  }
+
+  // ==================== PHASE 1: NEW FEATURES ====================
+
+  /// Set mushaf display type
+  Future<void> setMushafType(MushafType type) async {
+    _mushafType = type;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_mushafTypeKey, type.name);
+  }
+
+  /// Set translation language
+  Future<void> setTranslation(TranslationLanguage language) async {
+    _translation = language;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_translationKey, language.name);
+  }
+
+  /// Toggle translation on/off
+  Future<void> toggleTranslation() async {
+    if (_translation == TranslationLanguage.none) {
+      _translation = TranslationLanguage.english;
+    } else {
+      _translation = TranslationLanguage.none;
+    }
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_translationKey, _translation.name);
+  }
+
+  /// Set playback speed
+  Future<void> setPlaybackSpeed(double speed) async {
+    _playbackSpeed = speed;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_playbackSpeedKey, speed);
+  }
+
+  /// Toggle auto-scroll during playback
+  Future<void> toggleAutoScroll() async {
+    _autoScroll = !_autoScroll;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_autoScrollKey, _autoScroll);
+  }
+
+  /// Toggle repeat mode
+  Future<void> toggleRepeatMode() async {
+    _repeatMode = !_repeatMode;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_repeatModeKey, _repeatMode);
+  }
+
+  /// Set repeat range (A-B repeat)
+  Future<void> setRepeatRange(int start, int end) async {
+    _repeatStartVerse = start;
+    _repeatEndVerse = end;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_repeatStartKey, start);
+    await prefs.setInt(_repeatEndKey, end);
+  }
+
+  /// Clear repeat range
+  Future<void> clearRepeatRange() async {
+    _repeatStartVerse = null;
+    _repeatEndVerse = null;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_repeatStartKey);
+    await prefs.remove(_repeatEndKey);
+  }
+
+  /// Get verse timing data for audio sync
+  /// Returns list of {verse_key, timestamp_from, timestamp_to, duration}
+  Future<List<Map<String, dynamic>>?> getVerseTimings(int surah) async {
+    final cacheKey = 'surah_$surah';
+    if (_verseTimingCache.containsKey(cacheKey)) {
+      return _verseTimingCache[cacheKey];
+    }
+    if (_pendingTimingRequests.contains(cacheKey)) {
+      // Wait for pending request
+      await Future.delayed(const Duration(milliseconds: 100));
+      return _verseTimingCache[cacheKey];
+    }
+
+    _pendingTimingRequests.add(cacheKey);
+    notifyListeners();
+
+    try {
+      final url = 'https://api.quran.com/api/v4/quran/verses/$surah/timing';
+      final response = await http.get(Uri.parse(url)).timeout(
+        const Duration(seconds: 10),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final timings = data['verses'] as List?;
+        if (timings != null) {
+          _verseTimingCache[cacheKey] = timings
+              .map((t) => {
+                    'verse_key': t['verse_key'],
+                    'timestamp_from': t['timestamp_from'],
+                    'timestamp_to': t['timestamp_to'],
+                    'duration': t['duration'],
+                  })
+              .toList();
+          return _verseTimingCache[cacheKey];
+        }
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error fetching verse timings for surah $surah: $e');
+      return null;
+    } finally {
+      _pendingTimingRequests.remove(cacheKey);
+      notifyListeners();
+    }
+  }
+
+  /// Get current verse based on audio timestamp (in milliseconds)
+  int getCurrentVerseFromTimestamp(int surah, int timestampMs, List<Map<String, dynamic>>? timings) {
+    if (timings == null || timings.isEmpty) return 1;
+
+    for (int i = 0; i < timings.length; i++) {
+      final timing = timings[i];
+      final from = (timing['timestamp_from'] as num?)?.toInt() ?? 0;
+      final to = (timing['timestamp_to'] as num?)?.toInt() ?? 0;
+
+      if (timestampMs >= from && timestampMs <= to) {
+        return i + 1; // Verse numbers are 1-indexed
+      }
+    }
+
+    // If beyond all timings, return last verse
+    return timings.length;
+  }
+
+  /// Get translation text for a verse
+  Future<String> getTranslation(int surah, int verse) async {
+    if (_translation == TranslationLanguage.none) {
+      return '';
+    }
+
+    final cacheKey = '${_translation.name}_$surah:$verse';
+    
+    // Check if already cached in remote tafsir cache (reuse mechanism)
+    if (_remoteTafsirCache.containsKey(cacheKey)) {
+      return _remoteTafsirCache[cacheKey]!;
+    }
+
+    try {
+      final tafsirId = _translation == TranslationLanguage.english ? '131' : '97';
+      final url = 'https://api.quran.com/api/v4/quran/translations/$tafsirId?verse_key=$surah:$verse';
+      final response = await http.get(Uri.parse(url)).timeout(
+        const Duration(seconds: 10),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final translations = data['translations'] as List?;
+        if (translations != null && translations.isNotEmpty) {
+          final text = translations[0]['text']?.toString() ?? '';
+          // Clean HTML tags
+          final cleanText = text.replaceAll(RegExp(r'<[^>]*>'), '');
+          _remoteTafsirCache[cacheKey] = cleanText;
+          return cleanText;
+        }
+      }
+      return '';
+    } catch (e) {
+      debugPrint('Error fetching translation for $surah:$verse: $e');
+      return '';
+    }
+  }
+
+  /// Prefetch translations for visible verses
+  Future<void> prefetchTranslations(int surah, int startVerse, int endVerse) async {
+    if (_translation == TranslationLanguage.none) return;
+
+    final verseCount = quran.getVerseCount(surah);
+    final end = (endVerse > verseCount ? verseCount : endVerse);
+
+    for (int v = startVerse; v <= end; v++) {
+      final cacheKey = '${_translation.name}_$surah:$v';
+      if (!_remoteTafsirCache.containsKey(cacheKey)) {
+        // Fetch in background without waiting
+        getTranslation(surah, v);
+        await Future.delayed(const Duration(milliseconds: 50)); // Rate limiting
+      }
+    }
+  }
+
+  /// Get display font family based on mushaf type
+  String getFontFamily() {
+    switch (_mushafType) {
+      case MushafType.uthmani:
+        return 'Amiri Quran';
+      case MushafType.indopak:
+        return 'Amiri Quran'; // Could use a different font if available
+      case MushafType.tajweed:
+        return 'Amiri Quran'; // Tajweed colors handled separately
+      case MushafType.simple:
+        return 'IBM Plex Sans Arabic';
+    }
+  }
+
+  /// Check if verse should be highlighted with tajweed colors
+  bool isTajweedMode() => _mushafType == MushafType.tajweed;
+
+  /// Get tajweed color for a text segment (simplified - full implementation needs tajweed rules)
+  Color getTajweedColor(String text) {
+    // Simplified: In production, parse tajweed rules
+    // Colors: Ghunna (green), Qalqalah (blue), Madd (red), etc.
+    return const Color(0xFF1B5E20); // Default green for ghunna
   }
 
   @override

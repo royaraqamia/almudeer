@@ -28,6 +28,7 @@ import '../../../core/utils/haptics.dart';
 import '../../../core/extensions/string_extension.dart';
 import '../../../core/services/media_cache_manager.dart';
 import 'mention_text.dart';
+import 'caption_text.dart';
 
 /// Premium message bubble with glassmorphism and RTL-correct alignment
 class MessageBubble extends StatefulWidget {
@@ -678,7 +679,8 @@ class _MessageBubbleState extends State<MessageBubble> {
   Widget _buildImageAttachment(BuildContext context, Map<String, dynamic> att) {
     final url = (att['url'] as String?)?.toFullUrl;
     final data = att['data'] as String? ?? att['base64'] as String?;
-    final localPath = att['path'] as String?; // Support local path
+    final localPath = att['path'] as String?;
+    final caption = att['caption'] as String?;
 
     if (data == null && url == null && localPath == null) {
       return const SizedBox.shrink();
@@ -756,70 +758,93 @@ class _MessageBubbleState extends State<MessageBubble> {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: GestureDetector(
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => ImageViewerScreen(
-                imageData: imageBytes,
-                imageUrl: url,
-                heroTag: heroTag,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Image
+          GestureDetector(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ImageViewerScreen(
+                    imageData: imageBytes,
+                    imageUrl: url,
+                    heroTag: heroTag,
+                    caption: caption,
+                  ),
+                ),
+              );
+            },
+            child: Hero(
+              tag: heroTag,
+              child: ClipRRect(
+                borderRadius: caption != null && caption.isNotEmpty
+                    ? const BorderRadius.only(
+                        topLeft: Radius.circular(12),
+                        topRight: Radius.circular(12),
+                      )
+                    : BorderRadius.circular(12),
+                child: Container(
+                  constraints: const BoxConstraints(maxHeight: 200),
+                  child: isLocal && imageProvider != null
+                      ? Image(
+                          image: imageProvider,
+                          fit: BoxFit.cover,
+                          frameBuilder:
+                              (context, child, frame, wasSynchronouslyLoaded) {
+                                if (wasSynchronouslyLoaded) return child;
+                                return AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 200),
+                                  child: frame == null
+                                      ? Shimmer.fromColors(
+                                          baseColor: Colors.grey[300]!,
+                                          highlightColor: Colors.grey[100]!,
+                                          child: Container(
+                                            height: 150,
+                                            width: 200,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : child,
+                                );
+                              },
+                          errorBuilder: (_, error, stackTrace) =>
+                              _buildImageError(context),
+                        )
+                      : (url != null
+                            ? CachedNetworkImage(
+                                imageUrl: url,
+                                fit: BoxFit.cover,
+                                memCacheHeight: 400, // Optimization
+                                placeholder: (context, url) => Shimmer.fromColors(
+                                  baseColor: Colors.grey[300]!,
+                                  highlightColor: Colors.grey[100]!,
+                                  child: Container(
+                                    height: 150,
+                                    width: 200,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                errorWidget: (_, url, error) =>
+                                    _buildImageError(context),
+                              )
+                            : _buildImageError(context)),
+                ),
               ),
             ),
-          );
-        },
-        child: Hero(
-          tag: heroTag,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              constraints: const BoxConstraints(maxHeight: 200),
-              child: isLocal && imageProvider != null
-                  ? Image(
-                      image: imageProvider,
-                      fit: BoxFit.cover,
-                      frameBuilder:
-                          (context, child, frame, wasSynchronouslyLoaded) {
-                            if (wasSynchronouslyLoaded) return child;
-                            return AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 200),
-                              child: frame == null
-                                  ? Shimmer.fromColors(
-                                      baseColor: Colors.grey[300]!,
-                                      highlightColor: Colors.grey[100]!,
-                                      child: Container(
-                                        height: 150,
-                                        width: 200,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : child,
-                            );
-                          },
-                      errorBuilder: (_, error, stackTrace) =>
-                          _buildImageError(context),
-                    )
-                  : (url != null
-                        ? CachedNetworkImage(
-                            imageUrl: url,
-                            fit: BoxFit.cover,
-                            memCacheHeight: 400, // Optimization
-                            placeholder: (context, url) => Shimmer.fromColors(
-                              baseColor: Colors.grey[300]!,
-                              highlightColor: Colors.grey[100]!,
-                              child: Container(
-                                height: 150,
-                                width: 200,
-                                color: Colors.white,
-                              ),
-                            ),
-                            errorWidget: (_, url, error) =>
-                                _buildImageError(context),
-                          )
-                        : _buildImageError(context)),
-            ),
           ),
-        ),
+          // Caption
+          if (caption != null && caption.isNotEmpty)
+            CaptionText(
+              caption: caption,
+              isOutgoing: widget.message.isOutgoing,
+              theme: Theme.of(context),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(12),
+                bottomRight: Radius.circular(12),
+              ),
+            ),
+        ],
       ),
     );
   }

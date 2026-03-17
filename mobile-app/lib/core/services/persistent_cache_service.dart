@@ -165,6 +165,12 @@ class PersistentCacheService {
     }
   }
 
+  /// Get all keys in a box
+  Future<Set<String>> getKeys(String boxName) async {
+    final box = await _getBox(boxName);
+    return box.keys.map((k) => k.toString()).toSet();
+  }
+
   /// Clear all boxes
   Future<void> clearAll() async {
     for (final boxName in _openedBoxes) {

@@ -20,6 +20,7 @@ class ImageViewerScreen extends StatefulWidget {
   final String? imageUrl;
   final File? imageFile;
   final String heroTag;
+  final String? caption;
 
   const ImageViewerScreen({
     super.key,
@@ -27,6 +28,7 @@ class ImageViewerScreen extends StatefulWidget {
     this.imageUrl,
     this.imageFile,
     required this.heroTag,
+    this.caption,
   });
 
   @override
@@ -172,6 +174,36 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
           ),
         ),
       ),
+      // Caption at bottom
+      bottomSheet: widget.caption != null && widget.caption!.isNotEmpty
+          ? Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.8),
+                border: Border(
+                  top: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.1),
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Text(
+                widget.caption!,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  height: 1.4,
+                ),
+                textDirection: widget.caption!.isArabic
+                    ? TextDirection.rtl
+                    : TextDirection.ltr,
+                textAlign: widget.caption!.isArabic
+                    ? TextAlign.right
+                    : TextAlign.left,
+              ),
+            )
+          : null,
     );
   }
 

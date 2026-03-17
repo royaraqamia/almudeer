@@ -13,7 +13,7 @@ import '../../widgets/animated_toast.dart';
 /// Multi-image preview dialog with carousel and caption support
 class MultiImagePreviewDialog extends StatefulWidget {
   final List<File> images;
-  final Function(List<File>)? onConfirm;
+  final Function(List<File>, Map<int, String>)? onConfirm;
   final VoidCallback? onCancel;
 
   const MultiImagePreviewDialog({
@@ -76,8 +76,20 @@ class _MultiImagePreviewDialogState extends State<MultiImagePreviewDialog> {
       return;
     }
 
+    // Build captions map for remaining images only
+    final Map<int, String> remainingCaptions = {};
+    int newIndex = 0;
+    for (int i = 0; i < widget.images.length; i++) {
+      if (!_removedIndices.contains(i)) {
+        if (_captions.containsKey(i) && _captions[i]!.isNotEmpty) {
+          remainingCaptions[newIndex] = _captions[i]!;
+        }
+        newIndex++;
+      }
+    }
+
     Haptics.mediumTap();
-    widget.onConfirm?.call(remainingImages);
+    widget.onConfirm?.call(remainingImages, remainingCaptions);
   }
 
   @override
@@ -345,6 +357,221 @@ class _MultiImagePreviewDialogState extends State<MultiImagePreviewDialog> {
                           Text(
                             'إرسال ${activeImages.length} صور',
                             style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Single image preview dialog with caption input
+class SingleImagePreviewDialog extends StatefulWidget {
+  final File image;
+  final Function(File, String?)? onConfirm;
+  final VoidCallback? onCancel;
+
+  const SingleImagePreviewDialog({
+    super.key,
+    required this.image,
+    this.onConfirm,
+    this.onCancel,
+  });
+
+  @override
+  State<SingleImagePreviewDialog> createState() =>
+      _SingleImagePreviewDialogState();
+}
+
+class _SingleImagePreviewDialogState extends State<SingleImagePreviewDialog> {
+  final TextEditingController _captionController = TextEditingController();
+
+  @override
+  void dispose() {
+    _captionController.dispose();
+    super.dispose();
+  }
+
+  void _confirm() {
+    Haptics.mediumTap();
+    final caption = _captionController.text.trim();
+    widget.onConfirm?.call(widget.image, caption.isEmpty ? null : caption);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(16),
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.85,
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+          borderRadius: SmoothBorderRadius(
+            cornerRadius: AppDimensions.radiusXXLarge,
+            cornerSmoothing: 1.0,
+          ),
+        ),
+        child: Column(
+          children: [
+            // Header
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () {
+                      Haptics.lightTap();
+                      Navigator.pop(context);
+                      widget.onCancel?.call();
+                    },
+                    icon: const Icon(SolarLinearIcons.closeCircle),
+                    color: theme.hintColor,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'معاينة الصورة',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(width: 48),
+                ],
+              ),
+            ),
+
+            const Divider(height: 1),
+
+            // Image preview
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                color: isDark ? const Color(0xFF0A0A0A) : Colors.grey[100],
+                child: PhotoView(
+                  imageProvider: FileImage(widget.image) as ImageProvider,
+                  initialScale: 1.0,
+                  minScale: 1.0,
+                  maxScale: 3.0,
+                  heroAttributes: const PhotoViewHeroAttributes(
+                    tag: 'single_image_preview',
+                  ),
+                ),
+              ),
+            ),
+
+            const Divider(height: 1),
+
+            // Caption input
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: TextField(
+                controller: _captionController,
+                maxLines: 3,
+                minLines: 1,
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'أضف تعليقاً...',
+                  hintStyle: TextStyle(
+                    fontSize: 15,
+                    color: isDark ? Colors.white54 : Colors.black54,
+                  ),
+                  filled: true,
+                  fillColor: isDark ? Colors.white10 : Colors.grey[100],
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  suffixIcon: _captionController.text.isNotEmpty
+                      ? IconButton(
+                          onPressed: () {
+                            _captionController.clear();
+                          },
+                          icon: const Icon(
+                            SolarLinearIcons.closeCircle,
+                            color: Colors.grey,
+                            size: 20,
+                          ),
+                        )
+                      : null,
+                ),
+              ),
+            ),
+
+            // Action buttons
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  // Cancel button
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        Haptics.lightTap();
+                        Navigator.pop(context);
+                        widget.onCancel?.call();
+                      },
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: theme.hintColor,
+                        side: BorderSide(color: theme.dividerColor),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppDimensions.radiusButton),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: const Text('إلغاء'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Send button
+                  Expanded(
+                    flex: 2,
+                    child: ElevatedButton(
+                      onPressed: _confirm,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppDimensions.radiusButton),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        elevation: 0,
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            SolarBoldIcons.plain2,
+                            size: 20,
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'إرسال',
+                            style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
                             ),

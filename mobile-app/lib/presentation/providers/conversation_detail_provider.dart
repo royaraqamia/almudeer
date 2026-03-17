@@ -107,6 +107,39 @@ class ConversationDetailProvider extends ChangeNotifier {
     SoundService().init();
     // P1-9: Start periodic memory cleanup every 2 minutes
     _startMemoryCleanup();
+    // Load all drafts from persistent cache on initialization
+    _loadAllDrafts();
+  }
+
+  /// Load all drafts from persistent cache (for inbox list to show draft indicators)
+  Future<void> _loadAllDrafts() async {
+    try {
+      final accountHash = await _inboxRepository.apiClient.getAccountCacheHash();
+      final allKeys = await _cache.getKeys(PersistentCacheService.boxInbox);
+
+      // Find all draft keys (format: {hash}_draft_{contact})
+      final draftPrefix = '${accountHash}_draft_';
+      for (final key in allKeys) {
+        if (key.startsWith(draftPrefix)) {
+          final contact = key.substring(draftPrefix.length);
+          // Skip invalid contacts
+          if (contact.isEmpty || contact == '__saved_messages__') continue;
+          
+          final draft = await _cache.get<String>(PersistentCacheService.boxInbox, key);
+          if (draft != null && draft.isNotEmpty) {
+            _memoryDrafts[contact] = draft;
+          }
+        }
+      }
+
+      // Notify listeners that drafts are loaded
+      if (!_isDisposed) {
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('[ConversationDetailProvider] Error loading all drafts: $e');
+      // Don't crash - drafts will load on next attempt
+    }
   }
 
   void _startMemoryCleanup() {
@@ -283,6 +316,12 @@ class ConversationDetailProvider extends ChangeNotifier {
   List<Map<String, dynamic>> get whatsappTemplates => _whatsappTemplates;
 
   String getDraft(String contact) => _memoryDrafts[contact] ?? '';
+
+  /// Get all drafts (for inbox list to show draft indicators)
+  Map<String, String> get allDrafts => Map.unmodifiable(_memoryDrafts);
+
+  /// Check if a contact has a draft
+  bool hasDraft(String contact) => _memoryDrafts.containsKey(contact) && _memoryDrafts[contact]!.isNotEmpty;
 
   /// LRU Eviction Helper - keeps memory bounded
   void _evictOldConversationsIfNeeded(String activeContact) {

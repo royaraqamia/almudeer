@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // Added for HapticFeedback
+import 'package:flutter/services.dart';
 import 'package:figma_squircle/figma_squircle.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
 import '../../../core/constants/colors.dart';
@@ -32,6 +32,12 @@ class ReplyPreview extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
 
     final Widget? thumbnailWidget = _buildThumbnail(theme, isDark);
+    
+    // Get caption from first attachment with caption
+    final caption = attachments?.firstWhere(
+      (a) => a['caption'] != null && a['caption'].toString().isNotEmpty,
+      orElse: () => {},
+    )['caption'] as String?;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -42,9 +48,7 @@ class ReplyPreview extends StatelessWidget {
             top: SmoothRadius(cornerRadius: 16, cornerSmoothing: 1.0),
           ),
           side: BorderSide(
-            color: (isDark ? Colors.white : Colors.black).withValues(
-              alpha: 0.1,
-            ),
+            color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.1),
             width: 0.5,
           ),
         ),
@@ -72,8 +76,9 @@ class ReplyPreview extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
+                // Show caption if available, otherwise show message body
                 Text(
-                  messageBody.safeUtf16,
+                  (caption ?? messageBody).safeUtf16,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(height: 1.2),

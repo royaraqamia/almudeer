@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:almudeer_mobile_app/core/services/offline_sync_service.dart';
 import '../../data/local/athkar_data.dart';
@@ -19,10 +19,13 @@ class AthkarProvider extends ChangeNotifier {
   int _misbahaTarget = 33;
   bool _isLoading = true;
   bool _disposed = false;
-  Timer? _debounceTimer;
+  Timer? _saveTimer;
   int _consecutiveSyncFailures = 0;
   static const int _maxRetryAttempts = 3;
   Duration _syncRetryDelay = const Duration(seconds: 5);
+
+  // Lifecycle observer for app pause/resume
+  AppLifecycleListener? _lifecycleListener;
 
   Map<String, int> get counts => _counts;
   int get misbahaCount => _misbahaCount;
@@ -36,19 +39,39 @@ class AthkarProvider extends ChangeNotifier {
   AthkarProvider({OfflineSyncService? syncService})
     : _syncService = syncService {
     _init();
+    _setupLifecycleListener();
+  }
+
+  /// Setup lifecycle listener to save on app pause
+  void _setupLifecycleListener() {
+    try {
+      // Only setup lifecycle listener if binding is initialized (not in tests)
+      WidgetsBinding.instance;
+      _lifecycleListener = AppLifecycleListener(
+        onStateChange: (state) {
+          if (state == AppLifecycleState.paused) {
+            // App is going to background - save immediately
+            _flushToStorage();
+          }
+        },
+      );
+    } catch (_) {
+      // Binding not initialized (test environment) - skip lifecycle listener
+      debugPrint('AthkarProvider: Skipping lifecycle listener (test environment)');
+    }
   }
 
   Future<void> _init() async {
     await _loadFromStorage();
     final lastResetDate = await _getLastResetDate();
     final todayStr = _getTodayString();
-    
+
     // Check if reset is needed before loading server data
     if (lastResetDate != todayStr) {
       await resetAll();
       await _saveLastResetDate(todayStr);
     }
-    
+
     // Load server data only if last reset was today (prevents old server data from overriding reset)
     final shouldMergeServerData = lastResetDate == todayStr;
     if (shouldMergeServerData) {
@@ -56,7 +79,7 @@ class AthkarProvider extends ChangeNotifier {
     } else {
       debugPrint('AthkarProvider: Skipping server merge - local reset is newer');
     }
-    
+
     _isLoading = false;
     if (!_disposed) {
       notifyListeners();
@@ -85,7 +108,16 @@ class AthkarProvider extends ChangeNotifier {
       final String? jsonStr = prefs.getString(_storageKey);
       if (jsonStr != null) {
         final Map<String, dynamic> decoded = json.decode(jsonStr);
-        _counts = decoded.map((key, value) => MapEntry(key, value as int));
+        _counts = decoded.map((key, value) {
+          if (value is int) {
+            return MapEntry(key, value >= 0 ? value : 0);
+          } else if (value is num) {
+            return MapEntry(key, value.toInt());
+          } else {
+            debugPrint('AthkarProvider: Invalid count value for $key: $value');
+            return MapEntry(key, 0);
+          }
+        });
       }
 
       _misbahaCount = prefs.getInt(_misbahaKey) ?? 0;
@@ -109,22 +141,37 @@ class AthkarProvider extends ChangeNotifier {
           final misbaha = athkar['misbaha'] as int?;
 
           if (counts != null) {
-            // Validate and sanitize server data to prevent corruption
-            _counts = counts.map((key, value) {
-              if (value is int) {
-                return MapEntry(key, value >= 0 ? value : 0);
-              } else if (value is num) {
-                return MapEntry(key, value.toInt());
-              } else {
-                debugPrint('Invalid athkar count value for $key: $value');
-                return MapEntry(key, 0);
-              }
-            });
+            // FIX: Merge server data with local data, keeping higher counts
+            // This prevents server from overriding newer local progress
+            final mergedCounts = <String, int>{};
+
+            // Start with local counts
+            mergedCounts.addAll(_counts);
+
+            // Merge server counts, keeping the higher value for each key
+            for (final entry in counts.entries) {
+              final key = entry.key;
+              final serverValue = entry.value is int
+                  ? entry.value
+                  : (entry.value as num).toInt();
+
+              if (serverValue < 0) continue; // Skip invalid values
+
+              final localValue = mergedCounts[key] ?? 0;
+              // Keep the higher count (more progress)
+              mergedCounts[key] = serverValue > localValue ? serverValue : localValue;
+            }
+
+            _counts = mergedCounts;
           }
+
           if (misbaha != null && misbaha >= 0) {
-            _misbahaCount = misbaha;
+            // Keep higher misbaha count (local or server)
+            if (misbaha > _misbahaCount) {
+              _misbahaCount = misbaha;
+            }
           }
-          debugPrint('AthkarProvider: Loaded athkar progress from server');
+          debugPrint('AthkarProvider: Merged athkar progress from server (keeping higher counts)');
         }
       }
     } catch (e, stackTrace) {
@@ -135,7 +182,7 @@ class AthkarProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _checkDailyReset() async {
+  Future<void> checkAndResetIfNeeded() async {
     final lastResetStr = await _getLastResetDate();
     final todayStr = _getTodayString();
 
@@ -143,10 +190,6 @@ class AthkarProvider extends ChangeNotifier {
       await resetAll();
       await _saveLastResetDate(todayStr);
     }
-  }
-
-  Future<void> checkAndResetIfNeeded() async {
-    await _checkDailyReset();
   }
 
   int getCount(String id) {
@@ -158,59 +201,80 @@ class AthkarProvider extends ChangeNotifier {
   }
 
   void increment(AthkarItem item) {
+    if (_disposed) return; // Guard against disposed provider
     final current = getCount(item.id);
     if (current < item.count) {
       _counts[item.id] = current + 1;
+      // Schedule immediate save to prevent data loss
+      _scheduleSave();
       notifyListeners();
-      _saveToStorageDebounced();
     }
   }
 
   void decrement(AthkarItem item) {
+    if (_disposed) return; // Guard against disposed provider
     final current = getCount(item.id);
     if (current > 0) {
       _counts[item.id] = current - 1;
+      // Schedule immediate save to prevent data loss
+      _scheduleSave();
       notifyListeners();
-      _saveToStorageDebounced();
     }
   }
 
   void incrementMisbaha() {
+    if (_disposed) return; // Guard against disposed provider
     _misbahaCount++;
+    // Schedule immediate save to prevent data loss
+    _scheduleSave();
     notifyListeners();
-    _saveToStorageDebounced();
   }
 
   void resetMisbaha() {
+    if (_disposed) return; // Guard against disposed provider
     _misbahaCount = 0;
+    // Schedule immediate save to prevent data loss
+    _scheduleSave();
     notifyListeners();
-    _saveToStorageDebounced();
   }
 
   void setMisbahaTarget(int target) {
-    if (target <= 0) return;
+    if (_disposed || target <= 0) return; // Guard against disposed provider
     _misbahaTarget = target;
+    // Schedule immediate save to prevent data loss
+    _scheduleSave();
     notifyListeners();
-    _saveToStorageDebounced();
   }
 
-  Future<void> resetAll() async {
-    _counts = {};
-    _misbahaCount = 0;
-    notifyListeners();
-    await _saveToStorage();
-  }
-
-  void _saveToStorageDebounced() {
-    _debounceTimer?.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 500), () async {
+  /// Schedule a save with a short delay to batch rapid updates (100ms)
+  /// This prevents excessive disk I/O while ensuring data is persisted quickly
+  void _scheduleSave() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 100), () async {
       try {
         await _saveToStorage();
       } catch (e, stackTrace) {
-        debugPrint('AthkarProvider: Debounced save failed: $e');
+        debugPrint('AthkarProvider: Scheduled save failed: $e');
         debugPrint('AthkarProvider: Stack trace: $stackTrace');
       }
     });
+  }
+
+  /// Flush pending changes to storage immediately (called on app pause)
+  void _flushToStorage() {
+    _saveTimer?.cancel();
+    // Don't await - fire and forget to avoid blocking
+    _saveToStorage().catchError((e) {
+      debugPrint('AthkarProvider: Flush save failed: $e');
+    });
+  }
+
+  Future<void> resetAll() async {
+    if (_disposed) return;
+    _counts = {};
+    _misbahaCount = 0;
+    await _saveToStorage();
+    notifyListeners();
   }
 
   Future<void> _saveToStorage() async {
@@ -245,7 +309,16 @@ class AthkarProvider extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _debounceTimer?.cancel();
+    _saveTimer?.cancel();
+    // Flush any pending changes before disposing (fire and forget)
+    _flushToStorage();
+    // Dispose lifecycle listener safely
+    try {
+      _lifecycleListener?.dispose();
+    } catch (_) {
+      // Ignore disposal errors in tests
+    }
+    _lifecycleListener = null;
     super.dispose();
   }
 }

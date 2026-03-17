@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
+import 'package:path/path.dart' as p;
 
 import 'package:provider/provider.dart';
 import '../../providers/conversation_detail_provider.dart';
@@ -15,7 +16,7 @@ import '../../../core/constants/colors.dart';
 import '../../../core/extensions/string_extension.dart';
 import '../animated_toast.dart';
 import 'reply_preview.dart';
-import 'multi_image_preview_dialog.dart';
+import 'media_preview_dialog.dart';
 import 'mention_autocomplete.dart';
 
 /// Message input section with emoji and send functionality
@@ -26,6 +27,7 @@ class MessageInputSection extends StatefulWidget {
     Map<String, dynamic>? metadata,
     String? replyToPlatformId,
     String? replyToBodyPreview,
+    List<Map<String, dynamic>>? customAttachments,
   })
   onSend;
   final String? replyToSender;
@@ -300,7 +302,40 @@ class _MessageInputSectionState extends State<MessageInputSection> {
           source: ImageSource.camera,
           imageQuality: 70,
         );
-        if (image != null) selectedFiles.add(File(image.path));
+        if (image != null) {
+          // Show preview with caption for camera photos
+          if (!mounted) return;
+          final result = await showDialog<Map<String, dynamic>>(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => MediaPreviewDialog(
+              file: File(image.path),
+              mediaType: 'image',
+              onConfirm: (file, caption) => Navigator.pop(context, {
+                'file': file,
+                'caption': caption,
+              }),
+              onCancel: () => Navigator.pop(context, null),
+            ),
+          );
+
+          if (result != null && result['file'] != null && mounted) {
+            final file = result['file'] as File;
+            final caption = result['caption'] as String?;
+            
+            final attachments = <Map<String, dynamic>>[{
+              'path': file.path,
+              'type': 'image',
+              if (caption != null && caption.isNotEmpty) 'caption': caption,
+            }];
+            
+            widget.onSend('', customAttachments: attachments);
+          }
+          setState(() {
+            _showAttachments = false;
+          });
+          return;
+        }
       } else if (type == 'gallery') {
         final List<XFile> images = await ImagePicker().pickMultiImage(
           imageQuality: 70,
@@ -321,25 +356,56 @@ class _MessageInputSectionState extends State<MessageInputSection> {
       }
 
       if (selectedFiles.isNotEmpty) {
-        // Show multi-image preview dialog for gallery selections
-        if (type == 'gallery' && selectedFiles.length > 1) {
-          if (!mounted) return;
-          final result = await showDialog<List<File>>(
+        // Process each file with preview dialog
+        final List<Map<String, dynamic>> attachments = [];
+        
+        for (final file in selectedFiles) {
+          if (!mounted) break;
+          
+          final ext = p.extension(file.path).toLowerCase();
+          final isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif'].contains(ext);
+          final isVideo = ['.mp4', '.mov', '.avi', '.mkv', '.webm'].contains(ext);
+          
+          String mediaType;
+          if (isImage) {
+            mediaType = 'image';
+          } else if (isVideo) {
+            mediaType = 'video';
+          } else {
+            mediaType = 'file';
+          }
+          
+          // Show preview dialog for each file
+          final result = await showDialog<Map<String, dynamic>>(
             context: context,
             barrierDismissible: false,
-            builder: (context) => MultiImagePreviewDialog(
-              images: selectedFiles,
-              onConfirm: (files) => Navigator.pop(context, files),
+            builder: (context) => MediaPreviewDialog(
+              file: file,
+              mediaType: mediaType,
+              fileName: p.basename(file.path),
+              onConfirm: (f, caption) => Navigator.pop(context, {
+                'file': f,
+                'caption': caption,
+              }),
               onCancel: () => Navigator.pop(context, null),
             ),
           );
 
-          if (result != null && result.isNotEmpty && mounted) {
-            widget.onSend('', mediaFiles: result);
+          if (result != null && result['file'] != null) {
+            final f = result['file'] as File;
+            final caption = result['caption'] as String?;
+            
+            attachments.add({
+              'path': f.path,
+              'type': mediaType,
+              'filename': p.basename(f.path),
+              if (caption != null && caption.isNotEmpty) 'caption': caption,
+            });
           }
-        } else {
-          // Send single image or file immediately
-          widget.onSend('', mediaFiles: selectedFiles);
+        }
+
+        if (attachments.isNotEmpty && mounted) {
+          widget.onSend('', customAttachments: attachments);
         }
         setState(() {
           _showAttachments = false;
@@ -347,6 +413,9 @@ class _MessageInputSectionState extends State<MessageInputSection> {
       }
     } catch (e) {
       debugPrint('Attachment error: $e');
+      if (mounted) {
+        AnimatedToast.error(context, 'حدث خطأ في إرفاق الملف: $e');
+      }
     }
   }
 

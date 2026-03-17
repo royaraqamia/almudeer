@@ -255,12 +255,16 @@ class WhatsAppService:
                         elif msg_type == "image":
                             parsed["body"] = "[صورة]"
                             parsed["media_id"] = msg.get("image", {}).get("id")
-                            parsed["caption"] = msg.get("image", {}).get("caption", "")
+                            # CRITICAL: Normalize empty/whitespace captions to None
+                            raw_caption = msg.get("image", {}).get("caption", "")
+                            parsed["caption"] = raw_caption if raw_caption and raw_caption.strip() else None
 
                         elif msg_type == "video":
                             parsed["body"] = "[فيديو]"
                             parsed["media_id"] = msg.get("video", {}).get("id")
-                            parsed["caption"] = msg.get("video", {}).get("caption", "")
+                            # CRITICAL: Normalize empty/whitespace captions to None
+                            raw_caption = msg.get("video", {}).get("caption", "")
+                            parsed["caption"] = raw_caption if raw_caption and raw_caption.strip() else None
                         
                         elif msg_type == "audio":
                             parsed["body"] = "[رسالة صوتية]"

@@ -206,6 +206,11 @@ class AudioPlayerProvider extends ChangeNotifier {
   bool _isPlaying = false;
   double _playbackSpeed = 1.0;
 
+  // Quran-specific state
+  int? _currentSurahNumber; // Track current surah for verse timing
+  List<Map<String, dynamic>>? _verseTimings; // Verse timing data
+  int _currentVerse = 1; // Current verse based on audio position
+
   // Progress
   Duration _currentPosition = Duration.zero;
   Duration _totalDuration = Duration.zero;
@@ -215,6 +220,9 @@ class AudioPlayerProvider extends ChangeNotifier {
   StreamSubscription? _playerSubscription;
   StreamSubscription? _positionSubscription;
   StreamSubscription? _durationSubscription;
+  StreamSubscription? _verseTimingSubscription; // For verse sync
+  Timer? _sleepTimer; // Sleep timer
+  Duration _sleepTimerDuration = Duration.zero; // Remaining sleep timer time
 
   // Getters
   InboxMessage? get currentMessage => _currentMessage;
@@ -224,6 +232,11 @@ class AudioPlayerProvider extends ChangeNotifier {
   double get playbackSpeed => _playbackSpeed;
   Duration get currentPosition => _currentPosition;
   Duration get totalDuration => _totalDuration;
+  int? get currentSurahNumber => _currentSurahNumber;
+  int get currentVerse => _currentVerse;
+  List<Map<String, dynamic>>? get verseTimings => _verseTimings;
+  Timer? get sleepTimer => _sleepTimer;
+  Duration get sleepTimerDuration => _sleepTimerDuration;
 
   Duration get effectiveTotalDuration {
     if (_totalDuration != Duration.zero) return _totalDuration;
@@ -332,6 +345,12 @@ class AudioPlayerProvider extends ChangeNotifier {
             _progress =
                 _currentPosition.inMilliseconds / _totalDuration.inMilliseconds;
           }
+          
+          // Update current verse if timings are available
+          if (_verseTimings != null && _verseTimings!.isNotEmpty) {
+            updateCurrentVerse(position, _verseTimings!);
+          }
+          
           notifyListeners();
         },
         onError: (error) {
@@ -534,7 +553,7 @@ class AudioPlayerProvider extends ChangeNotifier {
   }
 
   /// Play Quran recitation from a URL
-  Future<void> playQuranRecitation(String url, String surahName) async {
+  Future<void> playQuranRecitation(String url, String surahName, {int? surahNumber}) async {
     if (_isDisposed) return;
 
     if (!_isPlayerInitialized && !_isInitializing) {
@@ -550,6 +569,8 @@ class AudioPlayerProvider extends ChangeNotifier {
     await stop(clear: false);
     _currentMessage = null;
     _currentAudioTitle = surahName;
+    _currentSurahNumber = surahNumber;
+    _currentVerse = 1;
     _progress = 0.0;
     _currentPosition = Duration.zero;
     _totalDuration = Duration.zero;
@@ -574,6 +595,12 @@ class AudioPlayerProvider extends ChangeNotifier {
 
       await _handler!.play();
       _isPlaying = true;
+      
+      // Load verse timings for sync if surah number provided
+      if (surahNumber != null) {
+        _loadVerseTimings(surahNumber);
+      }
+      
       notifyListeners();
     } catch (e) {
       debugPrint('Quran Play Error: $e');
@@ -583,9 +610,98 @@ class AudioPlayerProvider extends ChangeNotifier {
     }
   }
 
+  /// Load verse timings for audio-verse sync
+  Future<void> _loadVerseTimings(int surahNumber) async {
+    // This will be called from the screen which has access to QuranProvider
+    // Timing data will be fetched and stored in _verseTimings
+    _currentSurahNumber = surahNumber;
+  }
+
+  /// Update current verse based on audio position
+  void updateCurrentVerse(Duration position, List<Map<String, dynamic>> timings) {
+    final positionMs = position.inMilliseconds;
+    int newVerse = 1;
+
+    for (int i = 0; i < timings.length; i++) {
+      final timing = timings[i];
+      final from = (timing['timestamp_from'] as num?)?.toInt() ?? 0;
+      final to = (timing['timestamp_to'] as num?)?.toInt() ?? 0;
+
+      if (positionMs >= from && positionMs <= to) {
+        newVerse = i + 1;
+        break;
+      }
+    }
+
+    if (newVerse != _currentVerse) {
+      _currentVerse = newVerse;
+      notifyListeners();
+    }
+  }
+
+  /// Check if current verse is within repeat range
+  bool shouldRepeat(int currentVerse, int? repeatStart, int? repeatEnd) {
+    if (repeatStart == null || repeatEnd == null) return false;
+    return currentVerse >= repeatEnd;
+  }
+
+  /// Seek to repeat start verse if enabled
+  Future<void> handleRepeatSeek(int? repeatStart) async {
+    if (repeatStart == null || _verseTimings == null) return;
+
+    final timing = _verseTimings![repeatStart - 1];
+    final from = (timing['timestamp_from'] as num?)?.toInt() ?? 0;
+    await _handler?.seek(Duration(milliseconds: from));
+  }
+
   /// Stop Quran recitation playback
   Future<void> stopQuranRecitation() async {
+    cancelSleepTimer();
     await stop(clear: true);
+  }
+
+  /// Set sleep timer
+  void setSleepTimer(Duration duration) {
+    cancelSleepTimer(); // Cancel any existing timer
+    _sleepTimerDuration = duration;
+    
+    _sleepTimer = Timer(duration, () {
+      // Stop playback when timer completes
+      stopQuranRecitation();
+      debugPrint('Sleep timer completed - stopped playback');
+    });
+    
+    // Start countdown timer for UI updates
+    Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_sleepTimerDuration > Duration.zero) {
+        _sleepTimerDuration -= const Duration(seconds: 1);
+        notifyListeners();
+      }
+      if (timer.tick >= duration.inSeconds) {
+        timer.cancel();
+      }
+    });
+    
+    notifyListeners();
+  }
+
+  /// Cancel sleep timer
+  void cancelSleepTimer() {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    _sleepTimerDuration = Duration.zero;
+    notifyListeners();
+  }
+
+  /// Check if sleep timer is active
+  bool get isSleepTimerActive => _sleepTimer != null;
+
+  /// Get sleep timer remaining time in formatted string
+  String get sleepTimerLabel {
+    if (_sleepTimerDuration == Duration.zero) return '';
+    final minutes = _sleepTimerDuration.inMinutes;
+    final seconds = _sleepTimerDuration.inSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   /// Play audio from a local file path (used for recording preview)
@@ -747,6 +863,10 @@ class AudioPlayerProvider extends ChangeNotifier {
     _playerSubscription?.cancel();
     _positionSubscription?.cancel();
     _durationSubscription?.cancel();
+    _verseTimingSubscription?.cancel();
+    
+    // Cancel sleep timer
+    cancelSleepTimer();
 
     // Release player resources properly
     if (_handler != null) {

@@ -226,6 +226,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                             metadata,
                             replyToPlatformId,
                             replyToBodyPreview,
+                            customAttachments,
                           }) async {
                             final detailProvider = context
                                 .read<ConversationDetailProvider>();
@@ -259,6 +260,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                               replyToPlatformId: replyToPlatformId,
                               replyToBodyPreview: replyToBodyPreview,
                               replyToSenderName: replyToSenderName,
+                              customAttachments: customAttachments,
                             );
 
                             if (success && context.mounted) {

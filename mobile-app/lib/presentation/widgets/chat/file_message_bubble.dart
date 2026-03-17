@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
 
 import '../../../core/constants/colors.dart';
+import 'caption_text.dart';
 import '../../../core/extensions/string_extension.dart';
 import '../../screens/viewers/universal_viewer_screen.dart';
 
@@ -152,6 +153,7 @@ class _FileMessageBubbleState extends State<FileMessageBubble> {
 
   @override
   Widget build(BuildContext context) {
+    final caption = widget.attachment['caption'] as String?;
     final filename =
         widget.attachment['filename'] as String? ??
         widget.attachment['file_name'] as String? ??
@@ -164,88 +166,112 @@ class _FileMessageBubbleState extends State<FileMessageBubble> {
 
     return GestureDetector(
       onTap: () => _openFile(context),
-      child: Container(
-        width: 240, // consistent width
-        padding: const EdgeInsets.all(12),
-        margin: const EdgeInsets.only(bottom: 4),
-        decoration: BoxDecoration(
-          color: widget.isOutgoing
-              ? widget.color.withValues(alpha: 0.15)
-              : Theme.of(
-                  context,
-                ).cardColor, // Use cardColor for proper theme support
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: widget.isOutgoing
-                ? widget.color.withValues(alpha: 0.3)
-                : Theme.of(
-                    context,
-                  ).dividerColor, // Use dividerColor for theme support
-          ),
-          boxShadow: [
-            if (!widget.isOutgoing &&
-                Theme.of(context).brightness == Brightness.light)
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // File bubble
+          Container(
+            width: 240,
+            padding: const EdgeInsets.all(12),
+            margin: caption != null && caption.isNotEmpty
+                ? const EdgeInsets.only(bottom: 4)
+                : const EdgeInsets.only(bottom: 4),
+            decoration: BoxDecoration(
+              color: widget.isOutgoing
+                  ? widget.color.withValues(alpha: 0.15)
+                  : Theme.of(
+                      context,
+                    ).cardColor,
+              borderRadius: caption != null && caption.isNotEmpty
+                  ? const BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      topRight: Radius.circular(16),
+                    )
+                  : BorderRadius.circular(16),
+              border: Border.all(
                 color: widget.isOutgoing
-                    ? Colors.white.withValues(alpha: 0.2)
-                    : fileColor.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
+                    ? widget.color.withValues(alpha: 0.3)
+                    : Theme.of(
+                        context,
+                      ).dividerColor,
               ),
-              child: _isDownloading
-                  ? _buildDetailedProgressIndicator()
-                  : Icon(
-                      _localPath != null ? fileIcon : SolarLinearIcons.download,
-                      size: 28,
-                      color: widget.isOutgoing ? Colors.white : fileColor,
-                    ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    filename,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.normal,
-                      fontSize: 14,
-                      height: 1.2,
-                      color: widget.isOutgoing ? Colors.white : null,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textDirection: TextDirection.ltr, // Filenames often LTR
+              boxShadow: [
+                if (!widget.isOutgoing &&
+                    Theme.of(context).brightness == Brightness.light)
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
                   ),
-                  if (size != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      _formatBytes(size),
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: widget.isOutgoing
-                            ? Colors.white.withValues(alpha: 0.8)
-                            : Theme.of(context).hintColor,
-                        fontSize: 10,
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: widget.isOutgoing
+                        ? Colors.white.withValues(alpha: 0.2)
+                        : fileColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: _isDownloading
+                      ? _buildDetailedProgressIndicator()
+                      : Icon(
+                          _localPath != null ? fileIcon : SolarLinearIcons.download,
+                          size: 28,
+                          color: widget.isOutgoing ? Colors.white : fileColor,
+                        ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        filename,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.normal,
+                          fontSize: 14,
+                          height: 1.2,
+                          color: widget.isOutgoing ? Colors.white : null,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textDirection: TextDirection.ltr, // Filenames often LTR
                       ),
-                      textDirection: TextDirection.ltr,
-                    ),
-                  ],
-                ],
+                      if (size != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          _formatBytes(size),
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: widget.isOutgoing
+                                ? Colors.white.withValues(alpha: 0.8)
+                                : Theme.of(context).hintColor,
+                            fontSize: 10,
+                          ),
+                          textDirection: TextDirection.ltr,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Caption
+          if (caption != null && caption.isNotEmpty)
+            CaptionText(
+              caption: caption,
+              isOutgoing: widget.isOutgoing,
+              theme: Theme.of(context),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(16),
+                bottomRight: Radius.circular(16),
               ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }

@@ -14,6 +14,12 @@ class AppAvatar extends StatelessWidget {
   final Widget? overlay;
   final Widget? child;
   final List<Color>? customGradient;
+  final Duration fadeInDuration;
+  final Duration fadeOutDuration;
+  final VoidCallback? onImageLoading;
+  final VoidCallback? onImageSuccess;
+  final VoidCallback? onImageError;
+  final String? semanticsLabel;
 
   const AppAvatar({
     super.key,
@@ -26,6 +32,12 @@ class AppAvatar extends StatelessWidget {
     this.overlay,
     this.child,
     this.customGradient,
+    this.fadeInDuration = const Duration(milliseconds: 300),
+    this.fadeOutDuration = const Duration(milliseconds: 300),
+    this.onImageLoading,
+    this.onImageSuccess,
+    this.onImageError,
+    this.semanticsLabel,
   });
 
   @override
@@ -39,7 +51,7 @@ class AppAvatar extends StatelessWidget {
     // Convert relative server paths to full URLs
     final fullImageUrl = imageUrl?.toFullUrl;
 
-    return Container(
+    final avatarWidget = Container(
       width: radius * 2,
       height: radius * 2,
       decoration: BoxDecoration(
@@ -57,23 +69,57 @@ class AppAvatar extends StatelessWidget {
           Center(
             child:
                 child ??
-                (fullImageUrl != null && fullImageUrl.isNotEmpty
+                (fullImageUrl?.isNotEmpty == true
                     ? ClipOval(
                         child: CachedNetworkImage(
-                          imageUrl: fullImageUrl,
+                          imageUrl: fullImageUrl!,
                           width: radius * 2,
                           height: radius * 2,
                           fit: BoxFit.cover,
-                          placeholder: (_, _) => _buildPlaceholder(isDark),
-                          errorWidget: (_, _, _) => _buildPlaceholder(isDark),
+                          fadeInDuration: fadeInDuration,
+                          fadeOutDuration: fadeOutDuration,
+                          placeholder: (context, url) {
+                            onImageLoading?.call();
+                            return _buildPlaceholder(isDark);
+                          },
+                          errorWidget: (context, url, error) {
+                            onImageError?.call();
+                            return _buildPlaceholder(isDark);
+                          },
+                          imageBuilder: (context, imageProvider) {
+                            onImageSuccess?.call();
+                            return Container(
+                              width: radius * 2,
+                              height: radius * 2,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                image: DecorationImage(
+                                  image: imageProvider,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            );
+                          },
                         ),
                       )
                     : _buildPlaceholder(isDark)),
           ),
-          ?overlay,
+          // ignore: use_null_aware_elements
+          if (overlay != null) overlay!,
         ],
       ),
     );
+
+    // Wrap with Semantics for accessibility
+    if (semanticsLabel?.isNotEmpty == true) {
+      return Semantics(
+        label: semanticsLabel!,
+        image: true,
+        child: avatarWidget,
+      );
+    }
+
+    return avatarWidget;
   }
 
   Widget _buildPlaceholder(bool isDark) {

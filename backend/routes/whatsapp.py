@@ -432,7 +432,8 @@ async def process_whatsapp_change(phone_number_id: str, payload: dict, value: di
                                     "file_name": filename,
                                     "size": size,
                                     "file_size": size,
-                                    "platform_media_id": msg["media_id"]
+                                    "platform_media_id": msg["media_id"],
+                                    "caption": msg.get("caption")  # Preserve caption from WhatsApp
                                 })
                         else:
                             print(f"WhatsApp media download returned empty content for {msg.get('media_id')}")

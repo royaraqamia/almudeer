@@ -23,6 +23,7 @@ import '../../widgets/premium_bottom_sheet.dart';
 import '../../widgets/premium_fab.dart';
 import '../../widgets/customers/customer_contact_card.dart';
 import '../inbox/conversation_detail_screen.dart';
+import '../../widgets/common_widgets.dart';
 import '../../../core/extensions/string_extension.dart';
 
 // Constants for customer data keys - using snake_case (API convention)
@@ -76,6 +77,26 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
 
   // CustomersProvider listener reference for proper cleanup
   VoidCallback? _customersProviderListener;
+
+  // Avatar loading state for shimmer effect
+  bool _isAvatarLoading = true;
+  bool _isAvatarError = false;
+  int _avatarRetryCount = 0;
+  static const int _maxAvatarRetries = 3;
+
+  /// Retry loading the avatar image
+  void _retryAvatarLoad() {
+    if (_avatarRetryCount >= _maxAvatarRetries) {
+      AnimatedToast.error(context, 'تعذر تحميل الصورة');
+      return;
+    }
+    Haptics.lightTap();
+    setState(() {
+      _avatarRetryCount++;
+      _isAvatarError = false;
+      _isAvatarLoading = true;
+    });
+  }
 
   /// Check if this customer is the current logged-in user
   bool _checkIsCurrentUser(AuthProvider authProvider) {
@@ -634,6 +655,90 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     final theme = Theme.of(context);
     final isVip = _customer[_kIsVipKey] == true || _customer[_kIsVipKey] == 1;
 
+    // Calculate responsive spacing based on screen height
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final responsiveSpacing = screenHeight < 600
+        ? AppDimensions.spacing40
+        : AppDimensions.spacing80;
+
+    // Check for empty/invalid customer data
+    final hasValidData = _customer.isNotEmpty &&
+        (_customer[_kNameKey] != null ||
+            _customer[_kPhoneKey] != null ||
+            _customer[_kUsernameKey] != null);
+
+    if (!hasValidData) {
+      return _buildEmptyState(theme);
+    }
+
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: PopScope(
+        canPop: true,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop && _isLoadingFullDetails) {
+            AnimatedToast.info(context, 'جاري تحميل البيانات...');
+          }
+        },
+        child: _buildScaffold(theme, isVip, responsiveSpacing),
+      ),
+    );
+  }
+
+  /// Build empty state for invalid/missing customer data
+  Widget _buildEmptyState(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: Semantics(
+          label: 'رجوع',
+          button: true,
+          child: IconButton(
+            icon: const Icon(SolarLinearIcons.arrowRight, size: AppDimensions.iconXLarge),
+            onPressed: () => Navigator.of(context).pop(),
+            tooltip: 'رجوع',
+          ),
+        ),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              SolarLinearIcons.user,
+              size: 80,
+              color: isDark ? AppColors.textTertiaryDark : AppColors.textTertiaryLight,
+            ),
+            const SizedBox(height: AppDimensions.spacing24),
+            Text(
+              'لا توجد بيانات للشخص',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+              ),
+            ),
+            const SizedBox(height: AppDimensions.spacing8),
+            Text(
+              'تعذر تحميل بيانات هذا الشخص',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+              ),
+            ),
+            const SizedBox(height: AppDimensions.spacing32),
+            AppGradientButton(
+              onPressed: () => Navigator.of(context).pop(),
+              text: 'رجوع',
+              icon: SolarLinearIcons.arrowRight,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScaffold(ThemeData theme, bool isVip, double responsiveSpacing) {
     return Scaffold(
       floatingActionButton: _isCurrentUser == true
           ? null
@@ -648,7 +753,10 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                   heroTag: 'customer_detail_edit_fab',
                   standalone: false,
                   gradientColors: const [Color(0xFF2563EB), Color(0xFF0891B2)],
-                  onPressed: _openEditCustomer,
+                  onPressed: () {
+                    Haptics.lightTap();
+                    _openEditCustomer();
+                  },
                   icon: Icon(
                     _getIsNewContactCached() ? SolarBoldIcons.userPlus : SolarBoldIcons.pen,
                     color: Colors.white,
@@ -685,9 +793,12 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
             const SizedBox(height: AppDimensions.spacing24),
             _buildAnimatedSection(
               delay: 0.1,
-              child: CustomerContactCard(customer: _customer),
+              child: StaggeredAnimatedItem(
+                index: 1,
+                child: CustomerContactCard(customer: _customer),
+              ),
             ),
-            const SizedBox(height: AppDimensions.spacing80),
+            SizedBox(height: responsiveSpacing),
           ],
         ),
       ),
@@ -933,18 +1044,111 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     final imageUrl =
         (_customer[_kProfilePicUrlKey] ?? _customer[_kImageKey]) as String?;
 
-    return AppAvatar(
-      radius: AppDimensions.avatarLarge,
-      imageUrl: imageUrl,
-      customGradient: isVip
-          ? [const Color(0xFFFBBF24), const Color(0xFFD97706)]
-          : null,
-      border: isVip
-          ? Border.all(
-              color: const Color(0xFFFBBF24).withValues(alpha: 0.5),
-              width: 3,
+    // Wrap with RepaintBoundary for performance optimization
+    return RepaintBoundary(
+      child: _isAvatarLoading && !_isAvatarError
+          ? PremiumSkeleton(
+              child: Container(
+                width: AppDimensions.avatarLarge * 2,
+                height: AppDimensions.avatarLarge * 2,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+              ),
             )
-          : null,
+          : _isAvatarError
+              ? _buildAvatarErrorState(theme, isDark, isVip)
+              : AppAvatar(
+                  radius: AppDimensions.avatarLarge,
+                  imageUrl: imageUrl,
+                  customGradient: isVip
+                      ? [const Color(0xFFFBBF24), const Color(0xFFD97706)]
+                      : null,
+                  border: isVip
+                      ? Border.all(
+                          color: const Color(0xFFFBBF24).withValues(alpha: 0.5),
+                          width: 3,
+                        )
+                      : null,
+                  fadeInDuration: const Duration(milliseconds: 300),
+                  fadeOutDuration: const Duration(milliseconds: 300),
+                  onImageLoading: () {
+                    if (mounted && !_isAvatarLoading) {
+                      setState(() => _isAvatarLoading = true);
+                    }
+                  },
+                  onImageSuccess: () {
+                    if (mounted && (_isAvatarLoading || _isAvatarError)) {
+                      setState(() {
+                        _isAvatarLoading = false;
+                        _isAvatarError = false;
+                        _avatarRetryCount = 0;
+                      });
+                    }
+                  },
+                  onImageError: () {
+                    if (mounted && !_isAvatarError) {
+                      setState(() {
+                        _isAvatarLoading = false;
+                        _isAvatarError = true;
+                      });
+                    }
+                  },
+                  semanticsLabel: 'صورة $_displayName',
+                ),
+    );
+  }
+
+  /// Build avatar error state with retry button
+  Widget _buildAvatarErrorState(ThemeData theme, bool isDark, bool isVip) {
+    final gradient = isVip
+        ? [const Color(0xFFFBBF24), const Color(0xFFD97706)]
+        : (isDark
+            ? AppColors.avatarGradientDark
+            : AppColors.avatarGradientLight);
+
+    return GestureDetector(
+      onTap: _retryAvatarLoad,
+      child: Container(
+        width: AppDimensions.avatarLarge * 2,
+        height: AppDimensions.avatarLarge * 2,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: gradient,
+          ),
+          border: isVip
+              ? Border.all(
+                  color: const Color(0xFFFBBF24).withValues(alpha: 0.5),
+                  width: 3,
+                )
+              : null,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              SolarLinearIcons.dangerCircle,
+              color: isDark ? Colors.white70 : Colors.black54,
+              size: AppDimensions.iconXLarge,
+            ),
+            if (_avatarRetryCount < _maxAvatarRetries) ...[
+              const SizedBox(height: 4),
+              Text(
+                'إعادة المحاولة',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: isDark ? Colors.white70 : Colors.black54,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

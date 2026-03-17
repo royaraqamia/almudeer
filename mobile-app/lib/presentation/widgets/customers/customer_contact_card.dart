@@ -108,6 +108,7 @@ class CustomerContactCard extends StatelessWidget {
                   context,
                   'https://wa.me/${phone.replaceAll(RegExp(r'[^0-9]'), '')}',
                 ),
+                semanticsLabel: 'مراسلة عبر واتساب',
               ),
             ],
             if (customer['has_telegram'] == true ||
@@ -139,6 +140,7 @@ class CustomerContactCard extends StatelessWidget {
                     'https://t.me/+${phone.replaceAll(RegExp(r'[^0-9]'), '')}',
                   );
                 },
+                semanticsLabel: 'مراسلة عبر تيليجرام',
               ),
             ],
           ],
@@ -256,44 +258,49 @@ class CustomerContactCard extends StatelessWidget {
     required Widget icon,
     required Color color,
     required VoidCallback onTap,
+    String? semanticsLabel,
   }) {
-    return InkWell(
-      onTap: () {
-        Haptics.mediumTap();
-        onTap();
-      },
-      borderRadius: BorderRadius.circular(12),
-      focusColor: color.withValues(alpha: 0.12),
-      hoverColor: color.withValues(alpha: 0.04),
-      highlightColor: color.withValues(alpha: 0.08),
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 44),
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
+    return Semantics(
+      label: semanticsLabel ?? label,
+      button: true,
+      child: InkWell(
+        onTap: () {
+          Haptics.mediumTap();
+          onTap();
+        },
+        borderRadius: BorderRadius.circular(12),
+        focusColor: color.withValues(alpha: 0.12),
+        hoverColor: color.withValues(alpha: 0.04),
+        highlightColor: color.withValues(alpha: 0.08),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: icon,
               ),
-              child: icon,
-            ),
-            const SizedBox(width: 12),
-            Text(
-              label,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: color,
+              const SizedBox(width: 12),
+              Text(
+                label,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
               ),
-            ),
-            const Spacer(),
-            Icon(
-              Icons.arrow_forward_ios,
-              size: 14,
-              color: color.withValues(alpha: 0.5),
-            ),
-          ],
+              const Spacer(),
+              Icon(
+                Icons.arrow_forward_ios,
+                size: 14,
+                color: color.withValues(alpha: 0.5),
+              ),
+            ],
+          ),
         ),
       ),
     );

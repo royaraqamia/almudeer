@@ -55,7 +55,7 @@ class TestTelegramServiceParseUpdate:
     def test_parse_message_with_photo(self):
         """Test parsing a message with photo attachment"""
         from services.telegram_service import TelegramService
-        
+
         update = {
             "update_id": 123,
             "message": {
@@ -71,14 +71,17 @@ class TestTelegramServiceParseUpdate:
                 ]
             }
         }
-        
+
         result = TelegramService.parse_update(update)
-        
-        assert result["text"] == "صورة المنتج"
+
+        # Caption is stored in attachment, not in text field
+        # Text gets fallback placeholder for inbox display
+        assert result["text"] == "[صورة]"
         assert len(result["attachments"]) == 1
         assert result["attachments"][0]["type"] == "photo"
         assert result["attachments"][0]["file_id"] == "large_id"  # Should get largest
         assert result["attachments"][0]["file_size"] == 20000
+        assert result["attachments"][0]["caption"] == "صورة المنتج"
     
     def test_parse_message_with_voice(self):
         """Test parsing a voice message"""

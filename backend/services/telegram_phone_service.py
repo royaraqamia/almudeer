@@ -724,10 +724,10 @@ class TelegramPhoneService:
                             try:
                                 replied_message = await message.get_reply_message()
                                 if replied_message:
-                                    # Extract body preview
+                                    # Extract body preview - prioritize caption for media messages
                                     replied_text = replied_message.text or replied_message.message or ""
                                     if not replied_text:
-                                        # Check for media
+                                        # Check for media with captions
                                         if replied_message.photo:
                                             replied_text = "[صورة]"
                                         elif replied_message.voice:
@@ -739,7 +739,7 @@ class TelegramPhoneService:
                                         elif replied_message.document:
                                             replied_text = "[ملف]"
                                     reply_to_body_preview = replied_text[:100] if replied_text else None
-                                    
+
                                     # Extract sender name
                                     replied_sender = await replied_message.get_sender()
                                     if replied_sender:
@@ -843,12 +843,24 @@ class TelegramPhoneService:
                                         mime_type=mime_type
                                     )
 
+                                    # Extract caption from message (CRITICAL: Telegram stores caption separately)
+                                    # In Telethon, message.text contains the caption for media messages
+                                    caption = message.text if message.text else None
+                                    # Normalize: empty string -> None
+                                    if caption and not caption.strip():
+                                        caption = None
+
+                                    # Update message body if empty but has caption
+                                    # This ensures caption appears in inbox even without separate text
+                                    if not messages_data[-1]["body"] and caption:
+                                        messages_data[-1]["body"] = caption
+
                                     # Hybrid storage: small files get base64 for instant loading
                                     b64_data = None
                                     if len(file_bytes) < 1 * 1024 * 1024:
                                         b64_data = base64.b64encode(file_bytes).decode('utf-8')
-                                    
-                                    # Add to attachments
+
+                                    # Add to attachments with caption
                                     messages_data[-1]["attachments"].append({
                                         "type": generic_type,        # 'image', 'video', 'voice', 'audio', 'file'
                                         "mime_type": mime_type,      # 'image/jpeg', 'video/mp4', etc.
@@ -856,9 +868,10 @@ class TelegramPhoneService:
                                         "path": rel_path,
                                         "base64": b64_data,
                                         "filename": filename,
-                                        "size": len(file_bytes)
+                                        "size": len(file_bytes),
+                                        "caption": caption           # CRITICAL: Preserve caption
                                     })
-                                    logger.debug(f"Saved media for message {message.id} ({len(file_bytes)} bytes) to {rel_path}")
+                                    logger.debug(f"Saved media for message {message.id} ({len(file_bytes)} bytes) to {rel_path}, caption: {caption is not None}")
                                     
                             except Exception as media_e:
                                 # logger.error(f"Failed to download media for message {message.id}: {media_e}")
