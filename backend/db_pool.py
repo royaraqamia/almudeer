@@ -79,14 +79,20 @@ def _normalize_params(params: Any) -> list:
 
 class DatabasePool:
     """Unified database connection pool manager"""
-    
+
+    # Maximum number of connection IDs to track (prevent memory bloat)
+    MAX_TRACKED_CONNECTIONS = 1000
+
     def __init__(self):
         self.db_type = DB_TYPE
         self.pool: Optional[Any] = None
         self.sqlite_path = DATABASE_PATH
-        
+
         # PostgreSQL connection string
         self.postgres_url = DATABASE_URL
+
+        # Track released connections to prevent double-release
+        self._released_connections: set = set()
     
     async def initialize(self):
         """Initialize the appropriate database connection pool"""
@@ -133,24 +139,45 @@ class DatabasePool:
     async def acquire(self):
         """Acquire a database connection"""
         if self.db_type == "postgresql" and self.pool:
-            return await self.pool.acquire()
+            conn = await self.pool.acquire()
+            # Track acquired connections
+            self._released_connections.discard(id(conn))
+            return conn
         elif self.db_type == "sqlite":
             # Return SQLite connection (no pooling)
-            return await aiosqlite.connect(self.sqlite_path)
+            conn = await aiosqlite.connect(self.sqlite_path)
+            self._released_connections.discard(id(conn))
+            return conn
         else:
             raise RuntimeError("Database not initialized")
     
     async def release(self, conn):
         """Release a database connection
-        
+
         P0-5 FIX: Added error handling to prevent connection leaks.
-        Even if close() fails, we ensure the connection reference is cleared.
+        - Tracks released connections to prevent double-release
+        - Catches errors during release to avoid leaking connections
+        - Always clears the connection reference for garbage collection
         """
+        if conn is None:
+            return
+
+        conn_id = id(conn)
+
+        # Prevent double-release
+        if conn_id in self._released_connections:
+            from logging_config import get_logger
+            logger = get_logger(__name__)
+            logger.warning(f"Attempted to release already-released connection: {conn_id}")
+            return
+
         try:
             if self.db_type == "postgresql" and self.pool:
                 await self.pool.release(conn)
             elif self.db_type == "sqlite":
-                await conn.close()
+                # Check if connection is already closed
+                if conn._conn is not None:  # type: ignore
+                    await conn.close()
         except Exception as e:
             # P0-5 FIX: Log the error but don't re-raise
             # Re-raising could cause the caller to retry, leading to more leaks
@@ -158,9 +185,14 @@ class DatabasePool:
             logger = get_logger(__name__)
             logger.error(f"Failed to release database connection: {e}")
         finally:
-            # P0-5 FIX: Always clear the connection reference
-            # This ensures garbage collection can proceed even if close failed
-            conn = None
+            # Mark connection as released to prevent double-release
+            self._released_connections.add(conn_id)
+            # Prevent unbounded growth of the tracking set
+            if len(self._released_connections) > self.MAX_TRACKED_CONNECTIONS:
+                # Remove oldest entries (FIFO)
+                to_remove = len(self._released_connections) - self.MAX_TRACKED_CONNECTIONS
+                for _ in range(to_remove):
+                    self._released_connections.pop()
     
     async def execute(self, query: str, params: Any = None):
         """Execute a query (convenience method)"""
@@ -231,6 +263,8 @@ class DatabasePool:
         """Close the connection pool"""
         if self.db_type == "postgresql" and self.pool:
             await self.pool.close()
+        # Clear tracking set to free memory
+        self._released_connections.clear()
 
 
 # Global database pool instance
