@@ -77,3 +77,16 @@ search_results.txt
 **/*.keystore
 key.properties
 **/key.properties
+KEYSTORE_CREDENTIALS_README.txt
+**/KEYSTORE_CREDENTIALS_README.txt
+
+# Keystore backups (NEVER commit these)
+*keystore-backup*.zip
+**/*keystore-backup*.zip
+
+# ProGuard/R8 mapping files (generated, keep in secure backup)
+**/mapping.txt
+**/seeds.txt
+**/usage.txt
+**/build/outputs/symbols/
+mapping-backups/

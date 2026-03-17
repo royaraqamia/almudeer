@@ -18,6 +18,9 @@ class Conversation {
   final bool isPinned;
   final String? deliveryStatus;
 
+  /// ALL attachments from all messages in the conversation (not just the last one)
+  final List<dynamic>? allAttachments;
+
   /// Associated customer (optional - used for custom name lookup)
   final dynamic customer;
 
@@ -37,6 +40,7 @@ class Conversation {
     this.lastSeenAt,
     this.isOnline = false,
     this.attachments,
+    this.allAttachments,
     this.isPinned = false,
     this.deliveryStatus,
     this.customer,
@@ -75,6 +79,7 @@ class Conversation {
       lastSeenAt: json['last_seen_at'] as String?,
       isOnline: json['is_online'] as bool? ?? false,
       attachments: json['attachments'] as List<dynamic>?,
+      allAttachments: json['all_attachments'] as List<dynamic>?,
       isPinned: json['is_pinned'] as bool? ?? false,
       deliveryStatus: json['delivery_status'] as String?,
     );
@@ -97,6 +102,7 @@ class Conversation {
       'last_seen_at': lastSeenAt,
       'is_online': isOnline,
       'attachments': attachments,
+      'all_attachments': allAttachments,
       'is_pinned': isPinned,
       'delivery_status': deliveryStatus,
     };
@@ -316,6 +322,7 @@ class Conversation {
     String? lastSeenAt,
     bool? isOnline,
     List<dynamic>? attachments,
+    List<dynamic>? allAttachments,
     bool? isPinned,
     dynamic customer,
   }) {
@@ -335,6 +342,7 @@ class Conversation {
       lastSeenAt: lastSeenAt ?? this.lastSeenAt,
       isOnline: isOnline ?? this.isOnline,
       attachments: attachments ?? this.attachments,
+      allAttachments: allAttachments ?? this.allAttachments,
       isPinned: isPinned ?? this.isPinned,
       customer: customer ?? this.customer,
     );

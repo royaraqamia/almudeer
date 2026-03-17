@@ -194,15 +194,6 @@ class MockSettingsProvider extends _i1.Mock implements _i2.SettingsProvider {
           as _i4.Future<void>);
 
   @override
-  _i4.Future<void> openNotificationListenerSettings() =>
-      (super.noSuchMethod(
-            Invocation.method(#openNotificationListenerSettings, []),
-            returnValue: _i4.Future<void>.value(),
-            returnValueForMissingStub: _i4.Future<void>.value(),
-          )
-          as _i4.Future<void>);
-
-  @override
   _i4.Future<bool> isAndroid13OrHigher() =>
       (super.noSuchMethod(
             Invocation.method(#isAndroid13OrHigher, []),

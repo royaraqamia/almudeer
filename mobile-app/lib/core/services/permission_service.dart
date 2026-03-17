@@ -68,22 +68,6 @@ class PermissionService {
     }
   }
 
-  /// Request Notification Listener permission by opening settings
-  Future<void> openNotificationListenerSettings() async {
-    if (!Platform.isAndroid) return;
-
-    try {
-      const intent = AndroidIntent(
-        action: 'android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS',
-        flags: [Flag.FLAG_ACTIVITY_NEW_TASK],
-      );
-      await intent.launch();
-    } catch (e) {
-      debugPrint('Error opening notification listener settings: $e');
-      await openAppSettings();
-    }
-  }
-
   /// Check if the current device is Android 13+ (API 33+)
   Future<bool> isAndroid13OrHigher() async {
     if (!Platform.isAndroid) return false;

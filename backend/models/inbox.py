@@ -804,6 +804,7 @@ async def get_inbox_conversations(
             last_message_ai_summary as ai_summary,
             last_message_at as created_at,
             last_message_attachments as attachments,
+            ic.all_attachments,
             ic.status,
             -- For Almudeer channel, get delivery_status from outbox if we sent the last message
             -- Otherwise use inbox delivery_status (for received messages)
@@ -899,6 +900,7 @@ async def get_conversations_delta(
             last_message_ai_summary as ai_summary,
             last_message_at as created_at,
             last_message_attachments as attachments,
+            ic.all_attachments,
             ic.status,
             ic.delivery_status,
             unread_count,

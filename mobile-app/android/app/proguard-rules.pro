@@ -278,3 +278,49 @@
 # Keep Kotlin serialization plugin generated classes
 -keepclassmembers class **$$serializer { *; }
 -keep class **$$serializer { *; }
+
+# ============================================
+# CRITICAL: Crashlytics Symbolication Support
+# ============================================
+# Keep line numbers for crash symbolication (required for obfuscated builds)
+-keepattributes SourceFile,LineNumberTable
+
+# Keep method names for better crash reports
+-keepattributes RuntimeVisibleAnnotations
+
+# ============================================
+# CRITICAL: Model/Data Classes for JSON
+# ============================================
+# Keep all model classes used for JSON serialization
+-keep class com.royaraqamia.almudeer.features.** { *; }
+-keep class com.royaraqamia.almudeer.data.models.** { *; }
+-keep class com.royaraqamia.almudeer.data.** { *; }
+
+# Keep getters/setters for Gson/Firebase
+-keepclassmembers class * {
+    *** get*();
+    void set*(***);
+}
+
+# ============================================
+# CRITICAL: Reflection & Dynamic Loading
+# ============================================
+# Keep classes loaded via reflection
+-keep class * implements java.lang.reflect.Proxy { *; }
+-keepclassmembers class * {
+    public <init>(...);
+}
+
+# ============================================
+# CRITICAL: Firebase/Play Services Specific
+# ============================================
+# Keep Firebase message service
+-keep class * extends com.google.firebase.messaging.FirebaseMessagingService { *; }
+
+# Keep Play Integrity API (for app verification)
+-keep class com.google.android.play.core.integrity.** { *; }
+-dontwarn com.google.android.play.core.integrity.**
+
+# Keep Google Play Services Base
+-keep class com.google.android.gms.common.** { *; }
+-keep class com.google.android.gms.base.** { *; }

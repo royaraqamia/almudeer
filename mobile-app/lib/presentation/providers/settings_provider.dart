@@ -208,11 +208,6 @@ class SettingsProvider extends ChangeNotifier {
     await PermissionService().openUsageAccessSettings();
   }
 
-  /// Open Notification Listener Settings
-  Future<void> openNotificationListenerSettings() async {
-    await PermissionService().openNotificationListenerSettings();
-  }
-
   /// Check if device is Android 13 or higher
   Future<bool> isAndroid13OrHigher() async {
     return await PermissionService().isAndroid13OrHigher();
