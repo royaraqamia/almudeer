@@ -660,19 +660,11 @@ async def create_task(license_id: int, task_data: dict, user_id: str = None) -> 
                 task_data.get('order_index', 0.0),
                 task_data.get('created_by'),
                 task_data.get('assigned_to'),
-                json.dumps(task_data.get('attachments', [])) if task_data.get('attachments') else None,
-                task_data.get('visibility', 'shared'),
-                task_data.get('snooze_count', 0),
-                task_data.get('alarm_time'),
-                task_data.get('recurrence'),
-                task_data.get('category'),
-                task_data.get('order_index', 0.0),
-                created_by,
-                task_data.get('assigned_to'),
                 # FIX: Convert Pydantic models to dicts before JSON serialization
                 json.dumps([att.model_dump() if hasattr(att, 'model_dump') else att for att in (task_data.get('attachments', []) or [])]),
                 task_data.get('visibility', 'shared'),
-                0,  # is_deleted = 0 for new inserts
+                task_data.get('snooze_count', 0),
+                0,  # is_deleted
                 updated_at,
                 license_id,  # For the WHERE clause (owner's license check)
                 user_id or str(license_id),  # For task_shares check (shared_with_user_id)

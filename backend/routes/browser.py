@@ -1447,10 +1447,10 @@ async def sync_history(
     - Wrapped: {"entries": [...]}
     """
     from models.browser import add_history_entry, get_sync_metadata, update_sync_metadata
-    
-    license_key_id = license_data["id"]
+
+    license_key_id = license_data.get("license_id")
     user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
-    
+
     if not user_id:
         raise HTTPException(status_code=401, detail="User ID required")
     
@@ -1525,10 +1525,10 @@ async def get_history(
 ):
     """Get browser history from server"""
     from models.browser import get_history as get_history_model
-    
-    license_key_id = license_data["id"]
+
+    license_key_id = license_data.get("license_id")
     user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
-    
+
     if not user_id:
         raise HTTPException(status_code=401, detail="User ID required")
     
@@ -1562,10 +1562,10 @@ async def delete_history_entry(
 ):
     """Delete a browser history entry"""
     from models.browser import delete_history_entry
-    
-    license_key_id = license_data["id"]
+
+    license_key_id = license_data.get("license_id")
     user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
-    
+
     if not user_id:
         raise HTTPException(status_code=401, detail="User ID required")
     
@@ -1586,10 +1586,10 @@ async def clear_history(
 ):
     """Clear all browser history"""
     from models.browser import clear_history
-    
-    license_key_id = license_data["id"]
+
+    license_key_id = license_data.get("license_id")
     user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
-    
+
     if not user_id:
         raise HTTPException(status_code=401, detail="User ID required")
     
@@ -1618,10 +1618,10 @@ async def sync_bookmarks(
     - Wrapped: {"bookmarks": [...]}
     """
     from models.browser import add_bookmark, get_sync_metadata, update_sync_metadata
-    
-    license_key_id = license_data["id"]
+
+    license_key_id = license_data.get("license_id")
     user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
-    
+
     if not user_id:
         raise HTTPException(status_code=401, detail="User ID required")
     
@@ -1686,10 +1686,10 @@ async def get_bookmarks(
 ):
     """Get bookmarks from server"""
     from models.browser import get_bookmarks as get_bookmarks_model
-    
-    license_key_id = license_data["id"]
+
+    license_key_id = license_data.get("license_id")
     user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
-    
+
     if not user_id:
         raise HTTPException(status_code=401, detail="User ID required")
     
@@ -1722,10 +1722,10 @@ async def delete_bookmark(
 ):
     """Delete a bookmark"""
     from models.browser import delete_bookmark
-    
-    license_key_id = license_data["id"]
+
+    license_key_id = license_data.get("license_id")
     user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
-    
+
     if not user_id:
         raise HTTPException(status_code=401, detail="User ID required")
     
@@ -1746,10 +1746,10 @@ async def clear_bookmarks(
 ):
     """Clear all bookmarks"""
     from models.browser import clear_bookmarks
-    
-    license_key_id = license_data["id"]
+
+    license_key_id = license_data.get("license_id")
     user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
-    
+
     if not user_id:
         raise HTTPException(status_code=401, detail="User ID required")
     
@@ -1769,10 +1769,10 @@ async def get_sync_metadata(
 ):
     """Get sync metadata for the current user"""
     from models.browser import get_sync_metadata as get_metadata
-    
-    license_key_id = license_data["id"]
+
+    license_key_id = license_data.get("license_id")
     user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
-    
+
     if not user_id:
         raise HTTPException(status_code=401, detail="User ID required")
     
@@ -1824,7 +1824,7 @@ async def sync_cookies(
     """
     from models.browser import save_user_cookies
 
-    license_key_id = license_data["id"]
+    license_key_id = license_data.get("license_id")
     user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
 
     if not user_id:
@@ -1866,7 +1866,7 @@ async def get_cookies(
     """
     from models.browser import get_user_cookies
 
-    license_key_id = license_data["id"]
+    license_key_id = license_data.get("license_id")
     user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
 
     if not user_id:
@@ -1913,7 +1913,7 @@ async def clear_cookies(
     """
     from models.browser import clear_user_cookies
 
-    license_key_id = license_data["id"]
+    license_key_id = license_data.get("license_id")
     user_id = license_data.get("user_id") or (auth["sub"] if auth else None)
 
     if not user_id:
