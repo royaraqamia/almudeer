@@ -146,7 +146,7 @@ class _InboxScreenState extends State<InboxScreen>
             Expanded(
               child: RefreshIndicator(
                 onRefresh: _handleRefresh,
-                color: AppColors.primary,
+                color: theme.colorScheme.primary,
                 child: Consumer<InboxProvider>(
                   builder: (context, inbox, _) {
                     // Show cached data immediately - no skeleton loader
@@ -219,6 +219,7 @@ class _InboxScreenState extends State<InboxScreen>
                                 },
                                 onApprove: () => _navigateToAction(conversation),
                                 isLast: isLast,
+                                isTyping: hasValidContact ? inbox.isTyping(contact) : false,
                                 draftText: draftText.isEmpty ? null : draftText,
                               );
                             },

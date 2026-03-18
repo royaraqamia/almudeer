@@ -18,7 +18,7 @@ import '../../../providers/customers_provider.dart';
 ///
 /// Features:
 /// - Long-press selection mode with haptic feedback
-/// - Typing indicator with animated dots
+/// - Typing indicator ("يكتب...")
 /// - Channel-specific branding (WhatsApp, Telegram, Almudeer)
 /// - Hijri calendar date formatting
 /// - Full accessibility support (Semantics, 44px touch targets, focus indicators)
@@ -143,7 +143,7 @@ class _InboxConversationTileState extends State<InboxConversationTile>
   /// Get the color for regular message preview text
   Color? _getPreviewColor(ThemeData theme, bool hasUnread) {
     if (widget.conversation.messageCount == 0) {
-      return AppColors.primary;
+      return theme.colorScheme.primary;
     }
     if (hasUnread) {
       return theme.textTheme.bodyMedium?.color;
@@ -192,37 +192,15 @@ class _InboxConversationTileState extends State<InboxConversationTile>
     );
   }
 
-  /// Build typing indicator with animated dots
+  /// Build typing indicator text
   Widget _buildTypingIndicator(ThemeData theme) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildTypingDot(theme, 0),
-        const SizedBox(width: AppDimensions.spacing4),
-        _buildTypingDot(theme, 1),
-        const SizedBox(width: AppDimensions.spacing4),
-        _buildTypingDot(theme, 2),
-      ],
-    );
-  }
-
-  Widget _buildTypingDot(ThemeData theme, int index) {
-    return TweenAnimationBuilder<double>(
-      duration: const Duration(milliseconds: 400),
-      tween: Tween<double>(begin: 0, end: 1),
-      builder: (context, value, child) {
-        return Transform.translate(
-          offset: Offset(0, index.isEven ? value * 3 : -value * 3),
-          child: Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              color: theme.hintColor.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-          ),
-        );
-      },
+    return Text(
+      'يكتب...',
+      style: theme.textTheme.bodyMedium?.copyWith(
+        color: theme.colorScheme.primary,
+        fontWeight: FontWeight.w500,
+        fontStyle: FontStyle.italic,
+      ),
     );
   }
 

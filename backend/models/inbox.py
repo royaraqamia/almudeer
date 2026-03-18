@@ -1920,7 +1920,7 @@ async def get_full_chat_history(
             f"""
             SELECT
                 id, channel, sender_name, sender_contact, sender_id,
-                subject, body, attachments,
+                subject, body, attachments, mentions,
                 intent, urgency, sentiment, language, dialect,
                 ai_summary, ai_draft_response, status,
                 created_at, received_at,
@@ -1968,7 +1968,7 @@ async def get_full_chat_history(
                 o.created_at, o.sent_at, o.edited_at,
                 o.delivery_status,
                 o.reply_to_platform_id, o.reply_to_body_preview, o.reply_to_sender_name, o.reply_count,
-                i.sender_name
+                i.sender_name, i.mentions
             FROM outbox_messages o
             LEFT JOIN inbox_messages i ON o.inbox_message_id = i.id
             WHERE o.license_key_id = ?

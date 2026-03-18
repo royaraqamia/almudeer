@@ -486,7 +486,22 @@ class InboxProvider extends ChangeNotifier {
       case 'customer_updated':
         _handleCustomerUpdatedEvent(data);
         break;
+      case 'typing_indicator':
+        _handleTypingIndicatorEvent(data);
+        break;
     }
+  }
+
+  /// Handle typing indicator event
+  void _handleTypingIndicatorEvent(Map<String, dynamic> data) {
+    final contact = data['sender_contact'] as String?;
+    if (contact == null) return;
+
+    final isSelf = data['is_self'] as bool? ?? false;
+    if (isSelf) return;
+
+    final isTyping = data['is_typing'] as bool? ?? false;
+    setTypingStatus(contact, isTyping);
   }
 
   /// Handle conversation read event - updates unread counts on other devices

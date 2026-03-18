@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/constants/colors.dart';
 import '../../../core/extensions/channel_color_extension.dart';
 import '../../../data/models/conversation.dart';
 import '../../../data/models/inbox_message.dart';
@@ -183,7 +182,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                         Expanded(
                           child: RefreshIndicator(
                             onRefresh: _handleRefresh,
-                            color: AppColors.primary,
+                            color: theme.colorScheme.primary,
                             child: messages.isEmpty
                                 ? EmptyConversationState(
                                     channel: widget.conversation.channel,

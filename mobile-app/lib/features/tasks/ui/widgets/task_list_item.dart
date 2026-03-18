@@ -113,7 +113,7 @@ class _TaskListItemState extends State<TaskListItem>
                         cornerSmoothing: 1.0,
                       ),
                       side: widget.isSelected
-                          ? const BorderSide(color: AppColors.primary, width: 2)
+                          ? BorderSide(color: theme.colorScheme.primary, width: 2)
                           : BorderSide.none,
                     ),
                     shadows: [
@@ -339,7 +339,7 @@ class _TaskListItemState extends State<TaskListItem>
                   TimeOfDay.fromDateTime(
                     widget.task.alarmTime!,
                   ).format(context),
-                  color: AppColors.primary,
+                  color: theme.colorScheme.primary,
                 ),
               ],
               if (widget.task.recurrence != null &&
@@ -444,8 +444,11 @@ class _TaskListItemState extends State<TaskListItem>
   }
 
   Widget _buildCategoryTag(BuildContext context, String category) {
-    final categoryColor =
-        AppColors.taskCategoryColors[category] ?? AppColors.primary;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final categoryColor = AppColors.taskCategoryColors[category] ?? AppColors.primary;
+    // Use brighter color for dark theme
+    final effectiveColor = isDark ? AppColors.primaryDark : categoryColor;
 
     return Container(
       padding: const EdgeInsets.symmetric(
@@ -453,22 +456,22 @@ class _TaskListItemState extends State<TaskListItem>
         vertical: 2,
       ),
       decoration: BoxDecoration(
-        color: categoryColor.withValues(alpha: 0.15),
+        color: effectiveColor.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
         border: Border.all(
-          color: categoryColor.withValues(alpha: 0.3),
+          color: effectiveColor.withValues(alpha: 0.3),
           width: 1,
         ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(_getCategoryIcon(category), size: 10, color: categoryColor),
+          Icon(_getCategoryIcon(category), size: 10, color: effectiveColor),
           const SizedBox(width: 2),
           Text(
             category,
             style: TextStyle(
-              color: categoryColor,
+              color: effectiveColor,
               fontSize: 10,
               fontWeight: FontWeight.w600,
             ),

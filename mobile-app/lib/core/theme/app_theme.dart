@@ -325,7 +325,7 @@ class AppTheme {
       useMaterial3: true,
       brightness: Brightness.dark,
       colorScheme: const ColorScheme.dark(
-        primary: AppColors.primaryLight,
+        primary: AppColors.primaryDark,
         onPrimary: Colors.white,
         secondary: AppColors.accent,
         onSecondary: Colors.white,
@@ -357,7 +357,7 @@ class AppTheme {
       // Bottom Navigation
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         backgroundColor: AppColors.surfaceDark,
-        selectedItemColor: AppColors.primaryLight,
+        selectedItemColor: AppColors.primaryDark,
         unselectedItemColor: AppColors.textSecondaryDark,
         type: BottomNavigationBarType.fixed,
         elevation: 0,
@@ -391,7 +391,7 @@ class AppTheme {
       // Buttons - Using standardized heights and radius
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primaryLight,
+          backgroundColor: AppColors.primaryDark,
           foregroundColor: Colors.white,
           elevation: 0,
           minimumSize: const Size(
@@ -420,8 +420,8 @@ class AppTheme {
 
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.primaryLight,
-          side: const BorderSide(color: AppColors.primaryLight),
+          foregroundColor: AppColors.primaryDark,
+          side: const BorderSide(color: AppColors.primaryDark),
           minimumSize: const Size(
             double.infinity,
             AppDimensions.buttonHeightMedium,
@@ -446,7 +446,7 @@ class AppTheme {
 
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: AppColors.primaryLight,
+          foregroundColor: AppColors.primaryDark,
           minimumSize: const Size(
             double.infinity,
             AppDimensions.buttonHeightMedium,
@@ -509,7 +509,7 @@ class AppTheme {
             cornerSmoothing: 1.0,
           ),
           borderSide: const BorderSide(
-            color: AppColors.primaryLight,
+            color: AppColors.primaryDark,
             width: 1.5,
           ), // 1.5px for focus
         ),
