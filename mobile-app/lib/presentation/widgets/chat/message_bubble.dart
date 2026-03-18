@@ -14,7 +14,9 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/colors.dart';
 import '../../../data/models/inbox_message.dart';
+import '../../../data/repositories/customers_repository.dart';
 import '../../providers/conversation_detail_provider.dart';
+import '../../providers/customers_provider.dart';
 import '../../screens/inbox/image_viewer_screen.dart';
 import '../../utils/chat_grouping_helper.dart';
 import '../../screens/customers/customer_detail_screen.dart';
@@ -1203,63 +1205,102 @@ class _MessageBubbleState extends State<MessageBubble> {
   /// Navigate to customer detail screen when a @username mention is tapped
   Future<void> _navigateToCustomerDetail(BuildContext context, String username) async {
     Haptics.lightTap();
-    
-    // First, try to fetch user data from the API
-    try {
-      final provider = context.read<ConversationDetailProvider>();
-      final response = await provider.inboxRepository.apiClient.get(
-        '/api/users/search?q=$username&limit=1',
-      );
-      
-      Map<String, dynamic> customerData = {
-        'username': username,
-        'name': username,
-        'is_almudeer_user': true,
-        'is_online': false,
-      };
-      
-      // If we found a matching user, use their actual data
-      if (response['results'] != null && (response['results'] as List).isNotEmpty) {
-        final userData = (response['results'] as List).first as Map<String, dynamic>;
+
+    // Capture navigator and providers before async gap
+    final navigator = Navigator.of(context);
+    final customersProvider = context.read<CustomersProvider>();
+    final conversationProvider = context.read<ConversationDetailProvider>();
+
+    // First, check if this username is a customer
+    final customersRepository = CustomersRepository();
+    final customerCheckResponse = await customersRepository.checkUsername(username);
+
+    Map<String, dynamic> customerData;
+
+    // If the username is a customer, fetch full customer data
+    if (customerCheckResponse['exists'] == true) {
+      try {
+        // Try to get customer by username from the customers list
+        final customer = customersProvider.customers
+            .firstWhere((c) => c.username?.toLowerCase() == username.toLowerCase());
+
+        customerData = customer.toJson();
+      } catch (e) {
+        // If not found in local list, fetch from API
+        try {
+          final response = await customersRepository.apiClient.get(
+            '/api/customers?username=$username',
+          );
+          if (response['customers'] != null && (response['customers'] as List).isNotEmpty) {
+            customerData = (response['customers'] as List).first as Map<String, dynamic>;
+          } else {
+            // Fallback to basic customer data
+            customerData = {
+              'username': username,
+              'name': username,
+              'is_almudeer_user': true,
+              'is_online': false,
+            };
+          }
+        } catch (fetchError) {
+          debugPrint('[MessageBubble] Failed to fetch customer data: $fetchError');
+          customerData = {
+            'username': username,
+            'name': username,
+            'is_almudeer_user': true,
+            'is_online': false,
+          };
+        }
+      }
+    } else {
+      // Not a customer, fetch user data from the API
+      try {
+        final response = await conversationProvider.inboxRepository.apiClient.get(
+          '/api/users/search?q=$username&limit=1',
+        );
+
         customerData = {
-          'username': userData['username'] ?? username,
-          'name': userData['name'] ?? userData['full_name'] ?? username,
-          // Don't pass user_id as customer id - they're different tables
-          // The customer detail screen will handle almudeer users without customer records
-          'profile_pic_url': userData['profile_pic_url'],
+          'username': username,
+          'name': username,
           'is_almudeer_user': true,
-          'is_online': userData['is_online'] ?? false,
-          'last_seen_at': userData['last_seen_at'],
+          'is_online': false,
+        };
+
+        // If we found a matching user, use their actual data
+        if (response['results'] != null && (response['results'] as List).isNotEmpty) {
+          final userData = (response['results'] as List).first as Map<String, dynamic>;
+          customerData = {
+            'username': userData['username'] ?? username,
+            'name': userData['name'] ?? userData['full_name'] ?? username,
+            // Don't pass user_id as customer id - they're different tables
+            // The customer detail screen will handle almudeer users without customer records
+            'profile_pic_url': userData['profile_pic_url'],
+            'is_almudeer_user': true,
+            'is_online': userData['is_online'] ?? false,
+            'last_seen_at': userData['last_seen_at'],
+          };
+        }
+      } catch (e) {
+        // If API call fails, navigate with basic data
+        debugPrint('[MessageBubble] Failed to fetch user data for mention: $e');
+        customerData = {
+          'username': username,
+          'name': username,
+          'is_almudeer_user': true,
+          'is_online': false,
         };
       }
-      
-      // Navigate to CustomerDetailScreen with the user data
-      if (context.mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => CustomerDetailScreen(
-              customer: customerData,
-            ),
+    }
+
+    // Navigate to CustomerDetailScreen with the data
+    if (context.mounted) {
+      navigator.push(
+        MaterialPageRoute(
+          builder: (context) => CustomerDetailScreen(
+            customer: customerData,
           ),
-        );
-      }
-    } catch (e) {
-      // If API call fails, navigate with basic data
-      debugPrint('[MessageBubble] Failed to fetch user data for mention: $e');
-      if (context.mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => CustomerDetailScreen(
-              customer: {
-                'username': username,
-                'name': username,
-                'is_almudeer_user': true,
-                'is_online': false,
-              },
-            ),
-          ),
-        );
-      }
+        ),
+      );
     }
   }
 

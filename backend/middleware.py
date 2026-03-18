@@ -71,10 +71,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # HSTS - Force HTTPS for 1 year (prevents MITM attacks)
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
         
-        # Content Security Policy - Restrict content sources to prevent XSS
+        # Content Security Policy - Allow third-party scripts
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https:; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "img-src 'self' data: https:; "
             "font-src 'self' https://fonts.gstatic.com; "

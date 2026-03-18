@@ -59,7 +59,7 @@ SECURITY_HEADERS = {
 # Content Security Policy for API responses
 CSP_HEADER = (
     "default-src 'self'; "
-    "script-src 'self'; "
+    "script-src 'self' 'unsafe-inline' https:; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: https:; "
     "font-src 'self' https://fonts.gstatic.com; "

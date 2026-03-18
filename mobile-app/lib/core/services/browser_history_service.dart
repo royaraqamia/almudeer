@@ -38,30 +38,23 @@ class BrowserHistoryService {
     if (!_box.isOpen) await init();
 
     try {
-      // Rebuild index first to ensure we have fresh data
-      // This prevents race conditions when multiple entries are added rapidly
-      _rebuildIndex();
-
       // Remove existing entry for this URL if present
       if (_urlIndex.containsKey(url)) {
         await _box.deleteAt(_urlIndex[url]!);
-        // Rebuild index after deletion to ensure consistency
-        _rebuildIndex();
+        _urlIndex.remove(url);
       }
 
       // Add new entry
       final entry = BrowserHistoryEntry(url: url, title: title, timestamp: DateTime.now());
       await _box.add(entry);
-
-      // Rebuild index after addition
-      _rebuildIndex();
+      _urlIndex[url] = _box.length - 1;
 
       // Enforce max history limit
       if (_box.length > 500) {
         await _box.deleteAt(0);
         _rebuildIndex();
       }
-      
+
       // Sync to backend (debounced)
       _scheduleSync();
     } catch (e) {

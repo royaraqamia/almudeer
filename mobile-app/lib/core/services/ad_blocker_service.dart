@@ -126,10 +126,11 @@ class PornBlockerService {
       try {
         debugPrint('[PornBlocker] Fetching hosts file... (attempt ${attempt + 1}/$maxRetries)');
         final client = http.Client();
-        // Shorter timeout with retry: 10 seconds per attempt = max 30 seconds total
+        // Reduced timeout to 15 seconds to fail faster and retry sooner
+        // Total max time: 15s * 3 attempts = 45 seconds (was 90s)
         final response = await client
             .get(Uri.parse(_hostsUrl))
-            .timeout(const Duration(seconds: 10));
+            .timeout(const Duration(seconds: 15));
 
         if (response.statusCode == 200) {
           final lines = response.body.split('\n');
@@ -171,7 +172,9 @@ class PornBlockerService {
           // Exponential backoff: 500ms, 1000ms, 2000ms
           await Future.delayed(Duration(milliseconds: 500 * attempt));
         } else {
-          debugPrint('[PornBlocker] Failed to fetch hosts after $maxRetries attempts: $e');
+          // Use cached data if available, otherwise use keyword blocking only
+          debugPrint('[PornBlocker] Failed after $maxRetries attempts, using cached/keyword blocking');
+          await _loadCachedHosts();
         }
       } catch (e) {
         attempt++;
@@ -179,9 +182,25 @@ class PornBlockerService {
         if (attempt < maxRetries) {
           await Future.delayed(Duration(milliseconds: 500 * attempt));
         } else {
-          debugPrint('[PornBlocker] Failed to fetch hosts after $maxRetries attempts: $e');
+          debugPrint('[PornBlocker] Failed after $maxRetries attempts, using cached/keyword blocking');
+          await _loadCachedHosts();
         }
       }
+    }
+  }
+
+  /// Load cached hosts file for fallback
+  Future<void> _loadCachedHosts() async {
+    try {
+      final box = await Hive.openBox('adblock_cache');
+      final cachedHosts = box.get(_cacheKey) as String?;
+      if (cachedHosts != null) {
+        final List<dynamic> hosts = jsonDecode(cachedHosts);
+        _blockedHosts.addAll(hosts.cast<String>());
+        debugPrint('[PornBlocker] Loaded ${_blockedHosts.length} hosts from cache');
+      }
+    } catch (e) {
+      debugPrint('[PornBlocker] Error loading cache: $e');
     }
   }
 

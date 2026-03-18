@@ -30,7 +30,6 @@ class BrowserTab {
   bool isInitialized = false;
   Uint8List? snapshot;
   bool isDesktopMode = false;
-  bool canShowReaderMode = false;
   bool jsInjected = false;
   bool wasRestoredFromSession = false;
   Timer? loadingTimeoutTimer; // Timer for loading timeout
@@ -54,7 +53,13 @@ class BrowserTab {
     snapshot = null; // Clear image data
 
     // Clear WebView resources to reduce memory pressure
-    controller.clearCache();
+    try {
+      controller.clearCache();
+      controller.removeJavaScriptChannel('ImageLongPressChannel');
+      controller.removeJavaScriptChannel('CookieCaptureChannel');
+    } catch (e) {
+      debugPrint('[BrowserTab] Error disposing: $e');
+    }
   }
 }
 
@@ -78,9 +83,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
   final BrowserBookmarkService _bookmarkService = BrowserBookmarkService();
   final BrowserCookieService _cookieService = BrowserCookieService();
   bool _isRestoring = true;
-  bool _isReaderMode = false;
-  String? _readerTitle;
-  late final WebViewController _readerController;
   final GlobalKey _repaintKey = GlobalKey();
   bool _showSearch = false;
   final TextEditingController _searchTextController = TextEditingController();
@@ -95,7 +97,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
     _historyService.init();
     _bookmarkService.init();
     _cookieService.initialize();
-    _initReaderController();
     _restoreSession();
 
     // Sync history and bookmarks from backend after a short delay
@@ -119,16 +120,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
     }
   }
 
-  void _initReaderController() {
-    _readerController = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.transparent);
-    // Note: WebView security is enforced via:
-    // 1. AndroidManifest: EnableSafeBrowsing=true, MetricsEnabled=false
-    // 2. NavigationDelegate: Blocks file://, content://, and unsafe URLs
-    // 3. No hardcoded file/content URL loading in this controller
-  }
-
   @override
   void dispose() {
     // Dispose all tabs to prevent memory leaks (also clears snapshots)
@@ -136,14 +127,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
       tab.dispose();
     }
     _tabs.clear();
-
-    // Clear reader controller resources
-    try {
-      _readerController.removeJavaScriptChannel('ImageLongPressChannel');
-    } catch (_) {
-      // Channel may not exist, ignore
-    }
-    _readerController.clearCache();
 
     _urlController.dispose();
     _searchTextController.dispose();
@@ -161,9 +144,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
       for (var tab in _tabs) {
         await tab.controller.clearCache();
       }
-
-      // Clear reader controller cache
-      await _readerController.clearCache();
 
       // Clear recent history URLs set to prevent false duplicate detection
       _recentHistoryUrls.clear();
@@ -276,20 +256,27 @@ class _BrowserScreenState extends State<BrowserScreen> {
   }
 
   Future<void> _saveSession() async {
-    final box = await Hive.openBox<BrowserTabPersistence>('browser_session');
-    await box.clear();
-    for (var tab in _tabs) {
-      await box.add(
-        BrowserTabPersistence(
-          id: tab.id,
-          url: tab.url,
-          title: tab.title,
-          isDesktopMode: tab.isDesktopMode,
-        ),
-      );
-    }
-    // Save cookies with debouncing to prevent excessive saves
-    _debouncedSaveCookies();
+    // Run session save in background to avoid blocking main thread
+    Future.microtask(() async {
+      try {
+        final box = await Hive.openBox<BrowserTabPersistence>('browser_session');
+        await box.clear();
+        for (var tab in _tabs) {
+          await box.add(
+            BrowserTabPersistence(
+              id: tab.id,
+              url: tab.url,
+              title: tab.title,
+              isDesktopMode: tab.isDesktopMode,
+            ),
+          );
+        }
+        // Save cookies with debouncing to prevent excessive saves
+        _debouncedSaveCookies();
+      } catch (e) {
+        debugPrint('[Browser] Error saving session: $e');
+      }
+    });
   }
 
   /// Save cookies with debouncing (wait 2 seconds after last page load)
@@ -378,7 +365,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
             // Set timeout to force stop loading after 15 seconds
             // This prevents infinite loading on SPA/infinite scroll sites
             tab.loadingTimeoutTimer = Timer(const Duration(seconds: 15), () {
-              if (tab.isLoading) {
+              if (tab.isLoading && mounted) {
                 debugPrint('[Browser] Loading timeout for $url - forcing stop');
                 setState(() {
                   tab.isLoading = false;
@@ -397,14 +384,16 @@ class _BrowserScreenState extends State<BrowserScreen> {
             tab.loadingTimeoutTimer?.cancel();
 
             final pageTitle = await tab.controller.getTitle();
-            setState(() {
-              tab.isLoading = false;
-              tab.isInitialized = true; // Mark as initialized after first load
-              tab.hasError = false; // Clear any error state
-              if (pageTitle != null && pageTitle.isNotEmpty) {
-                tab.title = pageTitle;
-              }
-            });
+            if (mounted) {
+              setState(() {
+                tab.isLoading = false;
+                tab.isInitialized = true; // Mark as initialized after first load
+                tab.hasError = false; // Clear any error state
+                if (pageTitle != null && pageTitle.isNotEmpty) {
+                  tab.title = pageTitle;
+                }
+              });
+            }
             // Always save to history and session (no incognito mode)
             _saveSession();
             if (pageTitle != null && pageTitle.isNotEmpty) {
@@ -427,7 +416,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 });
               }
             }
-            _checkReaderModeAvailability(tab.controller);
             // Inject JavaScript enhancements only once per page session
             if (!tab.jsInjected) {
               try {
@@ -492,11 +480,13 @@ class _BrowserScreenState extends State<BrowserScreen> {
           },
           onWebResourceError: (WebResourceError error) {
             debugPrint('[Browser] WebResourceError: ${error.description} (errorCode: ${error.errorCode})');
-            setState(() {
-              tab.hasError = true;
-              tab.errorMessage = error.description.toString();
-              tab.isLoading = false;
-            });
+            if (mounted) {
+              setState(() {
+                tab.hasError = true;
+                tab.errorMessage = error.description.toString();
+                tab.isLoading = false;
+              });
+            }
           },
         ),
       )
@@ -797,288 +787,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
     );
   }
 
-  Future<void> _checkReaderModeAvailability(
-    WebViewController controller,
-  ) async {
-    const script = """
-      (function() {
-        const article = document.querySelector('article') || document.querySelector('main') || document.querySelector('.content') || document.querySelector('#content');
-        if (article) {
-          const text = article.innerText;
-          return text.length > 500;
-        }
-        return document.body.innerText.length > 2000;
-      })();
-    """;
-    try {
-      final result = await controller.runJavaScriptReturningResult(script);
-      if (mounted) {
-        setState(() {
-          _tabs[_activeTabIndex].canShowReaderMode = result == true;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error checking reader mode: $e');
-    }
-  }
-
-  Future<void> _toggleReaderMode() async {
-    if (_isReaderMode) {
-      setState(() => _isReaderMode = false);
-      return;
-    }
-
-    final controller = _tabs[_activeTabIndex].controller;
-    const script = """
-      (function() {
-        const title = document.title;
-        const article = document.querySelector('article') || document.querySelector('main') || document.querySelector('.content') || document.querySelector('#content') || document.body;
-
-        // Basic cleanup
-        const clone = article.cloneNode(true);
-        const tagsToRemove = ['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe', 'ads'];
-        tagsToRemove.forEach(tag => {
-          const elements = clone.querySelectorAll(tag);
-          elements.forEach(el => el.remove());
-        });
-
-        return JSON.stringify({
-          title: title,
-          content: clone.innerHTML
-        });
-      })();
-    """;
-
-    try {
-      final jsonStr = await controller.runJavaScriptReturningResult(script);
-
-      // Validate result before processing
-      if (jsonStr.toString().isEmpty) {
-        throw Exception('Reader mode extraction returned empty result');
-      }
-
-      String jsonString = jsonStr.toString();
-
-      // Handle quoted string results from JavaScript
-      if (jsonString.startsWith('"') && jsonString.endsWith('"')) {
-        jsonString = jsonString
-            .substring(1, jsonString.length - 1)
-            .replaceAll('\\"', '"')
-            .replaceAll('\\\\', '\\');
-      }
-
-      // Parse JSON with proper error handling
-      final Map<String, dynamic> data;
-      try {
-        final decoded = jsonDecode(jsonString);
-        // Validate that decoded result is a Map (not List or primitive)
-        if (decoded is! Map<String, dynamic>) {
-          throw Exception('Invalid reader mode content format (expected Map)');
-        }
-        data = decoded;
-      } on FormatException catch (e) {
-        debugPrint('Reader mode JSON parse error: $e');
-        throw Exception('Failed to parse reader mode content');
-      } on Exception catch (e) {
-        debugPrint('Reader mode content validation error: $e');
-        rethrow;
-      }
-
-      final title = data['title']?.toString() ?? 'Untitled';
-      final content = data['content']?.toString() ?? '';
-
-      if (content.isEmpty) {
-        throw Exception('No content available for reader mode');
-      }
-
-      final html = _generateReaderHtml(title, content);
-
-      await _readerController.loadHtmlString(html);
-
-      setState(() {
-        _isReaderMode = true;
-        _readerTitle = title;
-      });
-    } catch (e) {
-      debugPrint('Error entering reader mode: $e');
-      if (mounted) {
-        AnimatedToast.error(context, 'فشل في تفعيل وضع القراءة');
-      }
-    }
-  }
-
-  String _sanitizeHtml(String html) {
-    // Remove script tags and their content
-    html = html.replaceAll(
-      RegExp(r'<script[^>]*>.*?</script>', multiLine: true, dotAll: true),
-      '',
-    );
-
-    // Remove event handlers (onclick, onerror, onload, etc.)
-    html = html.replaceAll(RegExp(r'\s+on\w+\s*=\s*"[^"]*"'), '');
-    html = html.replaceAll(RegExp(r"\s+on\w+\s*=\s*'[^']*'"), '');
-
-    // Remove javascript: and data: URLs (XSS vectors)
-    html = html.replaceAll(RegExp(r'javascript:', caseSensitive: false), '');
-    html = html.replaceAll(RegExp(r'data:', caseSensitive: false), '');
-
-    // Remove iframe, object, embed, form tags (self-closing and with content)
-    html = html.replaceAll(
-      RegExp(r'<iframe[^>]*>.*?</iframe>', multiLine: true, dotAll: true),
-      '',
-    );
-    html = html.replaceAll(
-      RegExp(r'<object[^>]*>.*?</object>', multiLine: true, dotAll: true),
-      '',
-    );
-    html = html.replaceAll(
-      RegExp(r'<embed[^>]*>.*?</embed>', multiLine: true, dotAll: true),
-      '',
-    );
-    html = html.replaceAll(
-      RegExp(r'<form[^>]*>.*?</form>', multiLine: true, dotAll: true),
-      '',
-    );
-    html = html.replaceAll(RegExp(r'<iframe[^>]*/?>'), '');
-    html = html.replaceAll(RegExp(r'<object[^>]*/?>'), '');
-    html = html.replaceAll(RegExp(r'<embed[^>]*/?>'), '');
-    html = html.replaceAll(RegExp(r'<form[^>]*/?>'), '');
-
-    // Remove meta tags (could contain refresh redirects)
-    html = html.replaceAll(RegExp(r'<meta[^>]*>'), '');
-
-    // Remove link tags (could load external resources)
-    html = html.replaceAll(RegExp(r'<link[^>]*>'), '');
-
-    // Remove base tags (could redirect all relative URLs)
-    html = html.replaceAll(RegExp(r'<base[^>]*>'), '');
-
-    return html;
-  }
-
-  String _generateReaderHtml(String title, String content) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDark ? '#0F2E42' : '#FFFFFF';
-    final textColor = isDark ? '#E8EEFF' : '#333333';
-
-    // Sanitize content to prevent XSS attacks
-    final sanitizedContent = _sanitizeHtml(content);
-    final sanitizedTitle = _sanitizeHtml(title);
-
-    // Content Security Policy - Strict security for reader mode
-    // Only allows inline styles (needed for theming), no scripts, no external resources
-    // SECURITY FIX: HTTPS only for images (no mixed content)
-    const cspPolicy =
-        "default-src 'none'; "
-        "style-src 'unsafe-inline'; "
-        'img-src data: https:; '
-        "font-src 'none'; "
-        "script-src 'none'; "
-        "connect-src 'none'; "
-        "frame-src 'none'; "
-        "object-src 'none'; "
-        "base-uri 'none'; "
-        "form-action 'none';";
-
-    return """
-      <!DOCTYPE html>
-      <html dir="rtl">
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta http-equiv="Content-Security-Policy" content="$cspPolicy">
-        <meta http-equiv="X-Content-Type-Options" content="nosniff">
-        <title>${sanitizedTitle.replaceAll('"', '&quot;')}</title>
-        <style>
-          body {
-            font-family: 'IBM Plex Sans Arabic', sans-serif;
-            padding: 20px;
-            line-height: 1.8;
-            background-color: $bgColor;
-            color: $textColor;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-          }
-          h1 { font-size: 24px; margin-bottom: 20px; }
-          h2 { font-size: 20px; margin-top: 24px; margin-bottom: 16px; }
-          h3 { font-size: 18px; margin-top: 20px; margin-bottom: 12px; }
-          img { max-width: 100%; height: auto; border-radius: 8px; }
-          p { margin-bottom: 16px; }
-          a { color: ${isDark ? '#6DB3F2' : '#0066cc'}; text-decoration: underline; }
-          blockquote { 
-            border-left: 4px solid ${isDark ? '#1E5785' : '#ddd'}; 
-            margin: 16px 0; 
-            padding-left: 16px;
-            color: ${isDark ? '#A0B8C8' : '#666'};
-          }
-          pre, code { 
-            background-color: ${isDark ? '#1A3A52' : '#f4f4f4'}; 
-            padding: 2px 6px; 
-            border-radius: 4px;
-            font-family: 'Courier New', monospace;
-          }
-          pre { padding: 12px; overflow-x: auto; }
-          ul, ol { margin-bottom: 16px; padding-right: 24px; }
-          li { margin-bottom: 8px; }
-        </style>
-      </head>
-      <body>
-        <h1>$sanitizedTitle</h1>
-        $sanitizedContent
-      </body>
-      </html>
-    """;
-  }
-
-  Widget _buildReaderModeOverlay() {
-    if (!_isReaderMode) return const SizedBox.shrink();
-
-    return Positioned.fill(
-      child: Container(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        child: Column(
-          children: [
-            AppBar(
-              elevation: 0,
-              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-              leading: IconButton(
-                icon: const Icon(SolarLinearIcons.closeCircle),
-                onPressed: () => setState(() => _isReaderMode = false),
-              ),
-              title: Text(
-                _readerTitle ?? _tabs[_activeTabIndex].title,
-                style: const TextStyle(fontSize: 14),
-              ),
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_readerTitle != null)
-                      Text(
-                        _readerTitle!,
-                        style: Theme.of(context).textTheme.headlineMedium
-                            ?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              fontFamily: 'IBM Plex Sans Arabic',
-                            ),
-                      ),
-                    const SizedBox(height: 20),
-                    SizedBox(
-                      height: MediaQuery.of(context).size.height * 0.7,
-                      child: WebViewWidget(controller: _readerController),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _loadUrl() {
     String url = _urlController.text.trim();
     if (url.isEmpty) return;
@@ -1153,17 +861,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 suffixIcon: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (activeTab.canShowReaderMode)
-                      IconButton(
-                        icon: Icon(
-                          _isReaderMode
-                              ? SolarBoldIcons.billList
-                              : SolarLinearIcons.billList,
-                          size: 18,
-                        ),
-                        onPressed: _toggleReaderMode,
-                        tooltip: 'وضع القراءة',
-                      ),
                     IconButton(
                       icon: const Icon(
                         SolarLinearIcons.arrowLeft,
@@ -1451,7 +1148,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
               ),
             );
           }),
-          _buildReaderModeOverlay(),
           if (_showSearch)
             Positioned(
               top: 0,

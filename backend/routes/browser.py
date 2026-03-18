@@ -1380,7 +1380,7 @@ async def get_circuit_breaker_status(
 
 class HistoryEntryCreate(BaseModel):
     url: str
-    title: str
+    title: Optional[str] = ""
     visited_at: Optional[str] = None
     device_id: Optional[str] = None
 
@@ -1474,22 +1474,30 @@ async def sync_history(
     
     for entry in entries:
         try:
+            # Validate URL - skip invalid entries
+            if not entry.url or not entry.url.strip():
+                logger.warning(f"Skipping entry with empty URL")
+                continue
+
             visited_at = None
             if entry.visited_at:
                 try:
                     visited_at = datetime.fromisoformat(entry.visited_at.replace('Z', '+00:00'))
                 except:
                     visited_at = datetime.now(timezone.utc)
-            
+
+            # Handle null/empty title
+            title = entry.title or ""
+
             result = await add_history_entry(
                 license_key_id=license_key_id,
-                url=entry.url,
-                title=entry.title,
+                url=entry.url.strip(),
+                title=title.strip() if title else "",
                 user_id=user_id,
                 device_id=device_id,
                 visited_at=visited_at
             )
-            
+
             synced_entries.append(HistoryEntryResponse(
                 id=result["id"],
                 url=result["url"],
@@ -1500,7 +1508,7 @@ async def sync_history(
                 created_at=datetime.now(timezone.utc).isoformat()
             ))
         except Exception as e:
-            logger.error(f"Error syncing history entry {entry.url}: {e}")
+            logger.error(f"Error syncing history entry {entry.url if entry else 'unknown'}: {e}")
             # Continue with other entries
     
     # Update sync metadata

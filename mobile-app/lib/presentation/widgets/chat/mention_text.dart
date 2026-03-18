@@ -29,26 +29,134 @@ class MentionText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Parse the text into linkify elements (URLs, emails, etc.)
+    // First, process mentions manually
+    final mentionPattern = RegExp(r'@([a-zA-Z0-9_\u0600-\u06FF\u0750-\u077F-]{2,32})');
+    final mentions = mentionPattern.allMatches(text);
+
+    // Decode HTML entities first
+    final decodedText = _decodeHtmlEntities(text);
+    
+    // If no mentions, use simple URL detection
+    if (mentions.isEmpty) {
+      return _buildSimpleTextWithUrls(context, decodedText);
+    }
+
+    // Has mentions - use custom rich text
+    return _buildRichTextWithMentions(context, mentionPattern, decodedText);
+  }
+
+  /// Simple text with URL detection for text without mentions
+  Widget _buildSimpleTextWithUrls(BuildContext context, String textToParse) {
+    // URL pattern - matches http, https, and domain-only URLs
+    final urlPattern = RegExp(
+      r'(https?://)?([a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}(/[^\s]*)?',
+      caseSensitive: false,
+    );
+
+    final matches = urlPattern.allMatches(textToParse);
+
+    if (matches.isEmpty) {
+      // No URLs, just return regular text
+      return Text(
+        textToParse,
+        style: style,
+        textAlign: textAlign,
+        textDirection: textDirection ?? TextDirection.ltr,
+      );
+    }
+
+    // Build a list of widgets (Text and GestureDetector for URLs)
+    final List<InlineSpan> spans = [];
+    int lastEnd = 0;
+
+    for (var match in matches) {
+      // Add text before the URL
+      if (match.start > lastEnd) {
+        spans.add(TextSpan(
+          text: textToParse.substring(lastEnd, match.start),
+          style: style,
+        ));
+      }
+
+      // Add the URL as a clickable span
+      final String url = match.group(0)!;
+      String displayUrl = url;
+      
+      // Remove protocol for display
+      if (displayUrl.startsWith('http://')) {
+        displayUrl = displayUrl.substring(7);
+      } else if (displayUrl.startsWith('https://')) {
+        displayUrl = displayUrl.substring(8);
+      }
+
+      // Ensure URL has protocol for navigation
+      String navigableUrl = url;
+      if (!navigableUrl.startsWith('http://') && !navigableUrl.startsWith('https://')) {
+        navigableUrl = 'https://$navigableUrl';
+      }
+
+      // Create URL style - same color as regular text but with underline
+      final urlStyle = TextStyle(
+        color: style?.color, // Use same color as parent text
+        decoration: TextDecoration.underline,
+        fontSize: style?.fontSize ?? 15,
+        fontWeight: style?.fontWeight ?? FontWeight.normal,
+        fontFamily: style?.fontFamily ?? 'IBM Plex Sans Arabic',
+        height: style?.height ?? 1.5,
+        letterSpacing: style?.letterSpacing,
+      );
+
+      spans.add(TextSpan(
+        text: displayUrl,
+        style: urlStyle,
+        recognizer: TapGestureRecognizer()
+          ..onTap = () {
+            if (onUrlTap != null) {
+              onUrlTap!(navigableUrl);
+            }
+          },
+      ));
+
+      lastEnd = match.end;
+    }
+
+    // Add remaining text after the last URL
+    if (lastEnd < textToParse.length) {
+      spans.add(TextSpan(
+        text: textToParse.substring(lastEnd),
+        style: style,
+      ));
+    }
+
+    // Use RichText with explicit text style
+    return RichText(
+      text: TextSpan(
+        style: TextStyle(
+          color: style?.color ?? Colors.black, // Ensure base color is set
+          fontSize: style?.fontSize ?? 15,
+          fontFamily: style?.fontFamily ?? 'IBM Plex Sans Arabic',
+          height: style?.height ?? 1.5,
+        ),
+        children: spans,
+      ),
+      textAlign: textAlign ?? TextAlign.left,
+      textDirection: textDirection ?? TextDirection.ltr,
+      textWidthBasis: TextWidthBasis.parent,
+    );
+  }
+
+  /// Custom rich text builder for text with mentions
+  Widget _buildRichTextWithMentions(BuildContext context, RegExp mentionPattern, String decodedText) {
+    // Parse the decoded text into linkify elements
     final elements = linkify(
-      text,
+      decodedText,
       options: const LinkifyOptions(
         humanize: false,
         looseUrl: true,
       ),
     );
 
-    // Always build rich text with mentions detection from text
-    // Don't rely on backend mentions array - detect mentions directly like task_edit_screen.dart
-    return _buildRichTextWithLinks(context, elements);
-  }
-
-  Widget _buildRichTextWithLinks(BuildContext context, List<LinkifyElement> elements) {
     final spans = <TextSpan>[];
-
-    // Pattern to match @mentions - same as task_edit_screen.dart and note_edit_screen.dart
-    // Supports both Latin and Arabic characters, 2-32 chars long
-    final mentionPattern = RegExp(r'@([a-zA-Z0-9_\u0600-\u06FF\u0750-\u077F-]{2,32})');
 
     // Process each linkify element
     for (var element in elements) {
@@ -61,21 +169,31 @@ class MentionText extends StatelessWidget {
         );
       } else if (element is UrlElement) {
         // This is a URL - make it clickable
-        // Decode URL for display to convert &amp; back to &, etc.
-        final displayUrl = _decodeHtmlEntities(element.url);
+        final url = element.url;
+
+        // Remove protocol prefix for cleaner display
+        String displayText = url;
+        if (displayText.startsWith('http://')) {
+          displayText = displayText.substring(7);
+        } else if (displayText.startsWith('https://')) {
+          displayText = displayText.substring(8);
+        }
+
         spans.add(TextSpan(
-          text: displayUrl,
+          text: displayText,
           style: linkStyle ??
-              const TextStyle(
-                color: AppColors.primary,
+              TextStyle(
+                color: style?.color, // Use same color as parent text
                 decoration: TextDecoration.underline,
+                fontSize: style?.fontSize,
+                fontWeight: style?.fontWeight,
+                fontFamily: style?.fontFamily,
+                height: style?.height,
               ),
           recognizer: TapGestureRecognizer()
             ..onTap = () {
               if (onUrlTap != null) {
-                // Use the original URL (with entities) for launching
-                // as it should be properly encoded for URIs
-                onUrlTap!(element.url);
+                onUrlTap!(url);
               }
             },
         ));
@@ -88,7 +206,8 @@ class MentionText extends StatelessWidget {
         children: spans,
       ),
       textAlign: textAlign ?? TextAlign.left,
-      textDirection: textDirection,
+      textDirection: textDirection ?? TextDirection.ltr,
+      textWidthBasis: TextWidthBasis.parent,
     );
   }
 

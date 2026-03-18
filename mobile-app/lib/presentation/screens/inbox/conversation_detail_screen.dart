@@ -89,7 +89,11 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
 
   @override
   void dispose() {
-    _detailProvider.clear();
+    // Note: We don't clear the provider here because it's a singleton that persists
+    // across navigation. Clearing would cause unnecessary reloads when navigating
+    // back from customer detail screen. The provider is only cleared when:
+    // 1. Switching to a different conversation (handled in loadConversation)
+    // 2. Switching accounts (handled in reset/clearAllCache methods)
     super.dispose();
   }
 

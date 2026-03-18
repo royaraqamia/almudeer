@@ -60,23 +60,35 @@ class BrowserSyncService {
     int offset = 0,
   }) async {
     try {
-      final response = await _api.get(
+      final dynamic response = await _api.get(
         Endpoints.browserHistory,
         queryParams: {'limit': limit.toString(), 'offset': offset.toString()},
       );
 
-      final list = response as List<dynamic>;
+      // Handle both direct list and wrapped response
+      List<dynamic>? listData;
+      if (response is List) {
+        listData = response;
+      } else {
+        final map = response as Map<String, dynamic>;
+        listData = map['data'] as List? ?? map['results'] as List?;
+      }
+
+      if (listData == null) {
+        debugPrint('[BrowserSync] Unexpected history response format: ${response.runtimeType}');
+        return [];
+      }
+
       final entries = <BrowserHistoryEntry>[];
-      
-      for (int i = 0; i < list.length; i++) {
-        final item = list[i] as Map<String, dynamic>;
+      for (int i = 0; i < listData.length; i++) {
+        final item = listData[i] as Map<String, dynamic>;
         entries.add(BrowserHistoryEntry(
           url: item['url'] as String,
           title: (item['title'] as String?) ?? '',
           timestamp: DateTime.parse(item['visited_at'] as String),
         ));
       }
-      
+
       return entries;
     } catch (e) {
       debugPrint('[BrowserSync] Error getting history: $e');
@@ -165,23 +177,35 @@ class BrowserSyncService {
         queryParams = {'folder': folder};
       }
 
-      final response = await _api.get(
+      final dynamic response = await _api.get(
         Endpoints.browserBookmarks,
         queryParams: queryParams,
       );
 
-      final list = response as List<dynamic>;
+      // Handle both direct list and wrapped response
+      List<dynamic>? listData;
+      if (response is List) {
+        listData = response;
+      } else {
+        final map = response as Map<String, dynamic>;
+        listData = map['data'] as List? ?? map['results'] as List?;
+      }
+
+      if (listData == null) {
+        debugPrint('[BrowserSync] Unexpected bookmarks response format: ${response.runtimeType}');
+        return [];
+      }
+
       final bookmarks = <BrowserBookmark>[];
-      
-      for (int i = 0; i < list.length; i++) {
-        final item = list[i] as Map<String, dynamic>;
+      for (int i = 0; i < listData.length; i++) {
+        final item = listData[i] as Map<String, dynamic>;
         bookmarks.add(BrowserBookmark(
           url: item['url'] as String,
           title: item['title'] as String,
           timestamp: DateTime.parse(item['created_at'] as String),
         ));
       }
-      
+
       return bookmarks;
     } catch (e) {
       debugPrint('[BrowserSync] Error getting bookmarks: $e');

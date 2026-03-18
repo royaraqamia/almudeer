@@ -14,6 +14,8 @@ import '../../../core/utils/url_launcher_utils.dart';
 import '../../../data/models/library_item.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/customers_provider.dart';
+import '../../../data/repositories/customers_repository.dart';
 import '../../../core/extensions/string_extension.dart';
 import '../../widgets/library/share_item_dialog.dart';
 import '../customers/customer_detail_screen.dart';
@@ -251,20 +253,72 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   }
 
   /// Navigate to customer detail screen for @username mention
-  void _navigateToCustomerDetail(String username) {
-    // Navigate to CustomerDetailScreen with username-based customer data
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => CustomerDetailScreen(
-          customer: {
+  Future<void> _navigateToCustomerDetail(String username) async {
+    // Capture navigator and provider before async gap
+    final navigator = Navigator.of(context);
+    final customersProvider = context.read<CustomersProvider>();
+
+    // First, check if this username is a customer
+    final customersRepository = CustomersRepository();
+    final customerCheckResponse = await customersRepository.checkUsername(username);
+
+    Map<String, dynamic> customerData;
+
+    // If the username is a customer, fetch full customer data
+    if (customerCheckResponse['exists'] == true) {
+      try {
+        // Try to get customer by username from the customers list
+        final customer = customersProvider.customers
+            .firstWhere((c) => c.username?.toLowerCase() == username.toLowerCase());
+
+        customerData = customer.toJson();
+      } catch (e) {
+        // If not found in local list, fetch from API
+        try {
+          final response = await customersRepository.apiClient.get(
+            '/api/customers?username=$username',
+          );
+          if (response['customers'] != null && (response['customers'] as List).isNotEmpty) {
+            customerData = (response['customers'] as List).first as Map<String, dynamic>;
+          } else {
+            // Fallback to basic customer data
+            customerData = {
+              'username': username,
+              'name': username,
+              'is_almudeer_user': true,
+              'is_online': false,
+            };
+          }
+        } catch (fetchError) {
+          debugPrint('[NoteEditScreen] Failed to fetch customer data: $fetchError');
+          customerData = {
             'username': username,
             'name': username,
             'is_almudeer_user': true,
             'is_online': false,
-          },
+          };
+        }
+      }
+    } else {
+      // Not a customer, use basic user data
+      customerData = {
+        'username': username,
+        'name': username,
+        'is_almudeer_user': true,
+        'is_online': false,
+      };
+    }
+
+    // Navigate to CustomerDetailScreen with the data
+    if (mounted) {
+      navigator.push(
+        MaterialPageRoute(
+          builder: (context) => CustomerDetailScreen(
+            customer: customerData,
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   @override

@@ -231,26 +231,12 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     final username = _customer[_kUsernameKey] ?? _customer['senderContact'];
     if (username == null) return;
 
-    final lastSeen = _customer[_kLastSeenAtKey];
-    final isOnline = _checkIsOnline();
-
-    void action() {
-      if (mounted) {
-        context.read<ConversationDetailProvider>().loadConversation(
-          username.toString(),
-          channel: 'almudeer',
-          fresh: false,
-          lastSeenAt: lastSeen,
-          isOnline: isOnline,
-        );
-      }
-    }
-
-    if (immediate) {
-      action();
-    } else {
-      WidgetsBinding.instance.addPostFrameCallback((_) => action());
-    }
+    // Note: We don't call loadConversation() here as this would change the active
+    // contact in ConversationDetailProvider, causing issues when navigating back
+    // to the conversation detail screen. This method is only for subscribing to
+    // status updates, not for loading conversations.
+    // The loadConversation() call was removed to fix the navigation flow:
+    // conversation → customer detail → back to conversation (without reload)
   }
 
   @override
