@@ -189,8 +189,15 @@ class _MessageInputSectionState extends State<MessageInputSection> {
     // Check if last word starts with @
     if (lastWord.startsWith('@')) {
       final query = lastWord.substring(1); // Remove @
-      if (query.isNotEmpty && query.length <= 32) {
-        // Valid username length
+      
+      // Validate username: same pattern as task_edit_screen.dart and note_edit_screen.dart
+      // Supports both Latin and Arabic characters, 2-32 chars long
+      final validUsernamePattern = RegExp(r'^[a-zA-Z0-9_\u0600-\u06FF\u0750-\u077F-]{2,32}$');
+      
+      if (query.isNotEmpty && 
+          query.length <= 32 && 
+          validUsernamePattern.hasMatch(query)) {
+        // Valid username length and format
         setState(() {
           _mentionQuery = query;
         });
@@ -218,19 +225,19 @@ class _MessageInputSectionState extends State<MessageInputSection> {
                 color: Colors.transparent,
               ),
             ),
-            Positioned(
-              left: 16.0, // Adjust based on your layout
-              bottom: MediaQuery.of(context).viewInsets.bottom + 80,
-              child: CompositedTransformFollower(
-                link: _layerLink,
-                offset: Offset(0, -_mentionOffsetY),
-                child: MentionAutocomplete(
-                  query: _mentionQuery ?? '',
-                  offsetX: _mentionOffsetX,
-                  offsetY: _mentionOffsetY,
-                  onMentionSelected: _handleMentionSelection,
-                  onDismiss: _hideMentionAutocomplete,
-                ),
+            // Use CompositedTransformFollower to follow the text field
+            CompositedTransformFollower(
+              link: _layerLink,
+              offset: Offset(
+                Directionality.of(context) == TextDirection.rtl ? 0 : 0,
+                -50.0, // Position above the text field
+              ),
+              child: MentionAutocomplete(
+                query: _mentionQuery ?? '',
+                offsetX: _mentionOffsetX,
+                offsetY: _mentionOffsetY,
+                onMentionSelected: _handleMentionSelection,
+                onDismiss: _hideMentionAutocomplete,
               ),
             ),
           ],
@@ -550,102 +557,105 @@ class _MessageInputSectionState extends State<MessageInputSection> {
                         listenable: _controller,
                         builder: (context, child) {
                           final text = _controller.text;
-                          return TextField(
-                            controller: _controller,
-                            focusNode: _focusNode,
-                            minLines: 1,
-                            maxLines: 5,
-                            textDirection: text.isEmpty
-                                ? TextDirection.rtl
-                                : text.direction,
-                            textAlign: (text.isEmpty || text.isArabic)
-                                ? TextAlign.right
-                                : TextAlign.left,
-                            keyboardType: TextInputType.multiline,
-                            textInputAction: TextInputAction.newline,
-                            onChanged: _onTextChanged,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              height: 1.5,
-                              color: isDark
-                                  ? AppColors.textPrimaryDark
-                                  : AppColors.textPrimaryLight,
-                            ),
-                            decoration: InputDecoration(
-                              // Override global theme's fixed 48px height constraint
-                              constraints: const BoxConstraints(minHeight: 48),
-                              filled: false,
-                              hintText: isEditing
-                                  ? 'تعديل الرِّسالة...'
-                                  : 'اكتب رسالتك...',
-                              hintStyle: TextStyle(
+                          return CompositedTransformTarget(
+                            link: _layerLink,
+                            child: TextField(
+                              controller: _controller,
+                              focusNode: _focusNode,
+                              minLines: 1,
+                              maxLines: 5,
+                              textDirection: text.isEmpty
+                                  ? TextDirection.rtl
+                                  : text.direction,
+                              textAlign: (text.isEmpty || text.isArabic)
+                                  ? TextAlign.right
+                                  : TextAlign.left,
+                              keyboardType: TextInputType.multiline,
+                              textInputAction: TextInputAction.newline,
+                              onChanged: _onTextChanged,
+                              style: TextStyle(
                                 fontSize: 16,
-                                fontWeight: FontWeight.normal,
+                                fontWeight: FontWeight.w600,
                                 height: 1.5,
                                 color: isDark
-                                    ? AppColors.textTertiaryDark
-                                    : AppColors.textTertiaryLight,
+                                    ? AppColors.textPrimaryDark
+                                    : AppColors.textPrimaryLight,
                               ),
-                              prefixIcon: Semantics(
-                                label: _showEmoji
-                                    ? 'إظهار الرموز'
-                                    : 'إظهار الرموز',
-                                button: true,
-                                child: SizedBox(
-                                  width: 48,
-                                  height: 48,
-                                  child: IconButton(
-                                    onPressed: _toggleEmoji,
-                                    icon: Icon(
-                                      _showEmoji
-                                          ? SolarLinearIcons.keyboard
-                                          : SolarLinearIcons.stickerCircle,
-                                      color: _showEmoji
-                                          ? AppColors.primary
-                                          : theme.hintColor.withValues(
-                                              alpha: 0.7,
-                                            ),
-                                      size: 24,
+                              decoration: InputDecoration(
+                                // Override global theme's fixed 48px height constraint
+                                constraints: const BoxConstraints(minHeight: 48),
+                                filled: false,
+                                hintText: isEditing
+                                    ? 'تعديل الرِّسالة...'
+                                    : 'اكتب رسالتك...',
+                                hintStyle: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.normal,
+                                  height: 1.5,
+                                  color: isDark
+                                      ? AppColors.textTertiaryDark
+                                      : AppColors.textTertiaryLight,
+                                ),
+                                prefixIcon: Semantics(
+                                  label: _showEmoji
+                                      ? 'إظهار الرموز'
+                                      : 'إظهار الرموز',
+                                  button: true,
+                                  child: SizedBox(
+                                    width: 48,
+                                    height: 48,
+                                    child: IconButton(
+                                      onPressed: _toggleEmoji,
+                                      icon: Icon(
+                                        _showEmoji
+                                            ? SolarLinearIcons.keyboard
+                                            : SolarLinearIcons.stickerCircle,
+                                        color: _showEmoji
+                                            ? AppColors.primary
+                                            : theme.hintColor.withValues(
+                                                alpha: 0.7,
+                                              ),
+                                        size: 24,
+                                      ),
+                                      padding: const EdgeInsets.all(12),
+                                      tooltip: _showEmoji
+                                          ? 'إخفاء الرموز'
+                                          : 'الرموز',
                                     ),
-                                    padding: const EdgeInsets.all(12),
-                                    tooltip: _showEmoji
-                                        ? 'إخفاء الرموز'
-                                        : 'الرموز',
                                   ),
                                 ),
-                              ),
-                              suffixIcon: Semantics(
-                                label: _showAttachments
-                                    ? 'إخفاء المرفقات'
-                                    : 'إضافة مرفق',
-                                button: true,
-                                child: SizedBox(
-                                  width: 48,
-                                  height: 48,
-                                  child: IconButton(
-                                    onPressed: _toggleAttachments,
-                                    icon: Icon(
-                                      SolarLinearIcons.paperclip,
-                                      color: _showAttachments
-                                          ? AppColors.primary
-                                          : theme.hintColor.withValues(
-                                              alpha: 0.7,
-                                            ),
-                                      size: 24,
+                                suffixIcon: Semantics(
+                                  label: _showAttachments
+                                      ? 'إخفاء المرفقات'
+                                      : 'إضافة مرفق',
+                                  button: true,
+                                  child: SizedBox(
+                                    width: 48,
+                                    height: 48,
+                                    child: IconButton(
+                                      onPressed: _toggleAttachments,
+                                      icon: Icon(
+                                        SolarLinearIcons.paperclip,
+                                        color: _showAttachments
+                                            ? AppColors.primary
+                                            : theme.hintColor.withValues(
+                                                alpha: 0.7,
+                                              ),
+                                        size: 24,
+                                      ),
+                                      padding: const EdgeInsets.all(12),
+                                      tooltip: 'مرفقات',
                                     ),
-                                    padding: const EdgeInsets.all(12),
-                                    tooltip: 'مرفقات',
                                   ),
                                 ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                                border: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
                               ),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                              border: InputBorder.none,
-                              enabledBorder: InputBorder.none,
-                              focusedBorder: InputBorder.none,
                             ),
                           );
                         },

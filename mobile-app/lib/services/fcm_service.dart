@@ -573,7 +573,7 @@ class FcmService {
             'device_id': deviceId,
           },
         );
-        debugPrint('FCM: Token registered successfully');
+        debugPrint('FCM: Token registered with backend');
         
         // Reset failure counter on success
         await _resetFcmFailureCounter();
@@ -718,7 +718,7 @@ class FcmService {
           'device_id': deviceId,
         },
       );
-      debugPrint('FCM Token registered with backend');
+      debugPrint('FCM: Token registered with backend');
     } catch (e) {
       debugPrint('FCM Token registration error: $e');
     }

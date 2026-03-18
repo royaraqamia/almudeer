@@ -752,6 +752,11 @@ class InboxRepository {
     await _localDataSource.updateMessageSyncStatus(remoteId, status);
   }
 
+  /// Get a message by ID from local cache
+  Future<InboxMessage?> getMessageById(int id) async {
+    return await _localDataSource.getMessageById(id);
+  }
+
   /// Persist a remote message to local SQLite (WebSocket path)
   Future<void> persistRemoteMessage(Map<String, dynamic> message) async {
     await _localDataSource.persistRemoteMessage(message);

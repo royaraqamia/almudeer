@@ -960,7 +960,6 @@ class ApiClient {
           try {
             final serverTime = HttpDate.parse(dateHeader);
             _updateServerTimeOffset(serverTime);
-            debugPrint('[ApiClient] Server time offset updated during refresh');
           } catch (e) {
             debugPrint('[ApiClient] Failed to parse server date header on refresh: $e');
           }
@@ -1088,9 +1087,19 @@ class ApiClient {
     if (serverTime == null) return;
 
     final now = DateTime.now();
-    _serverTimeOffset = serverTime.difference(now);
+    final newOffset = serverTime.difference(now);
+    
+    // Only log if offset changed significantly (>1 second) or is large (>5 seconds)
+    final shouldLog = _serverTimeOffset == null ||
+        (newOffset - _serverTimeOffset!).inSeconds.abs() > 1 ||
+        newOffset.inSeconds.abs() > 5;
+    
+    _serverTimeOffset = newOffset;
     _lastServerTimeSync = now;
-    debugPrint('[ApiClient] Server time offset: ${_serverTimeOffset?.inSeconds}s');
+    
+    if (shouldLog) {
+      debugPrint('[ApiClient] Server time offset: ${_serverTimeOffset?.inSeconds}s');
+    }
   }
 
   /// P1-13: Get current server time accounting for clock skew

@@ -168,72 +168,57 @@ flutter {
 
 // Fix for Flutter tool not finding APKs - copies APK to where Flutter tool expects it
 // Handles both debug and release builds
-afterEvaluate {
-    android.applicationVariants.all {
-        val variant = this
-        val taskName = "copy${variant.name.capitalize()}ApkForFlutter"
+android.applicationVariants.all {
+    val variant = this
+    val variantName = variant.name
+    val capitalizedVariantName = variantName.replaceFirstChar { it.uppercase() }
+    val taskName = "copy${capitalizedVariantName}ApkForFlutter"
 
-        // Only create the task if it doesn't exist
-        if (!tasks.names.contains(taskName)) {
-            tasks.register<Copy>(taskName) {
-                group = "flutter"
-                description = "Copies ${variant.name} APK for Flutter tool compatibility"
+    tasks.register<Copy>(taskName) {
+        group = "flutter"
+        description = "Copies ${variantName} APK for Flutter tool compatibility"
 
-                // Get the output directory from the first output
-                val outputDir = variant.outputs.firstOrNull()?.let {
-                    (it as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFile.parentFile
+        // Use the standard Android APK output directory
+        from("${project.buildDir}/outputs/apk/${variantName}")
+        into("${project.buildDir}/outputs/flutter-apk/")
+
+        // Also copy to the root build directory where Flutter tool expects it
+        doLast {
+            val sourceFlutterApkDir = file("${project.buildDir}/outputs/flutter-apk/")
+            val targetFlutterApkDir = file("${rootProject.projectDir}/../build/app/outputs/flutter-apk/")
+            targetFlutterApkDir.mkdirs()
+
+            val apkFiles = sourceFlutterApkDir.listFiles()?.filter { it.name.endsWith(".apk") }
+            if (apkFiles != null && apkFiles.isNotEmpty()) {
+                // For release builds with ABI splits, find arm64 and copy as generic
+                val arm64Apk = apkFiles.find {
+                    it.name.contains("arm64-v8a") && it.name.endsWith(".apk")
+                }
+                if (arm64Apk != null && arm64Apk.exists()) {
+                    val genericApk = File(sourceFlutterApkDir, "app-${variantName}.apk")
+                    arm64Apk.copyTo(genericApk, overwrite = true)
+                    println("✓ Created android/app/build/outputs/flutter-apk/app-${variantName}.apk")
                 }
 
-                if (outputDir != null && outputDir.exists()) {
-                    from(outputDir)
-                    into("${project.projectDir}/build/outputs/flutter-apk/")
-
-                    // Also copy to the build/app/outputs/flutter-apk/ where Flutter tool looks
-                    doFirst {
-                        val flutterBuildDir = file("${rootProject.projectDir}/../build/app/outputs/flutter-apk/")
-                        flutterBuildDir.mkdirs()
-                    }
-
-                    doLast {
-                        // Copy to android/app build dir
-                        val flutterApkDir = file("${project.projectDir}/build/outputs/flutter-apk/")
-                        val apkFiles = flutterApkDir.listFiles()?.filter { it.name.endsWith(".apk") }
-
-                        if (apkFiles != null && apkFiles.isNotEmpty()) {
-                            // For release builds with ABI splits, find arm64 and copy as generic
-                            val arm64Apk = apkFiles.find {
-                                it.name.contains("arm64-v8a") && it.name.endsWith(".apk")
-                            }
-                            if (arm64Apk != null && arm64Apk.exists()) {
-                                val genericApk = File(flutterApkDir, "app-${variant.name}.apk")
-                                arm64Apk.copyTo(genericApk, overwrite = true)
-                                println("✓ Copied to android/app/build/outputs/flutter-apk/app-${variant.name}.apk")
-                            }
-
-                            // Copy to build/app/outputs/flutter-apk/ where Flutter tool expects it
-                            val flutterBuildDir = file("${rootProject.projectDir}/../build/app/outputs/flutter-apk/")
-                            flutterBuildDir.mkdirs()
-                            apkFiles.forEach { apk ->
-                                apk.copyTo(File(flutterBuildDir, apk.name), overwrite = true)
-                            }
-                            if (arm64Apk != null) {
-                                arm64Apk.copyTo(File(flutterBuildDir, "app-${variant.name}.apk"), overwrite = true)
-                                println("✓ Copied to build/app/outputs/flutter-apk/app-${variant.name}.apk")
-                            } else if (apkFiles.size == 1) {
-                                // For debug builds (no split), copy the single APK with standard name
-                                apkFiles.first().copyTo(File(flutterBuildDir, "app-${variant.name}.apk"), overwrite = true)
-                                println("✓ Copied to build/app/outputs/flutter-apk/app-${variant.name}.apk")
-                            }
-                        }
-                    }
+                // Copy all APKs to root build directory
+                apkFiles.forEach { apk ->
+                    apk.copyTo(File(targetFlutterApkDir, apk.name), overwrite = true)
                 }
-            }
-
-            // Make this task run after the assemble task
-            tasks.named("assemble${variant.name.capitalize()}") {
-                finalizedBy(taskName)
+                if (arm64Apk != null) {
+                    arm64Apk.copyTo(File(targetFlutterApkDir, "app-${variantName}.apk"), overwrite = true)
+                    println("✓ Created build/app/outputs/flutter-apk/app-${variantName}.apk")
+                } else if (apkFiles.size == 1) {
+                    // For debug builds (no split), copy the single APK with standard name
+                    apkFiles.first().copyTo(File(targetFlutterApkDir, "app-${variantName}.apk"), overwrite = true)
+                    println("✓ Created build/app/outputs/flutter-apk/app-${variantName}.apk")
+                }
             }
         }
+    }
+
+    // Make this task run after the assemble task
+    tasks.named("assemble${capitalizedVariantName}") {
+        finalizedBy(taskName)
     }
 }
 

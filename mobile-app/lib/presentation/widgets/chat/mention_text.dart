@@ -79,8 +79,9 @@ class MentionText extends StatelessWidget {
       mentionMap[username] = mention;
     }
 
-    // Pattern to match @mentions
-    final mentionPattern = RegExp(r'@([a-zA-Z][a-zA-Z0-9_-]{2,31})');
+    // Pattern to match @mentions - same as task_edit_screen.dart and note_edit_screen.dart
+    // Supports both Latin and Arabic characters, 2-32 chars long
+    final mentionPattern = RegExp(r'@([a-zA-Z0-9_\u0600-\u06FF\u0750-\u077F-]{2,32})');
 
     // Process each linkify element
     for (var element in elements) {

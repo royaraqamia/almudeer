@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import '../../../core/services/local_database_service.dart';
+import '../../models/inbox_message.dart';
 
 class InboxLocalDataSource {
   final LocalDatabaseService _dbService;
@@ -467,10 +468,29 @@ class InboxLocalDataSource {
     final db = await _db;
     await db.update(
       'inbox_messages',
-      {'status': status, 'sync_status': 'synced'},
+      {
+        'status': status,
+        'delivery_status': status, // Also update delivery_status for consistency
+        'sync_status': 'synced',
+      },
       where: 'remote_id = ?',
       whereArgs: [remoteId],
     );
+  }
+
+  /// Get a message by ID from local cache
+  Future<InboxMessage?> getMessageById(int id) async {
+    final db = await _db;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'inbox_messages',
+      where: 'remote_id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (maps.isNotEmpty) {
+      return InboxMessage.fromJson(maps.first);
+    }
+    return null;
   }
 
   /// Persist a single remote message (e.g. from WebSocket)

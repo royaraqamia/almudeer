@@ -451,7 +451,7 @@ class _ConversationAppBarState extends State<ConversationAppBar> {
                       Text(
                         'يكتب...',
                         style: widget.theme.textTheme.bodySmall?.copyWith(
-                          color: widget.theme.primaryColor,
+                          color: widget.theme.colorScheme.primary,
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
                         ),
@@ -461,7 +461,7 @@ class _ConversationAppBarState extends State<ConversationAppBar> {
                       Text(
                         'يسجِّل مقطع صوتي...',
                         style: widget.theme.textTheme.bodySmall?.copyWith(
-                          color: widget.theme.primaryColor,
+                          color: widget.theme.colorScheme.primary,
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
                         ),
@@ -472,7 +472,7 @@ class _ConversationAppBarState extends State<ConversationAppBar> {
                         Text(
                           'متَّصل الآن',
                           style: widget.theme.textTheme.bodySmall?.copyWith(
-                            color: widget.theme.primaryColor,
+                            color: widget.theme.colorScheme.primary,
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
                           ),

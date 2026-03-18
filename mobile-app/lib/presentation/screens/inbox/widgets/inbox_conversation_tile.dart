@@ -158,9 +158,8 @@ class _InboxConversationTileState extends State<InboxConversationTile>
     final previewColor = _getPreviewColor(theme, hasUnread);
     final prefixColor = theme.hintColor.withValues(alpha: 0.7);
 
-    // Determine text direction based on draft content
-    final textDirection = draftText.isArabic ? TextDirection.rtl : TextDirection.ltr;
-
+    // Always use RTL direction to keep the Arabic prefix "مسودَّة: " on the right
+    // This ensures the prefix stays at the start for both English and Arabic drafts
     return RichText(
       text: TextSpan(
         style: theme.textTheme.bodyMedium?.copyWith(
@@ -189,7 +188,7 @@ class _InboxConversationTileState extends State<InboxConversationTile>
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       textAlign: TextAlign.right,
-      textDirection: textDirection,
+      textDirection: TextDirection.rtl,
     );
   }
 

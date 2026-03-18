@@ -228,6 +228,92 @@ class ConversationDetailProvider extends ChangeNotifier {
     });
   }
 
+  /// Helper method to check if localStatus is newer/more advanced than apiStatus
+  /// Status hierarchy: read > delivered > sent > pending/unknown
+  bool _isStatusNewer(String? localStatus, String? apiStatus) {
+    if (localStatus == null) return false;
+    if (apiStatus == null) return true;
+    
+    final localLower = localStatus.toLowerCase();
+    final apiLower = apiStatus.toLowerCase();
+    
+    return _getStatusPriority(localLower) > _getStatusPriority(apiLower);
+  }
+
+  /// Get priority for a status (higher = more advanced)
+  int _getStatusPriority(String status) {
+    switch (status) {
+      case 'read':
+        return 4;
+      case 'delivered':
+        return 3;
+      case 'sent':
+      case 'approved':
+      case 'auto_replied':
+      case 'analyzed':
+        return 2;
+      case 'pending':
+      case 'sending':
+        return 1;
+      default:
+        return 0;
+    }
+  }
+
+  /// Update message status in PersistentCacheService cache
+  /// This ensures cache consistency when reopening conversations
+  Future<void> _updateMessageStatusInCache(
+    String contact,
+    int messageId,
+    String newStatus,
+  ) async {
+    try {
+      final accountHash = await _inboxRepository.apiClient.getAccountCacheHash();
+      final cacheKey = '${accountHash}_messages_$contact';
+      
+      final cachedRaw = await _cache.get<Map<String, dynamic>>(
+        PersistentCacheService.boxInbox,
+        cacheKey,
+      );
+      
+      if (cachedRaw != null && cachedRaw['messages'] != null) {
+        final cachedMessages = (cachedRaw['messages'] as List)
+            .map((m) => InboxMessage.fromJson(m as Map<String, dynamic>))
+            .toList();
+        
+        // Find and update the message
+        bool found = false;
+        for (int i = 0; i < cachedMessages.length; i++) {
+          if (cachedMessages[i].id == messageId || 
+              cachedMessages[i].outboxId == messageId) {
+            cachedMessages[i] = cachedMessages[i].copyWith(
+              status: newStatus,
+              deliveryStatus: newStatus,
+            );
+            found = true;
+            debugPrint(
+              '[ConversationDetailProvider] Updated cache for message $messageId: status=$newStatus',
+            );
+            break;
+          }
+        }
+        
+        if (found) {
+          await _cache.put(
+            PersistentCacheService.boxInbox,
+            cacheKey,
+            {
+              'messages': cachedMessages.map((m) => m.toJson()).toList(),
+              'cached_at': DateTime.now().toIso8601String(),
+            },
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[ConversationDetailProvider] Error updating cache: $e');
+    }
+  }
+
   // Getters for the ACTIVE conversation
   ConversationState get state {
     if (_activeContact == null) return ConversationState.initial;
@@ -309,6 +395,38 @@ class ConversationDetailProvider extends ChangeNotifier {
   Set<int> get selectedMessageIds => _selectedMessageIds;
   int get selectedCount => _selectedMessageIds.length;
   bool isMessageSelected(int id) => _selectedMessageIds.contains(id);
+
+  /// Get a message by ID from the active conversation
+  /// Returns null if not found
+  InboxMessage? getMessageById(int id) {
+    if (_activeContact == null) return null;
+    final messages = _memoryMessages[_activeContact];
+    if (messages == null) return null;
+    try {
+      final msg = messages.firstWhere((m) => m.id == id);
+      debugPrint('[ConversationDetailProvider] getMessageById($id): found status=${msg.status}, deliveryStatus=${msg.deliveryStatus}, sendStatus=${msg.sendStatus}');
+      return msg;
+    } catch (_) {
+      debugPrint('[ConversationDetailProvider] getMessageById($id): not found');
+      return null;
+    }
+  }
+
+  /// Get a message by outboxId from the active conversation
+  /// Returns null if not found
+  InboxMessage? getMessageByOutboxId(int outboxId) {
+    if (_activeContact == null) return null;
+    final messages = _memoryMessages[_activeContact];
+    if (messages == null) return null;
+    try {
+      final msg = messages.firstWhere((m) => m.outboxId == outboxId);
+      debugPrint('[ConversationDetailProvider] getMessageByOutboxId($outboxId): found status=${msg.status}, deliveryStatus=${msg.deliveryStatus}, sendStatus=${msg.sendStatus}');
+      return msg;
+    } catch (_) {
+      debugPrint('[ConversationDetailProvider] getMessageByOutboxId($outboxId): not found');
+      return null;
+    }
+  }
 
   bool get isLoading => state == ConversationState.loading;
   bool get isLoadingMore => state == ConversationState.loadingMore;
@@ -531,6 +649,45 @@ class ConversationDetailProvider extends ChangeNotifier {
 
       // Add all fresh messages from API
       for (final msg in freshMessages) {
+        // For outgoing messages, check if we have a newer local status in cache
+        if (msg.isOutgoing) {
+          try {
+            final cachedMsg = await _inboxRepository.getMessageById(msg.id);
+            debugPrint(
+              '[ConversationDetailProvider] Checking local cache for message ${msg.id}: cachedMsg=${cachedMsg != null ? "found" : "null"}',
+            );
+            if (cachedMsg != null) {
+              // Compare status timestamps or use local if it's more recent
+              // For delivery status, local is always more recent since it comes from WebSocket
+              final localStatus = cachedMsg.deliveryStatus ?? cachedMsg.status;
+              final apiStatus = msg.deliveryStatus ?? msg.status;
+              
+              debugPrint(
+                '[ConversationDetailProvider] Message ${msg.id}: localStatus=$localStatus, apiStatus=$apiStatus',
+              );
+              
+              // Use local status if it's more advanced (read > delivered > sent > pending)
+              if (_isStatusNewer(localStatus, apiStatus)) {
+                // Use copyWith to create a new message with updated status
+                final updatedMsg = msg.copyWith(
+                  status: cachedMsg.status,
+                  deliveryStatus: cachedMsg.deliveryStatus,
+                );
+                mergedMessagesMap[msg.id] = updatedMsg;
+                debugPrint(
+                  '[ConversationDetailProvider] Preserved local status for message ${msg.id}: $localStatus (API had: $apiStatus)',
+                );
+                continue; // Skip the default add below since we already added it
+              } else {
+                debugPrint(
+                  '[ConversationDetailProvider] Keeping API status for message ${msg.id}: $apiStatus (local was: $localStatus)',
+                );
+              }
+            }
+          } catch (e) {
+            debugPrint('[ConversationDetailProvider] Error checking cache for message ${msg.id}: $e');
+          }
+        }
         mergedMessagesMap[msg.id] = msg;
       }
 
@@ -1834,7 +1991,7 @@ class ConversationDetailProvider extends ChangeNotifier {
               .toList();
           if (_activeContact == contact) _throttledNotify();
         }
-      } else if (type == 'delivery_status') {
+      } else if (type == 'message_status_update' || type == 'delivery_status') {
         // Handle real-time status updates (Sending -> Sent -> Delivered -> Read)
         final msgId = data['outbox_id'];
         // Support both 'status' and 'delivery_status' fields from backend
@@ -1849,6 +2006,10 @@ class ConversationDetailProvider extends ChangeNotifier {
           );
           return;
         }
+
+        debugPrint(
+          '[ConversationDetailProvider] Received delivery_status: outbox_id=$msgId, status=$newStatus, sender_contact=$senderContact, activeContact=$_activeContact',
+        );
 
         // CRITICAL FIX for multi-account: Update messages even if conversation is not active
         // First try the active conversation, then search all conversations
@@ -1869,19 +2030,25 @@ class ConversationDetailProvider extends ChangeNotifier {
           final idx = current.indexWhere(
             (m) => (m.id == msgId || m.outboxId == msgId) && m.isOutgoing,
           );
+          
+          debugPrint(
+            '[ConversationDetailProvider] Looking for message in $targetContact: msgId=$msgId, found at index=$idx, total messages=${current.length}',
+          );
+          
           if (idx != -1) {
             final msg = current[idx];
+            debugPrint(
+              '[ConversationDetailProvider] Found message: id=${msg.id}, outboxId=${msg.outboxId}, currentStatus=${msg.status}, newStatus=$newStatus',
+            );
 
-            // PROTECTION: Never downgrade status from 'sent' back to 'pending' in UI
-            // This eliminates the flickering reported by users when server emits intermediate pending states
-            final isCurrentlySent =
-                msg.status.toLowerCase() == 'sent' ||
-                msg.sendStatus == MessageSendStatus.sent;
-
-            if (isCurrentlySent && newStatus == 'pending') {
-              // Ignore this update to prevent flickering
+            // PROTECTION: Never downgrade status (e.g., delivered -> sent, read -> delivered, sent -> pending)
+            // Backend may send events out of order, so we only allow status upgrades
+            final currentPriority = _getStatusPriority(msg.status.toLowerCase());
+            final newPriority = _getStatusPriority(newStatus);
+            
+            if (newPriority <= currentPriority) {
               debugPrint(
-                '[ConversationDetailProvider] Ignoring status downgrade: sent -> pending for message $msgId',
+                '[ConversationDetailProvider] Ignoring status downgrade: ${msg.status} -> $newStatus (priority: $currentPriority -> $newPriority)',
               );
               return;
             }
@@ -1902,27 +2069,45 @@ class ConversationDetailProvider extends ChangeNotifier {
             );
             _memoryMessages[targetContact] = updatedList;
 
-            // Only notify UI if this is the active conversation
-            if (_activeContact == targetContact) {
-              _throttledNotify();
+            // Persist to local SQLite DB FIRST (synchronously awaited)
+            // This ensures the database has the latest status before UI notification
+            try {
+              await _inboxRepository.updateMessageSyncStatus(msgId, newStatus);
+              debugPrint(
+                '[ConversationDetailProvider] Persisted delivery status to DB: msgId=$msgId, status=$newStatus',
+              );
+              
+              // Also update the PersistentCacheService cache to ensure consistency
+              // This prevents stale data when reopening the conversation
+              await _updateMessageStatusInCache(targetContact, msgId, newStatus);
+            } catch (e) {
+              debugPrint('Error persisting delivery status: $e');
             }
 
-            // Persist to local SQLite DB
-            _inboxRepository
-                .updateMessageSyncStatus(msgId, newStatus)
-                .catchError(
-                  (e) => debugPrint('Error persisting delivery status: $e'),
-                );
+            // Only notify UI if this is the active conversation
+            if (_activeContact == targetContact) {
+              debugPrint(
+                '[ConversationDetailProvider] Notifying UI listeners for status update',
+              );
+              _throttledNotify();
+            } else {
+              debugPrint(
+                '[ConversationDetailProvider] Skipping UI notification - activeContact=$_activeContact != targetContact=$targetContact',
+              );
+            }
           } else {
             // Message not found in memory - this can happen if:
             // 1. Message was already confirmed and conversation was reloaded
             // 2. User switched conversations before status update arrived
             // 3. Message is in local DB but not loaded into memory yet
             // This is OK - the message status will be correct when conversation is loaded
+            debugPrint(
+              '[ConversationDetailProvider] Message $msgId not found in memory for $targetContact',
+            );
           }
         } else {
           debugPrint(
-            '[ConversationDetailProvider] Contact $targetContact not in memory',
+            '[ConversationDetailProvider] Contact $targetContact not in memory (activeContact=$_activeContact)',
           );
         }
       } else if (type == 'conversation_deleted') {

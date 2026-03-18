@@ -251,7 +251,7 @@ class _MessageBubbleState extends State<MessageBubble> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isOutgoing = widget.message.isOutgoing;
-    final provider = context.read<ConversationDetailProvider>();
+    final provider = context.watch<ConversationDetailProvider>();
     final isRtl = Directionality.of(context) == ui.TextDirection.rtl;
     final isDark = theme.brightness == Brightness.dark;
     final isSelected = context.select<ConversationDetailProvider, bool>(
@@ -259,6 +259,28 @@ class _MessageBubbleState extends State<MessageBubble> {
     );
     final isSelectionMode = context.select<ConversationDetailProvider, bool>(
       (p) => p.isSelectionMode,
+    );
+
+    // Get fresh message status from provider for real-time delivery indicators
+    // This ensures the status updates without needing to rebuild the entire bubble
+    // Note: We need to check both id and outboxId since WebSocket events use outbox_id
+    final messageStatus = context.select<ConversationDetailProvider, String?>(
+      (p) {
+        // First try to find by database id
+        var msg = p.getMessageById(widget.message.id);
+        // If not found and we have an outboxId, try that
+        if (msg == null && widget.message.outboxId != null) {
+          msg = p.getMessageByOutboxId(widget.message.outboxId!);
+        }
+        if (msg == null) {
+          debugPrint('[MessageBubble] Message not found in provider: id=${widget.message.id}, outboxId=${widget.message.outboxId}');
+          return null;
+        }
+        // Return a composite key that changes when status changes
+        final statusKey = '${msg.sendStatus}:${msg.deliveryStatus}:${msg.status}';
+        debugPrint('[MessageBubble] Status key for message ${widget.message.id}: $statusKey');
+        return statusKey;
+      },
     );
 
     if (widget.message.isDeleted) {
@@ -556,25 +578,9 @@ class _MessageBubbleState extends State<MessageBubble> {
                                           ),
                                     ),
                                   ],
-                                  // Pending sync indicator for edits
-                                  if (widget.message.sendStatus == MessageSendStatus.sending) ...[
-                                    const SizedBox(width: 4),
-                                    SizedBox(
-                                      width: 12,
-                                      height: 12,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 1.5,
-                                        valueColor: AlwaysStoppedAnimation<Color>(
-                                          isOutgoing
-                                              ? Colors.white.withValues(alpha: 0.7)
-                                              : theme.colorScheme.secondary,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
                                   if (isOutgoing) ...[
                                     const SizedBox(width: 6),
-                                    _buildDeliveryStatus(theme, isOutgoing),
+                                    _buildDeliveryStatus(theme, isOutgoing, messageStatus),
                                   ],
                                   // Reply indicator for messages with replies
                                   _buildReplyIndicator(theme, isOutgoing),
@@ -934,8 +940,33 @@ class _MessageBubbleState extends State<MessageBubble> {
     );
   }
 
-  Widget _buildDeliveryStatus(ThemeData theme, bool isOutgoing) {
-    if (widget.message.sendStatus == MessageSendStatus.failed) {
+  Widget _buildDeliveryStatus(ThemeData theme, bool isOutgoing, String? messageStatus) {
+    // Parse the status string or fall back to widget data
+    MessageSendStatus sendStatus;
+    String? deliveryStatus;
+    String status;
+
+    if (messageStatus != null) {
+      final parts = messageStatus.split(':');
+      if (parts.length == 3) {
+        sendStatus = MessageSendStatus.values.firstWhere(
+          (e) => e.name == parts[0],
+          orElse: () => widget.message.sendStatus,
+        );
+        deliveryStatus = parts[1] == 'null' ? null : parts[1];
+        status = parts[2];
+      } else {
+        sendStatus = widget.message.sendStatus;
+        deliveryStatus = widget.message.deliveryStatus;
+        status = widget.message.status;
+      }
+    } else {
+      sendStatus = widget.message.sendStatus;
+      deliveryStatus = widget.message.deliveryStatus;
+      status = widget.message.status;
+    }
+
+    if (sendStatus == MessageSendStatus.failed) {
       return Semantics(
         label: 'فشل الإرسال',
         child: const Icon(
@@ -946,8 +977,6 @@ class _MessageBubbleState extends State<MessageBubble> {
       );
     }
 
-    // CRITICAL FIX: Define isOutgoing at the top to avoid reference errors
-    final isOutgoing = widget.message.isOutgoing;
     final statusColor = isOutgoing
         ? Colors.white.withValues(alpha: 0.7)
         : theme.hintColor;
@@ -1006,7 +1035,7 @@ class _MessageBubbleState extends State<MessageBubble> {
       );
     }
 
-    if (widget.message.sendStatus == MessageSendStatus.sending) {
+    if (sendStatus == MessageSendStatus.sending) {
       return Semantics(
         label: 'جاري الإرسال',
         child: Icon(
@@ -1020,14 +1049,14 @@ class _MessageBubbleState extends State<MessageBubble> {
     // Almudeer channel: Show detailed delivery status (read/delivered/sent)
     final isAlmudeer = widget.message.channel.toLowerCase() == 'almudeer';
     // CRITICAL FIX: Normalize deliveryStatus and status for comparison
-    final deliveryStatus =
-        (widget.message.deliveryStatus ?? widget.message.status).toLowerCase();
-    final mainStatus = widget.message.status.toLowerCase();
+    final normalizedDeliveryStatus =
+        (deliveryStatus ?? status).toLowerCase();
+    final normalizedStatus = status.toLowerCase();
 
     if (isAlmudeer && isOutgoing) {
       // Almudeer-specific status indicators with double-check icons
       // Priority: read > delivered > sent > pending
-      if (deliveryStatus == 'read') {
+      if (normalizedDeliveryStatus == 'read') {
         // Read: SVG icon with lighter blue color
         return Semantics(
           label: 'مقروءة',
@@ -1041,7 +1070,7 @@ class _MessageBubbleState extends State<MessageBubble> {
             ),
           ),
         );
-      } else if (deliveryStatus == 'delivered') {
+      } else if (normalizedDeliveryStatus == 'delivered') {
         // Delivered: SVG icon with light gray color for contrast on blue bubble
         return Semantics(
           label: 'تمَّ التسليم',
@@ -1055,10 +1084,10 @@ class _MessageBubbleState extends State<MessageBubble> {
             ),
           ),
         );
-      } else if (deliveryStatus == 'sent' ||
-          mainStatus == 'sent' ||
-          mainStatus == 'approved' ||
-          mainStatus == 'auto_replied') {
+      } else if (normalizedDeliveryStatus == 'sent' ||
+          normalizedStatus == 'sent' ||
+          normalizedStatus == 'approved' ||
+          normalizedStatus == 'auto_replied') {
         // Sent: Single check with white 50% opacity
         return Semantics(
           label: 'تمَّ الإرسال',
@@ -1081,9 +1110,9 @@ class _MessageBubbleState extends State<MessageBubble> {
       }
     } else if (isOutgoing) {
       // Non-Almudeer channels: Legacy behavior
-      if (mainStatus == 'sent' ||
-          mainStatus == 'approved' ||
-          mainStatus == 'auto_replied' ||
+      if (normalizedStatus == 'sent' ||
+          normalizedStatus == 'approved' ||
+          normalizedStatus == 'auto_replied' ||
           deliveryStatus == 'sent' ||
           deliveryStatus == 'delivered' ||
           deliveryStatus == 'read') {

@@ -13,8 +13,10 @@ from db_helper import get_db, fetch_one, fetch_all, DB_TYPE
 
 
 # Regex pattern to match @username mentions
-# Username rules: 3-32 characters, alphanumeric, underscores, hyphens
-MENTION_PATTERN = re.compile(r'@([a-zA-Z][a-zA-Z0-9_-]{2,31})')
+# Username rules: 2-32 characters, alphanumeric, underscores, hyphens
+# Supports both Latin (a-zA-Z) and Arabic (\u0600-\u06FF, \u0750-\u077F) characters
+# Same pattern as mobile app's task_edit_screen.dart and note_edit_screen.dart
+MENTION_PATTERN = re.compile(r'@([a-zA-Z0-9_\u0600-\u06FF\u0750-\u077F-]{2,32})')
 
 
 def extract_mentions(text: str) -> List[str]:

@@ -372,6 +372,27 @@ class InboxMessage {
     return copyWith(sendStatus: status);
   }
 
+  /// Helper method to parse send status from status/delivery_status fields
+  static MessageSendStatus _parseSendStatus(String? status, String? deliveryStatus) {
+    final effectiveStatus = (deliveryStatus ?? status)?.toLowerCase();
+    switch (effectiveStatus) {
+      case 'failed':
+        return MessageSendStatus.failed;
+      case 'sending':
+      case 'pending':
+        return MessageSendStatus.sending;
+      case 'sent':
+      case 'delivered':
+      case 'read':
+      case 'approved':
+      case 'auto_replied':
+      case 'analyzed':
+        return MessageSendStatus.sent;
+      default:
+        return MessageSendStatus.none;
+    }
+  }
+
   factory InboxMessage.fromJson(Map<String, dynamic> json) {
     // parse attachments safely
     List<Map<String, dynamic>>? attachmentsList;
@@ -544,10 +565,8 @@ class InboxMessage {
       isEdited: json['edited_at'] != null,
       isDeleted: json['deleted_at'] != null,
       editCount: json['edit_count'] as int?,
-      sendStatus:
-          (json['status'] == 'failed' || json['delivery_status'] == 'failed')
-          ? MessageSendStatus.failed
-          : MessageSendStatus.none,
+      // Map status/delivery_status to sendStatus for proper UI rendering
+      sendStatus: _parseSendStatus(json['status'] as String?, json['delivery_status'] as String?),
       outboxId: json['outbox_id'] is int
           ? json['outbox_id'] as int
           : int.tryParse(json['outbox_id']?.toString() ?? ''),
