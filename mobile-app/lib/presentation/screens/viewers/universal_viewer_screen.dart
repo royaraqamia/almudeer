@@ -144,9 +144,12 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    debugPrint('[UniversalViewer] didChangeDependencies: _isPreparing=$_isPreparing, _sanitizedUrl=$_sanitizedUrl');
+    
     // Call _prepareFile() after restoration is complete
     // This ensures we don't overwrite restored state
     if (!_isPreparing && (_sanitizedUrl != null || widget.filePath != null)) {
+      debugPrint('[UniversalViewer] Calling _prepareFile from didChangeDependencies');
       _isPreparing = true;
       _prepareFile();
     }
@@ -190,6 +193,9 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
   }
 
   Future<void> _prepareFile() async {
+    debugPrint('[UniversalViewer] _prepareFile started');
+    debugPrint('[UniversalViewer] _isPreparing=$_isPreparing, widget.filePath=${widget.filePath}, widget.url=${widget.url}');
+    
     try {
       String name = widget.fileName ?? 'file';
 
@@ -282,25 +288,44 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
       }
 
       // 2. Check Cache / Download if needed
+      debugPrint('[UniversalViewer] Checking cache/download: _localPath=$_localPath, _sanitizedUrl=$_sanitizedUrl');
+      
       if (_localPath == null && _sanitizedUrl != null) {
+        debugPrint('[UniversalViewer] Getting cached path for: $_sanitizedUrl');
+        
         final cachedPath = await MediaCacheManager().getLocalPath(
           _sanitizedUrl!,
           filename: name,
         );
+        
+        debugPrint('[UniversalViewer] Cached path result: $cachedPath');
+        
         if (cachedPath != null) {
           _localPath = cachedPath;
+          debugPrint('[UniversalViewer] Using cached path: $_localPath');
         } else {
+          debugPrint('[UniversalViewer] No cache, checking if needs download. fileType=$_fileType');
+          
           // Download if it's a type that requires local access
           // Include 'file' for generic files from backend
           final typesNeedingDownload = [
             'pdf', 'code', 'csv', 'text', 'other', 'excel', 'file'
           ];
+          
           if (typesNeedingDownload.contains(_fileType)) {
+            debugPrint('[UniversalViewer] Starting download for: $_sanitizedUrl');
             await _downloadFileWithProgress(_sanitizedUrl!, name);
+            debugPrint('[UniversalViewer] Download completed');
+          } else {
+            debugPrint('[UniversalViewer] Type $_fileType does not need download');
           }
         }
+      } else {
+        debugPrint('[UniversalViewer] Skipping cache/download check');
       }
 
+      debugPrint('[UniversalViewer] About to update state, isLoading=false');
+      
       if (mounted) {
         _updateState(
           isLoading: false,
@@ -309,8 +334,12 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
         );
         // Update restorable file type after successful preparation
         _restorableFileType.value = _fileType;
+        debugPrint('[UniversalViewer] State updated successfully');
+      } else {
+        debugPrint('[UniversalViewer] Widget not mounted, skipping state update');
       }
     } catch (e) {
+      debugPrint('[UniversalViewer] Error in _prepareFile: $e');
       if (mounted) {
         _updateState(
           isLoading: false,
@@ -525,8 +554,11 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
   }
 
   Widget _buildViewer() {
-    debugPrint('[UniversalViewer] _buildViewer called with fileType: $_fileType');
-    debugPrint('[UniversalViewer] _localPath: $_localPath');
+    debugPrint('[UniversalViewer] _buildViewer called:');
+    debugPrint('  - fileType: $_fileType');
+    debugPrint('  - _localPath: $_localPath');
+    debugPrint('  - fileName: ${widget.fileName}');
+    debugPrint('  - url: ${widget.url}');
     
     switch (_fileType) {
       case 'image':

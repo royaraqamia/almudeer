@@ -170,16 +170,20 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
         appBar: _buildAppBar(context, theme, isDark),
         body: Selector<
               ConversationDetailProvider,
-              List<InboxMessage>
+              _MessagesWithSearchResult
             >(
-              selector: (_, p) => List.unmodifiable(p.messages),
-              builder: (context, messages, _) {
+              selector: (_, provider) => _MessagesWithSearchResult(
+                List.unmodifiable(provider.messages),
+                provider.currentSearchResultId,
+              ),
+              builder: (context, data, _) {
+                final messages = data.messages;
                 final provider = context.watch<ConversationDetailProvider>();
                 final activeContact = provider.senderContact;
                 final isLoading = provider.isLoading;
                 final replyTo = provider.replyToMessage;
-                final searchResultId = provider.currentSearchResultId;
-                
+                final searchResultId = data.searchResultId;
+
                 final isMismatch =
                     activeContact != widget.conversation.senderContact;
 
@@ -350,4 +354,23 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
       ),
     );
   }
+}
+
+/// Helper class to combine messages list with search result ID for Selector
+class _MessagesWithSearchResult {
+  final List<InboxMessage> messages;
+  final int? searchResultId;
+
+  _MessagesWithSearchResult(this.messages, this.searchResultId);
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is _MessagesWithSearchResult &&
+        other.messages.length == messages.length &&
+        other.searchResultId == searchResultId;
+  }
+
+  @override
+  int get hashCode => messages.length.hashCode ^ searchResultId.hashCode;
 }

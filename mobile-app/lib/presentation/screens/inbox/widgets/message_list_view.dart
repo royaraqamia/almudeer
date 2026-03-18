@@ -146,14 +146,21 @@ class _MessageListViewState extends State<MessageListView> {
     }
 
     // Handle scroll request from parent or pending background loads
+    // Check if highlightMessageId changed (for search navigation)
     if (widget.highlightMessageId != null &&
         widget.highlightMessageId != oldWidget.highlightMessageId) {
       _scrollToMessage(widget.highlightMessageId!, null);
-    } else if (_pendingScrollId != null || _pendingScrollPlatformId != null) {
+    } else if (_pendingScrollId != null) {
       // If we were waiting for messages to load, try scrolling again
       if (widget.messages.length > oldWidget.messages.length) {
-        _scrollToMessage(_pendingScrollId, _pendingScrollPlatformId);
+        _scrollToMessage(_pendingScrollId, null);
       }
+    } else if (widget.highlightMessageId != null &&
+               oldWidget.highlightMessageId == null) {
+      // First search result arrived - scroll to it
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToMessage(widget.highlightMessageId, null);
+      });
     }
   }
 
@@ -168,7 +175,7 @@ class _MessageListViewState extends State<MessageListView> {
     // Initial scroll if needed
     if (widget.highlightMessageId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToMessage(widget.highlightMessageId!, null); // Updated call
+        _scrollToMessage(widget.highlightMessageId!, null);
       });
     }
   }
@@ -228,9 +235,8 @@ class _MessageListViewState extends State<MessageListView> {
   }
 
   int? _pendingScrollId;
-  String? _pendingScrollPlatformId;
   int _scrollRetryCount = 0;
-  static const int _maxScrollRetries = 3;
+  static const int _maxScrollRetries = 5; // Increased for better search result navigation
 
   void _scrollToMessage(int? messageId, String? platformId) {
     if (!mounted) return;
@@ -245,6 +251,7 @@ class _MessageListViewState extends State<MessageListView> {
           targetIndex = i;
           break;
         }
+        // Also check platform ID for backwards compatibility
         if (platformId != null &&
             (item.message.channelMessageId == platformId ||
                 item.message.channelMessageId?.safeUtf16 == platformId)) {
@@ -257,7 +264,6 @@ class _MessageListViewState extends State<MessageListView> {
     if (targetIndex != -1) {
       // Clear pending scroll state on success
       _pendingScrollId = null;
-      _pendingScrollPlatformId = null;
       _scrollRetryCount = 0;
 
       // Found it! Use scrollTo for smooth animation
@@ -285,28 +291,24 @@ class _MessageListViewState extends State<MessageListView> {
       // Message not found in current list
       final provider = context.read<ConversationDetailProvider>();
 
+      // Try loading more messages via pagination
       if (provider.hasMore && _scrollRetryCount < _maxScrollRetries) {
-        // Load more and try again
-
         if (_scrollRetryCount == 0) {
           AnimatedToast.info(context, 'جاري البحث عن الرسالة...');
         }
 
         _pendingScrollId = messageId;
-        _pendingScrollPlatformId = platformId;
         _scrollRetryCount++;
 
         provider.loadMoreMessages();
       } else if (provider.hasMore && _scrollRetryCount >= _maxScrollRetries) {
         // Show retry dialog after reaching retry limit
         _pendingScrollId = messageId;
-        _pendingScrollPlatformId = platformId;
-        _showRetryDialog(messageId, platformId);
+        _showRetryDialog(messageId, null);
         _scrollRetryCount = 0; // Reset for next attempt
       } else {
-        // Truly not found or reached retry limit
+        // Truly not found or no more messages to load
         _pendingScrollId = null;
-        _pendingScrollPlatformId = null;
         _scrollRetryCount = 0;
         AnimatedToast.info(context, 'الرسالة غير موجودة في القائمة الحالية');
       }
@@ -335,7 +337,6 @@ class _MessageListViewState extends State<MessageListView> {
       },
       onCancel: () {
         _pendingScrollId = null;
-        _pendingScrollPlatformId = null;
       },
     );
   }
