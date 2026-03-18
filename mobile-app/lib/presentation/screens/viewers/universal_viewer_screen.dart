@@ -235,7 +235,8 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
         } else if (['txt', 'log'].contains(extension)) {
           _fileType = 'text';
         } else {
-          if (_fileType == 'unknown') _fileType = 'other';
+          // Unknown extension - set to 'other' for external viewer
+          _fileType = 'other';
         }
       }
 
@@ -249,8 +250,9 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
           _localPath = cachedPath;
         } else {
           // Download if it's a type that requires local access
+          // Include 'file' for generic files from backend
           final typesNeedingDownload = [
-            'pdf', 'code', 'csv', 'text', 'other', 'excel'
+            'pdf', 'code', 'csv', 'text', 'other', 'excel', 'file'
           ];
           if (typesNeedingDownload.contains(_fileType)) {
             await _downloadFileWithProgress(_sanitizedUrl!, name);
@@ -546,6 +548,9 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
         }
         return _buildErrorState('Could not load Excel file');
 
+      // Treat 'file' and 'unknown' as 'other' for external viewer
+      case 'file':
+      case 'unknown':
       default:
         return _buildFallbackViewer();
     }
@@ -607,9 +612,12 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
           children: [
             const Icon(SolarLinearIcons.file, size: 64, color: Colors.grey),
             const SizedBox(height: 16),
-            const Text(
-              'No internal viewer for this file type.',
-              style: TextStyle(color: Colors.white70),
+            Text(
+              _localPath == null
+                  ? 'Unable to load file. Please check your connection and try again.'
+                  : 'No internal viewer for this file type.',
+              style: const TextStyle(color: Colors.white70),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
             if (_localPath != null)
@@ -619,6 +627,22 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
                 },
                 icon: const Icon(Icons.open_in_new),
                 label: const Text('Open with External App'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                ),
+              )
+            else if (widget.url != null)
+              ElevatedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _isLoading = true;
+                    _errorMessage = null;
+                  });
+                  _prepareFile();
+                },
+                icon: const Icon(SolarLinearIcons.refresh),
+                label: const Text('Retry Download'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,

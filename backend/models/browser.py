@@ -75,6 +75,21 @@ async def init_browser_tables():
             CREATE INDEX IF NOT EXISTS idx_browser_history_deleted
             ON browser_history(deleted_at)
         """)
+        # Unique index to prevent duplicate entries (with soft-delete support)
+        if DB_TYPE == "postgresql":
+            # PostgreSQL: Use partial unique index for soft-delete support
+            await execute_sql(db, """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_browser_history_unique
+                ON browser_history(license_key_id, user_id, url)
+                WHERE deleted_at IS NULL
+            """)
+        else:
+            # SQLite: Create a unique index (SQLite supports partial indexes since 3.8.0)
+            await execute_sql(db, """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_browser_history_unique
+                ON browser_history(license_key_id, user_id, url)
+                WHERE deleted_at IS NULL
+            """)
 
         # Browser Bookmarks - User's saved bookmarks
         await execute_sql(db, f"""
@@ -186,50 +201,57 @@ async def add_history_entry(
     visited_at: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """Add or update a browser history entry"""
+    from logging_config import get_logger
+    logger = get_logger(__name__)
+    
     async with get_db() as db:
-        now = datetime.now(timezone.utc)
-        visited = visited_at or now
+        try:
+            now = datetime.now(timezone.utc)
+            visited = visited_at or now
 
-        # Check if entry exists for this URL and user
-        existing = await fetch_one(db, """
-            SELECT id, visit_count FROM browser_history
-            WHERE license_key_id = ? AND user_id = ? AND url = ? AND deleted_at IS NULL
-        """, (license_key_id, user_id, url))
+            # Check if entry exists for this URL and user
+            existing = await fetch_one(db, """
+                SELECT id, visit_count FROM browser_history
+                WHERE license_key_id = ? AND user_id = ? AND url = ? AND deleted_at IS NULL
+            """, (license_key_id, user_id, url))
 
-        if existing:
-            # Update existing entry - increment visit count and update timestamp
-            await execute_sql(db, """
-                UPDATE browser_history
-                SET visited_at = ?, visit_count = visit_count + 1, updated_at = ?
-                WHERE id = ?
-            """, (visited, now, existing[0]))
-            history_id = existing[0]
-            visit_count = existing[1] + 1
-        else:
-            # Insert new entry
-            await execute_sql(db, f"""
-                INSERT INTO browser_history (license_key_id, user_id, url, title, visited_at, device_id, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (license_key_id, user_id, url, title, visited, device_id, now, now))
-            
-            # Get the inserted ID
-            if DB_TYPE == "postgresql":
-                result = await fetch_one(db, "SELECT LASTVAL()")
-                history_id = result[0] if result else None
+            if existing:
+                # Update existing entry - increment visit count and update timestamp
+                await execute_sql(db, """
+                    UPDATE browser_history
+                    SET visited_at = ?, visit_count = visit_count + 1, updated_at = ?
+                    WHERE id = ?
+                """, (visited, now, existing[0]))
+                history_id = existing[0]
+                visit_count = existing[1] + 1
             else:
-                result = await fetch_one(db, "SELECT last_insert_rowid()")
-                history_id = result[0] if result else None
-            visit_count = 1
+                # Insert new entry
+                await execute_sql(db, f"""
+                    INSERT INTO browser_history (license_key_id, user_id, url, title, visited_at, device_id, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (license_key_id, user_id, url, title, visited, device_id, now, now))
 
-        await commit_db(db)
-        
-        return {
-            "id": history_id,
-            "url": url,
-            "title": title,
-            "visited_at": visited.isoformat(),
-            "visit_count": visit_count
-        }
+                # Get the inserted ID
+                if DB_TYPE == "postgresql":
+                    result = await fetch_one(db, "SELECT LASTVAL()")
+                    history_id = result[0] if result else None
+                else:
+                    result = await fetch_one(db, "SELECT last_insert_rowid()")
+                    history_id = result[0] if result else None
+                visit_count = 1
+
+            await commit_db(db)
+
+            return {
+                "id": history_id,
+                "url": url,
+                "title": title,
+                "visited_at": visited.isoformat(),
+                "visit_count": visit_count
+            }
+        except Exception as e:
+            logger.error(f"Failed to add history entry for URL {url}: {type(e).__name__}: {e}", exc_info=True)
+            raise
 
 
 async def get_history(

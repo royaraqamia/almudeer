@@ -1508,7 +1508,7 @@ async def sync_history(
                 created_at=datetime.now(timezone.utc).isoformat()
             ))
         except Exception as e:
-            logger.error(f"Error syncing history entry {entry.url if entry else 'unknown'}: {e}")
+            logger.error(f"Error syncing history entry {entry.url if entry else 'unknown'}: {type(e).__name__}: {e}", exc_info=True)
             # Continue with other entries
     
     # Update sync metadata
