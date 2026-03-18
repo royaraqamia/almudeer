@@ -50,9 +50,6 @@ class _SurahDetailScreenState extends State<SurahDetailScreen>
   // Bookmarked verses
   final Set<int> _bookmarkedVerses = {};
 
-  // Translation cache for visible verses
-  final Map<int, String> _translationCache = {};
-
   // Repeat mode UI
   bool _isSettingRepeatStart = false;
   bool _isSettingRepeatEnd = false;
@@ -356,164 +353,6 @@ class _SurahDetailScreenState extends State<SurahDetailScreen>
         '$verseText\n\n[سورة ${quran.getSurahNameArabic(widget.surahNumber)}: $verseNumber]';
     Clipboard.setData(ClipboardData(text: text));
     AnimatedToast.success(context, 'تم نسخ الآية للمشاركة');
-  }
-
-  /// Show mushaf type selector
-  void _showMushafTypeSelector() {
-    Haptics.selection();
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).scaffoldBackgroundColor,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(20),
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 16),
-            const Text(
-              'نوع المصحف',
-              style: TextStyle(
-                fontFamily: 'IBM Plex Sans Arabic',
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Consumer<QuranProvider>(
-              builder: (context, provider, _) {
-                return Column(
-                  children: [
-                    _buildMushafOption(
-                      MushafType.uthmani,
-                      'الرسم العثماني',
-                      SolarLinearIcons.book2,
-                      provider.mushafType == MushafType.uthmani,
-                    ),
-                    _buildMushafOption(
-                      MushafType.indopak,
-                      'الرسم الهندي',
-                      SolarLinearIcons.book2,
-                      provider.mushafType == MushafType.indopak,
-                    ),
-                    _buildMushafOption(
-                      MushafType.tajweed,
-                      'مصحف التجويد',
-                      SolarLinearIcons.palette,
-                      provider.mushafType == MushafType.tajweed,
-                    ),
-                    _buildMushafOption(
-                      MushafType.simple,
-                      'بدون تشكيل',
-                      SolarLinearIcons.text,
-                      provider.mushafType == MushafType.simple,
-                    ),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMushafOption(
-    MushafType type,
-    String label,
-    IconData icon,
-    bool isSelected,
-  ) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(label),
-      trailing: isSelected
-          ? const Icon(Icons.check, color: AppColors.primary)
-          : null,
-      onTap: () {
-        Haptics.lightTap();
-        context.read<QuranProvider>().setMushafType(type);
-        Navigator.pop(context);
-      },
-    );
-  }
-
-  /// Show translation selector
-  void _showTranslationSelector() {
-    Haptics.selection();
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => Consumer<QuranProvider>(
-        builder: (context, provider, _) {
-          return Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(20),
-              ),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(height: 16),
-                const Text(
-                  'الترجمة',
-                  style: TextStyle(
-                    fontFamily: 'IBM Plex Sans Arabic',
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                _buildTranslationOption(
-                  TranslationLanguage.none,
-                  'بدون ترجمة',
-                  provider.translation == TranslationLanguage.none,
-                ),
-                _buildTranslationOption(
-                  TranslationLanguage.english,
-                  'English (Sahih International)',
-                  provider.translation == TranslationLanguage.english,
-                ),
-                _buildTranslationOption(
-                  TranslationLanguage.urdu,
-                  'اردو (محمد جالندھری)',
-                  provider.translation == TranslationLanguage.urdu,
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildTranslationOption(
-    TranslationLanguage language,
-    String label,
-    bool isSelected,
-  ) {
-    return ListTile(
-      leading: Icon(
-        isSelected ? SolarBoldIcons.earth : SolarLinearIcons.earth,
-        color: isSelected ? AppColors.primary : null,
-      ),
-      title: Text(label),
-      trailing: isSelected
-          ? const Icon(Icons.check, color: AppColors.primary)
-          : null,
-      onTap: () {
-        Haptics.lightTap();
-        context.read<QuranProvider>().setTranslation(language);
-        Navigator.pop(context);
-        _translationCache.clear(); // Clear cache when changing language
-      },
-    );
   }
 
   /// Show playback settings (speed, repeat, auto-scroll)
@@ -852,6 +691,24 @@ class _SurahDetailScreenState extends State<SurahDetailScreen>
               },
             ),
             actions: [
+              // Tafsir toggle button
+              IconButton(
+                icon: Icon(
+                  quranProvider.showTafsir
+                      ? SolarLinearIcons.eye
+                      : SolarLinearIcons.eyeClosed,
+                  color: quranProvider.showTafsir
+                      ? AppColors.primary
+                      : theme.colorScheme.onSurface,
+                ),
+                onPressed: () {
+                  Haptics.lightTap();
+                  quranProvider.toggleTafsir();
+                },
+                tooltip: quranProvider.showTafsir
+                    ? 'إخفاء التفسير'
+                    : 'إظهار التفسير',
+              ),
               // Play/Pause button
               Stack(
                 alignment: Alignment.center,
@@ -901,12 +758,6 @@ class _SurahDetailScreenState extends State<SurahDetailScreen>
                 tooltip: 'المزيد',
                 onSelected: (value) {
                   switch (value) {
-                    case 'mushaf':
-                      _showMushafTypeSelector();
-                      break;
-                    case 'translation':
-                      _showTranslationSelector();
-                      break;
                     case 'playback':
                       _showPlaybackSettings();
                       break;
@@ -924,26 +775,6 @@ class _SurahDetailScreenState extends State<SurahDetailScreen>
                   }
                 },
                 itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'mushaf',
-                    child: Row(
-                      children: [
-                        Icon(SolarLinearIcons.book2),
-                        SizedBox(width: 12),
-                        Text('نوع المصحف'),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'translation',
-                    child: Row(
-                      children: [
-                        Icon(SolarLinearIcons.earth),
-                        SizedBox(width: 12),
-                        Text('الترجمة'),
-                      ],
-                    ),
-                  ),
                   const PopupMenuItem(
                     value: 'playback',
                     child: Row(
@@ -1269,49 +1100,6 @@ class _SurahDetailScreenState extends State<SurahDetailScreen>
                                           ],
                                         ),
                                       ),
-                                      // Translation (if enabled)
-                                      if (quranProvider.translation !=
-                                          TranslationLanguage.none) ...[
-                                        const SizedBox(height: 12),
-                                        FutureBuilder<String>(
-                                          future: quranProvider.getTranslation(
-                                            widget.surahNumber,
-                                            verseNumber,
-                                          ),
-                                          builder: (context, snapshot) {
-                                            if (snapshot.connectionState ==
-                                                ConnectionState.waiting) {
-                                              return const SizedBox(
-                                                height: 20,
-                                                width: 20,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                ),
-                                              );
-                                            }
-                                            if (snapshot.hasData &&
-                                                snapshot.data!.isNotEmpty) {
-                                              return Text(
-                                                snapshot.data!,
-                                                textAlign: TextAlign.right,
-                                                style: TextStyle(
-                                                  fontFamily:
-                                                      'IBM Plex Sans Arabic',
-                                                  fontSize:
-                                                      quranProvider.fontSize -
-                                                          4,
-                                                  height: 1.6,
-                                                  color: theme.textTheme
-                                                      .bodyMedium?.color,
-                                                  fontStyle: FontStyle.italic,
-                                                ),
-                                              );
-                                            }
-                                            return const SizedBox.shrink();
-                                          },
-                                        ),
-                                      ],
                                     ],
                                   ),
                                 ),

@@ -243,12 +243,12 @@ async def get_backfill_progress(license_id: int) -> Dict[str, int]:
             
             result = {"pending": 0, "revealed": 0, "failed": 0, "total": 0}
             for row in rows:
-                status = row.get("status") or row[0]
-                count = row.get("count") or row[1]
+                status = row.get("status")
+                count = row.get("count")
                 if status in result:
                     result[status] = count
                 result["total"] += count
-            
+
             return result
             
     except Exception as e:

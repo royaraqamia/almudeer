@@ -29,7 +29,6 @@ class BrowserTab {
   bool isLoading = true;
   bool isInitialized = false;
   Uint8List? snapshot;
-  bool isDesktopMode = false;
   bool jsInjected = false;
   bool wasRestoredFromSession = false;
   Timer? loadingTimeoutTimer; // Timer for loading timeout
@@ -40,7 +39,6 @@ class BrowserTab {
     required this.id,
     required this.url,
     this.title = 'المتصفح',
-    this.isDesktopMode = false,
     this.wasRestoredFromSession = false,
   });
 
@@ -218,7 +216,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
           url: savedTab.url,
           title: savedTab.title,
           id: savedTab.id,
-          isDesktopMode: savedTab.isDesktopMode,
           wasRestoredFromSession: true,
         );
       }
@@ -267,7 +264,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
               id: tab.id,
               url: tab.url,
               title: tab.title,
-              isDesktopMode: tab.isDesktopMode,
             ),
           );
         }
@@ -294,7 +290,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
     String url = 'https://google.com',
     String? title,
     String? id,
-    bool isDesktopMode = false,
     bool wasRestoredFromSession = false,
   }) {
     // Enforce tab limit - close oldest tab if at limit
@@ -316,17 +311,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
       id: tabId,
       url: url,
       title: title ?? 'المتصفح',
-      isDesktopMode: isDesktopMode,
       wasRestoredFromSession: wasRestoredFromSession,
     );
 
     tab.controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setUserAgent(
-        tab.isDesktopMode
-            ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            : null,
-      )
       ..addJavaScriptChannel(
         'ImageLongPressChannel',
         onMessageReceived: (JavaScriptMessage message) {
@@ -691,18 +680,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
     }
   }
 
-  void _toggleDesktopMode() {
-    Haptics.mediumTap();
-    setState(() {
-      final tab = _tabs[_activeTabIndex];
-      tab.isDesktopMode = !tab.isDesktopMode;
-      const desktopUA =
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-      tab.controller.setUserAgent(tab.isDesktopMode ? desktopUA : null);
-      tab.controller.reload();
-    });
-  }
-
   void _executeSearch(String query) {
     if (query.isEmpty) return;
 
@@ -905,9 +882,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
             icon: const Icon(SolarLinearIcons.menuDots, size: 22),
             onSelected: (value) {
               Haptics.lightTap();
-              if (value == 'desktop') {
-                _toggleDesktopMode();
-              } else if (value == 'search') {
+              if (value == 'search') {
                 setState(() => _showSearch = true);
               } else if (value == 'downloads') {
                 Navigator.push(
@@ -936,21 +911,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
               }
             },
             itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'desktop',
-                child: Row(
-                  children: [
-                    Icon(
-                      _tabs[_activeTabIndex].isDesktopMode
-                          ? SolarBoldIcons.monitor
-                          : SolarLinearIcons.monitor,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    const Text('عرض سطح المكتب'),
-                  ],
-                ),
-              ),
               const PopupMenuItem(
                 value: 'search',
                 child: Row(

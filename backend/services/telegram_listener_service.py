@@ -145,10 +145,10 @@ class TelegramListenerService:
         active_license_ids = set()
         
         for row in rows:
-            license_id = row.get("license_key_id") or row[0]
-            encrypted_data = row.get("session_data_encrypted") or row[1]
-            phone_number = row.get("phone_number") or row[2]
-            
+            license_id = row.get("license_key_id")
+            encrypted_data = row.get("session_data_encrypted")
+            phone_number = row.get("phone_number")
+
             try:
                 session_string = simple_decrypt(encrypted_data)
             except Exception as e:
@@ -756,16 +756,16 @@ class TelegramListenerService:
                     if not row:
                         logger.warning(f"No active session found for license {license_id}")
                         return None
-                        
-                    session_data = row.get("session_data_encrypted") or row[0]
-                    phone_number = row.get("phone_number") or row[1]
-                    
+
+                    session_data = row.get("session_data_encrypted")
+                    phone_number = row.get("phone_number")
+
                     try:
                         session_string = simple_decrypt(session_data)
                     except Exception as e:
                         logger.error(f"Failed to decrypt session: {e}")
                         return None
-                        
+
                     await self._start_client(license_id, session_string, phone_number)
                     return self.clients.get(license_id)
 

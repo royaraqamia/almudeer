@@ -260,13 +260,13 @@ async def get_history(
 
         return [
             {
-                "id": row[0],
-                "url": row[1],
-                "title": row[2],
-                "visited_at": row[3],
-                "visit_count": row[4],
-                "device_id": row[5],
-                "created_at": row[6]
+                "id": row["id"],
+                "url": row["url"],
+                "title": row["title"],
+                "visited_at": row["visited_at"],
+                "visit_count": row["visit_count"],
+                "device_id": row["device_id"],
+                "created_at": row["created_at"]
             }
             for row in rows
         ]
@@ -435,13 +435,13 @@ async def get_bookmarks(
 
         return [
             {
-                "id": row[0],
-                "url": row[1],
-                "title": row[2],
-                "folder": row[3],
-                "icon": row[4],
-                "created_at": row[5],
-                "updated_at": row[6]
+                "id": row["id"],
+                "url": row["url"],
+                "title": row["title"],
+                "folder": row["folder"],
+                "icon": row["icon"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"]
             }
             for row in rows
         ]
@@ -577,9 +577,9 @@ async def get_sync_metadata(
 
         if row:
             return {
-                "last_history_sync_at": row[0],
-                "last_bookmark_sync_at": row[1],
-                "updated_at": row[2]
+                "last_history_sync_at": row["last_history_sync_at"],
+                "last_bookmark_sync_at": row["last_bookmark_sync_at"],
+                "updated_at": row["updated_at"]
             }
         return None
 
@@ -716,19 +716,19 @@ async def get_user_cookies(
         cookies = []
         for row in rows:
             # Decrypt cookie value if encryption is enabled
-            cookie_value = row[1]
+            cookie_value = row["value"]
             if cookie_encryptor and cookie_encryptor.is_enabled:
-                cookie_value = cookie_encryptor.decrypt(row[1])
-            
+                cookie_value = cookie_encryptor.decrypt(row["value"])
+
             cookie = {
-                "name": row[0],
+                "name": row["name"],
                 "value": cookie_value,
-                "domain": row[2],
-                "path": row[3] or "/",
-                "expires": row[4].isoformat() if row[4] else None,
-                "is_secure": row[5] or False,
-                "is_http_only": row[6] or False,
-                "same_site": row[7] or "Lax",
+                "domain": row["domain"],
+                "path": row["path"] or "/",
+                "expires": row["expires"].isoformat() if row["expires"] else None,
+                "is_secure": row["is_secure"] or False,
+                "is_http_only": row["is_http_only"] or False,
+                "same_site": row["same_site"] or "Lax",
             }
 
             # Filter out expired cookies

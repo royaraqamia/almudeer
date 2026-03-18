@@ -235,7 +235,7 @@ class TelegramPhoneService:
             async with get_db() as db:
                 row = await fetch_one(db, "SELECT sender_contact FROM inbox_messages WHERE sender_id = ? AND sender_contact != sender_id AND sender_contact != '' LIMIT 1", [str(chat_id_int)])
                 if row:
-                    alias = row.get("sender_contact") or row[0]
+                    alias = row.get("sender_contact")
                     try:
                         entity = await client.get_entity(alias)
                         if entity: return entity

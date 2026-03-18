@@ -107,7 +107,7 @@ async def get_current_user_profile(
         row = await fetch_all(
             db,
             """
-            SELECT 
+            SELECT
                 id,
                 username,
                 full_name as name,
@@ -122,14 +122,14 @@ async def get_current_user_profile(
             """,
             [license_id],
         )
-        
+
         if not row:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found",
             )
-        
-        return dict(row[0])
+
+        return row[0]
 
 
 @router.get("/{username}")
@@ -172,5 +172,5 @@ async def get_user_by_username(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found",
             )
-        
-        return dict(row[0])
+
+        return row[0]

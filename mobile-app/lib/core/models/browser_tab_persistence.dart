@@ -11,14 +11,10 @@ class BrowserTabPersistence extends HiveObject {
   @HiveField(2)
   final String title;
 
-  @HiveField(3)
-  final bool isDesktopMode;
-
   BrowserTabPersistence({
     required this.id,
     required this.url,
     required this.title,
-    this.isDesktopMode = false,
   });
 }
 
@@ -36,21 +32,18 @@ class BrowserTabPersistenceAdapter extends TypeAdapter<BrowserTabPersistence> {
       id: fields[0] as String,
       url: fields[1] as String,
       title: fields[2] as String,
-      isDesktopMode: fields[3] as bool? ?? false,
     );
   }
 
   @override
   void write(BinaryWriter writer, BrowserTabPersistence obj) {
     writer
-      ..writeByte(4)
+      ..writeByte(3)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
       ..write(obj.url)
       ..writeByte(2)
-      ..write(obj.title)
-      ..writeByte(3)
-      ..write(obj.isDesktopMode);
+      ..write(obj.title);
   }
 }
