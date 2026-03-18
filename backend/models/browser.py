@@ -515,8 +515,8 @@ async def update_sync_metadata(
         # Check if metadata exists
         existing = await fetch_one(db, """
             SELECT id FROM browser_sync_metadata
-            WHERE license_key_id = ? AND user_id = ? AND (device_id = ? OR (device_id IS NULL AND ? IS NULL))
-        """, (license_key_id, user_id, device_id, device_id))
+            WHERE license_key_id = ? AND user_id = ? AND device_id IS NOT DISTINCT FROM ?
+        """, (license_key_id, user_id, device_id))
 
         if existing:
             updates = []
@@ -536,7 +536,7 @@ async def update_sync_metadata(
                 await execute_sql(db, f"""
                     UPDATE browser_sync_metadata
                     SET {', '.join(updates)}
-                    WHERE license_key_id = ? AND user_id = ? AND (device_id = ? OR (device_id IS NULL AND ? IS NULL))
+                    WHERE license_key_id = ? AND user_id = ? AND device_id IS NOT DISTINCT FROM ?
                 """, params)
         else:
             # Insert new metadata
@@ -572,8 +572,8 @@ async def get_sync_metadata(
         row = await fetch_one(db, """
             SELECT last_history_sync_at, last_bookmark_sync_at, updated_at
             FROM browser_sync_metadata
-            WHERE license_key_id = ? AND user_id = ? AND (device_id = ? OR (device_id IS NULL AND ? IS NULL))
-        """, (license_key_id, user_id, device_id, device_id))
+            WHERE license_key_id = ? AND user_id = ? AND device_id IS NOT DISTINCT FROM ?
+        """, (license_key_id, user_id, device_id))
 
         if row:
             return {
