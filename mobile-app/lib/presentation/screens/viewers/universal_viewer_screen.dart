@@ -85,6 +85,7 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
   String? _sanitizedUrl;
   double _downloadProgress = 0.0;
   bool _isDownloading = false;
+  bool _isPreparing = false; // Prevent duplicate preparation
 
   // Restorable properties
   final RestorableStringN _restorableLocalPath = RestorableStringN(null);
@@ -136,7 +137,19 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
   void initState() {
     super.initState();
     _sanitizedUrl = widget.url?.toFullUrl;
-    _prepareFile();
+    // Don't call _prepareFile() here - it will be called after restoreState
+    // to ensure correct state restoration
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Call _prepareFile() after restoration is complete
+    // This ensures we don't overwrite restored state
+    if (!_isPreparing && (_sanitizedUrl != null || widget.filePath != null)) {
+      _isPreparing = true;
+      _prepareFile();
+    }
   }
 
   // Helper to update state and persist it
@@ -185,15 +198,37 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
         _localPath = widget.filePath;
         name = p.basename(widget.filePath!);
       } else if (_sanitizedUrl != null) {
-        name = widget.fileName ?? p.basename(Uri.parse(_sanitizedUrl!).path);
+        // Extract filename from URL if not provided
+        final urlPath = Uri.parse(_sanitizedUrl!).path;
+        final urlFilename = p.basename(urlPath);
+        // Use URL filename if it has an extension and widget.fileName doesn't
+        if (p.extension(urlFilename).isNotEmpty && 
+            (widget.fileName == null || p.extension(widget.fileName!).isEmpty)) {
+          name = urlFilename;
+        } else if (widget.fileName != null) {
+          name = widget.fileName!;
+        } else {
+          name = urlFilename;
+        }
       }
+
+      // Debug logging
+      debugPrint('[UniversalViewer] Initial state:');
+      debugPrint('  - fileName: $name');
+      debugPrint('  - filePath: ${widget.filePath}');
+      debugPrint('  - url: ${widget.url}');
+      debugPrint('  - fileType: ${widget.fileType}');
+      debugPrint('  - sanitizedUrl: $_sanitizedUrl');
 
       // 1. Determine Type
       if (widget.fileType != null) {
         _fileType = widget.fileType!;
       }
 
+      debugPrint('[UniversalViewer] After initial type assignment: $_fileType');
+
       // Always do extension-based detection for generic types
+      // Also detect specific types from extension for better accuracy
       final needsExtensionDetection =
           _fileType == 'unknown' ||
           _fileType == 'file' ||
@@ -205,6 +240,8 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
             .extension(name)
             .toLowerCase()
             .replaceAll('.', '');
+
+        debugPrint('[UniversalViewer] Extension detected: $extension');
 
         if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(extension)) {
           _fileType = 'image';
@@ -238,6 +275,10 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
           // Unknown extension - set to 'other' for external viewer
           _fileType = 'other';
         }
+
+        debugPrint('[UniversalViewer] After extension detection: $_fileType');
+      } else {
+        debugPrint('[UniversalViewer] Skipping extension detection for type: $_fileType');
       }
 
       // 2. Check Cache / Download if needed
@@ -266,6 +307,8 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
           isDownloading: false,
           downloadProgress: 0.0,
         );
+        // Update restorable file type after successful preparation
+        _restorableFileType.value = _fileType;
       }
     } catch (e) {
       if (mounted) {
@@ -482,6 +525,9 @@ class _UniversalViewerScreenState extends State<UniversalViewerScreen>
   }
 
   Widget _buildViewer() {
+    debugPrint('[UniversalViewer] _buildViewer called with fileType: $_fileType');
+    debugPrint('[UniversalViewer] _localPath: $_localPath');
+    
     switch (_fileType) {
       case 'image':
         return ImageViewerScreen(
