@@ -545,9 +545,13 @@ async def cleanup_inbox_status_route(license: dict = Depends(get_license_from_he
 async def edit_message_route(message_id: int, request: Request, license: dict = Depends(get_license_from_header)):
     from models.inbox import edit_outbox_message
     from validators import validate_text_length, ValidationError
+    import html
     data = await request.json()
     new_body = data.get("body", "").strip()
     if not new_body: raise HTTPException(status_code=400, detail="النص فارغ")
+
+    # Decode HTML entities to prevent corrupted URLs
+    new_body = html.unescape(new_body)
 
     # Validate message length (same as creation)
     try:

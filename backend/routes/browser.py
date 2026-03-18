@@ -1433,7 +1433,6 @@ class CookieEntry(BaseModel):
 @router.post("/history/sync", response_model=List[HistoryEntryResponse])
 async def sync_history(
     request: Request,
-    entries: Optional[List[HistoryEntryCreate]] = None,
     license_data: dict = Depends(get_license_from_header),
     auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ):
@@ -1441,7 +1440,7 @@ async def sync_history(
     Sync browser history from client to server.
     Accepts a list of history entries and adds/updates them.
     Returns the synced entries with server IDs.
-    
+
     Accepts either:
     - Direct list: [{"url": "...", "title": "...", ...}, ...]
     - Wrapped: {"entries": [...]}
@@ -1453,19 +1452,19 @@ async def sync_history(
 
     if not user_id:
         raise HTTPException(status_code=401, detail="User ID required")
-    
+
     # Handle both wrapped and direct list formats
-    if entries is None:
-        try:
-            body = await request.json()
-            if isinstance(body, dict) and 'entries' in body:
-                entries = [HistoryEntryCreate(**e) for e in body['entries']]
-            elif isinstance(body, list):
-                entries = [HistoryEntryCreate(**e) for e in body]
-            else:
-                entries = []
-        except:
+    try:
+        body = await request.json()
+        if isinstance(body, dict) and 'entries' in body:
+            entries = [HistoryEntryCreate(**e) for e in body['entries']]
+        elif isinstance(body, list):
+            entries = [HistoryEntryCreate(**e) for e in body]
+        else:
             entries = []
+    except Exception as e:
+        logger.error(f"Failed to parse sync request body: {e}")
+        entries = []
     
     if not entries:
         return []

@@ -278,7 +278,6 @@ class _MessageBubbleState extends State<MessageBubble> {
         }
         // Return a composite key that changes when status changes
         final statusKey = '${msg.sendStatus}:${msg.deliveryStatus}:${msg.status}';
-        debugPrint('[MessageBubble] Status key for message ${widget.message.id}: $statusKey');
         return statusKey;
       },
     );
@@ -510,7 +509,6 @@ class _MessageBubbleState extends State<MessageBubble> {
                               if (widget.message.body.isNotEmpty)
                                 MentionText(
                                   text: widget.message.body.safeUtf16,
-                                  mentions: widget.message.mentions,
                                   textDirection: widget.message.body.direction,
                                   textAlign: widget.message.body.isArabic
                                       ? TextAlign.right
@@ -1203,21 +1201,66 @@ class _MessageBubbleState extends State<MessageBubble> {
   }
 
   /// Navigate to customer detail screen when a @username mention is tapped
-  void _navigateToCustomerDetail(BuildContext context, String username) {
+  Future<void> _navigateToCustomerDetail(BuildContext context, String username) async {
     Haptics.lightTap();
-    // Navigate using the existing CustomerDetailScreen with username-based customer data
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => CustomerDetailScreen(
-          customer: {
-            'username': username,
-            'name': username,
-            'is_almudeer_user': true,
-            'is_online': false,
-          },
-        ),
-      ),
-    );
+    
+    // First, try to fetch user data from the API
+    try {
+      final provider = context.read<ConversationDetailProvider>();
+      final response = await provider.inboxRepository.apiClient.get(
+        '/api/users/search?q=$username&limit=1',
+      );
+      
+      Map<String, dynamic> customerData = {
+        'username': username,
+        'name': username,
+        'is_almudeer_user': true,
+        'is_online': false,
+      };
+      
+      // If we found a matching user, use their actual data
+      if (response['results'] != null && (response['results'] as List).isNotEmpty) {
+        final userData = (response['results'] as List).first as Map<String, dynamic>;
+        customerData = {
+          'username': userData['username'] ?? username,
+          'name': userData['name'] ?? userData['full_name'] ?? username,
+          // Don't pass user_id as customer id - they're different tables
+          // The customer detail screen will handle almudeer users without customer records
+          'profile_pic_url': userData['profile_pic_url'],
+          'is_almudeer_user': true,
+          'is_online': userData['is_online'] ?? false,
+          'last_seen_at': userData['last_seen_at'],
+        };
+      }
+      
+      // Navigate to CustomerDetailScreen with the user data
+      if (context.mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => CustomerDetailScreen(
+              customer: customerData,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      // If API call fails, navigate with basic data
+      debugPrint('[MessageBubble] Failed to fetch user data for mention: $e');
+      if (context.mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => CustomerDetailScreen(
+              customer: {
+                'username': username,
+                'name': username,
+                'is_almudeer_user': true,
+                'is_online': false,
+              },
+            ),
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildForwardedIndicator(ThemeData theme, bool isOutgoing) {

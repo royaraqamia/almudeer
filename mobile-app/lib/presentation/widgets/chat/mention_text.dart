@@ -1,6 +1,5 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:linkify/linkify.dart';
 
 import '../../../core/constants/colors.dart';
@@ -8,7 +7,6 @@ import '../../../core/constants/colors.dart';
 /// A text widget that renders both URLs and @username mentions as clickable spans
 class MentionText extends StatelessWidget {
   final String text;
-  final List<Map<String, dynamic>>? mentions;
   final TextStyle? style;
   final TextStyle? mentionStyle;
   final TextStyle? linkStyle;
@@ -20,7 +18,6 @@ class MentionText extends StatelessWidget {
   const MentionText({
     super.key,
     required this.text,
-    this.mentions,
     this.style,
     this.mentionStyle,
     this.linkStyle,
@@ -41,43 +38,13 @@ class MentionText extends StatelessWidget {
       ),
     );
 
-    // If no mentions, use regular Linkify for URLs only
-    if (mentions == null || mentions!.isEmpty) {
-      return Linkify(
-        text: text,
-        onOpen: (link) {
-          if (onUrlTap != null) {
-            onUrlTap!(link.url);
-          }
-        },
-        options: const LinkifyOptions(
-          humanize: false,
-          looseUrl: true,
-        ),
-        textDirection: textDirection,
-        textAlign: textAlign ?? TextAlign.left,
-        style: style,
-        linkStyle: linkStyle ??
-            const TextStyle(
-              color: AppColors.primary,
-              decoration: TextDecoration.underline,
-            ),
-      );
-    }
-
-    // Build rich text with both URLs and mentions
+    // Always build rich text with mentions detection from text
+    // Don't rely on backend mentions array - detect mentions directly like task_edit_screen.dart
     return _buildRichTextWithLinks(context, elements);
   }
 
   Widget _buildRichTextWithLinks(BuildContext context, List<LinkifyElement> elements) {
     final spans = <TextSpan>[];
-    final mentionMap = <String, Map<String, dynamic>>{};
-
-    // Create a map of username to mention data for quick lookup
-    for (var mention in mentions!) {
-      final username = mention['username'] as String;
-      mentionMap[username] = mention;
-    }
 
     // Pattern to match @mentions - same as task_edit_screen.dart and note_edit_screen.dart
     // Supports both Latin and Arabic characters, 2-32 chars long
@@ -91,12 +58,13 @@ class MentionText extends StatelessWidget {
           spans,
           element.text,
           mentionPattern,
-          mentionMap,
         );
       } else if (element is UrlElement) {
         // This is a URL - make it clickable
+        // Decode URL for display to convert &amp; back to &, etc.
+        final displayUrl = _decodeHtmlEntities(element.url);
         spans.add(TextSpan(
-          text: element.url,
+          text: displayUrl,
           style: linkStyle ??
               const TextStyle(
                 color: AppColors.primary,
@@ -105,6 +73,8 @@ class MentionText extends StatelessWidget {
           recognizer: TapGestureRecognizer()
             ..onTap = () {
               if (onUrlTap != null) {
+                // Use the original URL (with entities) for launching
+                // as it should be properly encoded for URIs
                 onUrlTap!(element.url);
               }
             },
@@ -114,7 +84,7 @@ class MentionText extends StatelessWidget {
 
     return RichText(
       text: TextSpan(
-        style: style?.copyWith(color: style?.color ?? Colors.black),
+        style: style,
         children: spans,
       ),
       textAlign: textAlign ?? TextAlign.left,
@@ -122,11 +92,21 @@ class MentionText extends StatelessWidget {
     );
   }
 
+  /// Decode HTML entities in URLs (e.g., &amp; -> &, &lt; -> <, etc.)
+  String _decodeHtmlEntities(String url) {
+    return url
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&apos;', "'");
+  }
+
   void _addTextWithMentions(
     List<TextSpan> spans,
     String text,
     RegExp mentionPattern,
-    Map<String, Map<String, dynamic>> mentionMap,
   ) {
     final matches = mentionPattern.allMatches(text);
     int lastEnd = 0;

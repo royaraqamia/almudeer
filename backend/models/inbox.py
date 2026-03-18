@@ -145,6 +145,13 @@ async def save_inbox_message(
     if is_blocked(sender_name) or is_blocked(sender_contact):
         # Return 0 to indicate no message was saved
         return 0
+
+    # Decode HTML entities in message body to prevent corrupted URLs
+    # This handles cases where external services (Telegram, WhatsApp) send HTML-encoded text
+    # e.g., converts &amp; back to &, &lt; to <, etc.
+    if body:
+        import html
+        body = html.unescape(body)
     
     # P0-1: Redis-based deduplication check
     if sender_id and received_at:
@@ -479,6 +486,12 @@ async def create_outbox_message(
     is_forwarded: bool = False
 ) -> int:
     """Create outbox message for approval (DB agnostic)."""
+
+    # Decode HTML entities in message body to prevent corrupted URLs
+    # This handles cases where the mobile app or API clients send HTML-encoded text
+    if body:
+        import html
+        body = html.unescape(body)
 
     # Serialize attachments
     import json

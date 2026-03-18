@@ -22,6 +22,9 @@ class ConversationDetailProvider extends ChangeNotifier {
   final MessageCacheService _messageCacheService;
   final PersistentCacheService _cache = PersistentCacheService();
 
+  /// Public getter for inbox repository (used by message_bubble.dart)
+  InboxRepository get inboxRepository => _inboxRepository;
+
   // WebSocket subscriptions
   StreamSubscription? _wsStateSubscription;
   StreamSubscription? _wsMessageSubscription;
@@ -404,7 +407,6 @@ class ConversationDetailProvider extends ChangeNotifier {
     if (messages == null) return null;
     try {
       final msg = messages.firstWhere((m) => m.id == id);
-      debugPrint('[ConversationDetailProvider] getMessageById($id): found status=${msg.status}, deliveryStatus=${msg.deliveryStatus}, sendStatus=${msg.sendStatus}');
       return msg;
     } catch (_) {
       debugPrint('[ConversationDetailProvider] getMessageById($id): not found');

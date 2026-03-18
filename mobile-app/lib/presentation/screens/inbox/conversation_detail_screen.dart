@@ -31,19 +31,28 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _detailProvider = context.read<ConversationDetailProvider>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (widget.conversation.senderContact != null) {
-        // Load from cache only - no API call for instant offline-first experience
-        // Fresh data will be fetched only when user pulls to refresh
-        _detailProvider.loadConversation(
-          widget.conversation.senderContact!,
-          senderName: widget.conversation.senderName, // Optimistic name
-          channel: widget.conversation.channel,
-          lastSeenAt: widget.conversation.lastSeenAt,
-          isOnline: widget.conversation.isOnline,
-          skipAutoRefresh: true,
-        );
+      if (!mounted || widget.conversation.senderContact == null) return;
+
+      // Check if conversation is already loaded to avoid re-loading on back navigation
+      // This matches the behavior in conversation_app_bar.dart
+      final alreadyLoaded = _detailProvider.senderContact == widget.conversation.senderContact;
+      if (alreadyLoaded && _detailProvider.messages.isNotEmpty) {
+        // Conversation already loaded - skip re-loading (prevents infinite reload loop)
+        return;
       }
+
+      // Load from cache only - no API call for instant offline-first experience
+      // Fresh data will be fetched only when user pulls to refresh
+      _detailProvider.loadConversation(
+        widget.conversation.senderContact!,
+        senderName: widget.conversation.senderName, // Optimistic name
+        channel: widget.conversation.channel,
+        lastSeenAt: widget.conversation.lastSeenAt,
+        isOnline: widget.conversation.isOnline,
+        skipAutoRefresh: true,
+      );
     });
   }
 
@@ -64,7 +73,6 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _detailProvider = context.read<ConversationDetailProvider>();
     // Set up error callback to show toasts when operations fail
     _detailProvider.onError = (String errorMessage) {
       if (mounted) {

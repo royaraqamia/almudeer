@@ -78,8 +78,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
   // CustomersProvider listener reference for proper cleanup
   VoidCallback? _customersProviderListener;
 
-  // Avatar loading state for shimmer effect
-  bool _isAvatarLoading = true;
+  // Avatar error tracking (CachedNetworkImage handles loading internally)
   bool _isAvatarError = false;
   int _avatarRetryCount = 0;
   static const int _maxAvatarRetries = 3;
@@ -87,14 +86,18 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
   /// Retry loading the avatar image
   void _retryAvatarLoad() {
     if (_avatarRetryCount >= _maxAvatarRetries) {
-      AnimatedToast.error(context, 'تعذر تحميل الصورة');
+      // Reset retry count to allow another attempt
+      Haptics.lightTap();
+      setState(() {
+        _avatarRetryCount = 0;
+        _isAvatarError = false;
+      });
       return;
     }
     Haptics.lightTap();
     setState(() {
       _avatarRetryCount++;
       _isAvatarError = false;
-      _isAvatarLoading = true;
     });
   }
 
@@ -279,7 +282,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
 
   Future<void> _loadFullDetails() async {
     final id = _customer[_kIdKey];
-    if (id == null || _isLoadingFullDetails || _isDisposed) return;
+    // Skip loading for Almudeer users without customer records
+    // They don't have entries in the customers table
+    if (id == null || _isLoadingFullDetails || _isDisposed || _isAlmudeerUser == true) return;
 
     setState(() => _isLoadingFullDetails = true);
 
@@ -294,6 +299,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
           _customer = fullDetails;
           _isAlmudeerUser = _checkIsAlmudeerUser();
           _invalidateNewContactCache(); // Refresh cache with new data
+          // Reset avatar error state on successful data load
+          _isAvatarError = false;
+          _avatarRetryCount = 0;
         });
       }
     } catch (e, stackTrace) {
@@ -1044,59 +1052,42 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     final imageUrl =
         (_customer[_kProfilePicUrlKey] ?? _customer[_kImageKey]) as String?;
 
-    // Wrap with RepaintBoundary for performance optimization
+    // Show error state with retry
+    if (_isAvatarError) {
+      return RepaintBoundary(
+        child: _buildAvatarErrorState(theme, isDark, isVip),
+      );
+    }
+
+    // Show avatar - CachedNetworkImage handles loading internally
     return RepaintBoundary(
-      child: _isAvatarLoading && !_isAvatarError
-          ? PremiumSkeleton(
-              child: Container(
-                width: AppDimensions.avatarLarge * 2,
-                height: AppDimensions.avatarLarge * 2,
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            )
-          : _isAvatarError
-              ? _buildAvatarErrorState(theme, isDark, isVip)
-              : AppAvatar(
-                  radius: AppDimensions.avatarLarge,
-                  imageUrl: imageUrl,
-                  customGradient: isVip
-                      ? [const Color(0xFFFBBF24), const Color(0xFFD97706)]
-                      : null,
-                  border: isVip
-                      ? Border.all(
-                          color: const Color(0xFFFBBF24).withValues(alpha: 0.5),
-                          width: 3,
-                        )
-                      : null,
-                  fadeInDuration: const Duration(milliseconds: 300),
-                  fadeOutDuration: const Duration(milliseconds: 300),
-                  onImageLoading: () {
-                    if (mounted && !_isAvatarLoading) {
-                      setState(() => _isAvatarLoading = true);
-                    }
-                  },
-                  onImageSuccess: () {
-                    if (mounted && (_isAvatarLoading || _isAvatarError)) {
-                      setState(() {
-                        _isAvatarLoading = false;
-                        _isAvatarError = false;
-                        _avatarRetryCount = 0;
-                      });
-                    }
-                  },
-                  onImageError: () {
-                    if (mounted && !_isAvatarError) {
-                      setState(() {
-                        _isAvatarLoading = false;
-                        _isAvatarError = true;
-                      });
-                    }
-                  },
-                  semanticsLabel: 'صورة $_displayName',
-                ),
+      child: AppAvatar(
+        key: ValueKey('avatar-$_avatarRetryCount'),
+        radius: AppDimensions.avatarLarge,
+        imageUrl: imageUrl,
+        customGradient: isVip
+            ? [const Color(0xFFFBBF24), const Color(0xFFD97706)]
+            : null,
+        border: isVip
+            ? Border.all(
+                color: const Color(0xFFFBBF24).withValues(alpha: 0.5),
+                width: 3,
+              )
+            : null,
+        fadeInDuration: const Duration(milliseconds: 300),
+        fadeOutDuration: const Duration(milliseconds: 300),
+        onImageSuccess: () {
+          if (mounted && _isAvatarError) {
+            setState(() => _isAvatarError = false);
+          }
+        },
+        onImageError: () {
+          if (mounted && !_isAvatarError) {
+            setState(() => _isAvatarError = true);
+          }
+        },
+        semanticsLabel: 'صورة $_displayName',
+      ),
     );
   }
 
@@ -1135,17 +1126,15 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
               color: isDark ? Colors.white70 : Colors.black54,
               size: AppDimensions.iconXLarge,
             ),
-            if (_avatarRetryCount < _maxAvatarRetries) ...[
-              const SizedBox(height: 4),
-              Text(
-                'إعادة المحاولة',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: isDark ? Colors.white70 : Colors.black54,
-                  fontWeight: FontWeight.w500,
-                ),
+            const SizedBox(height: 4),
+            Text(
+              _avatarRetryCount >= _maxAvatarRetries ? 'اضغط لإعادة المحاولة' : 'إعادة المحاولة',
+              style: TextStyle(
+                fontSize: 10,
+                color: isDark ? Colors.white70 : Colors.black54,
+                fontWeight: FontWeight.w500,
               ),
-            ],
+            ),
           ],
         ),
       ),

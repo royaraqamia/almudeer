@@ -1088,18 +1088,9 @@ class ApiClient {
 
     final now = DateTime.now();
     final newOffset = serverTime.difference(now);
-    
-    // Only log if offset changed significantly (>1 second) or is large (>5 seconds)
-    final shouldLog = _serverTimeOffset == null ||
-        (newOffset - _serverTimeOffset!).inSeconds.abs() > 1 ||
-        newOffset.inSeconds.abs() > 5;
-    
+
     _serverTimeOffset = newOffset;
     _lastServerTimeSync = now;
-    
-    if (shouldLog) {
-      debugPrint('[ApiClient] Server time offset: ${_serverTimeOffset?.inSeconds}s');
-    }
   }
 
   /// P1-13: Get current server time accounting for clock skew
