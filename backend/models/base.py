@@ -78,6 +78,8 @@ async def init_enhanced_tables():
                 reply_to_body_preview TEXT,
                 reply_to_sender_name TEXT,
                 reply_to_id INTEGER,
+                platform_message_id TEXT,
+                platform_status TEXT,
                 attachments TEXT,
                 is_forwarded BOOLEAN DEFAULT FALSE,
                 created_at {TIMESTAMP_NOW},
@@ -105,6 +107,8 @@ async def init_enhanced_tables():
                 reply_to_body_preview TEXT,
                 reply_to_id INTEGER,
                 reply_to_sender_name TEXT,
+                platform_message_id TEXT,
+                platform_status TEXT,
                 is_forwarded BOOLEAN DEFAULT FALSE,
                 delivery_status TEXT DEFAULT 'pending', -- Updated: Real-time status tracking
                 retry_count INTEGER DEFAULT 0, -- P1-6 FIX: Track retry attempts
@@ -263,6 +267,17 @@ async def init_enhanced_tables():
                 pass
             try:
                 await execute_sql(db, f"ALTER TABLE {table} ADD COLUMN reply_to_sender_name TEXT")
+            except:
+                pass
+
+        # Migration for platform_message_id and platform_status columns (reply context fix)
+        for table in ["inbox_messages", "outbox_messages"]:
+            try:
+                await execute_sql(db, f"ALTER TABLE {table} ADD COLUMN platform_message_id TEXT")
+            except:
+                pass
+            try:
+                await execute_sql(db, f"ALTER TABLE {table} ADD COLUMN platform_status TEXT")
             except:
                 pass
 

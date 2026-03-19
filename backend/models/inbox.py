@@ -1393,7 +1393,9 @@ async def get_conversation_messages_cursor(
                 is_forwarded,
                 NULL as delivery_status,
                 NULL as sent_at,
-                i.edited_at
+                i.edited_at,
+                i.platform_message_id,
+                i.platform_status
             FROM inbox_messages i
             WHERE {inbox_where}
 
@@ -1413,7 +1415,9 @@ async def get_conversation_messages_cursor(
                 is_forwarded,
                 delivery_status,
                 sent_at,
-                o.edited_at
+                o.edited_at,
+                o.platform_message_id,
+                o.platform_status
             FROM outbox_messages o
             WHERE {outbox_where}
         """
@@ -1939,7 +1943,9 @@ async def get_full_chat_history(
                 created_at, received_at,
                 reply_to_id, reply_to_platform_id, reply_to_body_preview, reply_to_sender_name, reply_count,
                 COALESCE(received_at, created_at) as effective_ts,
-                edited_at
+                edited_at,
+                platform_message_id,
+                platform_status
             FROM inbox_messages
             WHERE license_key_id = ?
             AND ({sender_where})
@@ -1981,7 +1987,9 @@ async def get_full_chat_history(
                 o.created_at, o.sent_at, o.edited_at,
                 o.delivery_status,
                 o.reply_to_platform_id, o.reply_to_body_preview, o.reply_to_sender_name, o.reply_count,
-                i.sender_name, i.mentions
+                i.sender_name, i.mentions,
+                o.platform_message_id,
+                o.platform_status
             FROM outbox_messages o
             LEFT JOIN inbox_messages i ON o.inbox_message_id = i.id
             WHERE o.license_key_id = ?
@@ -3710,16 +3718,22 @@ async def search_messages_in_conversation(
     async with get_db() as db:
         # Search in inbox_messages
         inbox_query = """
-            SELECT 
-                id, body, sender_name, sender_contact, 
+            SELECT
+                id, body, sender_name, sender_contact,
                 received_at as created_at, channel, attachments,
-                'incoming' as direction
+                'incoming' as direction,
+                platform_message_id,
+                platform_status,
+                reply_to_id,
+                reply_to_platform_id,
+                reply_to_body_preview,
+                reply_to_sender_name
             FROM inbox_messages
-            WHERE license_key_id = ? 
+            WHERE license_key_id = ?
               AND sender_contact = ?
               AND deleted_at IS NULL
               AND (
-                  body LIKE ? 
+                  body LIKE ?
                   OR sender_name LIKE ?
               )
             ORDER BY created_at DESC
@@ -3737,14 +3751,19 @@ async def search_messages_in_conversation(
         
         # Search in outbox_messages
         outbox_query = """
-            SELECT 
-                id, body, 
+            SELECT
+                id, body,
                 recipient_id as sender_name,
                 recipient_id as sender_contact,
                 created_at, channel, attachments,
-                'outgoing' as direction
+                'outgoing' as direction,
+                platform_message_id,
+                platform_status,
+                reply_to_platform_id,
+                reply_to_body_preview,
+                reply_to_sender_name
             FROM outbox_messages
-            WHERE license_key_id = ? 
+            WHERE license_key_id = ?
               AND recipient_id = ?
               AND deleted_at IS NULL
               AND body LIKE ?

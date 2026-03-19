@@ -252,11 +252,15 @@ class _MessageListViewState extends State<MessageListView> {
           break;
         }
         // Also check platform ID for backwards compatibility
-        if (platformId != null &&
-            (item.message.channelMessageId == platformId ||
-                item.message.channelMessageId?.safeUtf16 == platformId)) {
-          targetIndex = i;
-          break;
+        // Check both channelMessageId and platformMessageId fields
+        if (platformId != null) {
+          if (item.message.channelMessageId == platformId ||
+              item.message.channelMessageId?.safeUtf16 == platformId ||
+              item.message.platformMessageId == platformId ||
+              item.message.platformMessageId?.safeUtf16 == platformId) {
+            targetIndex = i;
+            break;
+          }
         }
       }
     }
