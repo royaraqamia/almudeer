@@ -415,7 +415,7 @@ async def _send_via_almudeer(
                 SELECT id, body, sender_name, 'inbox' as source
                 FROM inbox_messages WHERE id = $1
                 UNION ALL
-                SELECT id, body, sender_name, 'outbox' as source
+                SELECT id, body, NULL as sender_name, 'outbox' as source
                 FROM outbox_messages WHERE id = $1
                 LIMIT 1
                 """,
