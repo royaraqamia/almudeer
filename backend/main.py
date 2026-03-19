@@ -98,7 +98,7 @@ except ImportError as e:
 from routes.subscription import router as subscription_router
 from security_config import SECURITY_HEADERS, ADMIN_KEY
 from security import sanitize_message, sanitize_string
-from workers import start_message_polling, stop_message_polling, start_subscription_reminders, stop_subscription_reminders, start_token_cleanup_worker, stop_token_cleanup_worker, start_library_trash_cleanup_worker, stop_library_trash_cleanup_worker
+from workers import start_message_polling, stop_message_polling, start_subscription_reminders, stop_subscription_reminders, start_token_cleanup_worker, stop_token_cleanup_worker, start_library_trash_cleanup_worker, stop_library_trash_cleanup_worker, start_conversation_state_retry_processor, stop_conversation_state_retry_processor
 from db_pool import db_pool
 from services.websocket_manager import get_websocket_manager, broadcast_new_message
 from services.pagination import paginate_inbox, paginate_crm, paginate_customers, PaginationParams
@@ -298,6 +298,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Failed to start notification retry worker: {e}")
 
+        # P0-1 FIX: Start conversation state retry processor (processes failed conversation updates)
+        try:
+            await start_conversation_state_retry_processor()
+            logger.info("Conversation state retry processor started (processes failed conversation updates)")
+        except Exception as e:
+            logger.warning(f"Failed to start conversation state retry processor: {e}")
+
         # Start task alarm worker (checks and sends due alarms)
         try:
             from services.task_alarm_service import start_task_alarm_worker
@@ -379,6 +386,12 @@ async def lifespan(app: FastAPI):
         logger.info("Library Trash cleanup worker stopped")
     except Exception as e:
         logger.warning(f"Error stopping Library Trash cleanup: {e}")
+    try:
+        # P0-1 FIX: Stop conversation state retry processor
+        await stop_conversation_state_retry_processor()
+        logger.info("Conversation state retry processor stopped")
+    except Exception as e:
+        logger.warning(f"Error stopping conversation state retry processor: {e}")
     try:
         # Stop task alarm worker
         from services.task_alarm_service import stop_task_alarm_worker

@@ -3447,7 +3447,7 @@ async def process_conversation_state_retry_queue(license_id: int, max_batch_size
                     use_lock=False  # Don't re-acquire lock during retry processing
                 )
                 processed += 1
-                logger.debug(f"Processed conversation state retry: {sender_contact} (attempt {retry_count + 1})")
+                logger.info(f"Processed conversation state retry: {sender_contact} (attempt {retry_count + 1})")
             except Exception as e:
                 # Re-queue on failure with incremented retry count
                 if retry_count < 5:  # Max 5 retries
@@ -3465,6 +3465,33 @@ async def process_conversation_state_retry_queue(license_id: int, max_batch_size
         logger.debug(f"Re-queued {requeued} items due to backoff")
 
     return processed
+
+
+async def process_all_conversation_state_retry_queues():
+    """
+    P0-1 FIX: Process retry queues for ALL licenses.
+    This should be called periodically by a background worker.
+    """
+    from utils.redis_pool import get_redis_client
+    
+    redis = await get_redis_client()
+    if not redis:
+        return 0
+    
+    # Find all retry queues
+    all_keys = await redis.keys("conversation_state_retry:*")
+    total_processed = 0
+    
+    for key in all_keys:
+        # Extract license_id from key
+        try:
+            license_id = int(key.split(":")[-1])
+            processed = await process_conversation_state_retry_queue(license_id, max_batch_size=20)
+            total_processed += processed
+        except (ValueError, IndexError) as e:
+            logger.warning(f"Failed to parse license_id from retry queue key {key}: {e}")
+    
+    return total_processed
 
 
 # ============ Advanced Conversation Features ============

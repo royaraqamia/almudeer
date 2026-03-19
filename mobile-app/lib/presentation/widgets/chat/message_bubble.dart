@@ -256,12 +256,14 @@ class _MessageBubbleState extends State<MessageBubble> {
     final provider = context.watch<ConversationDetailProvider>();
     final isRtl = Directionality.of(context) == ui.TextDirection.rtl;
     final isDark = theme.brightness == Brightness.dark;
-    final isSelected = context.select<ConversationDetailProvider, bool>(
-      (p) => p.isMessageSelected(widget.message.id),
-    );
     final isSelectionMode = context.select<ConversationDetailProvider, bool>(
       (p) => p.isSelectionMode,
     );
+
+    // Debug highlight state
+    if (widget.isHighlighted) {
+      debugPrint('[MessageBubble] HIGHLIGHTED: id=${widget.message.id}, body=${widget.message.body.substring(0, 30)}, isDark=$isDark, isOutgoing=$isOutgoing');
+    }
 
     // Get fresh message status from provider for real-time delivery indicators
     // This ensures the status updates without needing to rebuild the entire bubble
@@ -322,14 +324,7 @@ class _MessageBubbleState extends State<MessageBubble> {
       onPanEnd: (_) {
         _isDragSelecting = false;
       },
-      child: Container(
-        color: widget.isHighlighted
-            ? (isDark
-                  ? AppColors.primary.withValues(
-                      alpha: 0.2,
-                    ) // More visible in dark mode
-                  : AppColors.primary.withValues(alpha: 0.1))
-            : (isSelected ? AppColors.primary.withValues(alpha: 0.1) : null),
+      child: Padding(
         padding: EdgeInsets.only(
           top:
               widget.position == MessageGroupPosition.top ||
@@ -353,13 +348,43 @@ class _MessageBubbleState extends State<MessageBubble> {
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
+                  // Highlight glow effect (rendered behind the bubble)
+                  if (widget.isHighlighted)
+                    Container(
+                      decoration: ShapeDecoration(
+                        shape: SmoothRectangleBorder(
+                          borderRadius: _getBorderRadius(isOutgoing),
+                        ),
+                        shadows: [
+                          BoxShadow(
+                            color: AppColors.primary.withValues(alpha: isDark ? 0.5 : 0.4),
+                            blurRadius: 20,
+                            spreadRadius: 4,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                    ),
                   Container(
                     decoration: ShapeDecoration(
                       shape: SmoothRectangleBorder(
                         borderRadius: _getBorderRadius(isOutgoing),
+                        side: BorderSide(
+                          color: widget.isHighlighted
+                              ? AppColors.primary.withValues(alpha: isDark ? 0.8 : 0.6)
+                              : (isOutgoing
+                                  ? Colors.white.withValues(alpha: 0.1)
+                                  : (isDark ? Colors.white : Colors.black)
+                                        .withValues(
+                                          alpha: 0.08,
+                                        )), // Increased from 0.05 for better definition
+                          width: widget.isHighlighted
+                              ? 2.5
+                              : (widget.message.channel == 'saved' ? 1.5 : 0.5),
+                        ),
                       ),
                       shadows: [
-                        if (!isDark)
+                        if (!isDark && !widget.isHighlighted)
                           BoxShadow(
                             color: Colors.black.withValues(alpha: 0.08),
                             blurRadius: 10,
@@ -385,32 +410,50 @@ class _MessageBubbleState extends State<MessageBubble> {
                             gradient: LinearGradient(
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
-                              colors: isOutgoing
-                                  ? [
-                                      AppColors.primary,
-                                      AppColors.primary.withValues(alpha: 0.85),
-                                    ]
-                                  : [
-                                      isDark
-                                          ? Colors.white.withValues(alpha: 0.12)
-                                          : Colors.white.withValues(alpha: 0.7),
-                                      isDark
-                                          ? Colors.white.withValues(alpha: 0.05)
-                                          : Colors.white.withValues(alpha: 0.4),
-                                    ],
+                              colors: widget.isHighlighted
+                                  ? (isOutgoing
+                                      ? [
+                                          AppColors.primaryLight,
+                                          AppColors.primary.withValues(alpha: 0.95),
+                                        ]
+                                      : (isDark
+                                          ? [
+                                              Colors.white.withValues(alpha: 0.25),
+                                              Colors.white.withValues(alpha: 0.15),
+                                            ]
+                                          : [
+                                              Colors.white.withValues(alpha: 0.9),
+                                              Colors.white.withValues(alpha: 0.7),
+                                            ]))
+                                  : (isOutgoing
+                                      ? [
+                                          AppColors.primary,
+                                          AppColors.primary.withValues(alpha: 0.85),
+                                        ]
+                                      : (isDark
+                                          ? [
+                                              Colors.white.withValues(alpha: 0.12),
+                                              Colors.white.withValues(alpha: 0.05),
+                                            ]
+                                          : [
+                                              Colors.white.withValues(alpha: 0.7),
+                                              Colors.white.withValues(alpha: 0.4),
+                                            ])),
                             ),
                             shape: SmoothRectangleBorder(
                               borderRadius: _getBorderRadius(isOutgoing),
                               side: BorderSide(
-                                color: isOutgoing
-                                    ? Colors.white.withValues(alpha: 0.1)
-                                    : (isDark ? Colors.white : Colors.black)
-                                          .withValues(
-                                            alpha: 0.08,
-                                          ), // Increased from 0.05 for better definition
-                                width: widget.message.channel == 'saved'
-                                    ? 1.5
-                                    : 0.5,
+                                color: widget.isHighlighted
+                                    ? AppColors.primary.withValues(alpha: isDark ? 0.8 : 0.6)
+                                    : (isOutgoing
+                                        ? Colors.white.withValues(alpha: 0.1)
+                                        : (isDark ? Colors.white : Colors.black)
+                                              .withValues(
+                                                alpha: 0.08,
+                                              )),
+                                width: widget.isHighlighted
+                                    ? 2.5
+                                    : (widget.message.channel == 'saved' ? 1.5 : 0.5),
                               ),
                             ),
                           ),

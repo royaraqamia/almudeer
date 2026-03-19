@@ -1023,7 +1023,7 @@ async def mark_outbox_sent(outbox_id: int) -> None:
 async def mark_outbox_failed(outbox_id: int, error_message: str) -> None:
     """
     Mark an outbox message as failed.
-    
+
     Args:
         outbox_id: The ID of the outbox message
         error_message: The error message describing the failure
@@ -1040,8 +1040,60 @@ async def mark_outbox_failed(outbox_id: int, error_message: str) -> None:
                 [error_message, outbox_id]
             )
             await commit_db(db)
-            
+
         logger.debug(f"Marked outbox message {outbox_id} as failed: {error_message}")
     except Exception as e:
         logger.error(f"Error marking outbox message as failed: {e}", exc_info=True)
+
+
+# ============================================================================
+# CONVERSATION STATE RETRY QUEUE PROCESSOR
+# ============================================================================
+
+_conversation_retry_task = None
+_conversation_retry_running = False
+
+
+async def start_conversation_state_retry_processor():
+    """
+    P0-1 FIX: Start background task to process conversation state retry queues.
+    This ensures that when upsert_conversation_state fails due to lock contention,
+    the update is not lost and will be processed later.
+    """
+    global _conversation_retry_running, _conversation_retry_task
+    
+    _conversation_retry_running = True
+    logger.info("Conversation state retry processor started")
+    
+    async def process_retries():
+        from models.inbox import process_all_conversation_state_retry_queues
+        
+        while _conversation_retry_running:
+            try:
+                processed = await process_all_conversation_state_retry_queues()
+                if processed > 0:
+                    logger.info(f"Processed {processed} conversation state retries")
+            except Exception as e:
+                logger.error(f"Error processing conversation state retries: {e}", exc_info=True)
+            
+            # Run every 10 seconds
+            await asyncio.sleep(10)
+    
+    _conversation_retry_task = asyncio.create_task(process_retries())
+    return {"status": "running"}
+
+
+async def stop_conversation_state_retry_processor():
+    """Stop the conversation state retry processor."""
+    global _conversation_retry_running, _conversation_retry_task
+    
+    _conversation_retry_running = False
+    if _conversation_retry_task:
+        _conversation_retry_task.cancel()
+        try:
+            await _conversation_retry_task
+        except asyncio.CancelledError:
+            pass
+    
+    logger.info("Conversation state retry processor stopped")
 

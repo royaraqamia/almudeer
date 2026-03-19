@@ -241,14 +241,17 @@ class _MessageListViewState extends State<MessageListView> {
   void _scrollToMessage(int? messageId, String? platformId) {
     if (!mounted) return;
 
+    debugPrint('[MessageListView] _scrollToMessage called with messageId: $messageId, platformId: $platformId');
     final chatItems = _cachedItems;
 
     int targetIndex = -1;
     for (int i = 0; i < chatItems.length; i++) {
       final item = chatItems[i];
       if (item is MessageItem) {
+        debugPrint('[MessageListView] Checking message id: ${item.message.id}, channelMessageId: ${item.message.channelMessageId}, platformMessageId: ${item.message.platformMessageId}');
         if (messageId != null && item.message.id == messageId) {
           targetIndex = i;
+          debugPrint('[MessageListView] Found message by ID at index: $targetIndex');
           break;
         }
         // Also check platform ID for backwards compatibility
@@ -259,6 +262,7 @@ class _MessageListViewState extends State<MessageListView> {
               item.message.platformMessageId == platformId ||
               item.message.platformMessageId?.safeUtf16 == platformId) {
             targetIndex = i;
+            debugPrint('[MessageListView] Found message by platform ID at index: $targetIndex');
             break;
           }
         }
@@ -280,13 +284,16 @@ class _MessageListViewState extends State<MessageListView> {
       Haptics.heavyTap();
 
       if (messageId != null) {
+        debugPrint('[MessageListView] Highlighting message id: $messageId');
         setState(() => _flashingMessageId = messageId);
+        debugPrint('[MessageListView] _flashingMessageId set to: $_flashingMessageId');
         // Configurable duration based on screen size for better UX
         final highlightDuration = MediaQuery.of(context).size.height > 800
             ? const Duration(milliseconds: 2500)
             : const Duration(milliseconds: 1800);
         Future.delayed(highlightDuration, () {
           if (mounted && _flashingMessageId == messageId) {
+            debugPrint('[MessageListView] Clearing highlight for message: $messageId');
             setState(() => _flashingMessageId = null);
           }
         });
@@ -418,9 +425,8 @@ class _MessageListViewState extends State<MessageListView> {
                       position: item.position,
                       onReplyTap: (id, pId) => _scrollToMessage(id, pId),
                       displayName: widget.displayName,
-                      isHighlighted:
-                          widget.highlightMessageId != null &&
-                          message.id == widget.highlightMessageId,
+                      isHighlighted: _flashingMessageId != null &&
+                          message.id == _flashingMessageId,
                     ),
                   ),
                 ],
