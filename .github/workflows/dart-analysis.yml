@@ -12,6 +12,9 @@ permissions:
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./mobile-app
     steps:
       - uses: actions/checkout@v4
 
