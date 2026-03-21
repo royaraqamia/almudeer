@@ -11,9 +11,10 @@ pluginManagement {
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
     repositories {
+        maven { url = uri("local-repo") }
         maven { url = uri("https://maven.aliyun.com/repository/google") }
         maven { url = uri("https://maven.aliyun.com/repository/public") }
-        maven { url = uri("local-repo") }
+        maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
         google()
         mavenCentral()
         gradlePluginPortal()
@@ -24,13 +25,13 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
     repositories {
+        maven { url = uri("${rootProject.projectDir}/local-repo") }
         maven { url = uri("https://maven.aliyun.com/repository/google") }
         maven { url = uri("https://maven.aliyun.com/repository/public") }
         google()
         mavenCentral()
         maven { url = uri("https://storage.googleapis.com/download.flutter.io") }
         maven { url = uri("https://jitpack.io") }
-        maven { url = uri("${rootProject.projectDir}/local-repo") }
     }
 }
 
@@ -38,6 +39,7 @@ plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
     id("com.android.application") version "8.11.1" apply false
     id("org.jetbrains.kotlin.android") version "2.1.0" apply false
+    id("com.google.gms.google-services") version "4.4.2" apply false
     id("org.gradle.toolchains.foojay-resolver-convention") version "0.8.0"
 }
 
