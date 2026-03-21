@@ -1,0 +1,28 @@
+allprojects {
+    buildscript {
+        repositories {
+            def ALIYUN_REPOSITORY_URL = 'https://maven.aliyun.com/repository/public'
+            def ALIYUN_GOOGLE_URL = 'https://maven.aliyun.com/repository/google'
+            def ALIYUN_GRADLE_PLUGIN_URL = 'https://maven.aliyun.com/repository/gradle-plugin'
+            
+            // Add Aliyun mirrors first
+            if (!repositories.any { it.url?.toString()?.contains('aliyun') }) {
+                maven { url ALIYUN_GOOGLE_URL }
+                maven { url ALIYUN_REPOSITORY_URL }
+                maven { url ALIYUN_GRADLE_PLUGIN_URL }
+            }
+        }
+    }
+    repositories {
+        def ALIYUN_REPOSITORY_URL = 'https://maven.aliyun.com/repository/public'
+        def ALIYUN_GOOGLE_URL = 'https://maven.aliyun.com/repository/google'
+        def ALIYUN_GRADLE_PLUGIN_URL = 'https://maven.aliyun.com/repository/gradle-plugin'
+        
+        // Add Aliyun mirrors first
+        if (!repositories.any { it.url?.toString()?.contains('aliyun') }) {
+            maven { url ALIYUN_GOOGLE_URL }
+            maven { url ALIYUN_REPOSITORY_URL }
+            maven { url ALIYUN_GRADLE_PLUGIN_URL }
+        }
+    }
+}
