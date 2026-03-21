@@ -3391,8 +3391,10 @@ async def process_conversation_state_retry_queue(license_id: int, max_batch_size
     Returns:
         Number of retries processed
     """
+    from logging_config import get_logger
     from utils.redis_pool import get_redis_client
 
+    logger = get_logger(__name__)
     redis = await get_redis_client()
     if not redis:
         return 0

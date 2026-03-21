@@ -852,6 +852,14 @@ class MockPersistentCacheService extends _i1.Mock
           as _i7.Future<void>);
 
   @override
+  _i7.Future<Set<String>> getKeys(String? boxName) =>
+      (super.noSuchMethod(
+            Invocation.method(#getKeys, [boxName]),
+            returnValue: _i7.Future<Set<String>>.value(<String>{}),
+          )
+          as _i7.Future<Set<String>>);
+
+  @override
   _i7.Future<void> clearAll() =>
       (super.noSuchMethod(
             Invocation.method(#clearAll, []),

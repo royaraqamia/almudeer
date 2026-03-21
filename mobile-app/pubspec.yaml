@@ -36,7 +36,7 @@ dependencies:
 
   # Local Storage
   shared_preferences: ^2.5.4
-  flutter_secure_storage: 9.2.4
+  flutter_secure_storage: 10.0.0
   # Hive for QR scanner history - pinned version
   hive: 2.2.3
   hive_flutter: 1.1.0
@@ -54,6 +54,7 @@ dependencies:
   # QR Sharing support - pinned version
   share_plus: 12.0.1
   gal: 2.3.2
+  csv: 8.0.0
 
   # Audio (for voice messages)
   just_audio: 0.10.5
@@ -62,6 +63,7 @@ dependencies:
   http_parser: 4.1.2
   audio_waveforms: 2.0.2
   proximity_sensor: 1.3.10
+  audio_session: 0.2.3
 
   # Message Input Features
   emoji_picker_flutter: 4.4.0
@@ -72,12 +74,12 @@ dependencies:
   path: 1.9.1
 
   # Firebase Push Notifications & Crash Reporting
-  firebase_core: 4.4.0
-  firebase_messaging: 16.1.1
-  firebase_crashlytics: 5.0.7  # P9: Crash reporting for production monitoring
+  firebase_core: 4.5.0
+  firebase_messaging: 16.1.2
+  firebase_crashlytics: 5.0.8  # P9: Crash reporting for production monitoring
   flutter_local_notifications: ^21.0.0-dev.2
   timezone: 0.11.0
-  flutter_timezone: 5.0.1
+  flutter_timezone: 5.0.2
   web_socket_channel: 3.0.3
   package_info_plus: 9.0.0
   flutter_native_splash: ^2.4.7
@@ -91,8 +93,8 @@ dependencies:
   background_downloader: ^9.5.4
 
   # Battery & Connectivity
-  battery_plus: ^6.2.2
-  connectivity_plus: ^6.1.5
+  battery_plus: 7.0.0
+  connectivity_plus: 7.0.0
   android_intent_plus: ^6.0.0
   workmanager: ^0.9.0
 
@@ -100,20 +102,18 @@ dependencies:
   image: ^4.8.0
   device_info_plus: 12.3.0
   scrollable_positioned_list: 0.3.8
-  audio_session: 0.2.2
   # QR Scanner - pinned version for stability
   mobile_scanner: ^7.2.0
   # QR Generator - pinned version for stability
   qr_flutter: 4.1.0
   hijri_picker: 3.0.0
-  flutter_contacts: 1.1.9+2
-  logger: 2.6.2
+  flutter_contacts: 2.0.1
+  logger: 2.7.0
   logging: 1.3.0
 
   # Syntax Highlighting for Code Files
   flutter_highlight: 0.7.0
   highlight: 0.7.0
-  csv: ^7.1.0  # RFC 4180 compliant CSV parsing
   math_expressions: 3.1.0
   flutter_linkify: 6.0.0
   linkify: 5.0.0
@@ -135,8 +135,8 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.4
-  mockito: ^5.4.4
-  build_runner: ^2.11.1
+  mockito: ^5.5.1
+  build_runner: ^2.10.0
 
   connectivity_plus_platform_interface: any
   cross_file: 0.3.5+2
@@ -186,3 +186,13 @@ flutter_native_splash:
     color_dark: "#0F2E42"
     icon_background_color: "#E8EEFF"
     icon_background_color_dark: "#0F2E42"
+
+dependency_overrides:
+  meta: 1.18.2
+  test_api: 0.7.11
+  vector_math: 2.3.0
+  win32: 6.0.0
+  win32_registry: 3.0.2
+  _fe_analyzer_shared: 98.0.0
+  analyzer: 12.0.0
+  dart_style: 3.1.8

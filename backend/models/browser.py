@@ -221,9 +221,9 @@ async def add_history_entry(
                     UPDATE browser_history
                     SET visited_at = ?, visit_count = visit_count + 1, updated_at = ?
                     WHERE id = ?
-                """, (visited, now, existing[0]))
-                history_id = existing[0]
-                visit_count = existing[1] + 1
+                """, (visited, now, existing["id"]))
+                history_id = existing["id"]
+                visit_count = existing["visit_count"] + 1
             else:
                 # Insert new entry
                 await execute_sql(db, f"""
@@ -234,10 +234,10 @@ async def add_history_entry(
                 # Get the inserted ID
                 if DB_TYPE == "postgresql":
                     result = await fetch_one(db, "SELECT LASTVAL()")
-                    history_id = result[0] if result else None
+                    history_id = result["lastval"] if result else None
                 else:
                     result = await fetch_one(db, "SELECT last_insert_rowid()")
-                    history_id = result[0] if result else None
+                    history_id = result["last_insert_rowid()"] if result else None
                 visit_count = 1
 
             await commit_db(db)

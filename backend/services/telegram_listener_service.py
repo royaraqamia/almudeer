@@ -128,19 +128,40 @@ class TelegramListenerService:
 
     async def _sync_sessions(self):
         """Sync active DB sessions with running clients"""
-        # Fetch all active sessions
-        async with get_db() as db:
+        # Fetch all active sessions with retry on connection errors
+        max_retries = 3
+        retry_delay = 1.0
+        
+        for attempt in range(max_retries):
             try:
-                query = """
-                    SELECT license_key_id, session_data_encrypted, phone_number 
-                    FROM telegram_phone_sessions 
-                    WHERE is_active = TRUE
-                """
-                rows = await fetch_all(db, query)
-                logger.info(f"Syncing {len(rows)} active Telegram sessions...")
+                async with get_db() as db:
+                    query = """
+                        SELECT license_key_id, session_data_encrypted, phone_number
+                        FROM telegram_phone_sessions
+                        WHERE is_active = TRUE
+                    """
+                    rows = await fetch_all(db, query)
+                    logger.info(f"Syncing {len(rows)} active Telegram sessions...")
+                    break  # Success, exit retry loop
             except Exception as e:
-                logger.error(f"DB Error fetching sessions: {e}", exc_info=True)
-                return
+                error_str = str(e)
+                # Check for connection-related errors that should retry
+                is_connection_error = (
+                    "connection was closed" in error_str.lower() or
+                    "connection reset" in error_str.lower() or
+                    "ConnectionDoesNotExistError" in type(e).__name__
+                )
+                
+                if is_connection_error and attempt < max_retries - 1:
+                    logger.warning(f"DB connection error (attempt {attempt + 1}/{max_retries}): {e}. Retrying...")
+                    await asyncio.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                else:
+                    logger.error(f"DB Error fetching sessions (attempt {attempt + 1}/{max_retries}): {e}", exc_info=True)
+                    return  # Give up after max retries or non-retryable error
+        else:
+            # All retries exhausted
+            logger.error("Failed to fetch sessions after multiple attempts")
+            return
 
         active_license_ids = set()
         

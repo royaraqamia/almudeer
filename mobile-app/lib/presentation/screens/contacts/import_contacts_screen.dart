@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/dimensions.dart';
 import '../../../core/utils/haptics.dart';
@@ -40,16 +41,21 @@ class _ImportContactsScreenState extends State<ImportContactsScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Request permission
-      if (await FlutterContacts.requestPermission(readonly: true)) {
+      // Request permission using permission_handler
+      final contactsPermission = await Permission.contacts.request();
+      final permissionGranted = contactsPermission.isGranted;
+
+      if (permissionGranted) {
         // Fetch existing phones for duplicate detection
         final existingPhones = await _repository.getAllCustomerPhones();
 
-        // Fetch contacts with accounts to detect WhatsApp/Telegram
-        final contacts = await FlutterContacts.getContacts(
-          withProperties: true,
-          withAccounts: true,
-          withPhoto: false,
+        // Fetch contacts with properties to detect WhatsApp/Telegram
+        final contacts = await FlutterContacts.getAll(
+          properties: {
+            ContactProperty.name,
+            ContactProperty.phone,
+            ContactProperty.organization,
+          },
         );
 
         if (mounted) {
@@ -89,8 +95,9 @@ class _ImportContactsScreenState extends State<ImportContactsScreen> {
 
   void _applyFilter() {
     _filteredContacts = _contacts.where((contact) {
+      final displayName = contact.displayName ?? '';
       final matchesSearch =
-          contact.displayName.toLowerCase().contains(
+          displayName.toLowerCase().contains(
             _searchQuery.toLowerCase(),
           ) ||
           contact.phones.any((p) => p.number.contains(_searchQuery));
@@ -116,7 +123,7 @@ class _ImportContactsScreenState extends State<ImportContactsScreen> {
       if (_selectedIds.length == _contacts.length) {
         _selectedIds.clear();
       } else {
-        _selectedIds.addAll(_contacts.map((c) => c.id));
+        _selectedIds.addAll(_contacts.map((c) => c.id!).cast<String>());
       }
     });
   }
@@ -136,7 +143,7 @@ class _ImportContactsScreenState extends State<ImportContactsScreen> {
     int failCount = 0;
 
     final selectedContacts = _contacts
-        .where((c) => _selectedIds.contains(c.id))
+        .where((c) => c.id != null && _selectedIds.contains(c.id!))
         .toList();
 
     const int batchSize = 20;
@@ -159,10 +166,10 @@ class _ImportContactsScreenState extends State<ImportContactsScreen> {
                 .replaceAll('-', '');
 
             final customerData = {
-              'name': contact.displayName,
+              'name': contact.displayName ?? 'Unknown',
               'phone': phone,
               'company': contact.organizations.isNotEmpty
-                  ? contact.organizations.first.company
+                  ? contact.organizations.first.name
                   : null,
               'has_whatsapp': false,
               'has_telegram': false,
@@ -379,7 +386,8 @@ class _ImportContactsScreenState extends State<ImportContactsScreen> {
             : '';
 
         final isAlreadyRegistered = _existingPhones.contains(phone);
-        final isSelected = _selectedIds.contains(contact.id);
+        final contactId = contact.id ?? '';
+        final isSelected = _selectedIds.contains(contactId);
 
         return _buildContactTile(contact, isAlreadyRegistered, isSelected);
       },
@@ -392,10 +400,11 @@ class _ImportContactsScreenState extends State<ImportContactsScreen> {
     bool isSelected,
   ) {
     final theme = Theme.of(context);
-    final displayName = contact.displayName;
+    final displayName = contact.displayName ?? 'Unknown';
+    final contactId = contact.id ?? '';
 
     return GestureDetector(
-      onTap: isAlreadyRegistered ? null : () => _toggleSelection(contact.id),
+      onTap: isAlreadyRegistered ? null : () => _toggleSelection(contactId),
       child: Opacity(
         opacity: isAlreadyRegistered ? 0.6 : 1.0,
         child: Container(
@@ -504,8 +513,14 @@ class _ImportContactsScreenState extends State<ImportContactsScreen> {
       );
     }
 
+    // Extract initials from name
+    final initials = name.isNotEmpty
+        ? name.split(' ').map((e) => e.isNotEmpty ? e[0] : '').take(2).join()
+        : null;
+
     return AppAvatar(
       radius: 24,
+      initials: initials,
       overlay: isSelected
           ? Positioned.fill(
               child: Container(

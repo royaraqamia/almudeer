@@ -10,9 +10,10 @@ import 'package:almudeer_mobile_app/core/api/api_client.dart' as _i3;
 import 'package:almudeer_mobile_app/core/services/connectivity_service.dart'
     as _i7;
 import 'package:almudeer_mobile_app/core/services/persistent_cache_service.dart'
-    as _i10;
+    as _i11;
 import 'package:almudeer_mobile_app/data/datasources/local/inbox_local_datasource.dart'
     as _i9;
+import 'package:almudeer_mobile_app/data/models/inbox_message.dart' as _i10;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart' as _i4;
 import 'package:http/http.dart' as _i2;
 import 'package:mockito/mockito.dart' as _i1;
@@ -709,6 +710,14 @@ class MockInboxLocalDataSource extends _i1.Mock
           as _i5.Future<void>);
 
   @override
+  _i5.Future<_i10.InboxMessage?> getMessageById(int? id) =>
+      (super.noSuchMethod(
+            Invocation.method(#getMessageById, [id]),
+            returnValue: _i5.Future<_i10.InboxMessage?>.value(),
+          )
+          as _i5.Future<_i10.InboxMessage?>);
+
+  @override
   _i5.Future<void> persistRemoteMessage(Map<String, dynamic>? msg) =>
       (super.noSuchMethod(
             Invocation.method(#persistRemoteMessage, [msg]),
@@ -943,7 +952,7 @@ class MockInboxLocalDataSource extends _i1.Mock
 ///
 /// See the documentation for Mockito's code generation for more information.
 class MockPersistentCacheService extends _i1.Mock
-    implements _i10.PersistentCacheService {
+    implements _i11.PersistentCacheService {
   MockPersistentCacheService() {
     _i1.throwOnMissingStub(this);
   }
@@ -972,16 +981,16 @@ class MockPersistentCacheService extends _i1.Mock
           as _i5.Future<void>);
 
   @override
-  _i5.Future<_i10.CacheEntry<T>?> getWithMeta<T>(
+  _i5.Future<_i11.CacheEntry<T>?> getWithMeta<T>(
     String? boxName,
     String? key, {
     Duration? expiry,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#getWithMeta, [boxName, key], {#expiry: expiry}),
-            returnValue: _i5.Future<_i10.CacheEntry<T>?>.value(),
+            returnValue: _i5.Future<_i11.CacheEntry<T>?>.value(),
           )
-          as _i5.Future<_i10.CacheEntry<T>?>);
+          as _i5.Future<_i11.CacheEntry<T>?>);
 
   @override
   _i5.Future<T?> get<T>(String? boxName, String? key, {Duration? expiry}) =>
@@ -1017,6 +1026,14 @@ class MockPersistentCacheService extends _i1.Mock
             returnValueForMissingStub: _i5.Future<void>.value(),
           )
           as _i5.Future<void>);
+
+  @override
+  _i5.Future<Set<String>> getKeys(String? boxName) =>
+      (super.noSuchMethod(
+            Invocation.method(#getKeys, [boxName]),
+            returnValue: _i5.Future<Set<String>>.value(<String>{}),
+          )
+          as _i5.Future<Set<String>>);
 
   @override
   _i5.Future<void> clearAll() =>

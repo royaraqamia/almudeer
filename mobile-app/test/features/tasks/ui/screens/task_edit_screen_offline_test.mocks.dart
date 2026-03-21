@@ -672,6 +672,53 @@ class MockTaskRepository extends _i1.Mock implements _i2.TaskRepository {
             returnValue: _i7.Future<bool>.value(false),
           )
           as _i7.Future<bool>);
+
+  @override
+  _i7.Future<List<Map<String, dynamic>>> fetchPendingAlarms() =>
+      (super.noSuchMethod(
+            Invocation.method(#fetchPendingAlarms, []),
+            returnValue: _i7.Future<List<Map<String, dynamic>>>.value(
+              <Map<String, dynamic>>[],
+            ),
+          )
+          as _i7.Future<List<Map<String, dynamic>>>);
+
+  @override
+  _i7.Future<void> syncAlarmsWithBackend() =>
+      (super.noSuchMethod(
+            Invocation.method(#syncAlarmsWithBackend, []),
+            returnValue: _i7.Future<void>.value(),
+            returnValueForMissingStub: _i7.Future<void>.value(),
+          )
+          as _i7.Future<void>);
+
+  @override
+  _i7.Future<bool> acknowledgeAlarmOnBackend({
+    required int? alarmId,
+    String? deviceId,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(#acknowledgeAlarmOnBackend, [], {
+              #alarmId: alarmId,
+              #deviceId: deviceId,
+            }),
+            returnValue: _i7.Future<bool>.value(false),
+          )
+          as _i7.Future<bool>);
+
+  @override
+  _i7.Future<Map<String, dynamic>?> snoozeAlarmOnBackend({
+    required String? taskId,
+    int? alarmId,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(#snoozeAlarmOnBackend, [], {
+              #taskId: taskId,
+              #alarmId: alarmId,
+            }),
+            returnValue: _i7.Future<Map<String, dynamic>?>.value(),
+          )
+          as _i7.Future<Map<String, dynamic>?>);
 }
 
 /// A class which mocks [AuthProvider].
