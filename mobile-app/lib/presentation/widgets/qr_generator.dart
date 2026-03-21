@@ -193,10 +193,7 @@ class _QRBottomSheetContentState extends State<_QRBottomSheetContent> {
     try {
       // Share as text using SharePlus
       await SharePlus.instance.share(
-        ShareParams(
-          text: widget.data,
-          subject: widget.title,
-        ),
+        ShareParams(text: widget.data, subject: widget.title),
       );
     } on PlatformException catch (e) {
       // Handle platform-specific sharing errors

@@ -754,7 +754,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
               title: const Text('مشاركة رابط الصورة'),
               onTap: () {
                 Navigator.pop(context);
-                SharePlus.instance.share(ShareParams(text: imageUrl));
+                SharePlus.instance.share(
+                  ShareParams(text: Uri.parse(imageUrl).toString()),
+                );
               },
             ),
             const SizedBox(height: 20),
@@ -1207,7 +1209,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 onPressed: () {
                   Haptics.lightTap();
                   if (activeTab.url.isNotEmpty) {
-                    SharePlus.instance.share(ShareParams(text: activeTab.url));
+                    SharePlus.instance.share(
+                      ShareParams(text: activeTab.url),
+                    );
                   }
                 },
               ),

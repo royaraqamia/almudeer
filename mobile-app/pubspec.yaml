@@ -36,7 +36,7 @@ dependencies:
 
   # Local Storage
   shared_preferences: ^2.5.4
-  flutter_secure_storage: 10.0.0
+  flutter_secure_storage: ^10.0.0
   # Hive for QR scanner history - pinned version
   hive: 2.2.3
   hive_flutter: 1.1.0
@@ -52,7 +52,7 @@ dependencies:
   chewie: 1.13.0
   flutter_pdfview: 1.4.4
   # QR Sharing support - pinned version
-  share_plus: 12.0.1
+  share_plus: ^12.0.1
   gal: 2.3.2
   csv: 8.0.0
 
@@ -81,7 +81,7 @@ dependencies:
   timezone: 0.11.0
   flutter_timezone: 5.0.2
   web_socket_channel: 3.0.3
-  package_info_plus: 9.0.0
+  package_info_plus: ^9.0.0
   flutter_native_splash: ^2.4.7
   photo_view: 0.15.0
   just_waveform: ^0.0.4
@@ -93,14 +93,14 @@ dependencies:
   background_downloader: ^9.5.4
 
   # Battery & Connectivity
-  battery_plus: 7.0.0
-  connectivity_plus: 7.0.0
-  android_intent_plus: ^6.0.0
+  battery_plus: ^7.0.0
+  connectivity_plus: ^7.0.0
+  android_intent_plus: ^5.2.0
   workmanager: ^0.9.0
 
   video_compress: ^3.1.4
   image: ^4.8.0
-  device_info_plus: 12.3.0
+  device_info_plus: ^12.3.0
   scrollable_positioned_list: 0.3.8
   # QR Scanner - pinned version for stability
   mobile_scanner: ^7.2.0
@@ -128,7 +128,6 @@ dependencies:
   equatable: 2.0.8
   app_links: 7.0.0
   characters: ^1.4.0
-
 
 dev_dependencies:
   flutter_test:
@@ -186,13 +185,3 @@ flutter_native_splash:
     color_dark: "#0F2E42"
     icon_background_color: "#E8EEFF"
     icon_background_color_dark: "#0F2E42"
-
-dependency_overrides:
-  meta: 1.18.2
-  test_api: 0.7.11
-  vector_math: 2.3.0
-  win32: 6.0.0
-  win32_registry: 3.0.2
-  _fe_analyzer_shared: 98.0.0
-  analyzer: 12.0.0
-  dart_style: 3.1.8
