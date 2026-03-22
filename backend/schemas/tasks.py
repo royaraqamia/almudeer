@@ -62,15 +62,23 @@ class TaskBase(BaseModel):
     @field_validator('alarm_time')
     @classmethod
     def validate_alarm_time(cls, v):
-        """Validate alarm time is not too far in the future (max 1 year)"""
+        """Validate alarm time is not too far in the future (max 1 year) and normalize to UTC"""
         if v is not None:
             now = datetime.now(timezone.utc)
             max_alarm = now.replace(year=now.year + 1)
-            # Normalize naive datetime to UTC for comparison
+            # Normalize naive datetime to UTC (assume client sends UTC)
             if v.tzinfo is None:
                 v = v.replace(tzinfo=timezone.utc)
             if v > max_alarm:
                 raise ValueError('alarm_time cannot be more than 1 year in the future')
+        return v
+
+    @field_validator('due_date')
+    @classmethod
+    def validate_due_date(cls, v):
+        """Normalize due_date to UTC if timezone-naive"""
+        if v is not None and v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
         return v
 
 class TaskCreate(TaskBase):
@@ -100,11 +108,11 @@ class TaskUpdate(BaseModel):
     @field_validator('alarm_time')
     @classmethod
     def validate_alarm_time(cls, v):
-        """Validate alarm time is not too far in the future (max 1 year)"""
+        """Validate alarm time is not too far in the future (max 1 year) and normalize to UTC"""
         if v is not None:
             now = datetime.now(timezone.utc)
             max_alarm = now.replace(year=now.year + 1)
-            # Normalize naive datetime to UTC for comparison
+            # Normalize naive datetime to UTC (assume client sends UTC)
             if v.tzinfo is None:
                 v = v.replace(tzinfo=timezone.utc)
             if v > max_alarm:

@@ -289,9 +289,12 @@ async def create_new_task(
                 alarm_time = task_dict["alarm_time"]
                 # Parse datetime if string
                 if isinstance(alarm_time, str):
-                    from datetime import datetime
+                    from datetime import datetime, timezone
                     alarm_time = datetime.fromisoformat(alarm_time.replace('Z', '+00:00'))
-                
+                    # If naive datetime, assume it's UTC (from mobile app)
+                    if alarm_time.tzinfo is None:
+                        alarm_time = alarm_time.replace(tzinfo=timezone.utc)
+
                 logger.info(f"Task create: alarm_enabled=True, alarm_time={alarm_time} (type={type(alarm_time).__name__})")
 
                 await schedule_task_alarm(
@@ -522,9 +525,12 @@ async def update_existing_task(
                 alarm_time = update_data["alarm_time"]
                 # Parse datetime if string
                 if isinstance(alarm_time, str):
-                    from datetime import datetime
+                    from datetime import datetime, timezone
                     alarm_time = datetime.fromisoformat(alarm_time.replace('Z', '+00:00'))
-                
+                    # If naive datetime, assume it's UTC (from mobile app)
+                    if alarm_time.tzinfo is None:
+                        alarm_time = alarm_time.replace(tzinfo=timezone.utc)
+
                 await schedule_task_alarm(
                     task_id=task_id,
                     license_key_id=license_id,
@@ -731,6 +737,9 @@ async def update_existing_task(
                     old_alarm = current_task["alarm_time"]
                     if isinstance(old_alarm, str):
                         old_alarm = dt.datetime.fromisoformat(old_alarm.replace('Z', '+00:00'))
+                        # If naive datetime, assume it's UTC
+                        if old_alarm.tzinfo is None:
+                            old_alarm = old_alarm.replace(tzinfo=dt.timezone.utc)
 
                     if rec == "daily":
                         cloned_task["alarm_time"] = old_alarm + relativedelta(days=1)

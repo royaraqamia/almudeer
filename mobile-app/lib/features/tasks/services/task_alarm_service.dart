@@ -181,12 +181,14 @@ class TaskAlarmService {
         break;
       case 'monthly':
         // Add one month, handling month overflow
-        nextAlarmTime = DateTime(
-          task.alarmTime!.year,
-          task.alarmTime!.month + 1,
-          task.alarmTime!.day,
-          task.alarmTime!.hour,
-          task.alarmTime!.minute,
+        // Preserve UTC timezone from original alarm time
+        final originalTime = task.alarmTime!;
+        nextAlarmTime = DateTime.utc(
+          originalTime.year,
+          originalTime.month + 1,
+          originalTime.day,
+          originalTime.hour,
+          originalTime.minute,
         );
         break;
     }

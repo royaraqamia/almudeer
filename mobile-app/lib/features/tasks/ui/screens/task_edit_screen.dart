@@ -423,14 +423,18 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
     final selectedDate = _selectedDate;
     final alarmTime = _alarmTime;
     if (_alarmEnabled && alarmTime != null && selectedDate != null) {
-      alarmDateTime = DateTime(
+      // Create DateTime in local timezone first
+      final localAlarmDateTime = DateTime(
         selectedDate.year,
         selectedDate.month,
         selectedDate.day,
         alarmTime.hour,
         alarmTime.minute,
       );
-      
+
+      // Convert to UTC for backend API (backend expects UTC)
+      alarmDateTime = localAlarmDateTime.toUtc();
+
       // FIX: Validate alarm datetime is not in the past
       if (alarmDateTime.isBefore(DateTime.now())) {
         if (mounted) {
