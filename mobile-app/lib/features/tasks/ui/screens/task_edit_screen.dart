@@ -430,6 +430,20 @@ class _TaskEditScreenState extends State<TaskEditScreen> {
         alarmTime.hour,
         alarmTime.minute,
       );
+      
+      // FIX: Validate alarm datetime is not in the past
+      if (alarmDateTime.isBefore(DateTime.now())) {
+        if (mounted) {
+          AnimatedToast.error(
+            context,
+            'لا يمكن اختيار وقت ماضٍ للتنبيه',
+          );
+        }
+        if (mounted) {
+          setState(() => _isSaving = false);
+        }
+        return;
+      }
     }
 
     try {

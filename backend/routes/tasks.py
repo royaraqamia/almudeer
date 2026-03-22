@@ -292,6 +292,8 @@ async def create_new_task(
                     from datetime import datetime
                     alarm_time = datetime.fromisoformat(alarm_time.replace('Z', '+00:00'))
                 
+                logger.info(f"Task create: alarm_enabled=True, alarm_time={alarm_time} (type={type(alarm_time).__name__})")
+
                 await schedule_task_alarm(
                     task_id=result["id"],
                     license_key_id=license_id,

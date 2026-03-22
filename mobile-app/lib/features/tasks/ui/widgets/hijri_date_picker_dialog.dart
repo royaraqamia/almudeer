@@ -39,7 +39,11 @@ class _HijriDatePickerDialogState extends State<HijriDatePickerDialog> {
   }
 
   void _updateDate() {
-    final newDate = HijriCalendar.now()
+    // FIX: Create new HijriCalendar object instead of modifying now()
+    // Using HijriCalendar.now() and then modifying properties can cause
+    // incorrect date calculations because the internal state is based on
+    // the current date
+    final newDate = HijriCalendar()
       ..hYear = _selectedYear
       ..hMonth = _selectedMonth
       ..hDay = _selectedDay;
@@ -53,7 +57,7 @@ class _HijriDatePickerDialogState extends State<HijriDatePickerDialog> {
       // Adjust day if invalid (e.g. 30th in a 29-day month)
       setState(() {
         _selectedDay = newDate.lengthOfMonth;
-        _selectedDate = HijriCalendar.now()
+        _selectedDate = HijriCalendar()
           ..hYear = _selectedYear
           ..hMonth = _selectedMonth
           ..hDay = _selectedDay;

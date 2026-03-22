@@ -148,8 +148,16 @@ async def schedule_task_alarm(
     # Don't schedule alarms in the past
     now = datetime.now(timezone.utc)
     if alarm_time < now:
-        logger.debug(f"Skipping past alarm for task {task_id}")
+        logger.warning(f"Skipping past alarm for task {task_id}: alarm_time={alarm_time}, now={now}, diff={now - alarm_time}")
         return 0
+    
+    # Don't schedule alarms too far in the future (max 1 year)
+    max_future = now + timedelta(days=365)
+    if alarm_time > max_future:
+        logger.warning(f"Skipping alarm too far in future for task {task_id}: alarm_time={alarm_time}")
+        return 0
+
+    logger.info(f"Scheduling alarm for task {task_id} at {alarm_time} (in {alarm_time - now})")
     
     # Check if alarm already exists for this task/time
     async with get_db() as db:
@@ -268,34 +276,52 @@ async def acknowledge_task_alarms_for_task(
         task_id: Task ID
         license_key_id: License key ID
         device_id: Device that acknowledged
-        
+
     Returns:
         Number of alarms acknowledged
     """
     async with get_db() as db:
-        # Acknowledge pending/fired alarms
-        await execute_sql(
-            db,
-            """
-            UPDATE task_alarms 
-            SET status = 'acknowledged',
-                acknowledged_at = CURRENT_TIMESTAMP,
-                acknowledged_by_device_id = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE task_id = ? AND license_key_id = ? 
-            AND status IN ('pending', 'fired')
-            """,
-            [device_id, task_id, license_key_id]
-        )
+        # Get count of acknowledged alarms - PostgreSQL compatible
+        if DB_TYPE == "postgresql":
+            # Use CTE with RETURNING to get exact count
+            row = await fetch_one(
+                db,
+                """
+                WITH updated AS (
+                    UPDATE task_alarms
+                    SET status = 'acknowledged',
+                        acknowledged_at = CURRENT_TIMESTAMP,
+                        acknowledged_by_device_id = $1,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE task_id = $2 AND license_key_id = $3
+                    AND status IN ('pending', 'fired')
+                    RETURNING 1
+                )
+                SELECT COUNT(*) as count FROM updated
+                """,
+                [device_id, task_id, license_key_id]
+            )
+            count = row["count"] if row else 0
+        else:
+            # SQLite: use changes()
+            await execute_sql(
+                db,
+                """
+                UPDATE task_alarms
+                SET status = 'acknowledged',
+                    acknowledged_at = CURRENT_TIMESTAMP,
+                    acknowledged_by_device_id = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE task_id = ? AND license_key_id = ?
+                AND status IN ('pending', 'fired')
+                """,
+                [device_id, task_id, license_key_id]
+            )
+            row = await fetch_one(db, "SELECT changes() as count")
+            count = row["count"] if row else 0
+
         await commit_db(db)
-        
-        # Get count of acknowledged alarms
-        row = await fetch_one(
-            db,
-            "SELECT changes() as count"
-        )
-        count = row["count"] if row else 0
-        
+
         logger.info(f"Acknowledged {count} alarms for task {task_id}")
         return count
 
@@ -673,27 +699,44 @@ async def sync_alarm_state(
 async def cleanup_old_alarms() -> int:
     """
     Clean up old alarm records.
-    
+
     Returns:
         Number of records deleted
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=ALARM_RETENTION_DAYS)
-    
+
     async with get_db() as db:
-        await execute_sql(
-            db,
-            """
-            DELETE FROM task_alarms
-            WHERE status = 'acknowledged' AND acknowledged_at < ?
-            """,
-            [cutoff]
-        )
+        # Get deleted count - PostgreSQL compatible
+        if DB_TYPE == "postgresql":
+            # Use CTE with RETURNING to get exact count
+            row = await fetch_one(
+                db,
+                """
+                WITH deleted AS (
+                    DELETE FROM task_alarms
+                    WHERE status = 'acknowledged' AND acknowledged_at < $1
+                    RETURNING 1
+                )
+                SELECT COUNT(*) as count FROM deleted
+                """,
+                [cutoff]
+            )
+            count = row["count"] if row else 0
+        else:
+            # SQLite: use changes()
+            await execute_sql(
+                db,
+                """
+                DELETE FROM task_alarms
+                WHERE status = 'acknowledged' AND acknowledged_at < ?
+                """,
+                [cutoff]
+            )
+            row = await fetch_one(db, "SELECT changes() as count")
+            count = row["count"] if row else 0
+
         await commit_db(db)
-        
-        # Get deleted count
-        row = await fetch_one(db, "SELECT changes() as count")
-        count = row["count"] if row else 0
-        
+
         logger.info(f"Cleaned up {count} old alarm records")
         return count
 
@@ -701,29 +744,46 @@ async def cleanup_old_alarms() -> int:
 async def cleanup_stale_pending_alarms() -> int:
     """
     Clean up pending alarms that are too old (task likely deleted or completed).
-    
+
     Returns:
         Number of records cleaned up
     """
     # Pending alarms older than 7 days are likely stale
     cutoff = datetime.now(timezone.utc) - timedelta(days=7)
-    
+
     async with get_db() as db:
-        await execute_sql(
-            db,
-            """
-            DELETE FROM task_alarms
-            WHERE status = 'pending' AND created_at < ?
-            """,
-            [cutoff]
-        )
+        # Get deleted count - PostgreSQL compatible
+        if DB_TYPE == "postgresql":
+            # Use CTE with RETURNING to get exact count
+            row = await fetch_one(
+                db,
+                """
+                WITH deleted AS (
+                    DELETE FROM task_alarms
+                    WHERE status = 'pending' AND created_at < $1
+                    RETURNING 1
+                )
+                SELECT COUNT(*) as count FROM deleted
+                """,
+                [cutoff]
+            )
+            count = row["count"] if row else 0
+        else:
+            # SQLite: use changes()
+            await execute_sql(
+                db,
+                """
+                DELETE FROM task_alarms
+                WHERE status = 'pending' AND created_at < ?
+                """,
+                [cutoff]
+            )
+            row = await fetch_one(db, "SELECT changes() as count")
+            count = row["count"] if row else 0
+
         await commit_db(db)
-        
-        # Get deleted count
-        row = await fetch_one(db, "SELECT changes() as count")
-        count = row["count"] if row else 0
-        
+
         if count > 0:
             logger.info(f"Cleaned up {count} stale pending alarms")
-        
+
         return count
