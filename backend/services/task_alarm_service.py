@@ -186,22 +186,36 @@ async def schedule_task_alarm(
             }
         })
         
-        await execute_sql(
-            db,
-            """
-            INSERT INTO task_alarms
-            (task_id, license_key_id, user_id, alarm_time, notification_data, status)
-            VALUES (?, ?, ?, ?, ?, 'pending')
-            """,
-            [task_id, license_key_id, user_id, alarm_time, notification_data]
-        )
-        
-        await commit_db(db)
-        
-        # Get the inserted ID
-        row = await fetch_one(db, "SELECT last_insert_rowid() as id")
-        alarm_id = row["id"] if row else 0
-        
+        if DB_TYPE == "postgresql":
+            # PostgreSQL: Use RETURNING clause
+            row = await fetch_one(
+                db,
+                """
+                INSERT INTO task_alarms
+                (task_id, license_key_id, user_id, alarm_time, notification_data, status)
+                VALUES ($1, $2, $3, $4, $5, 'pending')
+                RETURNING id
+                """,
+                [task_id, license_key_id, user_id, alarm_time, notification_data]
+            )
+            alarm_id = row["id"] if row else 0
+        else:
+            # SQLite
+            await execute_sql(
+                db,
+                """
+                INSERT INTO task_alarms
+                (task_id, license_key_id, user_id, alarm_time, notification_data, status)
+                VALUES (?, ?, ?, ?, ?, 'pending')
+                """,
+                [task_id, license_key_id, user_id, alarm_time, notification_data]
+            )
+            await commit_db(db)
+
+            # Get the inserted ID
+            row = await fetch_one(db, "SELECT last_insert_rowid() as id")
+            alarm_id = row["id"] if row else 0
+
         logger.info(f"Scheduled task alarm {alarm_id} for task {task_id} at {alarm_time}")
         return alarm_id
 

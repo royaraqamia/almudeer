@@ -226,16 +226,21 @@ async def add_history_entry(
                 visit_count = existing["visit_count"] + 1
             else:
                 # Insert new entry
-                await execute_sql(db, f"""
-                    INSERT INTO browser_history (license_key_id, user_id, url, title, visited_at, device_id, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (license_key_id, user_id, url, title, visited, device_id, now, now))
-
-                # Get the inserted ID
                 if DB_TYPE == "postgresql":
-                    result = await fetch_one(db, "SELECT LASTVAL()")
-                    history_id = result["lastval"] if result else None
+                    # PostgreSQL: Use RETURNING clause
+                    result = await fetch_one(db, """
+                        INSERT INTO browser_history (license_key_id, user_id, url, title, visited_at, device_id, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        RETURNING id
+                    """, (license_key_id, user_id, url, title, visited, device_id, now, now))
+                    history_id = result["id"] if result else None
                 else:
+                    # SQLite
+                    await execute_sql(db, """
+                        INSERT INTO browser_history (license_key_id, user_id, url, title, visited_at, device_id, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (license_key_id, user_id, url, title, visited, device_id, now, now))
+                    await commit_db(db)
                     result = await fetch_one(db, "SELECT last_insert_rowid()")
                     history_id = result["last_insert_rowid()"] if result else None
                 visit_count = 1
@@ -391,18 +396,23 @@ async def add_bookmark(
                 bookmark_id = soft_deleted[0]
             else:
                 # Insert new bookmark
-                await execute_sql(db, f"""
-                    INSERT INTO browser_bookmarks (license_key_id, user_id, url, title, folder, icon, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (license_key_id, user_id, url, title, folder, icon, now, now))
-                
-                # Get the inserted ID
                 if DB_TYPE == "postgresql":
-                    result = await fetch_one(db, "SELECT LASTVAL()")
-                    bookmark_id = result[0] if result else None
+                    # PostgreSQL: Use RETURNING clause
+                    result = await fetch_one(db, """
+                        INSERT INTO browser_bookmarks (license_key_id, user_id, url, title, folder, icon, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        RETURNING id
+                    """, (license_key_id, user_id, url, title, folder, icon, now, now))
+                    bookmark_id = result["id"] if result else None
                 else:
+                    # SQLite
+                    await execute_sql(db, """
+                        INSERT INTO browser_bookmarks (license_key_id, user_id, url, title, folder, icon, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (license_key_id, user_id, url, title, folder, icon, now, now))
+                    await commit_db(db)
                     result = await fetch_one(db, "SELECT last_insert_rowid()")
-                    bookmark_id = result[0] if result else None
+                    bookmark_id = result["last_insert_rowid()"] if result else None
 
         await commit_db(db)
         
