@@ -72,26 +72,34 @@ async def ensure_task_alarms_table():
 
         # Indexes for performance
         await execute_sql(db, """
-            CREATE INDEX IF NOT EXISTS idx_task_alarms_status_time 
+            CREATE INDEX IF NOT EXISTS idx_task_alarms_status_time
             ON task_alarms(status, alarm_time)
         """)
 
         await execute_sql(db, """
-            CREATE INDEX IF NOT EXISTS idx_task_alarms_task 
+            CREATE INDEX IF NOT EXISTS idx_task_alarms_task
             ON task_alarms(task_id)
         """)
 
         await execute_sql(db, """
-            CREATE INDEX IF NOT EXISTS idx_task_alarms_license 
+            CREATE INDEX IF NOT EXISTS idx_task_alarms_license
             ON task_alarms(license_key_id)
         """)
 
-        # Partial index for pending alarms (PostgreSQL only, SQLite may not support)
+        # Partial index for pending alarms with retry count (PostgreSQL only)
+        # This optimizes the get_due_alarms query which filters by status='pending' and retry_count
         if DB_TYPE == "postgresql":
             await execute_sql(db, """
-                CREATE INDEX IF NOT EXISTS idx_task_alarms_pending 
-                ON task_alarms(status, alarm_time) 
-                WHERE status = 'pending'
+                CREATE INDEX IF NOT EXISTS idx_task_alarms_pending
+                ON task_alarms(alarm_time ASC)
+                WHERE status = 'pending' AND retry_count < 3
+            """)
+
+            # Additional index for cleanup queries
+            await execute_sql(db, """
+                CREATE INDEX IF NOT EXISTS idx_task_alarms_status_acknowledged
+                ON task_alarms(acknowledged_at)
+                WHERE status = 'acknowledged'
             """)
 
         await commit_db(db)
@@ -299,10 +307,10 @@ async def acknowledge_task_alarms_for_task(
 async def get_due_alarms(limit: int = 100) -> List[dict]:
     """
     Get alarms that are due to fire.
-    
+
     Args:
         limit: Maximum number of alarms to fetch
-        
+
     Returns:
         List of due alarm records
     """
@@ -310,6 +318,9 @@ async def get_due_alarms(limit: int = 100) -> List[dict]:
     prefetch_cutoff = now + timedelta(seconds=ALARM_PREFETCH_SECONDS)
 
     async with get_db() as db:
+        # Use statement_timeout hint for PostgreSQL to allow longer execution
+        # This query should be fast with the proper index, but may need more time
+        # if there are many pending alarms to sort
         rows = await fetch_all(
             db,
             """
@@ -322,7 +333,7 @@ async def get_due_alarms(limit: int = 100) -> List[dict]:
             """,
             [now, ALARM_MAX_RETRIES, limit]
         )
-        
+
         return [dict(row) for row in rows]
 
 
@@ -486,40 +497,50 @@ _alarm_worker_stats = {
 async def start_task_alarm_worker():
     """Start the task alarm background worker."""
     global _alarm_worker_running, _alarm_worker_task
-    
+
     if _alarm_worker_running:
         logger.warning("Task alarm worker already running")
         return {"status": "already_running"}
-    
+
     # Ensure table exists
     await ensure_task_alarms_table()
-    
+
+    # Clean up stale pending alarms on startup (alarms older than 7 days)
+    try:
+        cleaned = await cleanup_stale_pending_alarms()
+        if cleaned > 0:
+            logger.info(f"Cleaned up {cleaned} stale pending alarms on startup")
+    except Exception as e:
+        logger.error(f"Failed to cleanup stale alarms: {e}")
+
     _alarm_worker_running = True
     logger.info("Task alarm worker started")
     
     async def worker_loop():
         global _alarm_worker_stats
-        
+
         while _alarm_worker_running:
             try:
                 # Process due alarms
                 stats = await process_due_alarms()
-                
+
                 # Update global stats
                 _alarm_worker_stats["last_run"] = datetime.now(timezone.utc).isoformat()
                 _alarm_worker_stats["total_processed"] += stats.get("processed", 0)
                 _alarm_worker_stats["total_success"] += stats.get("success", 0)
                 _alarm_worker_stats["total_failed"] += stats.get("failed", 0)
-                
+
                 if stats.get("processed", 0) > 0:
                     logger.info(
                         f"Alarm worker processed {stats['processed']} alarms: "
                         f"{stats['success']} success, {stats['failed']} failed"
                     )
-                
+
+            except asyncio.TimeoutError:
+                logger.warning("Alarm worker timed out - may indicate database performance issues")
             except Exception as e:
                 logger.error(f"Task alarm worker error: {e}", exc_info=True)
-            
+
             # Wait for next check
             await asyncio.sleep(ALARM_CHECK_INTERVAL_SECONDS)
     

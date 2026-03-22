@@ -18,17 +18,32 @@ class AthkarScreen extends StatefulWidget {
 }
 
 class _AthkarScreenState extends State<AthkarScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    WidgetsBinding.instance.addObserver(this);
+    // Check for daily reset when screen loads
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<AthkarProvider>().checkAndResetIfNeeded();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Check for daily reset when app resumes
+    if (state == AppLifecycleState.resumed) {
+      context.read<AthkarProvider>().checkAndResetIfNeeded();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _tabController.dispose();
     super.dispose();
   }

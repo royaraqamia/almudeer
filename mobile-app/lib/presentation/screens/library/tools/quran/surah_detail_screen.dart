@@ -102,7 +102,9 @@ class _SurahDetailScreenState extends State<SurahDetailScreen>
 
   void _scrollToVerse(int verseNumber) {
     if (_itemScrollController.isAttached) {
-      _itemScrollController.jumpTo(index: verseNumber - 1);
+      // Account for basmala at index 0 (except for Surah 9)
+      final index = widget.surahNumber == 9 ? verseNumber - 1 : verseNumber;
+      _itemScrollController.jumpTo(index: index);
       _isAutoScrolling = false;
     }
   }
@@ -132,12 +134,14 @@ class _SurahDetailScreenState extends State<SurahDetailScreen>
             position.itemLeadingEdge < min.itemLeadingEdge ? position : min,
       );
 
-      // Update last read verse (index + 1)
-      final verseNumber = min.index + 1;
-      context.read<QuranProvider>().saveLastRead(
-        widget.surahNumber,
-        verseNumber,
-      );
+      // Update last read verse (account for basmala at index 0, except Surah 9)
+      final verseNumber = widget.surahNumber == 9 ? min.index + 1 : min.index;
+      if (verseNumber > 0) {
+        context.read<QuranProvider>().saveLastRead(
+          widget.surahNumber,
+          verseNumber,
+        );
+      }
     }
   }
 
@@ -650,8 +654,10 @@ class _SurahDetailScreenState extends State<SurahDetailScreen>
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) {
                 setState(() => _highlightedVerse = currentVerse);
+                // Account for basmala at index 0 (except for Surah 9)
+                final index = widget.surahNumber == 9 ? currentVerse - 1 : currentVerse;
                 _itemScrollController.scrollTo(
-                  index: currentVerse - 1,
+                  index: index,
                   duration: const Duration(milliseconds: 500),
                   curve: Curves.easeInOut,
                 );
@@ -933,22 +939,6 @@ class _SurahDetailScreenState extends State<SurahDetailScreen>
                     );
                   },
                 ),
-                // Basmalah (except for Surah At-Tawbah #9)
-                if (widget.surahNumber != 9)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 24.0),
-                    child: Text(
-                      quran.basmala,
-                      style: TextStyle(
-                        fontFamily: 'Amiri Quran',
-                        fontSize: 28,
-                        fontWeight: FontWeight.w400,
-                        height: 1.8,
-                        inherit: false,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
                 Expanded(
                   child: RefreshIndicator(
                     onRefresh: () async {
@@ -973,14 +963,34 @@ class _SurahDetailScreenState extends State<SurahDetailScreen>
                         horizontal: 20,
                         vertical: 16,
                       ),
-                      itemCount: verseCount,
+                      itemCount: widget.surahNumber == 9 ? verseCount : verseCount + 1,
                       itemScrollController: _itemScrollController,
                       itemPositionsListener: _itemPositionsListener,
                       initialScrollIndex: widget.initialVerse != null
-                          ? widget.initialVerse! - 1
+                          ? (widget.surahNumber == 9 ? widget.initialVerse! - 1 : widget.initialVerse!)
                           : 0,
                       itemBuilder: (context, index) {
-                        final verseNumber = index + 1;
+                        // Index 0 is basmala (except for Surah 9), verses start from index 1
+                        final verseNumber = widget.surahNumber == 9 ? index : index - 1;
+                        
+                        // Basmala header (except for Surah At-Tawbah #9)
+                        if (widget.surahNumber != 9 && index == 0) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 24.0),
+                            child: Text(
+                              quran.basmala,
+                              style: TextStyle(
+                                fontFamily: 'Amiri Quran',
+                                fontSize: 28,
+                                fontWeight: FontWeight.w400,
+                                height: 1.8,
+                                inherit: false,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          );
+                        }
+                        
                         final tafsirText = quranProvider.getTafsir(
                           widget.surahNumber,
                           verseNumber,
