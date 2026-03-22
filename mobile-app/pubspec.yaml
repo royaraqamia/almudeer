@@ -95,7 +95,7 @@ dependencies:
   # Battery & Connectivity
   battery_plus: ^7.0.0
   connectivity_plus: ^7.0.0
-  android_intent_plus: ^5.2.0
+  android_intent_plus: ^6.0.0
   workmanager: ^0.9.0
 
   video_compress: ^3.1.4
