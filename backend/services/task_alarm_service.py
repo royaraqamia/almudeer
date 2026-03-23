@@ -470,14 +470,20 @@ async def mark_alarm_retry(alarm_id: int, error: str) -> bool:
         await execute_sql(
             db,
             """
-            UPDATE task_alarms 
-            SET retry_count = retry_count + 1, 
+            UPDATE task_alarms
+            SET retry_count = retry_count + 1,
                 updated_at = CURRENT_TIMESTAMP,
-                notification_data = json_insert(
-                    COALESCE(notification_data, '{}'),
-                    '$.last_error', ?,
-                    '$.last_error_time', ?
-                )
+                notification_data = jsonb_set(
+                    jsonb_set(
+                        COALESCE(notification_data, '{}')::jsonb,
+                        '{last_error}',
+                        to_jsonb(?),
+                        true
+                    ),
+                    '{last_error_time}',
+                    to_jsonb(?),
+                    true
+                )::jsonb
             WHERE id = ?
             """,
             [error, datetime.now(timezone.utc).isoformat(), alarm_id]
