@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:almudeer_mobile_app/presentation/widgets/chat/message_bubble.dart';
-import 'package:almudeer_mobile_app/presentation/widgets/chat/video_message_bubble.dart';
-import 'package:almudeer_mobile_app/presentation/widgets/chat/file_message_bubble.dart';
-import 'package:almudeer_mobile_app/data/models/inbox_message.dart';
-import 'package:almudeer_mobile_app/presentation/providers/audio_player_provider.dart';
-import 'package:almudeer_mobile_app/presentation/providers/conversation_detail_provider.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/widgets/chat/message_bubble.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/widgets/chat/video_message_bubble.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/widgets/chat/file_message_bubble.dart';
+import 'package:almudeer_mobile_app/features/inbox/data/models/inbox_message.dart';
+import 'package:almudeer_mobile_app/features/viewer/presentation/providers/audio_player_provider.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/providers/conversation_detail_provider.dart';
 import 'package:mockito/mockito.dart';
 
 // Mocks

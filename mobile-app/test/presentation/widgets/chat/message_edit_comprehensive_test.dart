@@ -11,8 +11,8 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:almudeer_mobile_app/data/models/inbox_message.dart';
-import 'package:almudeer_mobile_app/presentation/widgets/chat/message_action_menu.dart';
+import 'package:almudeer_mobile_app/features/inbox/data/models/inbox_message.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/widgets/chat/message_action_menu.dart';
 
 void main() {
   group('Message Edit Feature - Comprehensive Tests', () {

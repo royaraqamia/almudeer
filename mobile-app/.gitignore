@@ -67,7 +67,7 @@ dialog_results.txt
 search_results.txt
 
 # Google/Firebase secrets (NEVER commit these)
-**/google-services.json
+android/app/google-services.json
 **/GoogleService-Info.plist
 
 # Android signing keys (NEVER commit these - security critical)

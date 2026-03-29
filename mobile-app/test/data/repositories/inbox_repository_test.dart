@@ -1,21 +1,19 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
-import 'package:almudeer_mobile_app/data/repositories/inbox_repository.dart';
+import 'package:almudeer_mobile_app/features/inbox/data/repositories/inbox_repository.dart';
 import 'package:almudeer_mobile_app/core/api/api_client.dart';
 import 'package:almudeer_mobile_app/core/api/endpoints.dart';
 import 'package:almudeer_mobile_app/core/services/connectivity_service.dart';
-import 'package:almudeer_mobile_app/data/datasources/local/inbox_local_datasource.dart';
+import 'package:almudeer_mobile_app/features/inbox/data/datasources/local/inbox_local_datasource.dart';
 import 'package:almudeer_mobile_app/core/services/persistent_cache_service.dart';
 
-// Generate Mocks
-@GenerateMocks([
-  ApiClient,
-  ConnectivityService,
-  InboxLocalDataSource,
-  PersistentCacheService,
-])
-import 'inbox_repository_test.mocks.dart';
+class MockApiClient extends Mock implements ApiClient {}
+
+class MockConnectivityService extends Mock implements ConnectivityService {}
+
+class MockInboxLocalDataSource extends Mock implements InboxLocalDataSource {}
+
+class MockPersistentCacheService extends Mock implements PersistentCacheService {}
 
 void main() {
   late InboxRepository repository;
@@ -65,14 +63,30 @@ void main() {
       };
 
       when(
-        mockApiClient.get(any, queryParams: anyNamed('queryParams')),
+        mockApiClient.get(
+          Endpoints.conversations,
+          queryParams: anyNamed('queryParams'),
+        ),
       ).thenAnswer((_) async => responseData);
-      when(mockLocalDataSource.getChatHistory(any)).thenAnswer((_) async => []);
-      when(mockLocalDataSource.clearChatHistory(any)).thenAnswer((_) async {});
+      when(
+        mockCache.get<Map<String, dynamic>>(
+          PersistentCacheService.boxInbox,
+          'test-hash_list_0',
+        ),
+      ).thenAnswer((_) async => null);
+      when(
+        mockCache.put(
+          PersistentCacheService.boxInbox,
+          'test-hash_list_0',
+          any,
+        ),
+      ).thenAnswer((_) async {});
+      when(mockLocalDataSource.getChatHistory('__unused__')).thenAnswer((_) async => []);
+      when(mockLocalDataSource.clearChatHistory('__unused__')).thenAnswer((_) async {});
       when(
         mockLocalDataSource.cacheMessages(
-          any,
-          senderContact: anyNamed('senderContact'),
+          <Map<String, dynamic>>[],
+          senderContact: '__unused__',
         ),
       ).thenAnswer((_) async {});
 
@@ -102,10 +116,13 @@ void main() {
         };
 
         when(
-          mockApiClient.get(any, queryParams: anyNamed('queryParams')),
+          mockApiClient.get(
+            Endpoints.conversationDetail('12345'),
+            queryParams: anyNamed('queryParams'),
+          ),
         ).thenAnswer((_) async => responseData);
         when(
-          mockLocalDataSource.getChatHistory(any, limit: anyNamed('limit')),
+          mockLocalDataSource.getChatHistory('12345', limit: 100),
         ).thenAnswer((_) async => []);
 
         // Act
@@ -113,7 +130,10 @@ void main() {
 
         // Assert
         verify(
-          mockLocalDataSource.cacheMessages(any, senderContact: '12345'),
+          mockLocalDataSource.cacheMessages(
+            <Map<String, dynamic>>[],
+            senderContact: '12345',
+          ),
         ).called(1);
       },
     );
@@ -123,26 +143,29 @@ void main() {
       final responseData = {'success': true, 'id': 123};
 
       when(
-        mockApiClient.post(any, body: anyNamed('body')),
+        mockApiClient.post(
+          Endpoints.sendMessage('12345'),
+          body: anyNamed('body'),
+        ),
       ).thenAnswer((_) async => responseData);
       when(
         mockLocalDataSource.addMessageLocally(
-          senderContact: anyNamed('senderContact'),
-          body: anyNamed('body'),
-          channel: anyNamed('channel'),
+          senderContact: '12345',
+          body: 'Hello',
+          channel: 'whatsapp',
           mediaUrl: anyNamed('mediaUrl'),
           replyToId: anyNamed('replyToId'),
           replyToPlatformId: anyNamed('replyToPlatformId'),
           replyToBodyPreview: anyNamed('replyToBodyPreview'),
           replyToSenderName: anyNamed('replyToSenderName'),
-          isForwarded: anyNamed('isForwarded'),
+          isForwarded: false,
           attachments: anyNamed('attachments'),
         ),
       ).thenAnswer((_) async => 1);
       when(
         mockLocalDataSource.markAsSynced(
-          any,
-          any,
+          1,
+          123,
           platformMessageId: anyNamed('platformMessageId'),
           channelMessageId: anyNamed('channelMessageId'),
         ),
@@ -168,7 +191,7 @@ void main() {
           replyToPlatformId: anyNamed('replyToPlatformId'),
           replyToBodyPreview: anyNamed('replyToBodyPreview'),
           replyToSenderName: anyNamed('replyToSenderName'),
-          isForwarded: anyNamed('isForwarded'),
+          isForwarded: false,
           attachments: anyNamed('attachments'),
         ),
       ).called(1);
@@ -177,10 +200,10 @@ void main() {
     test('deleteMessage calls local delete optimistically', () async {
       // Arrange
       when(
-        mockApiClient.delete(any),
+        mockApiClient.delete('/api/integrations/messages/123?type=incoming'),
       ).thenAnswer((_) async => {'success': true});
       when(
-        mockLocalDataSource.deleteMessageLocally(any),
+        mockLocalDataSource.deleteMessageLocally(123),
       ).thenAnswer((_) async {});
 
       // Act
@@ -188,22 +211,26 @@ void main() {
 
       // Assert
       verify(mockLocalDataSource.deleteMessageLocally(123)).called(1);
-      verify(mockApiClient.delete(any)).called(1);
+      verify(
+        mockApiClient.delete('/api/integrations/messages/123?type=incoming'),
+      ).called(1);
     });
 
     test('deleteConversation calls clearChatHistory optimistically', () async {
       // Arrange
       when(
-        mockApiClient.delete(any),
+        mockApiClient.delete(Endpoints.deleteConversation('12345')),
       ).thenAnswer((_) async => {'success': true});
-      when(mockLocalDataSource.clearChatHistory(any)).thenAnswer((_) async {});
+      when(
+        mockLocalDataSource.clearChatHistory('12345'),
+      ).thenAnswer((_) async {});
 
       // Act
       await repository.deleteConversation('12345');
 
       // Assert
       verify(mockLocalDataSource.clearChatHistory('12345')).called(1);
-      verify(mockApiClient.delete(any)).called(1);
+      verify(mockApiClient.delete(Endpoints.deleteConversation('12345'))).called(1);
     });
 
     test('updateMessageSyncStatus calls local data source', () async {

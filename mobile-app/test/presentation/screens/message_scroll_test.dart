@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:almudeer_mobile_app/presentation/screens/inbox/widgets/message_list_view.dart';
-import 'package:almudeer_mobile_app/data/models/inbox_message.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/screens/widgets/message_list_view.dart';
+import 'package:almudeer_mobile_app/features/inbox/data/models/inbox_message.dart';
 import 'package:provider/provider.dart';
-import 'package:almudeer_mobile_app/presentation/providers/conversation_detail_provider.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/providers/conversation_detail_provider.dart';
 import 'package:almudeer_mobile_app/core/errors/failures.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 

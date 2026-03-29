@@ -6,7 +6,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
 import '../api/endpoints.dart';
 import '../api/api_client.dart';
-import '../../data/repositories/auth_repository.dart';
+import 'package:almudeer_mobile_app/features/auth/data/repositories/auth_repository.dart';
 import 'security_event_service.dart';
 
 /// Connection state for WebSocket

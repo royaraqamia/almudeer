@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
 import 'package:provider/provider.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
 
-import 'package:almudeer_mobile_app/presentation/providers/auth_provider.dart';
-import 'package:almudeer_mobile_app/presentation/providers/library_provider.dart';
-import 'package:almudeer_mobile_app/presentation/screens/library/note_edit_screen.dart';
-import 'package:almudeer_mobile_app/data/models/library_item.dart';
-import 'package:almudeer_mobile_app/data/models/user_info.dart';
+import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
+import 'package:almudeer_mobile_app/features/library/presentation/providers/library_provider.dart';
+import 'package:almudeer_mobile_app/features/library/presentation/screens/note_edit_screen.dart';
+import 'package:almudeer_mobile_app/features/library/data/models/library_item.dart';
+import 'package:almudeer_mobile_app/features/users/data/models/user_info.dart';
 
-@GenerateMocks([AuthProvider, LibraryProvider])
-import 'note_edit_screen_offline_test.mocks.dart';
+class MockAuthProvider extends Mock implements AuthProvider {}
+
+class MockLibraryProvider extends Mock implements LibraryProvider {}
 
 void main() {
   late MockAuthProvider mockAuthProvider;
@@ -551,7 +551,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1100));
 
       // Verify: updateNote should NOT be called for read-only user
-      verifyNever(mockLibraryProvider.updateNote(any, any, any));
+      verifyNever(mockLibraryProvider.updateNote(1, 'Modified Title', 'Shared Content'));
     });
 
     testWidgets('auto-saves for owner offline', (WidgetTester tester) async {
@@ -574,7 +574,7 @@ void main() {
         expiresAt: '2026-12-31',
       );
 
-      when(mockLibraryProvider.updateNote(any, any, any)).thenAnswer(
+      when(mockLibraryProvider.updateNote(1, 'Modified Title', 'My Content')).thenAnswer(
         (_) async {},
       );
 
@@ -592,7 +592,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1100));
 
       // Verify: updateNote should be called for owner
-      verify(mockLibraryProvider.updateNote(any, 'Modified Title', any));
+      verify(mockLibraryProvider.updateNote(1, 'Modified Title', 'My Content'));
     });
   });
 

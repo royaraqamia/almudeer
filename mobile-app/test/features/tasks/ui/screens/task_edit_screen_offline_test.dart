@@ -1,19 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
 import 'package:provider/provider.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
 
-import 'package:almudeer_mobile_app/features/tasks/models/task_model.dart';
-import 'package:almudeer_mobile_app/features/tasks/providers/task_provider.dart';
-import 'package:almudeer_mobile_app/features/tasks/ui/screens/task_edit_screen.dart';
-import 'package:almudeer_mobile_app/features/tasks/repositories/task_repository.dart';
-import 'package:almudeer_mobile_app/presentation/providers/auth_provider.dart';
-import 'package:almudeer_mobile_app/data/models/user_info.dart';
+import 'package:almudeer_mobile_app/features/tasks/data/models/task_model.dart';
+import 'package:almudeer_mobile_app/features/tasks/presentation/providers/task_provider.dart';
+import 'package:almudeer_mobile_app/features/tasks/presentation/ui/screens/task_edit_screen.dart';
+import 'package:almudeer_mobile_app/features/tasks/data/repositories/task_repository.dart';
+import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
+import 'package:almudeer_mobile_app/features/users/data/models/user_info.dart';
 
-@GenerateMocks([TaskProvider, TaskRepository, AuthProvider])
-import 'task_edit_screen_offline_test.mocks.dart';
+class MockTaskProvider extends Mock implements TaskProvider {}
+
+class MockTaskRepository extends Mock implements TaskRepository {}
+
+class MockAuthProvider extends Mock implements AuthProvider {}
 
 void main() {
   late MockTaskProvider mockTaskProvider;
@@ -465,7 +467,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1100));
 
       // Verify: updateTask should NOT be called for read-only user
-      verifyNever(mockTaskProvider.updateTask(any));
+      verifyNever(mockTaskProvider.updateTask(TaskModel(id: 'never', title: 'never')));
     });
   });
 }

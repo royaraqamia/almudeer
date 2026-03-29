@@ -1,16 +1,13 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
-import 'package:almudeer_mobile_app/data/repositories/knowledge_repository.dart';
+import 'package:almudeer_mobile_app/features/library/data/repositories/knowledge_repository.dart';
 import 'package:almudeer_mobile_app/core/api/api_client.dart';
 import 'package:almudeer_mobile_app/core/api/endpoints.dart';
-import 'package:almudeer_mobile_app/data/models/knowledge_document.dart';
-import 'package:almudeer_mobile_app/data/models/knowledge_constants.dart';
+import 'package:almudeer_mobile_app/features/library/data/models/knowledge_document.dart';
+import 'package:almudeer_mobile_app/features/library/data/models/knowledge_constants.dart';
 
-// Generate Mocks
-@GenerateMocks([ApiClient])
-import 'knowledge_repository_test.mocks.dart';
+class MockApiClient extends Mock implements ApiClient {}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -188,7 +185,7 @@ void main() {
   group('KnowledgeRepository - Update Document', () {
     test('updateKnowledgeDocument calls put with correct data', () async {
       when(
-        mockApiClient.put(any, body: anyNamed('body')),
+        mockApiClient.put('/api/knowledge/documents/123', body: anyNamed('body')),
       ).thenAnswer((_) async => {'success': true});
 
       await repository.updateKnowledgeDocument('123', 'Updated text');
@@ -231,7 +228,7 @@ void main() {
 
     test('updateKnowledgeDocument uses string ID when parse fails', () async {
       when(
-        mockApiClient.put(any, body: anyNamed('body')),
+        mockApiClient.put('/api/knowledge/documents/abc-xyz', body: anyNamed('body')),
       ).thenAnswer((_) async => {'success': true});
 
       await repository.updateKnowledgeDocument('abc-xyz', 'Test');
@@ -251,7 +248,7 @@ void main() {
   group('KnowledgeRepository - Delete Document', () {
     test('deleteKnowledgeDocument calls delete endpoint', () async {
       when(
-        mockApiClient.delete(any),
+        mockApiClient.delete('/api/knowledge/documents/123'),
       ).thenAnswer((_) async => {'success': true});
 
       await repository.deleteKnowledgeDocument('123');
@@ -264,7 +261,7 @@ void main() {
 
     test('deleteKnowledgeDocument uses string ID when parse fails', () async {
       when(
-        mockApiClient.delete(any),
+        mockApiClient.delete('/api/knowledge/documents/abc-xyz'),
       ).thenAnswer((_) async => {'success': true});
 
       await repository.deleteKnowledgeDocument('abc-xyz');
@@ -279,7 +276,7 @@ void main() {
 
     test('deleteKnowledgeDocument invalidates cache on success', () async {
       when(
-        mockApiClient.delete(any),
+        mockApiClient.delete('/api/knowledge/documents/123'),
       ).thenAnswer((_) async => {'success': true});
 
       await repository.deleteKnowledgeDocument('123');
@@ -296,8 +293,8 @@ void main() {
       when(
         mockApiClient.uploadFile(
           Endpoints.knowledgeUpload,
-          filePath: anyNamed('filePath'),
-          fieldName: anyNamed('fieldName'),
+          filePath: '/path/to/file.pdf',
+          fieldName: 'file',
         ),
       ).thenAnswer((_) async => {'success': true});
 
@@ -319,8 +316,8 @@ void main() {
       when(
         mockApiClient.uploadFile(
           Endpoints.knowledgeUpload,
-          filePath: anyNamed('filePath'),
-          fieldName: anyNamed('fieldName'),
+          filePath: '/path/to/file.pdf',
+          fieldName: 'file',
           onProgress: anyNamed('onProgress'),
         ),
       ).thenAnswer((_) async {
@@ -357,8 +354,22 @@ void main() {
       when(
         mockApiClient.uploadFile(
           Endpoints.knowledgeUpload,
-          filePath: anyNamed('filePath'),
-          fieldName: anyNamed('fieldName'),
+          filePath: '/path/to/file.pdf',
+          fieldName: 'file',
+        ),
+      ).thenAnswer((_) async => {'success': true});
+      when(
+        mockApiClient.uploadFile(
+          Endpoints.knowledgeUpload,
+          filePath: '/path/to/file.txt',
+          fieldName: 'file',
+        ),
+      ).thenAnswer((_) async => {'success': true});
+      when(
+        mockApiClient.uploadFile(
+          Endpoints.knowledgeUpload,
+          filePath: '/path/to/file.docx',
+          fieldName: 'file',
         ),
       ).thenAnswer((_) async => {'success': true});
 
@@ -381,21 +392,19 @@ void main() {
 
     test('uploadKnowledgeFile retries on transient failure', () async {
       // First call throws, second succeeds
+      var uploadAttempts = 0;
       when(
         mockApiClient.uploadFile(
           Endpoints.knowledgeUpload,
-          filePath: anyNamed('filePath'),
-          fieldName: anyNamed('fieldName'),
+          filePath: '/path/to/file.pdf',
+          fieldName: 'file',
         ),
-      ).thenThrow(Exception('Network error'));
-
-      when(
-        mockApiClient.uploadFile(
-          Endpoints.knowledgeUpload,
-          filePath: anyNamed('filePath'),
-          fieldName: anyNamed('fieldName'),
-        ),
-      ).thenAnswer((_) async => {'success': true});
+      ).thenAnswer((_) async {
+        if (uploadAttempts++ == 0) {
+          throw Exception('Network error');
+        }
+        return {'success': true};
+      });
 
       await repository.uploadKnowledgeFile('/path/to/file.pdf');
 
@@ -416,8 +425,8 @@ void main() {
       when(
         mockApiClient.uploadFile(
           Endpoints.knowledgeUpload,
-          filePath: anyNamed('filePath'),
-          fieldName: anyNamed('fieldName'),
+          filePath: '/path/to/file.pdf',
+          fieldName: 'file',
         ),
       ).thenThrow(Exception('Persistent network error'));
 

@@ -1,5 +1,5 @@
+﻿import 'package:almudeer_mobile_app/features/inbox/data/models/conversation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:almudeer_mobile_app/data/models/conversation.dart';
 
 void main() {
   group('Conversation', () {
@@ -7,15 +7,15 @@ void main() {
       final json = {
         'id': 1,
         'channel': 'telegram',
-        'sender_name': 'أحمد محمد',
+        'sender_name': 'ط£ط­ظ…ط¯ ظ…ط­ظ…ط¯',
         'sender_contact': '+966501234567',
         'sender_id': 'user_123',
-        'subject': 'استفسار عن المنتج',
-        'body': 'مرحباً، أريد الاستفسار عن أسعاركم',
+        'subject': 'ط§ط³طھظپط³ط§ط± ط¹ظ† ط§ظ„ظ…ظ†طھط¬',
+        'body': 'ظ…ط±ط­ط¨ط§ظ‹طŒ ط£ط±ظٹط¯ ط§ظ„ط§ط³طھظپط³ط§ط± ط¹ظ† ط£ط³ط¹ط§ط±ظƒظ…',
         'intent': 'inquiry',
         'urgency': 'high',
         'sentiment': 'positive',
-        'ai_summary': 'عميل يسأل عن الأسعار',
+        'ai_summary': 'ط¹ظ…ظٹظ„ ظٹط³ط£ظ„ ط¹ظ† ط§ظ„ط£ط³ط¹ط§ط±',
         'status': 'pending',
         'created_at': '2024-01-15T10:30:00Z',
         'message_count': 5,
@@ -27,11 +27,11 @@ void main() {
 
       expect(conversation.id, 1);
       expect(conversation.channel, 'telegram');
-      expect(conversation.senderName, 'أحمد محمد');
+      expect(conversation.senderName, 'ط£ط­ظ…ط¯ ظ…ط­ظ…ط¯');
       expect(conversation.senderContact, '+966501234567');
       expect(conversation.senderId, 'user_123');
-      expect(conversation.subject, 'استفسار عن المنتج');
-      expect(conversation.body, 'مرحباً، أريد الاستفسار عن أسعاركم');
+      expect(conversation.subject, 'ط§ط³طھظپط³ط§ط± ط¹ظ† ط§ظ„ظ…ظ†طھط¬');
+      expect(conversation.body, 'ظ…ط±ط­ط¨ط§ظ‹طŒ ط£ط±ظٹط¯ ط§ظ„ط§ط³طھظپط³ط§ط± ط¹ظ† ط£ط³ط¹ط§ط±ظƒظ…');
       expect(conversation.status, 'pending');
       expect(conversation.messageCount, 5);
       expect(conversation.unreadCount, 2);
@@ -110,18 +110,18 @@ void main() {
         );
 
         final types = [
-          ({'type': 'image'}, 'صورة'),
-          ({'type': 'photo'}, 'صورة'),
-          ({'mime_type': 'image/jpeg'}, 'صورة'),
-          ({'type': 'video'}, 'فيديو'),
-          ({'mime_type': 'video/mp4'}, 'فيديو'),
-          ({'type': 'voice'}, 'تسجيل صوتي'),
-          ({'mime_type': 'audio/ogg'}, 'تسجيل صوتي'),
-          ({'type': 'audio'}, 'ملف صوتي'),
-          ({'mime_type': 'audio/mpeg'}, 'ملف صوتي'),
-          ({'type': 'note'}, 'ملاحظة'),
-          ({'type': 'task'}, 'مَهمَّة'),
-          ({'type': 'document'}, 'ملف'),
+          ({'type': 'image'}, 'طµظˆط±ط©'),
+          ({'type': 'photo'}, 'طµظˆط±ط©'),
+          ({'mime_type': 'image/jpeg'}, 'طµظˆط±ط©'),
+          ({'type': 'video'}, 'ظپظٹط¯ظٹظˆ'),
+          ({'mime_type': 'video/mp4'}, 'ظپظٹط¯ظٹظˆ'),
+          ({'type': 'voice'}, 'طھط³ط¬ظٹظ„ طµظˆطھظٹ'),
+          ({'mime_type': 'audio/ogg'}, 'طھط³ط¬ظٹظ„ طµظˆطھظٹ'),
+          ({'type': 'audio'}, 'ظ…ظ„ظپ طµظˆطھظٹ'),
+          ({'mime_type': 'audio/mpeg'}, 'ظ…ظ„ظپ طµظˆطھظٹ'),
+          ({'type': 'note'}, 'ظ…ظ„ط§ط­ط¸ط©'),
+          ({'type': 'task'}, 'ظ…ظژظ‡ظ…ظ‘ظژط©'),
+          ({'type': 'document'}, 'ظ…ظ„ظپ'),
         ];
 
         for (final testCase in types) {
@@ -137,7 +137,7 @@ void main() {
       },
     );
 
-    test('displayPreview defaults to رسالة for unknown content', () {
+    test('displayPreview defaults to ط±ط³ط§ظ„ط© for unknown content', () {
       final conversation = Conversation(
         id: 1,
         channel: 'telegram',
@@ -149,14 +149,14 @@ void main() {
         attachments: [],
       );
 
-      expect(conversation.displayPreview, 'رسالة');
+      expect(conversation.displayPreview, 'ط±ط³ط§ظ„ط©');
     });
 
     test('displayName returns sender name when available', () {
       final conversation = Conversation(
         id: 1,
         channel: 'telegram',
-        senderName: 'محمد علي',
+        senderName: 'ظ…ط­ظ…ط¯ ط¹ظ„ظٹ',
         senderContact: '+966500000000',
         body: 'test',
         status: 'pending',
@@ -165,7 +165,7 @@ void main() {
         unreadCount: 0,
       );
 
-      expect(conversation.displayName, 'محمد علي');
+      expect(conversation.displayName, 'ظ…ط­ظ…ط¯ ط¹ظ„ظٹ');
     });
 
     test('displayName falls back to sender contact', () {
@@ -183,7 +183,7 @@ void main() {
       expect(conversation.displayName, '+966501234567');
     });
 
-    test('displayName returns مجهول when no name or contact', () {
+    test('displayName returns ظ…ط¬ظ‡ظˆظ„ when no name or contact', () {
       final conversation = Conversation(
         id: 1,
         channel: 'telegram',
@@ -194,7 +194,7 @@ void main() {
         unreadCount: 0,
       );
 
-      expect(conversation.displayName, 'مجهول');
+      expect(conversation.displayName, 'ظ…ط¬ظ‡ظˆظ„');
     });
 
     test('avatarInitials returns first letters of two words', () {
@@ -251,7 +251,7 @@ void main() {
         unreadCount: 0,
       );
 
-      expect(conversation.channelDisplayName, 'واتساب');
+      expect(conversation.channelDisplayName, 'ظˆط§طھط³ط§ط¨');
     });
 
     test('channelDisplayName returns Arabic name for Telegram', () {
@@ -265,7 +265,7 @@ void main() {
         unreadCount: 0,
       );
 
-      expect(conversation.channelDisplayName, 'تيليجرام');
+      expect(conversation.channelDisplayName, 'طھظٹظ„ظٹط¬ط±ط§ظ…');
     });
 
     test('statusDisplayName returns Arabic status', () {
@@ -279,10 +279,10 @@ void main() {
         unreadCount: 0,
       );
 
-      expect(pending.statusDisplayName, 'قيد الانتظار');
+      expect(pending.statusDisplayName, 'ظ‚ظٹط¯ ط§ظ„ط§ظ†طھط¸ط§ط±');
 
       final approved = pending.copyWith(status: 'approved');
-      expect(approved.statusDisplayName, 'تمت الموافقة');
+      expect(approved.statusDisplayName, 'طھظ…طھ ط§ظ„ظ…ظˆط§ظپظ‚ط©');
     });
 
     test('copyWith creates new instance with updated fields', () {

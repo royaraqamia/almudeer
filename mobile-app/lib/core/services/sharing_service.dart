@@ -6,20 +6,20 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:io';
 
-import '../../data/models/library_item.dart';
+import 'package:almudeer_mobile_app/features/library/data/models/library_item.dart';
 
-import '../../../core/services/notification_navigator.dart';
-import '../../presentation/screens/chat_selection_screen.dart';
-import '../../presentation/screens/viewers/universal_viewer_screen.dart';
-import '../../../data/models/conversation.dart';
-import '../../presentation/providers/message_input_provider.dart';
+import 'package:almudeer_mobile_app/core/services/notification_navigator.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/screens/chat_selection_screen.dart';
+import 'package:almudeer_mobile_app/features/viewer/presentation/screens/universal_viewer_screen.dart';
+import 'package:almudeer_mobile_app/features/inbox/data/models/conversation.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/providers/message_input_provider.dart';
 import '../extensions/string_extension.dart';
 import 'package:path/path.dart' as p;
-import '../../../core/utils/haptics.dart';
-import '../../../core/constants/colors.dart';
-import '../../presentation/widgets/premium_bottom_sheet.dart';
-import '../../presentation/widgets/animated_toast.dart';
-import '../../presentation/widgets/custom_dialog.dart';
+import 'package:almudeer_mobile_app/core/utils/haptics.dart';
+import 'package:almudeer_mobile_app/core/constants/colors.dart';
+import 'package:almudeer_mobile_app/features/shared/presentation/widgets/premium_bottom_sheet.dart';
+import 'package:almudeer_mobile_app/features/shared/presentation/widgets/animated_toast.dart';
+import 'package:almudeer_mobile_app/features/shared/presentation/widgets/custom_dialog.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
 import 'media_cache_manager.dart';
 
@@ -77,7 +77,7 @@ class SharingService {
         if (context.mounted) {
           AnimatedToast.error(
             context,
-            'لا يمكن الإرسال: لا توجد محادثات صالحة',
+            'ظ„ط§ ظٹظ…ظƒظ† ط§ظ„ط¥ط±ط³ط§ظ„: ظ„ط§ طھظˆط¬ط¯ ظ…ط­ط§ط¯ط«ط§طھ طµط§ظ„ط­ط©',
           );
         }
         return;
@@ -89,8 +89,8 @@ class SharingService {
       if (context.mounted) {
         CustomDialog.show(
           context,
-          title: 'جاري الإرسال...',
-          message: 'جاري تحضير ${items.length} عنصر للإرسال',
+          title: 'ط¬ط§ط±ظٹ ط§ظ„ط¥ط±ط³ط§ظ„...',
+          message: 'ط¬ط§ط±ظٹ طھط­ط¶ظٹط± ${items.length} ط¹ظ†طµط± ظ„ظ„ط¥ط±ط³ط§ظ„',
           type: DialogType.info,
           isLoading: true,
           barrierDismissible: false,
@@ -136,7 +136,7 @@ class SharingService {
                   _PreparedLibraryItem(
                     item: item,
                     success: false,
-                    error: 'فشل تحميل الملف',
+                    error: 'ظپط´ظ„ طھط­ظ…ظٹظ„ ط§ظ„ظ…ظ„ظپ',
                   ),
                 );
               }
@@ -146,7 +146,7 @@ class SharingService {
                 _PreparedLibraryItem(
                   item: item,
                   success: false,
-                  error: 'خطأ في التحميل: ${e.toString()}',
+                  error: 'ط®ط·ط£ ظپظٹ ط§ظ„طھط­ظ…ظٹظ„: ${e.toString()}',
                 ),
               );
             }
@@ -163,7 +163,7 @@ class SharingService {
         if (failedCount > 0 && context.mounted) {
           AnimatedToast.error(
             context,
-            'فشل تحضير $failedCount من ${preparedItems.length} عنصر',
+            'ظپط´ظ„ طھط­ط¶ظٹط± $failedCount ظ…ظ† ${preparedItems.length} ط¹ظ†طµط±',
           );
         }
 
@@ -220,17 +220,17 @@ class SharingService {
           if (context.mounted) {
             AnimatedToast.success(
               context,
-              'تم إرسال ${preparedItems.length} عنصر إلى ${validChats.length} محادثة',
+              'طھظ… ط¥ط±ط³ط§ظ„ ${preparedItems.length} ط¹ظ†طµط± ط¥ظ„ظ‰ ${validChats.length} ظ…ط­ط§ط¯ط«ط©',
             );
           }
         } else if (context.mounted) {
-          AnimatedToast.error(context, 'لا توجد عناصر صالحة للإرسال');
+          AnimatedToast.error(context, 'ظ„ط§ طھظˆط¬ط¯ ط¹ظ†ط§طµط± طµط§ظ„ط­ط© ظ„ظ„ط¥ط±ط³ط§ظ„');
         }
       } catch (e) {
         // Close loading dialog if still open
         if (context.mounted && Navigator.canPop(context)) {
           Navigator.pop(context);
-          AnimatedToast.error(context, 'فشل الإرسال: ${e.toString()}');
+          AnimatedToast.error(context, 'ظپط´ظ„ ط§ظ„ط¥ط±ط³ط§ظ„: ${e.toString()}');
         }
       }
     }
@@ -429,7 +429,7 @@ class SharingService {
               color: AppColors.primary,
             ),
             title: const Text(
-              'تحويل إلى محادثة',
+              'طھط­ظˆظٹظ„ ط¥ظ„ظ‰ ظ…ط­ط§ط¯ط«ط©',
               style: TextStyle(fontFamily: 'IBM Plex Sans Arabic'),
             ),
             onTap: () {
@@ -453,7 +453,7 @@ class SharingService {
               color: AppColors.primary,
             ),
             title: const Text(
-              'مشاركة عبر تطبيقات أخرى',
+              'ظ…ط´ط§ط±ظƒط© ط¹ط¨ط± طھط·ط¨ظٹظ‚ط§طھ ط£ط®ط±ظ‰',
               style: TextStyle(fontFamily: 'IBM Plex Sans Arabic'),
             ),
             onTap: () {

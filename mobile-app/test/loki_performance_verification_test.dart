@@ -5,11 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:almudeer_mobile_app/presentation/widgets/chat/message_bubble.dart';
-import 'package:almudeer_mobile_app/presentation/screens/inbox/widgets/message_list_view.dart';
-import 'package:almudeer_mobile_app/data/models/inbox_message.dart';
-import 'package:almudeer_mobile_app/presentation/providers/conversation_detail_provider.dart';
-import 'package:almudeer_mobile_app/presentation/utils/chat_grouping_helper.dart'; // Verified Path
+import 'package:almudeer_mobile_app/features/inbox/presentation/widgets/chat/message_bubble.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/screens/widgets/message_list_view.dart';
+import 'package:almudeer_mobile_app/features/inbox/data/models/inbox_message.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/providers/conversation_detail_provider.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/utils/chat_grouping_helper.dart'; // Verified Path
 import 'package:almudeer_mobile_app/core/services/media_cache_manager.dart';
 import 'package:mockito/mockito.dart';
 

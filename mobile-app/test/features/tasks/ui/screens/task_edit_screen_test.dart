@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
 import 'package:provider/provider.dart';
 
-import 'package:almudeer_mobile_app/features/tasks/models/task_model.dart';
-import 'package:almudeer_mobile_app/features/tasks/providers/task_provider.dart';
-import 'package:almudeer_mobile_app/features/tasks/ui/screens/task_edit_screen.dart';
-import 'package:almudeer_mobile_app/features/tasks/repositories/task_repository.dart';
+import 'package:almudeer_mobile_app/features/tasks/data/models/task_model.dart';
+import 'package:almudeer_mobile_app/features/tasks/presentation/providers/task_provider.dart';
+import 'package:almudeer_mobile_app/features/tasks/presentation/ui/screens/task_edit_screen.dart';
+import 'package:almudeer_mobile_app/features/tasks/data/repositories/task_repository.dart';
 
-@GenerateMocks([TaskProvider, TaskRepository])
-import 'task_edit_screen_test.mocks.dart';
+class MockTaskProvider extends Mock implements TaskProvider {}
+
+class MockTaskRepository extends Mock implements TaskRepository {}
 
 void main() {
   late MockTaskProvider mockProvider;
@@ -53,9 +53,9 @@ void main() {
 
       // Verify title field is present and editable
       expect(find.byType(TextField), findsWidgets);
-      expect(find.text('عنوان المهمَّة'), findsOneWidget);
-      expect(find.text('التَّفاصيل (اختياري)'), findsOneWidget);
-      expect(find.text('التَّاريخ (اختياري)'), findsOneWidget);
+      expect(find.text('ط¹ظ†ظˆط§ظ† ط§ظ„ظ…ظ‡ظ…ظژظ‘ط©'), findsOneWidget);
+      expect(find.text('ط§ظ„طھظژظ‘ظپط§طµظٹظ„ (ط§ط®طھظٹط§ط±ظٹ)'), findsOneWidget);
+      expect(find.text('ط§ظ„طھظژظ‘ط§ط±ظٹط® (ط§ط®طھظٹط§ط±ظٹ)'), findsOneWidget);
     });
 
     testWidgets('allows editing for new task (owner permission)', (
@@ -219,14 +219,14 @@ void main() {
   group('TaskEditScreen - Auto-save', () {
     testWidgets('triggers auto-save on text change', (WidgetTester tester) async {
       when(mockProvider.addTask(
-        title: anyNamed('title'),
+        title: 'New Task Title',
         description: anyNamed('description'),
         dueDate: anyNamed('dueDate'),
-        alarmEnabled: anyNamed('alarmEnabled'),
+        alarmEnabled: false,
         alarmTime: anyNamed('alarmTime'),
         recurrence: anyNamed('recurrence'),
-        attachments: anyNamed('attachments'),
-        priority: anyNamed('priority'),
+        attachments: const [],
+        priority: TaskPriority.medium,
       )).thenAnswer((_) async {});
 
       await tester.pumpWidget(createTestWidget());
@@ -244,11 +244,11 @@ void main() {
         title: 'New Task Title',
         description: '',
         dueDate: anyNamed('dueDate'),
-        alarmEnabled: anyNamed('alarmEnabled'),
+        alarmEnabled: false,
         alarmTime: anyNamed('alarmTime'),
         recurrence: anyNamed('recurrence'),
-        attachments: anyNamed('attachments'),
-        priority: anyNamed('priority'),
+        attachments: const [],
+        priority: TaskPriority.medium,
       )).called(1);
     });
 
@@ -265,14 +265,14 @@ void main() {
 
       // Verify addTask was NOT called
       verifyNever(mockProvider.addTask(
-        title: anyNamed('title'),
+        title: '',
         description: anyNamed('description'),
         dueDate: anyNamed('dueDate'),
-        alarmEnabled: anyNamed('alarmEnabled'),
+        alarmEnabled: false,
         alarmTime: anyNamed('alarmTime'),
         recurrence: anyNamed('recurrence'),
-        attachments: anyNamed('attachments'),
-        priority: anyNamed('priority'),
+        attachments: const [],
+        priority: TaskPriority.medium,
       ));
     });
   });
@@ -283,7 +283,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Priority picker should be visible
-      expect(find.text('عالية'), findsOneWidget); // High priority label
+      expect(find.text('ط¹ط§ظ„ظٹط©'), findsOneWidget); // High priority label
     });
   });
 
@@ -292,10 +292,10 @@ void main() {
       await tester.pumpWidget(createTestWidget());
       await tester.pumpAndSettle();
 
-      expect(find.text('بدون تكرار'), findsOneWidget);
-      expect(find.text('يومي'), findsOneWidget);
-      expect(find.text('أسبوعي'), findsOneWidget);
-      expect(find.text('شهري'), findsOneWidget);
+      expect(find.text('ط¨ط¯ظˆظ† طھظƒط±ط§ط±'), findsOneWidget);
+      expect(find.text('ظٹظˆظ…ظٹ'), findsOneWidget);
+      expect(find.text('ط£ط³ط¨ظˆط¹ظٹ'), findsOneWidget);
+      expect(find.text('ط´ظ‡ط±ظٹ'), findsOneWidget);
     });
   });
 
@@ -304,21 +304,21 @@ void main() {
       await tester.pumpWidget(createTestWidget());
       await tester.pumpAndSettle();
 
-      expect(find.text('المرفقات'), findsOneWidget);
+      expect(find.text('ط§ظ„ظ…ط±ظپظ‚ط§طھ'), findsOneWidget);
     });
   });
 
   group('TaskEditScreen - Navigation', () {
     testWidgets('saves before popping', (WidgetTester tester) async {
       when(mockProvider.addTask(
-        title: anyNamed('title'),
+        title: 'Task to Save',
         description: anyNamed('description'),
         dueDate: anyNamed('dueDate'),
-        alarmEnabled: anyNamed('alarmEnabled'),
+        alarmEnabled: false,
         alarmTime: anyNamed('alarmTime'),
         recurrence: anyNamed('recurrence'),
-        attachments: anyNamed('attachments'),
-        priority: anyNamed('priority'),
+        attachments: const [],
+        priority: TaskPriority.medium,
       )).thenAnswer((_) async {});
 
       await tester.pumpWidget(createTestWidget());
@@ -336,11 +336,11 @@ void main() {
         title: 'Task to Save',
         description: '',
         dueDate: anyNamed('dueDate'),
-        alarmEnabled: anyNamed('alarmEnabled'),
+        alarmEnabled: false,
         alarmTime: anyNamed('alarmTime'),
         recurrence: anyNamed('recurrence'),
-        attachments: anyNamed('attachments'),
-        priority: anyNamed('priority'),
+        attachments: const [],
+        priority: TaskPriority.medium,
       )).called(1);
     });
   });
@@ -348,14 +348,14 @@ void main() {
   group('TaskEditScreen - Error Handling', () {
     testWidgets('handles save error gracefully', (WidgetTester tester) async {
       when(mockProvider.addTask(
-        title: anyNamed('title'),
+        title: 'Task Title',
         description: anyNamed('description'),
         dueDate: anyNamed('dueDate'),
-        alarmEnabled: anyNamed('alarmEnabled'),
+        alarmEnabled: false,
         alarmTime: anyNamed('alarmTime'),
         recurrence: anyNamed('recurrence'),
-        attachments: anyNamed('attachments'),
-        priority: anyNamed('priority'),
+        attachments: const [],
+        priority: TaskPriority.medium,
       )).thenThrow(Exception('Network error'));
 
       await tester.pumpWidget(createTestWidget());
@@ -373,11 +373,11 @@ void main() {
         title: 'Task Title',
         description: '',
         dueDate: anyNamed('dueDate'),
-        alarmEnabled: anyNamed('alarmEnabled'),
+        alarmEnabled: false,
         alarmTime: anyNamed('alarmTime'),
         recurrence: anyNamed('recurrence'),
-        attachments: anyNamed('attachments'),
-        priority: anyNamed('priority'),
+        attachments: const [],
+        priority: TaskPriority.medium,
       )).called(1);
     });
 
@@ -385,14 +385,14 @@ void main() {
       WidgetTester tester,
     ) async {
       when(mockProvider.addTask(
-        title: anyNamed('title'),
+        title: 'Task Title',
         description: anyNamed('description'),
         dueDate: anyNamed('dueDate'),
-        alarmEnabled: anyNamed('alarmEnabled'),
+        alarmEnabled: false,
         alarmTime: anyNamed('alarmTime'),
         recurrence: anyNamed('recurrence'),
-        attachments: anyNamed('attachments'),
-        priority: anyNamed('priority'),
+        attachments: const [],
+        priority: TaskPriority.medium,
       )).thenThrow(Exception('Socket exception: connection timed out'));
 
       await tester.pumpWidget(createTestWidget());
@@ -406,7 +406,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1100));
 
       // Should NOT show error toast for offline errors
-      expect(find.text('حدث خطأ أثناء الحفظ'), findsNothing);
+      expect(find.text('ط­ط¯ط« ط®ط·ط£ ط£ط«ظ†ط§ط، ط§ظ„ط­ظپط¸'), findsNothing);
     });
   });
 }

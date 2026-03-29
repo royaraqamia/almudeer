@@ -1,23 +1,82 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
-import 'package:almudeer_mobile_app/presentation/providers/auth_provider.dart';
+import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:almudeer_mobile_app/core/api/api_client.dart';
-import 'package:almudeer_mobile_app/data/repositories/auth_repository.dart';
-import 'package:almudeer_mobile_app/data/models/user_info.dart';
-import 'package:almudeer_mobile_app/services/fcm_service.dart';
+import 'package:almudeer_mobile_app/features/auth/data/repositories/auth_repository.dart';
+import 'package:almudeer_mobile_app/features/users/data/models/user_info.dart';
+import 'package:almudeer_mobile_app/features/notifications/data/services/fcm_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-// Generate Mocks
-@GenerateMocks([AuthRepository, FcmService, FlutterSecureStorage])
-import 'auth_flow_test.mocks.dart';
+class MockAuthRepository extends Mock implements AuthRepository {}
+
+class MockFcmService extends Mock implements FcmService {}
+
+class FakeFlutterSecureStorage implements FlutterSecureStorage {
+  final Map<String, String> _store = {};
+
+  @override
+  Future<String?> read({
+    required String key,
+    AndroidOptions? aOptions,
+    AppleOptions? iOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    WindowsOptions? wOptions,
+    AppleOptions? mOptions,
+  }) async => _store[key];
+
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    AndroidOptions? aOptions,
+    AppleOptions? iOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    WindowsOptions? wOptions,
+    AppleOptions? mOptions,
+  }) async {
+    if (value == null) {
+      _store.remove(key);
+    } else {
+      _store[key] = value;
+    }
+  }
+
+  @override
+  Future<void> delete({
+    required String key,
+    AndroidOptions? aOptions,
+    AppleOptions? iOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    WindowsOptions? wOptions,
+    AppleOptions? mOptions,
+  }) async {
+    _store.remove(key);
+  }
+
+  @override
+  Future<bool> containsKey({
+    required String key,
+    AndroidOptions? aOptions,
+    AppleOptions? iOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    WindowsOptions? wOptions,
+    AppleOptions? mOptions,
+  }) async => _store.containsKey(key);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 void main() {
   late AuthProvider authProvider;
   late MockAuthRepository mockAuthRepository;
   late MockFcmService mockFcmService;
-  late MockFlutterSecureStorage mockSecureStorage;
+  late FakeFlutterSecureStorage mockSecureStorage;
 
   final userA = UserInfo(
     fullName: 'Company A',
@@ -42,26 +101,12 @@ void main() {
   setUp(() {
     mockAuthRepository = MockAuthRepository();
     mockFcmService = MockFcmService();
-    mockSecureStorage = MockFlutterSecureStorage();
+    mockSecureStorage = FakeFlutterSecureStorage();
 
     // Inject mock storage into ApiClient singleton
     ApiClient().secureStorage = mockSecureStorage;
 
     SharedPreferences.setMockInitialValues({});
-
-    // Mock secure storage to return null for all keys (prevents platform channel calls)
-    when(
-      mockSecureStorage.read(key: anyNamed('key')),
-    ).thenAnswer((_) async => null);
-    when(
-      mockSecureStorage.write(key: anyNamed('key'), value: anyNamed('value')),
-    ).thenAnswer((_) async {});
-    when(
-      mockSecureStorage.delete(key: anyNamed('key')),
-    ).thenAnswer((_) async {});
-    when(
-      mockSecureStorage.containsKey(key: anyNamed('key')),
-    ).thenAnswer((_) async => false);
   });
 
   group('Logout & Multi-Account Tests', () {
@@ -94,10 +139,10 @@ void main() {
         when(
           mockAuthRepository.getUserInfo(key: anyNamed('key')),
         ).thenAnswer((_) async => userA);
-        when(mockAuthRepository.removeAccount(any)).thenAnswer((_) async {});
-        when(mockAuthRepository.saveAccount(any)).thenAnswer((_) async {});
+        when(mockAuthRepository.removeAccount(userA)).thenAnswer((_) async {});
+        when(mockAuthRepository.saveAccount(userA)).thenAnswer((_) async {});
         when(
-          mockAuthRepository.storeLicenseKey(any, id: anyNamed('id')),
+          mockAuthRepository.storeLicenseKey(userA.licenseKey!, id: anyNamed('id')),
         ).thenAnswer((_) async {});
         when(mockAuthRepository.logout()).thenAnswer((_) async {});
 
@@ -140,10 +185,12 @@ void main() {
         if (key == userB.licenseKey) return userB;
         return userA;
       });
-      when(mockAuthRepository.removeAccount(any)).thenAnswer((_) async {});
-      when(mockAuthRepository.saveAccount(any)).thenAnswer((_) async {});
+      when(mockAuthRepository.removeAccount(userA)).thenAnswer((_) async {});
+      when(mockAuthRepository.removeAccount(userB)).thenAnswer((_) async {});
+      when(mockAuthRepository.saveAccount(userA)).thenAnswer((_) async {});
+      when(mockAuthRepository.saveAccount(userB)).thenAnswer((_) async {});
       when(
-        mockAuthRepository.storeLicenseKey(any, id: anyNamed('id')),
+        mockAuthRepository.storeLicenseKey(userA.licenseKey!, id: anyNamed('id')),
       ).thenAnswer((_) async {});
       when(mockAuthRepository.logout()).thenAnswer((_) async {});
 
@@ -168,7 +215,7 @@ void main() {
       // Verify switch to User B occurred
       verify(
         mockAuthRepository.storeLicenseKey(
-          userB.licenseKey,
+          userB.licenseKey!,
           id: userB.licenseId,
         ),
       ).called(1);

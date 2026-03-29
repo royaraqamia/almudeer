@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:almudeer_mobile_app/data/models/user_info.dart';
+import 'package:almudeer_mobile_app/features/users/data/models/user_info.dart';
 
 /// LOW FIX #9: Unit tests for authentication logic
 /// These tests verify the fixed logic without requiring platform channels
@@ -34,14 +34,14 @@ void main() {
     test('License format error message is descriptive', () {
       // Inline the error message logic
       String getLicenseFormatErrorMessage() {
-        return 'تنسيق المفتاح غير صحيح. يجب أن يكون بالشكل: MUDEER-XXXX-XXXX-XXXX أو MUDEER-XXXXXXXX-XXXXXXXX-XXXXXXXX';
+        return 'طھظ†ط³ظٹظ‚ ط§ظ„ظ…ظپطھط§ط­ ط؛ظٹط± طµط­ظٹط­. ظٹط¬ط¨ ط£ظ† ظٹظƒظˆظ† ط¨ط§ظ„ط´ظƒظ„: MUDEER-XXXX-XXXX-XXXX ط£ظˆ MUDEER-XXXXXXXX-XXXXXXXX-XXXXXXXX';
       }
       
       final errorMessage = getLicenseFormatErrorMessage();
       
       expect(errorMessage.contains('MUDEER-XXXX-XXXX-XXXX'), true);
       expect(errorMessage.contains('MUDEER-XXXXXXXX-XXXXXXXX-XXXXXXXX'), true);
-      expect(errorMessage.contains('تنسيق المفتاح غير صحيح'), true);
+      expect(errorMessage.contains('طھظ†ط³ظٹظ‚ ط§ظ„ظ…ظپطھط§ط­ ط؛ظٹط± طµط­ظٹط­'), true);
     });
 
     test('UserInfo copyWith preserves license key', () {

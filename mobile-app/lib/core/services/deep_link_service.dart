@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
-import '../../presentation/providers/auth_provider.dart';
-import '../../app/routes.dart';
-import '../../presentation/widgets/animated_toast.dart';
-import '../../presentation/widgets/custom_dialog.dart';
+import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
+import 'package:almudeer_mobile_app/core/app/routes.dart';
+import 'package:almudeer_mobile_app/features/shared/presentation/widgets/animated_toast.dart';
+import 'package:almudeer_mobile_app/features/shared/presentation/widgets/custom_dialog.dart';
 import 'notification_navigator.dart';
 
 enum DeepLinkResult { success, invalidKey, loginFailed, noKey }
@@ -113,12 +113,12 @@ class DeepLinkService {
 
     final confirmed = await CustomDialog.show<bool>(
       context,
-      title: 'تأكيد تسجيل الدخول',
+      title: 'طھط£ظƒظٹط¯ طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„',
       type: DialogType.confirm,
       message:
-          'طلب تسجيل الدخول عبر رابط خارجي\n\nمفتاح الاشتراك: $maskedKey\n\nهل أنت متأكد أنك تريد تسجيل الدخول باستخدام هذا المفتاح؟',
-      confirmText: 'تأكيد',
-      cancelText: 'إلغاء',
+          'ط·ظ„ط¨ طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„ ط¹ط¨ط± ط±ط§ط¨ط· ط®ط§ط±ط¬ظٹ\n\nظ…ظپطھط§ط­ ط§ظ„ط§ط´طھط±ط§ظƒ: $maskedKey\n\nظ‡ظ„ ط£ظ†طھ ظ…طھط£ظƒط¯ ط£ظ†ظƒ طھط±ظٹط¯ طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„ ط¨ط§ط³طھط®ط¯ط§ظ… ظ‡ط°ط§ ط§ظ„ظ…ظپطھط§ط­طں',
+      confirmText: 'طھط£ظƒظٹط¯',
+      cancelText: 'ط¥ظ„ط؛ط§ط،',
       barrierDismissible: false,
     );
 
@@ -190,16 +190,16 @@ class DeepLinkService {
 
     switch (result) {
       case DeepLinkResult.success:
-        AnimatedToast.success(context, 'تم تسجيل الدخول بنجاح');
+        AnimatedToast.success(context, 'طھظ… طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„ ط¨ظ†ط¬ط§ط­');
         break;
       case DeepLinkResult.invalidKey:
-        AnimatedToast.error(context, 'مفتاح الترخيص غير صالح');
+        AnimatedToast.error(context, 'ظ…ظپطھط§ط­ ط§ظ„طھط±ط®ظٹطµ ط؛ظٹط± طµط§ظ„ط­');
         break;
       case DeepLinkResult.loginFailed:
-        AnimatedToast.error(context, 'فشل تسجيل الدخول');
+        AnimatedToast.error(context, 'ظپط´ظ„ طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„');
         break;
       case DeepLinkResult.noKey:
-        AnimatedToast.error(context, 'لم يتم العثور على مفتاح الترخيص');
+        AnimatedToast.error(context, 'ظ„ظ… ظٹطھظ… ط§ظ„ط¹ط«ظˆط± ط¹ظ„ظ‰ ظ…ظپطھط§ط­ ط§ظ„طھط±ط®ظٹطµ');
         break;
     }
   }

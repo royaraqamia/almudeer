@@ -1,39 +1,33 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
-import 'package:almudeer_mobile_app/data/repositories/customers_repository.dart';
+import 'package:almudeer_mobile_app/features/customers/data/repositories/customers_repository.dart';
 import 'package:almudeer_mobile_app/core/api/api_client.dart';
 import 'package:almudeer_mobile_app/core/api/endpoints.dart';
-import 'package:almudeer_mobile_app/data/datasources/local/customers_local_datasource.dart';
-import 'package:almudeer_mobile_app/core/services/connectivity_service.dart';
+import 'package:almudeer_mobile_app/features/customers/data/datasources/local/customers_local_datasource.dart';
 
-// Generate Mocks
-@GenerateMocks([ApiClient, ConnectivityService, CustomersLocalDataSource])
-import 'customers_repository_test.mocks.dart';
+class MockApiClient extends Mock implements ApiClient {}
+
+class MockCustomersLocalDataSource extends Mock
+    implements CustomersLocalDataSource {}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late CustomersRepository repository;
   late MockApiClient mockApiClient;
-  late MockConnectivityService mockConnectivityService;
   late MockCustomersLocalDataSource mockLocalDataSource;
 
   setUp(() {
     mockApiClient = MockApiClient();
-    mockConnectivityService = MockConnectivityService();
     mockLocalDataSource = MockCustomersLocalDataSource();
 
     // Default stub for getAccountCacheHash
     when(
       mockApiClient.getAccountCacheHash(),
     ).thenAnswer((_) async => 'test-hash');
-    when(mockConnectivityService.isOnline).thenReturn(true);
-    when(mockConnectivityService.isOffline).thenReturn(false);
 
     repository = CustomersRepository(
       apiClient: mockApiClient,
-      connectivityService: mockConnectivityService,
       localDataSource: mockLocalDataSource,
     );
 
@@ -57,8 +51,8 @@ void main() {
       when(
         mockLocalDataSource.getCustomers(
           search: anyNamed('search'),
-          limit: anyNamed('limit'),
-          offset: anyNamed('offset'),
+          limit: 20,
+          offset: 0,
         ),
       ).thenAnswer((_) async => localCustomers);
 
@@ -85,7 +79,7 @@ void main() {
       // Assert
       expect(result['id'], 1);
       verify(mockLocalDataSource.getCustomer(1)).called(1);
-      verifyNever(mockApiClient.get(any));
+      verifyNever(mockApiClient.get(Endpoints.customer(1)));
     });
 
     test('updateCustomer calls patch and updates local', () async {
@@ -94,7 +88,7 @@ void main() {
       final responseData = {'id': 1, 'name': 'Jane'};
 
       when(
-        mockApiClient.patch(any, body: anyNamed('body')),
+        mockApiClient.patch(Endpoints.customer(1), body: updateData),
       ).thenAnswer((_) async => responseData);
 
       // Act

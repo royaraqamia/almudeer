@@ -11,8 +11,8 @@ import 'package:uuid/uuid.dart';
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-import '../../data/local/transfer_database.dart';
-import '../../data/models/transfer_models.dart';
+import 'package:almudeer_mobile_app/features/transfer/data/local/transfer_database.dart';
+import 'package:almudeer_mobile_app/features/transfer/data/models/transfer_models.dart';
 import 'background_transfer_service.dart';
 
 /// Protocol message types for chunked transfer
@@ -353,7 +353,7 @@ class EnhancedTransferService {
   Future<String?> getHardwareErrorMessage() async {
     // iOS not supported
     if (!Platform.isAndroid) {
-      return 'المشاركة القريبة مدعومة فقط على أجهزة Android';
+      return 'ط§ظ„ظ…ط´ط§ط±ظƒط© ط§ظ„ظ‚ط±ظٹط¨ط© ظ…ط¯ط¹ظˆظ…ط© ظپظ‚ط· ط¹ظ„ظ‰ ط£ط¬ظ‡ط²ط© Android';
     }
 
     final missing = await getMissingRequirements();
@@ -362,15 +362,15 @@ class EnhancedTransferService {
     final req = missing.first;
     switch (req) {
       case HardwareRequirement.locationPermission:
-        return 'يرجى منح إذن الموقع الجغرافي للمتابعة';
+        return 'ظٹط±ط¬ظ‰ ظ…ظ†ط­ ط¥ط°ظ† ط§ظ„ظ…ظˆظ‚ط¹ ط§ظ„ط¬ط؛ط±ط§ظپظٹ ظ„ظ„ظ…طھط§ط¨ط¹ط©';
       case HardwareRequirement.bluetoothPermission:
-        return 'يرجى منح إذن البلوتوث للمتابعة';
+        return 'ظٹط±ط¬ظ‰ ظ…ظ†ط­ ط¥ط°ظ† ط§ظ„ط¨ظ„ظˆطھظˆط« ظ„ظ„ظ…طھط§ط¨ط¹ط©';
       case HardwareRequirement.nearbyWifiPermission:
-        return 'يرجى منح إذن الأجهزة القريبة للمتابعة';
+        return 'ظٹط±ط¬ظ‰ ظ…ظ†ط­ ط¥ط°ظ† ط§ظ„ط£ط¬ظ‡ط²ط© ط§ظ„ظ‚ط±ظٹط¨ط© ظ„ظ„ظ…طھط§ط¨ط¹ط©';
       case HardwareRequirement.locationService:
-        return 'يرجى تفعيل الموقع الجغرافي (GPS)';
+        return 'ظٹط±ط¬ظ‰ طھظپط¹ظٹظ„ ط§ظ„ظ…ظˆظ‚ط¹ ط§ظ„ط¬ط؛ط±ط§ظپظٹ (GPS)';
       case HardwareRequirement.bluetoothService:
-        return 'يرجى تفعيل البلوتوث';
+        return 'ظٹط±ط¬ظ‰ طھظپط¹ظٹظ„ ط§ظ„ط¨ظ„ظˆطھظˆط«';
     }
   }
 
@@ -654,12 +654,12 @@ class EnhancedTransferService {
     try {
       // Validate file exists and is readable
       if (!await file.exists()) {
-        throw Exception('الملف غير موجود: ${file.path}');
+        throw Exception('ط§ظ„ظ…ظ„ظپ ط؛ظٹط± ظ…ظˆط¬ظˆط¯: ${file.path}');
       }
 
       final fileSize = await file.length();
       if (fileSize == 0) {
-        throw Exception('لا يمكن نقل ملف فارغ');
+        throw Exception('ظ„ط§ ظٹظ…ظƒظ† ظ†ظ‚ظ„ ظ…ظ„ظپ ظپط§ط±ط؛');
       }
 
       // Validate file size (security: prevent storage exhaustion)
@@ -667,7 +667,7 @@ class EnhancedTransferService {
         final sizeMB = (fileSize / (1024 * 1024)).toStringAsFixed(1);
         final maxMB = (maxFileSize / (1024 * 1024)).toStringAsFixed(0);
         throw Exception(
-          'حجم الملف كبير جداً ($sizeMB MB). الحد الأقصى: $maxMB MB',
+          'ط­ط¬ظ… ط§ظ„ظ…ظ„ظپ ظƒط¨ظٹط± ط¬ط¯ط§ظ‹ ($sizeMB MB). ط§ظ„ط­ط¯ ط§ظ„ط£ظ‚طµظ‰: $maxMB MB',
         );
       }
 
@@ -676,7 +676,7 @@ class EnhancedTransferService {
       // Validate file type (security: prevent malware distribution)
       final fileExtension = '.${fileName.split('.').last.toLowerCase()}';
       if (blockedFileExtensions.contains(fileExtension)) {
-        throw Exception('نوع الملف غير مدعوم لأسباب أمنية ($fileExtension)');
+        throw Exception('ظ†ظˆط¹ ط§ظ„ظ…ظ„ظپ ط؛ظٹط± ظ…ط¯ط¹ظˆظ… ظ„ط£ط³ط¨ط§ط¨ ط£ظ…ظ†ظٹط© ($fileExtension)');
       }
 
       // Calculate file hash (streaming to avoid memory issues)
@@ -1664,7 +1664,7 @@ class EnhancedTransferService {
       if (await file.exists()) {
         _openFiles[sessionId] = await file.open(mode: FileMode.read);
       } else {
-        await _failSession(sessionId, 'الملف الأصلي لم يعد موجوداً');
+        await _failSession(sessionId, 'ط§ظ„ظ…ظ„ظپ ط§ظ„ط£طµظ„ظٹ ظ„ظ… ظٹط¹ط¯ ظ…ظˆط¬ظˆط¯ط§ظ‹');
         return;
       }
     } else if (session.direction == TransferDirection.receiving &&
@@ -1948,9 +1948,9 @@ class EnhancedTransferService {
       _backgroundService.updateProgress(
         progress,
         title: session.direction == TransferDirection.sending
-            ? 'جاري الإرسال: ${session.metadata.fileName}'
-            : 'جاري الاستلام: ${session.metadata.fileName}',
-        body: '$progress% مكتمل',
+            ? 'ط¬ط§ط±ظٹ ط§ظ„ط¥ط±ط³ط§ظ„: ${session.metadata.fileName}'
+            : 'ط¬ط§ط±ظٹ ط§ظ„ط§ط³طھظ„ط§ظ…: ${session.metadata.fileName}',
+        body: '$progress% ظ…ظƒطھظ…ظ„',
       );
     }
   }

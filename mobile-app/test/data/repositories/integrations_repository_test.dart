@@ -1,14 +1,11 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
-import 'package:almudeer_mobile_app/data/repositories/integrations_repository.dart';
+import 'package:almudeer_mobile_app/features/integrations/data/repositories/integrations_repository.dart';
 import 'package:almudeer_mobile_app/core/api/api_client.dart';
 import 'package:almudeer_mobile_app/core/api/endpoints.dart';
 
-// Generate Mocks
-@GenerateMocks([ApiClient])
-import 'integrations_repository_test.mocks.dart';
+class MockApiClient extends Mock implements ApiClient {}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -51,7 +48,6 @@ void main() {
       // Check cache (implicitly via implementation)
     });
 
-
     test('saveTelegramConfig calls post', () async {
       when(
         mockApiClient.post(Endpoints.telegramConfig, body: anyNamed('body')),
@@ -68,7 +64,9 @@ void main() {
     });
 
     test('disconnectChannel calls delete', () async {
-      when(mockApiClient.delete(any)).thenAnswer((_) async => {});
+      when(
+        mockApiClient.delete('${Endpoints.integrationAccounts}/whatsapp'),
+      ).thenAnswer((_) async => {});
 
       await repository.disconnectChannel('whatsapp');
 

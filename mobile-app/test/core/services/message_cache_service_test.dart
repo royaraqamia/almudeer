@@ -1,22 +1,40 @@
+﻿import 'package:almudeer_mobile_app/features/inbox/data/models/inbox_message.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:almudeer_mobile_app/core/services/message_cache_service.dart';
-import 'package:almudeer_mobile_app/data/models/inbox_message.dart';
 
-// Generate Mocks
-@GenerateMocks([HiveInterface, Box])
-import 'message_cache_service_test.mocks.dart';
+class MockHiveInterface extends Mock implements HiveInterface {}
+
+class FakeStringBox implements Box<String> {
+  final Map<dynamic, String> _store = {};
+  int putCalls = 0;
+
+  @override
+  Iterable<dynamic> get keys => _store.keys;
+
+  @override
+  String? get(dynamic key, {String? defaultValue}) =>
+      _store.containsKey(key) ? _store[key] : defaultValue;
+
+  @override
+  Future<void> put(dynamic key, String value) async {
+    putCalls++;
+    _store[key] = value;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late MessageCacheService service;
   late MockHiveInterface mockHive;
-  late MockBox<String> mockMessagesBox;
-  late MockBox<String> mockConversationsBox;
-  late MockBox<String> mockMetadataBox;
+  late FakeStringBox mockMessagesBox;
+  late FakeStringBox mockConversationsBox;
+  late FakeStringBox mockMetadataBox;
 
   setUp(() {
     const channel = MethodChannel('plugins.flutter.io/path_provider');
@@ -26,9 +44,9 @@ void main() {
         });
 
     mockHive = MockHiveInterface();
-    mockMessagesBox = MockBox<String>();
-    mockConversationsBox = MockBox<String>();
-    mockMetadataBox = MockBox<String>();
+    mockMessagesBox = FakeStringBox();
+    mockConversationsBox = FakeStringBox();
+    mockMetadataBox = FakeStringBox();
     service = MessageCacheService(hive: mockHive);
 
     // Default mocks
@@ -41,11 +59,7 @@ void main() {
     when(
       mockHive.openBox<String>('cache_metadata'),
     ).thenAnswer((_) async => mockMetadataBox);
-    when(mockHive.init(any)).thenAnswer((_) {});
-
-    when(mockMessagesBox.keys).thenReturn([]);
-    when(mockConversationsBox.keys).thenReturn([]);
-    when(mockMetadataBox.keys).thenReturn([]);
+    when(mockHive.init('.')).thenAnswer((_) {});
   });
 
   group('MessageCacheService', () {
@@ -70,7 +84,8 @@ void main() {
       ];
       await service.cacheMessages('user1', messages);
 
-      verify(mockMessagesBox.put('messages_user1', any)).called(1);
+      expect(mockMessagesBox.putCalls, 1);
+      expect(mockMessagesBox.get('messages_user1'), isNotNull);
     });
 
     test('getCachedMessages returns parsed list', () async {
@@ -79,7 +94,7 @@ void main() {
       final cachedJson =
           '{"messages": [{"id": 1, "body": "Hi", "channel": "whatsapp", "status": "sent", "created_at": "2024-01-01T10:00:00.000"}], "cached_at": "${DateTime.now().toIso8601String()}"}';
 
-      when(mockMessagesBox.get('messages_user1')).thenReturn(cachedJson);
+      await mockMessagesBox.put('messages_user1', cachedJson);
 
       final result = await service.getCachedMessages('user1');
 

@@ -1,20 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
 import 'package:provider/provider.dart';
-import 'package:almudeer_mobile_app/presentation/screens/customers/customer_detail_screen.dart';
-import 'package:almudeer_mobile_app/presentation/providers/customers_provider.dart';
-import 'package:almudeer_mobile_app/presentation/providers/auth_provider.dart';
-import 'package:almudeer_mobile_app/presentation/providers/conversation_detail_provider.dart';
+import 'package:almudeer_mobile_app/features/customers/presentation/screens/customer_detail_screen.dart';
+import 'package:almudeer_mobile_app/features/customers/presentation/providers/customers_provider.dart';
+import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/providers/conversation_detail_provider.dart';
 
-import 'customer_detail_screen_test.mocks.dart';
+class MockCustomersProvider extends Mock implements CustomersProvider {}
 
-@GenerateMocks([
-  CustomersProvider,
-  AuthProvider,
-  ConversationDetailProvider,
-])
+class MockAuthProvider extends Mock implements AuthProvider {}
+
+class MockConversationDetailProvider extends Mock
+    implements ConversationDetailProvider {}
+
 void main() {
   group('CustomerDetailScreen', () {
     late MockCustomersProvider mockCustomersProvider;
@@ -44,13 +43,13 @@ void main() {
       when(mockCustomersProvider.isCheckingUsername).thenReturn(false);
       when(mockCustomersProvider.foundUsernameDetails).thenReturn(null);
       when(mockCustomersProvider.usernameNotFound).thenReturn(false);
-      when(mockCustomersProvider.addListener(any)).thenAnswer((_) {});
-      when(mockCustomersProvider.removeListener(any)).thenAnswer((_) {});
-      when(mockCustomersProvider.lookupUsername(any)).thenAnswer((_) async {});
+      when(mockCustomersProvider.addListener(() {})).thenAnswer((_) {});
+      when(mockCustomersProvider.removeListener(() {})).thenAnswer((_) {});
+      when(mockCustomersProvider.lookupUsername('__unused__')).thenAnswer((_) async {});
       when(mockCustomersProvider.clearUsernameLookup()).thenAnswer((_) {});
       when(mockCustomersProvider.refresh()).thenAnswer((_) async {});
-      when(mockCustomersProvider.updateCustomerInList(any)).thenAnswer((_) {});
-      when(mockCustomersProvider.getCustomerByContact(any)).thenReturn(null);
+      when(mockCustomersProvider.updateCustomerInList(<String, dynamic>{})).thenAnswer((_) {});
+      when(mockCustomersProvider.getCustomerByContact('__unused__')).thenReturn(null);
 
       // Setup AuthProvider mocks
       when(mockAuthProvider.userInfo).thenReturn(null);
@@ -61,12 +60,12 @@ void main() {
       when(mockConversationDetailProvider.isPeerOnline).thenReturn(false);
       when(mockConversationDetailProvider.peerLastSeen).thenReturn(null);
       when(mockConversationDetailProvider.loadConversation(
-        any,
-        channel: anyNamed('channel'),
-        fresh: anyNamed('fresh'),
-        lastSeenAt: anyNamed('lastSeenAt'),
-        isOnline: anyNamed('isOnline'),
-        skipAutoRefresh: anyNamed('skipAutoRefresh'),
+        '__unused__',
+        channel: null,
+        fresh: true,
+        lastSeenAt: null,
+        isOnline: false,
+        skipAutoRefresh: false,
       )).thenAnswer((_) async {});
     });
 
@@ -105,14 +104,14 @@ void main() {
         await tester.pumpWidget(createTestWidget());
         await tester.pumpAndSettle();
 
-        expect(find.byTooltip('رجوع'), findsOneWidget);
+        expect(find.byTooltip('ط±ط¬ظˆط¹'), findsOneWidget);
       });
 
       testWidgets('displays chat button for Almudeer user', (tester) async {
         await tester.pumpWidget(createTestWidget());
         await tester.pumpAndSettle();
 
-        expect(find.text('مراسلة'), findsOneWidget);
+        expect(find.text('ظ…ط±ط§ط³ظ„ط©'), findsOneWidget);
       });
     });
 
@@ -128,7 +127,7 @@ void main() {
         await tester.pumpWidget(createTestWidget(customer: onlineCustomer));
         await tester.pumpAndSettle();
 
-        expect(find.text('متَّصل الآن'), findsOneWidget);
+        expect(find.text('ظ…طھظژظ‘طµظ„ ط§ظ„ط¢ظ†'), findsOneWidget);
       });
 
       testWidgets('displays typing status', (tester) async {
@@ -137,7 +136,7 @@ void main() {
         await tester.pumpWidget(createTestWidget());
         await tester.pumpAndSettle();
 
-        expect(find.text('يكتب...'), findsOneWidget);
+        expect(find.text('ظٹظƒطھط¨...'), findsOneWidget);
       });
 
       testWidgets('displays recording status', (tester) async {
@@ -146,7 +145,7 @@ void main() {
         await tester.pumpWidget(createTestWidget());
         await tester.pumpAndSettle();
 
-        expect(find.text('يسجِّل مقطع صوتي...'), findsOneWidget);
+        expect(find.text('ظٹط³ط¬ظگظ‘ظ„ ظ…ظ‚ط·ط¹ طµظˆطھظٹ...'), findsOneWidget);
       });
     });
 
@@ -165,7 +164,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // Should not crash - check for default text instead
-        expect(find.text('شخص'), findsOneWidget);
+        expect(find.text('ط´ط®طµ'), findsOneWidget);
       });
 
       testWidgets('handles missing last_seen_at', (tester) async {
@@ -187,7 +186,7 @@ void main() {
         await tester.pumpWidget(createTestWidget());
         await tester.pumpAndSettle();
 
-        final backButton = find.byTooltip('رجوع');
+        final backButton = find.byTooltip('ط±ط¬ظˆط¹');
         expect(backButton, findsOneWidget);
       });
     });
@@ -217,7 +216,7 @@ void main() {
         await tester.pumpWidget(createTestWidget(customer: nonAlmudeerCustomer));
         await tester.pumpAndSettle();
 
-        expect(find.text('مراسلة'), findsNothing);
+        expect(find.text('ظ…ط±ط§ط³ظ„ط©'), findsNothing);
       });
     });
   });

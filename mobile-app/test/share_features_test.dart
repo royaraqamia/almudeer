@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:almudeer_mobile_app/presentation/widgets/library/share_item_dialog.dart';
+import 'package:almudeer_mobile_app/features/library/presentation/widgets/library/share_item_dialog.dart';
 
 void main() {
   group('ShareItemDialog Tests', () {
@@ -15,7 +15,7 @@ void main() {
       );
 
       // Verify dialog title
-      expect(find.text('مشاركة العنصر'), findsOneWidget);
+      expect(find.text('ظ…ط´ط§ط±ظƒط© ط§ظ„ط¹ظ†طµط±'), findsOneWidget);
 
       // Verify item title is shown
       expect(find.text('Test Item'), findsOneWidget);
@@ -24,14 +24,14 @@ void main() {
       expect(find.byType(TextFormField), findsOneWidget);
 
       // Verify permission options
-      expect(find.text('قراءة فقط'), findsOneWidget);
-      expect(find.text('تعديل'), findsOneWidget);
-      expect(find.text('مدير'), findsOneWidget);
+      expect(find.text('ظ‚ط±ط§ط،ط© ظپظ‚ط·'), findsOneWidget);
+      expect(find.text('طھط¹ط¯ظٹظ„'), findsOneWidget);
+      expect(find.text('ظ…ط¯ظٹط±'), findsOneWidget);
 
       // Verify expiry options
-      expect(find.text('بدون انتهاء'), findsOneWidget);
-      expect(find.text('7 أيام'), findsOneWidget);
-      expect(find.text('30 يوم'), findsOneWidget);
+      expect(find.text('ط¨ط¯ظˆظ† ط§ظ†طھظ‡ط§ط،'), findsOneWidget);
+      expect(find.text('7 ط£ظٹط§ظ…'), findsOneWidget);
+      expect(find.text('30 ظٹظˆظ…'), findsOneWidget);
     });
 
     testWidgets('Share button is disabled when form is invalid', (
@@ -46,12 +46,12 @@ void main() {
       );
 
       // Try to tap share button without filling form
-      final shareButton = find.text('مشاركة');
+      final shareButton = find.text('ظ…ط´ط§ط±ظƒط©');
       await tester.tap(shareButton);
       await tester.pump();
 
       // Should show validation error
-      expect(find.text('يرجى إدخال اسم المستخدم أو المعرف'), findsOneWidget);
+      expect(find.text('ظٹط±ط¬ظ‰ ط¥ط¯ط®ط§ظ„ ط§ط³ظ… ط§ظ„ظ…ط³طھط®ط¯ظ… ط£ظˆ ط§ظ„ظ…ط¹ط±ظپ'), findsOneWidget);
     });
 
     testWidgets('Permission selection works', (WidgetTester tester) async {
@@ -64,7 +64,7 @@ void main() {
       );
 
       // Tap on edit permission
-      await tester.tap(find.text('تعديل'));
+      await tester.tap(find.text('طھط¹ط¯ظٹظ„'));
       await tester.pump();
 
       // Verify selection changed
@@ -81,11 +81,11 @@ void main() {
       );
 
       // Tap on 30 days expiry
-      await tester.tap(find.text('30 يوم'));
+      await tester.tap(find.text('30 ظٹظˆظ…'));
       await tester.pump();
 
       // Verify selection
-      expect(find.text('30 يوم'), findsOneWidget);
+      expect(find.text('30 ظٹظˆظ…'), findsOneWidget);
     });
 
     testWidgets('Form validation', (WidgetTester tester) async {
@@ -99,7 +99,7 @@ void main() {
 
       // Enter invalid contact
       // Expecting a generic invalid input error if any
-      expect(find.text('يرجى إدخال اسم مستخدم صحيح'), findsOneWidget);
+      expect(find.text('ظٹط±ط¬ظ‰ ط¥ط¯ط®ط§ظ„ ط§ط³ظ… ظ…ط³طھط®ط¯ظ… طµط­ظٹط­'), findsOneWidget);
     });
 
     testWidgets('Close button works', (WidgetTester tester) async {

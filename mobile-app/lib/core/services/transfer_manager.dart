@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 
-import '../../data/local/transfer_database.dart';
-import '../../data/models/transfer_models.dart';
+import 'package:almudeer_mobile_app/features/transfer/data/local/transfer_database.dart';
+import 'package:almudeer_mobile_app/features/transfer/data/models/transfer_models.dart';
 import 'enhanced_transfer_service.dart';
 
 /// Thread-safe transfer queue with priority support
@@ -201,7 +201,7 @@ class TransferManager extends ChangeNotifier {
 
     // Validate file exists
     if (!await file.exists()) {
-      throw Exception('الملف غير موجود: ${file.path}');
+      throw Exception('ط§ظ„ظ…ظ„ظپ ط؛ظٹط± ظ…ظˆط¬ظˆط¯: ${file.path}');
     }
 
     final transferId = DateTime.now().millisecondsSinceEpoch.toString();
@@ -273,7 +273,7 @@ class TransferManager extends ChangeNotifier {
     // Check queue
     final queued = _transferQueue.firstWhere(
       (q) => q.id == transferId,
-      orElse: () => throw Exception('لم يتم العثور على النقل'),
+      orElse: () => throw Exception('ظ„ظ… ظٹطھظ… ط§ظ„ط¹ط«ظˆط± ط¹ظ„ظ‰ ط§ظ„ظ†ظ‚ظ„'),
     );
 
     if (queued != null) {
@@ -288,7 +288,7 @@ class TransferManager extends ChangeNotifier {
     // Verify transfer exists
     _activeTransfers.firstWhere(
       (t) => t.sessionId == transferId,
-      orElse: () => throw Exception('لم يتم العثور على النقل'),
+      orElse: () => throw Exception('ظ„ظ… ظٹطھظ… ط§ظ„ط¹ط«ظˆط± ط¹ظ„ظ‰ ط§ظ„ظ†ظ‚ظ„'),
     );
 
     await _transferService.pauseTransfer(transferId);
@@ -306,7 +306,7 @@ class TransferManager extends ChangeNotifier {
         final file = File(session.metadata.filePath!);
         if (!await file.exists()) {
           _failedTransfers[transferId] = session;
-          throw Exception('الملف الأصلي لم يعد موجوداً');
+          throw Exception('ط§ظ„ظ…ظ„ظپ ط§ظ„ط£طµظ„ظٹ ظ„ظ… ظٹط¹ط¯ ظ…ظˆط¬ظˆط¯ط§ظ‹');
         }
       }
 
@@ -332,7 +332,7 @@ class TransferManager extends ChangeNotifier {
     // Check active transfers
     final session = _activeTransfers.firstWhere(
       (t) => t.sessionId == transferId,
-      orElse: () => throw Exception('لم يتم العثور على النقل'),
+      orElse: () => throw Exception('ظ„ظ… ظٹطھظ… ط§ظ„ط¹ط«ظˆط± ط¹ظ„ظ‰ ط§ظ„ظ†ظ‚ظ„'),
     );
 
     if (session.canResume) {
@@ -455,7 +455,7 @@ class TransferManager extends ChangeNotifier {
           customTransferId: queued.id,
         );
         if (session == null) {
-          _handleTransferFailure(queued, 'فشل في بدء النقل');
+          _handleTransferFailure(queued, 'ظپط´ظ„ ظپظٹ ط¨ط¯ط، ط§ظ„ظ†ظ‚ظ„');
           return;
         }
         sessionId = session.sessionId;
@@ -597,7 +597,7 @@ class TransferManager extends ChangeNotifier {
             await _database.updateSessionState(
               session.sessionId,
               TransferState.failed,
-              errorMessage: 'الملف الأصلي لم يعد موجوداً',
+              errorMessage: 'ط§ظ„ظ…ظ„ظپ ط§ظ„ط£طµظ„ظٹ ظ„ظ… ظٹط¹ط¯ ظ…ظˆط¬ظˆط¯ط§ظ‹',
             );
           }
         }

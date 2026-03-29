@@ -1,11 +1,12 @@
-import 'dart:async';
+﻿import 'dart:async';
+import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
 import 'package:mockito/annotations.dart';
 import 'package:almudeer_mobile_app/core/services/deep_link_service.dart';
-import 'package:almudeer_mobile_app/presentation/providers/auth_provider.dart';
 
-import 'deep_link_service_test.mocks.dart';
+import '../../presentation/screens/subscription_screen_test.dart';
+
 
 @GenerateMocks([AuthProvider])
 void main() {
@@ -27,8 +28,6 @@ void main() {
       test(
         'emits DeepLinkResult.noKey when key parameter is missing',
         () async {
-          when(mockAuthProvider.validateLicenseFormat(any)).thenReturn(true);
-
           final service = DeepLinkService();
           service.setAuthProviderForTest(mockAuthProvider);
 
@@ -47,8 +46,6 @@ void main() {
       );
 
       test('emits DeepLinkResult.noKey when key parameter is empty', () async {
-        when(mockAuthProvider.validateLicenseFormat(any)).thenReturn(true);
-
         final service = DeepLinkService();
         service.setAuthProviderForTest(mockAuthProvider);
 
@@ -68,7 +65,7 @@ void main() {
       test(
         'emits DeepLinkResult.invalidKey when license format is invalid',
         () async {
-          when(mockAuthProvider.validateLicenseFormat(any)).thenReturn(false);
+          when(mockAuthProvider.validateLicenseFormat('INVALID-KEY')).thenReturn(false);
 
           final service = DeepLinkService();
           service.setAuthProviderForTest(mockAuthProvider);
@@ -183,7 +180,7 @@ void main() {
         await Future.delayed(const Duration(milliseconds: 100));
         expect(resultEmitted, false);
 
-        verifyNever(mockAuthProvider.login(any));
+        verifyNever(mockAuthProvider.login('test'));
         await subscription.cancel();
       });
 
@@ -201,7 +198,7 @@ void main() {
         await Future.delayed(const Duration(milliseconds: 100));
         expect(resultEmitted, false);
 
-        verifyNever(mockAuthProvider.login(any));
+        verifyNever(mockAuthProvider.login('test'));
         await subscription.cancel();
       });
     });

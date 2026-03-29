@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
 import 'package:mockito/annotations.dart';
@@ -8,13 +8,13 @@ import 'package:almudeer_mobile_app/core/services/offline_sync_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:almudeer_mobile_app/presentation/providers/auth_provider.dart';
-import 'package:almudeer_mobile_app/presentation/providers/inbox_provider.dart';
-import 'package:almudeer_mobile_app/presentation/providers/conversation_detail_provider.dart';
-import 'package:almudeer_mobile_app/presentation/providers/message_input_provider.dart';
-import 'package:almudeer_mobile_app/presentation/providers/customers_provider.dart';
-import 'package:almudeer_mobile_app/presentation/providers/settings_provider.dart';
-import 'package:almudeer_mobile_app/services/fcm_service.dart';
+import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/providers/inbox_provider.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/providers/conversation_detail_provider.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/providers/message_input_provider.dart';
+import 'package:almudeer_mobile_app/features/customers/presentation/providers/customers_provider.dart';
+import 'package:almudeer_mobile_app/features/settings/presentation/providers/settings_provider.dart';
+import 'package:almudeer_mobile_app/features/notifications/data/services/fcm_service.dart';
 @GenerateMocks([
   ConnectivityService,
   PendingOperationsService,

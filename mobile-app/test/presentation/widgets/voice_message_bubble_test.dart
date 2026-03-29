@@ -4,9 +4,9 @@ import 'package:solar_icon_pack/solar_icon_pack.dart';
 import 'package:mockito/mockito.dart';
 import 'package:provider/provider.dart';
 
-import 'package:almudeer_mobile_app/presentation/widgets/chat/voice_message_bubble.dart';
-import 'package:almudeer_mobile_app/data/models/inbox_message.dart';
-import 'package:almudeer_mobile_app/presentation/providers/audio_player_provider.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/widgets/chat/voice_message_bubble.dart';
+import 'package:almudeer_mobile_app/features/inbox/data/models/inbox_message.dart';
+import 'package:almudeer_mobile_app/features/viewer/presentation/providers/audio_player_provider.dart';
 import 'package:almudeer_mobile_app/core/services/media_cache_manager.dart';
 import 'package:almudeer_mobile_app/core/services/audio_waveform_service.dart';
 
@@ -103,7 +103,7 @@ void main() {
       expect(find.byIcon(SolarLinearIcons.pause), findsNothing);
     });
 
-    testWidgets('shows "رسالة صوتية" label', (tester) async {
+    testWidgets('shows "ط±ط³ط§ظ„ط© طµظˆطھظٹط©" label', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: ChangeNotifierProvider<AudioPlayerProvider>.value(
@@ -120,7 +120,7 @@ void main() {
       );
 
       // Should show the voice message label
-      expect(find.text('رسالة صوتية'), findsOneWidget);
+      expect(find.text('ط±ط³ط§ظ„ط© طµظˆطھظٹط©'), findsOneWidget);
     });
 
     testWidgets('has correct semantics for accessibility', (tester) async {
@@ -141,7 +141,7 @@ void main() {
 
       // Check that the semantics label is set correctly
       final semantics = tester.getSemantics(find.byType(VoiceMessageBubble));
-      expect(semantics.label, contains('رسالة صوتية'));
+      expect(semantics.label, contains('ط±ط³ط§ظ„ط© طµظˆطھظٹط©'));
     });
 
     testWidgets('renders outgoing style correctly', (tester) async {

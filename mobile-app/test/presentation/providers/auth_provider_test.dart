@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-import 'package:almudeer_mobile_app/presentation/providers/auth_provider.dart';
-import 'package:almudeer_mobile_app/data/models/user_info.dart';
-import 'package:almudeer_mobile_app/data/repositories/auth_repository.dart';
-import 'package:almudeer_mobile_app/services/fcm_service.dart';
+import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
+import 'package:almudeer_mobile_app/features/users/data/models/user_info.dart';
+import 'package:almudeer_mobile_app/features/auth/data/repositories/auth_repository.dart';
+import 'package:almudeer_mobile_app/features/notifications/data/services/fcm_service.dart';
 
 class MockAuthRepository extends Mock implements AuthRepository {}
 
@@ -84,14 +84,14 @@ void main() {
   group('UserInfo Integration', () {
     test('should handle UserInfo with all fields', () {
       final user = UserInfo(
-        fullName: 'شركة المدير',
+        fullName: 'ط´ط±ظƒط© ط§ظ„ظ…ط¯ظٹط±',
         expiresAt: '2025-12-31',
         referralCount: 1000,
         createdAt: '2024-01-01',
         licenseKey: 'MUDEER-TEST-1234-5678',
       );
 
-      expect(user.fullName, 'شركة المدير');
+      expect(user.fullName, 'ط´ط±ظƒط© ط§ظ„ظ…ط¯ظٹط±');
       expect(user.expiresAt, '2025-12-31');
       expect(user.referralCount, 1000);
       expect(user.licenseKey, 'MUDEER-TEST-1234-5678');

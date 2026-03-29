@@ -1,5 +1,5 @@
+import 'package:almudeer_mobile_app/features/tasks/data/models/task_model.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:almudeer_mobile_app/features/tasks/models/task_model.dart';
 
 void main() {
   group('TaskModel Priority Parsing', () {

@@ -4,8 +4,8 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:almudeer_mobile_app/data/models/inbox_message.dart';
-import 'package:almudeer_mobile_app/presentation/widgets/chat/reply_preview.dart';
+import 'package:almudeer_mobile_app/features/inbox/data/models/inbox_message.dart';
+import 'package:almudeer_mobile_app/features/inbox/presentation/widgets/chat/reply_preview.dart';
 
 void main() {
   group('Reply Context Feature - Comprehensive Tests', () {
@@ -186,10 +186,10 @@ void main() {
         expect(find.text('This is the original message'), findsOneWidget);
         
         // Verify cancel button exists (check for semantics label)
-        expect(find.bySemanticsLabel('إلغاء الرَّد'), findsOneWidget);
+        expect(find.bySemanticsLabel('ط¥ظ„ط؛ط§ط، ط§ظ„ط±ظژظ‘ط¯'), findsOneWidget);
       });
       
-      testWidgets('ReplyPreview displays outgoing message with "أنت" label', (WidgetTester tester) async {
+      testWidgets('ReplyPreview displays outgoing message with "ط£ظ†طھ" label', (WidgetTester tester) async {
         await tester.pumpWidget(
           MaterialApp(
             home: Scaffold(
@@ -203,8 +203,8 @@ void main() {
           ),
         );
         
-        // For outgoing messages, should show "أنت" (You)
-        expect(find.text('أنت'), findsOneWidget);
+        // For outgoing messages, should show "ط£ظ†طھ" (You)
+        expect(find.text('ط£ظ†طھ'), findsOneWidget);
         expect(find.text('My original message'), findsOneWidget);
       });
       
@@ -227,7 +227,7 @@ void main() {
         );
         
         // Tap cancel button using semantics label
-        await tester.tap(find.bySemanticsLabel('إلغاء الرَّد'));
+        await tester.tap(find.bySemanticsLabel('ط¥ظ„ط؛ط§ط، ط§ظ„ط±ظژظ‘ط¯'));
         await tester.pump();
         
         expect(cancelCalled, isTrue);
@@ -276,7 +276,7 @@ void main() {
           createdAt: DateTime.now().toIso8601String(),
           direction: 'incoming',
           replyToId: 100,
-          replyToSenderName: 'أنا',
+          replyToSenderName: 'ط£ظ†ط§',
         );
         
         expect(message.channel, equals('almudeer'));

@@ -1,13 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:almudeer_mobile_app/presentation/providers/athkar_provider.dart';
-import 'package:almudeer_mobile_app/data/local/athkar_data.dart';
+import 'package:almudeer_mobile_app/features/athkar/presentation/providers/athkar_provider.dart';
+import 'package:almudeer_mobile_app/features/athkar/data/local/athkar_data.dart';
 import 'package:almudeer_mobile_app/core/services/offline_sync_service.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
-import 'athkar_provider_test.mocks.dart';
 
-@GenerateMocks([OfflineSyncService])
+class MockOfflineSyncService extends Mock implements OfflineSyncService {}
+
 void main() {
   late AthkarProvider provider;
   late MockOfflineSyncService mockSyncService;

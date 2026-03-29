@@ -1,15 +1,11 @@
+﻿import 'package:almudeer_mobile_app/features/auth/data/repositories/auth_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:almudeer_mobile_app/data/repositories/auth_repository.dart';
 import 'package:almudeer_mobile_app/core/api/api_client.dart';
 import 'package:almudeer_mobile_app/core/api/endpoints.dart';
-// Removed unused import
 
-// Generate Mocks
-@GenerateMocks([ApiClient])
-import 'auth_repository_test.mocks.dart';
+class MockApiClient extends Mock implements ApiClient {}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -52,7 +48,7 @@ void main() {
 
       when(
         mockApiClient.setLicenseInfo(
-          key: anyNamed('key'),
+          key: testKey,
           id: anyNamed('id'),
           accessToken: anyNamed('accessToken'),
           refreshToken: anyNamed('refreshToken'),
@@ -104,7 +100,7 @@ void main() {
 
       when(
         mockApiClient.setLicenseInfo(
-          key: anyNamed('key'),
+          key: testKey,
           id: anyNamed('id'),
           accessToken: anyNamed('accessToken'),
           refreshToken: anyNamed('refreshToken'),
@@ -149,7 +145,7 @@ void main() {
 
     test('logout clears license key', () async {
       when(
-        mockApiClient.post(any, requiresAuth: anyNamed('requiresAuth')),
+        mockApiClient.post(Endpoints.logout, requiresAuth: true),
       ).thenAnswer((_) async => {});
       // Act
       await authRepository.logout();

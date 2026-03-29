@@ -5,21 +5,22 @@ import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:logger/logger.dart';
 import 'package:logging/logging.dart' as logging;
-import 'app/app.dart';
-import 'app/routes.dart';
-import 'presentation/providers/auth_provider.dart';
-import 'presentation/providers/inbox_provider.dart';
-import 'presentation/providers/conversation_detail_provider.dart';
-import 'presentation/providers/message_input_provider.dart';
-import 'presentation/providers/customers_provider.dart';
+
+import 'core/app/app.dart';
+import 'core/app/routes.dart';
+import 'features/auth/presentation/providers/auth_provider.dart';
+import 'features/inbox/presentation/providers/inbox_provider.dart';
+import 'features/inbox/presentation/providers/conversation_detail_provider.dart';
+import 'features/inbox/presentation/providers/message_input_provider.dart';
+import 'features/customers/presentation/providers/customers_provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 // Active Sessions screen removed
-import 'services/fcm_service.dart';
+import 'features/notifications/data/services/fcm_service.dart';
 
-import 'presentation/providers/settings_provider.dart';
-import 'features/tasks/providers/task_provider.dart';
-import 'presentation/providers/audio_player_provider.dart';
+import 'features/settings/presentation/providers/settings_provider.dart';
+import 'features/tasks/presentation/providers/task_provider.dart';
+import 'features/viewer/presentation/providers/audio_player_provider.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:almudeer_mobile_app/core/services/background_sync_service.dart';
 import 'core/services/connectivity_service.dart';
@@ -28,19 +29,19 @@ import 'core/services/offline_sync_service.dart';
 import 'core/services/websocket_service.dart';
 import 'core/services/sharing_service.dart';
 
-import 'presentation/providers/library_provider.dart';
-import 'presentation/providers/calculator_provider.dart';
-import 'presentation/providers/transfer_provider.dart';
-import 'presentation/providers/global_search_provider.dart';
-import 'presentation/providers/users_provider.dart';
-import 'features/tasks/services/task_alarm_service.dart';
+import 'features/library/presentation/providers/library_provider.dart';
+import 'features/calculator/presentation/providers/calculator_provider.dart';
+import 'features/transfer/presentation/providers/transfer_provider.dart';
+import 'features/search/presentation/providers/global_search_provider.dart';
+import 'features/users/presentation/providers/users_provider.dart';
+import 'features/tasks/data/services/task_alarm_service.dart';
 // SessionProvider removed
 
-import 'presentation/providers/athkar_provider.dart';
-import 'presentation/providers/quran_provider.dart';
+import 'features/athkar/presentation/providers/athkar_provider.dart';
+import 'features/quran/presentation/providers/quran_provider.dart';
 import 'core/services/browser_download_manager.dart';
 import 'core/services/media_cache_manager.dart'; // P3-15 FIX: Add import
-import 'services/athkar_reminder_service.dart';
+import 'features/athkar/data/services/athkar_reminder_service.dart';
 import 'core/models/browser_tab_persistence.dart';
 
 void main() async {

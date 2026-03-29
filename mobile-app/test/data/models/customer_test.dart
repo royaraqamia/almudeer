@@ -1,5 +1,5 @@
+﻿import 'package:almudeer_mobile_app/features/customers/data/models/customer.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:almudeer_mobile_app/data/models/customer.dart';
 
 void main() {
   group('Customer', () {
@@ -7,12 +7,12 @@ void main() {
       final json = {
         'id': 1,
         'phone': '+966501234567',
-        'name': 'أحمد محمد',
+        'name': 'ط£ط­ظ…ط¯ ظ…ط­ظ…ط¯',
         'company': 'Tech Corp',
         'last_contact_at': '2024-01-15T10:30:00Z',
         'created_at': '2024-01-01T08:00:00Z',
         'tags': 'vip, active',
-        'notes': 'عميل مميز',
+        'notes': 'ط¹ظ…ظٹظ„ ظ…ظ…ظٹط²',
         'is_vip': true,
       };
 
@@ -20,7 +20,7 @@ void main() {
 
       expect(customer.id, 1);
       expect(customer.phone, '+966501234567');
-      expect(customer.name, 'أحمد محمد');
+      expect(customer.name, 'ط£ط­ظ…ط¯ ظ…ط­ظ…ط¯');
       expect(customer.isVip, isTrue);
       expect(customer.tagsList, containsAll(['vip', 'active']));
     });
@@ -61,12 +61,12 @@ void main() {
       final customer = Customer(
         id: 1,
         phone: '+966500000000',
-        name: 'محمد علي',
+        name: 'ظ…ط­ظ…ط¯ ط¹ظ„ظٹ',
         isVip: false,
         createdAt: '',
       );
 
-      expect(customer.displayName, 'محمد علي');
+      expect(customer.displayName, 'ظ…ط­ظ…ط¯ ط¹ظ„ظٹ');
     });
 
     test('displayName falls back to phone', () {

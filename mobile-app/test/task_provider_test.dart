@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:almudeer_mobile_app/features/tasks/models/task_model.dart';
-import 'package:almudeer_mobile_app/features/tasks/providers/task_provider.dart';
-import 'package:almudeer_mobile_app/features/tasks/repositories/task_repository.dart';
+import 'package:almudeer_mobile_app/features/tasks/data/models/task_model.dart';
+import 'package:almudeer_mobile_app/features/tasks/presentation/providers/task_provider.dart';
+import 'package:almudeer_mobile_app/features/tasks/data/repositories/task_repository.dart';
 
 // Simple Mock Class using Mockito (or just manual override if mockito not set up in runner)
 // Since I can't run build_runner, I'll allow a manual FakeRepository

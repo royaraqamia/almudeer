@@ -1,5 +1,5 @@
+﻿import 'package:almudeer_mobile_app/features/inbox/data/models/inbox_message.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:almudeer_mobile_app/data/models/inbox_message.dart';
 
 void main() {
   group('MessageSendStatus', () {
@@ -19,18 +19,18 @@ void main() {
         'channel': 'telegram',
         'channel_message_id': 'msg_12345',
         'sender_id': 'user_123',
-        'sender_name': 'أحمد محمد',
+        'sender_name': 'ط£ط­ظ…ط¯ ظ…ط­ظ…ط¯',
         'sender_contact': '+966501234567',
-        'subject': 'استفسار',
-        'body': 'مرحباً، أريد المساعدة',
+        'subject': 'ط§ط³طھظپط³ط§ط±',
+        'body': 'ظ…ط±ط­ط¨ط§ظ‹طŒ ط£ط±ظٹط¯ ط§ظ„ظ…ط³ط§ط¹ط¯ط©',
         'received_at': '2024-01-15T10:30:00Z',
         'intent': 'inquiry',
         'urgency': 'high',
         'sentiment': 'neutral',
         'language': 'ar',
         'dialect': 'gulf',
-        'ai_summary': 'عميل يطلب مساعدة',
-        'ai_draft_response': 'مرحباً، كيف يمكنني مساعدتك؟',
+        'ai_summary': 'ط¹ظ…ظٹظ„ ظٹط·ظ„ط¨ ظ…ط³ط§ط¹ط¯ط©',
+        'ai_draft_response': 'ظ…ط±ط­ط¨ط§ظ‹طŒ ظƒظٹظپ ظٹظ…ظƒظ†ظ†ظٹ ظ…ط³ط§ط¹ط¯طھظƒطں',
         'status': 'analyzed',
         'created_at': '2024-01-15T10:30:00Z',
         'direction': 'incoming',
@@ -51,10 +51,10 @@ void main() {
       expect(message.channel, 'telegram');
       expect(message.channelMessageId, 'msg_12345');
       expect(message.senderId, 'user_123');
-      expect(message.senderName, 'أحمد محمد');
+      expect(message.senderName, 'ط£ط­ظ…ط¯ ظ…ط­ظ…ط¯');
       expect(message.senderContact, '+966501234567');
-      expect(message.subject, 'استفسار');
-      expect(message.body, 'مرحباً، أريد المساعدة');
+      expect(message.subject, 'ط§ط³طھظپط³ط§ط±');
+      expect(message.body, 'ظ…ط±ط­ط¨ط§ظ‹طŒ ط£ط±ظٹط¯ ط§ظ„ظ…ط³ط§ط¹ط¯ط©');
       expect(message.status, 'analyzed');
       expect(message.direction, 'incoming');
       expect(message.deliveryStatus, 'delivered');
@@ -177,14 +177,14 @@ void main() {
       final message = InboxMessage(
         id: 1,
         channel: 'telegram',
-        senderName: 'محمد علي',
+        senderName: 'ظ…ط­ظ…ط¯ ط¹ظ„ظٹ',
         senderContact: '+966500000000',
         body: 'test',
         status: 'pending',
         createdAt: '2024-01-01',
       );
 
-      expect(message.displayName, 'محمد علي');
+      expect(message.displayName, 'ظ…ط­ظ…ط¯ ط¹ظ„ظٹ');
     });
 
     test('displayName falls back to sender contact', () {
@@ -200,7 +200,7 @@ void main() {
       expect(message.displayName, '+966501234567');
     });
 
-    test('displayName returns مجهول when no name or contact', () {
+    test('displayName returns ظ…ط¬ظ‡ظˆظ„ when no name or contact', () {
       final message = InboxMessage(
         id: 1,
         channel: 'telegram',
@@ -209,7 +209,7 @@ void main() {
         createdAt: '2024-01-01',
       );
 
-      expect(message.displayName, 'مجهول');
+      expect(message.displayName, 'ظ…ط¬ظ‡ظˆظ„');
     });
 
     test('deliveryStatusIcon returns check for sent', () {
@@ -328,7 +328,7 @@ void main() {
   group('ConversationDetailResponse', () {
     test('should parse from JSON correctly', () {
       final json = {
-        'sender_name': 'أحمد محمد',
+        'sender_name': 'ط£ط­ظ…ط¯ ظ…ط­ظ…ط¯',
         'sender_contact': '+966500000000',
         'messages': [
           {
@@ -345,7 +345,7 @@ void main() {
 
       final response = ConversationDetailResponse.fromJson(json);
 
-      expect(response.senderName, 'أحمد محمد');
+      expect(response.senderName, 'ط£ط­ظ…ط¯ ظ…ط­ظ…ط¯');
       expect(response.senderContact, '+966500000000');
       expect(response.messages.length, 1);
       expect(response.total, 10);

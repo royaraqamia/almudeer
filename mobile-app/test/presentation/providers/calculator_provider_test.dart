@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:almudeer_mobile_app/presentation/providers/calculator_provider.dart';
+import 'package:almudeer_mobile_app/features/calculator/presentation/providers/calculator_provider.dart';
 
 void main() {
   // Initialize SharedPreferences before tests
@@ -48,16 +48,16 @@ void main() {
       expect(calculatorProvider.history, isEmpty);
 
       calculatorProvider.append('2');
-      // Calculator uses '×' for multiplication in the UI but replaces it with '*' internally
-      calculatorProvider.append('×');
+      // Calculator uses 'أ—' for multiplication in the UI but replaces it with '*' internally
+      calculatorProvider.append('أ—');
       calculatorProvider.append('2');
       await calculatorProvider.evaluate();
-      expect(calculatorProvider.history.any((e) => e.toString().startsWith('2×2 = 4')), isTrue);
+      expect(calculatorProvider.history.any((e) => e.toString().startsWith('2أ—2 = 4')), isTrue);
 
       // Back to User 1 - should still have original history
       await calculatorProvider.setUserId('user1');
       expect(calculatorProvider.history.any((e) => e.toString().startsWith('5+5 = 10')), isTrue);
-      expect(calculatorProvider.history.any((e) => e.toString().startsWith('2×2 = 4')), isFalse);
+      expect(calculatorProvider.history.any((e) => e.toString().startsWith('2أ—2 = 4')), isFalse);
     });
 
     test('Operator replacement works correctly', () async {
@@ -79,17 +79,17 @@ void main() {
       calculatorProvider.append('1');
       calculatorProvider.append('0');
       calculatorProvider.append('0');
-      calculatorProvider.append('×');
+      calculatorProvider.append('أ—');
       calculatorProvider.append('5');
       calculatorProvider.append('0');
       calculatorProvider.append('%');
       await calculatorProvider.evaluate();
-      // 100 × 50% = 100 × 0.5 = 50
+      // 100 أ— 50% = 100 أ— 0.5 = 50
       expect(calculatorProvider.expression, '50');
     });
 
     test('Operators at start are ignored (except minus)', () async {
-      calculatorProvider.append('×'); // Should be ignored
+      calculatorProvider.append('أ—'); // Should be ignored
       expect(calculatorProvider.expression, isEmpty);
 
       calculatorProvider.append('-'); // Should be allowed
@@ -127,17 +127,17 @@ void main() {
       calculatorProvider.append('1');
       calculatorProvider.append('0');
       calculatorProvider.append('0');
-      calculatorProvider.append('÷');
+      calculatorProvider.append('أ·');
       calculatorProvider.append('5');
       calculatorProvider.append('%');
       await calculatorProvider.evaluate();
-      // 100 ÷ 5% = 100 ÷ 0.05 = 2000
+      // 100 أ· 5% = 100 أ· 0.05 = 2000
       expect(calculatorProvider.expression, '2000');
     });
 
     test('Division by zero handled gracefully', () async {
       calculatorProvider.append('5');
-      calculatorProvider.append('÷');
+      calculatorProvider.append('أ·');
       calculatorProvider.append('0');
       await calculatorProvider.evaluate();
       // Should show error but keep result visible
@@ -168,29 +168,29 @@ void main() {
       expect(calculatorProvider.expression, '4');
     });
 
-    test('Percentage with × (multiplication symbol) works correctly', () async {
+    test('Percentage with أ— (multiplication symbol) works correctly', () async {
       calculatorProvider.append('1');
       calculatorProvider.append('0');
       calculatorProvider.append('0');
-      calculatorProvider.append('×');
+      calculatorProvider.append('أ—');
       calculatorProvider.append('5');
       calculatorProvider.append('0');
       calculatorProvider.append('%');
       await calculatorProvider.evaluate();
-      // 100 × 50% = 100 × 0.5 = 50
+      // 100 أ— 50% = 100 أ— 0.5 = 50
       expect(calculatorProvider.expression, '50');
     });
 
-    test('Percentage with ÷ (division symbol) works correctly', () async {
+    test('Percentage with أ· (division symbol) works correctly', () async {
       calculatorProvider.append('2');
       calculatorProvider.append('0');
       calculatorProvider.append('0');
-      calculatorProvider.append('÷');
+      calculatorProvider.append('أ·');
       calculatorProvider.append('2');
       calculatorProvider.append('5');
       calculatorProvider.append('%');
       await calculatorProvider.evaluate();
-      // 200 ÷ 25% = 200 ÷ 0.25 = 800
+      // 200 أ· 25% = 200 أ· 0.25 = 800
       expect(calculatorProvider.expression, '800');
     });
 
@@ -222,7 +222,7 @@ void main() {
 
     test('Negative number after multiplication operator', () async {
       calculatorProvider.append('5');
-      calculatorProvider.append('×');
+      calculatorProvider.append('أ—');
       calculatorProvider.append('-');
       calculatorProvider.append('3');
       await calculatorProvider.evaluate();
@@ -232,7 +232,7 @@ void main() {
     test('Negative number after division operator', () async {
       calculatorProvider.append('1');
       calculatorProvider.append('0');
-      calculatorProvider.append('÷');
+      calculatorProvider.append('أ·');
       calculatorProvider.append('-');
       calculatorProvider.append('2');
       await calculatorProvider.evaluate();
@@ -242,7 +242,7 @@ void main() {
     test('Preview shows during calculation', () async {
       calculatorProvider.append('1');
       calculatorProvider.append('0');
-      calculatorProvider.append('×');
+      calculatorProvider.append('أ—');
       calculatorProvider.append('5');
       // Result should show preview
       expect(calculatorProvider.result, '50');
@@ -326,7 +326,7 @@ void main() {
 
     test('Scientific functions: ln (natural log)', () async {
       calculatorProvider.append('ln(');
-      // e ≈ 2.718281828, ln(e) = 1
+      // e â‰ˆ 2.718281828, ln(e) = 1
       calculatorProvider.append('2');
       calculatorProvider.append('.');
       calculatorProvider.append('7');
@@ -365,7 +365,7 @@ void main() {
       calculatorProvider.append('+');
       calculatorProvider.append('3');
       calculatorProvider.append(')');
-      calculatorProvider.append('×');
+      calculatorProvider.append('أ—');
       calculatorProvider.append('4');
       await calculatorProvider.evaluate();
       expect(calculatorProvider.expression, '20');
@@ -378,7 +378,7 @@ void main() {
       calculatorProvider.append('3');
       // Missing closing paren
       await calculatorProvider.evaluate();
-      expect(calculatorProvider.result, 'تعبير غير صحيح');
+      expect(calculatorProvider.result, 'طھط¹ط¨ظٹط± ط؛ظٹط± طµط­ظٹط­');
     });
 
     test('sqrt of negative shows error', () async {
@@ -387,7 +387,7 @@ void main() {
       calculatorProvider.append('4');
       calculatorProvider.append(')');
       await calculatorProvider.evaluate();
-      expect(calculatorProvider.result, 'جذر تربيعي لسالب');
+      expect(calculatorProvider.result, 'ط¬ط°ط± طھط±ط¨ظٹط¹ظٹ ظ„ط³ط§ظ„ط¨');
     });
 
     test('log of zero shows error', () async {
@@ -395,7 +395,7 @@ void main() {
       calculatorProvider.append('0');
       calculatorProvider.append(')');
       await calculatorProvider.evaluate();
-      expect(calculatorProvider.result, 'لوغاريتم صفر أو سالب');
+      expect(calculatorProvider.result, 'ظ„ظˆط؛ط§ط±ظٹطھظ… طµظپط± ط£ظˆ ط³ط§ظ„ط¨');
     });
 
     test('SyncStatus enum values exist', () {

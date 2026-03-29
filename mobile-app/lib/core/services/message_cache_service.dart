@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import '../../../data/models/inbox_message.dart';
-import '../../../data/models/conversation.dart';
+import 'package:almudeer_mobile_app/features/inbox/data/models/inbox_message.dart';
+import 'package:almudeer_mobile_app/features/inbox/data/models/conversation.dart';
 
 /// Service for caching messages and conversations offline using Hive.
 ///

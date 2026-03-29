@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:almudeer_mobile_app/data/models/user_info.dart';
+import 'package:almudeer_mobile_app/features/users/data/models/user_info.dart';
 
 void main() {
   group('Subscription Logic Tests', () {

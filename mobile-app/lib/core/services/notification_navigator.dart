@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import '../../features/tasks/models/task_model.dart';
-import '../../features/tasks/services/task_alarm_service.dart';
+import 'package:almudeer_mobile_app/features/tasks/data/models/task_model.dart';
+import 'package:almudeer_mobile_app/features/tasks/data/services/task_alarm_service.dart';
 
 /// Global navigator key for notification-based navigation
 /// This allows navigation from outside the widget tree (e.g., from FCM service)

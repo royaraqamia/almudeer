@@ -3,9 +3,9 @@ import 'package:flutter/foundation.dart';
 
 import 'connectivity_service.dart';
 import 'pending_operations_service.dart';
-import '../../data/repositories/inbox_repository.dart';
-import '../../data/repositories/customers_repository.dart';
-import '../../data/repositories/auth_repository.dart';
+import 'package:almudeer_mobile_app/features/inbox/data/repositories/inbox_repository.dart';
+import 'package:almudeer_mobile_app/features/customers/data/repositories/customers_repository.dart';
+import 'package:almudeer_mobile_app/features/auth/data/repositories/auth_repository.dart';
 import '../api/endpoints.dart';
 import '../api/api_client.dart';
 // Removed unused import

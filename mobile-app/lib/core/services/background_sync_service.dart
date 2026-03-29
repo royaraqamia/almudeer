@@ -2,17 +2,17 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import '../../data/repositories/inbox_repository.dart';
-import '../../data/repositories/customers_repository.dart';
-import '../../data/repositories/knowledge_repository.dart';
-import '../../data/repositories/subscriptions_repository.dart';
-import '../../data/repositories/integrations_repository.dart';
+import 'package:almudeer_mobile_app/features/inbox/data/repositories/inbox_repository.dart';
+import 'package:almudeer_mobile_app/features/customers/data/repositories/customers_repository.dart';
+import 'package:almudeer_mobile_app/features/library/data/repositories/knowledge_repository.dart';
+import 'package:almudeer_mobile_app/features/settings/data/repositories/subscriptions_repository.dart';
+import 'package:almudeer_mobile_app/features/integrations/data/repositories/integrations_repository.dart';
 import 'persistent_cache_service.dart';
 import 'connectivity_service.dart';
 import 'offline_sync_service.dart';
-import '../../data/repositories/auth_repository.dart';
+import 'package:almudeer_mobile_app/features/auth/data/repositories/auth_repository.dart';
 import '../../core/api/api_client.dart';
-import '../../data/models/user_info.dart';
+import 'package:almudeer_mobile_app/features/users/data/models/user_info.dart';
 
 const String _syncDataTask = 'com.almudeer.app.syncData';
 

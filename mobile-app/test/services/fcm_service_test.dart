@@ -1,24 +1,31 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:almudeer_mobile_app/services/fcm_service.dart';
+import 'package:almudeer_mobile_app/features/notifications/data/services/fcm_service.dart';
 import 'package:almudeer_mobile_app/core/api/api_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:firebase_messaging_platform_interface/firebase_messaging_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
-// Generate Mocks
-@GenerateMocks([
-  FirebaseMessaging,
-  FlutterLocalNotificationsPlugin,
-  ApiClient,
-  NotificationSettings,
-])
-import 'fcm_service_test.mocks.dart';
+class MockFirebaseMessaging extends Mock implements FirebaseMessaging {}
+
+class MockFlutterLocalNotificationsPlugin extends Mock
+    implements FlutterLocalNotificationsPlugin {
+  @override
+  Future<bool?> initialize({
+    required InitializationSettings settings,
+    DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
+    DidReceiveBackgroundNotificationResponseCallback?
+        onDidReceiveBackgroundNotificationResponse,
+  }) async => true;
+}
+
+class MockApiClient extends Mock implements ApiClient {}
+
+class MockNotificationSettings extends Mock implements NotificationSettings {}
 
 class MockPlatform extends FirebaseMessagingPlatform
     with MockPlatformInterfaceMixin {
@@ -62,12 +69,9 @@ void main() {
   // late MockApiClient mockClient; // We don't inject client yet? Oh, FcmService creates it internally?
   // FcmService.test(...) doesn't accept ApiClient currently in my replacement?
   // Wait, I forgot to inject ApiClient in the refactor?
-  // Let me check my previous step replacement.
   // I replaced FcmService.test({messaging, localNotifications}).
   // ApiClient is instantiated inside methods: `final client = ApiClient();`.
   // This is hard to test unless I refactor ApiClient usage or inject it.
-  // The service uses ApiClient in `registerTokenWithBackend` and `_showLocalNotification` (image download).
-  // Ideally, I should inject ApiClient factory or singleton instance setter?
   // Or assuming ApiClient is a singleton, I can mock the singleton if possible?
   // ApiClient is a singleton. `ApiClient()`.
   // I can't easily mock `ApiClient()` call unless `ApiClient` allows replacing instance.
@@ -87,13 +91,13 @@ void main() {
     // Default stubs
     when(
       mockMessaging.requestPermission(
-        alert: anyNamed('alert'),
-        badge: anyNamed('badge'),
-        sound: anyNamed('sound'),
-        announcement: anyNamed('announcement'),
-        carPlay: anyNamed('carPlay'),
-        criticalAlert: anyNamed('criticalAlert'),
-        provisional: anyNamed('provisional'),
+        alert: true,
+        badge: true,
+        sound: true,
+        announcement: false,
+        carPlay: false,
+        criticalAlert: false,
+        provisional: false,
       ),
     ).thenAnswer((_) async => MockNotificationSettings());
 
@@ -110,21 +114,13 @@ void main() {
     ).thenAnswer((_) => Stream.fromIterable([]));
     when(
       mockMessaging.setForegroundNotificationPresentationOptions(
-        alert: anyNamed('alert'),
-        badge: anyNamed('badge'),
-        sound: anyNamed('sound'),
+        alert: true,
+        badge: true,
+        sound: true,
       ),
     ).thenAnswer((_) async {});
     when(mockMessaging.getInitialMessage()).thenAnswer((_) async => null);
-    when(mockMessaging.subscribeToTopic(any)).thenAnswer((_) async {});
-    when(
-      mockLocalNotifications.initialize(
-        settings: anyNamed('settings'),
-        onDidReceiveNotificationResponse: anyNamed(
-          'onDidReceiveNotificationResponse',
-        ),
-      ),
-    ).thenAnswer((_) async => true);
+    when(mockMessaging.subscribeToTopic('all_users')).thenAnswer((_) async {});
   });
 
   group('FcmService', () {
@@ -156,16 +152,14 @@ void main() {
 
       when(
         mockMessaging.requestPermission(
-          alert: anyNamed('alert'),
-          badge: anyNamed('badge'),
-          sound: anyNamed('sound'),
-          announcement: anyNamed('announcement'),
-          carPlay: anyNamed('carPlay'),
-          criticalAlert: anyNamed('criticalAlert'),
-          provisional: anyNamed('provisional'),
-          providesAppNotificationSettings: anyNamed(
-            'providesAppNotificationSettings',
-          ),
+          alert: true,
+          badge: true,
+          sound: true,
+          announcement: false,
+          carPlay: false,
+          criticalAlert: false,
+          provisional: false,
+          providesAppNotificationSettings: false,
         ),
       ).thenAnswer((_) async => settings);
 
@@ -173,16 +167,14 @@ void main() {
 
       verify(
         mockMessaging.requestPermission(
-          alert: anyNamed('alert'),
-          badge: anyNamed('badge'),
-          sound: anyNamed('sound'),
-          announcement: anyNamed('announcement'),
-          carPlay: anyNamed('carPlay'),
-          criticalAlert: anyNamed('criticalAlert'),
-          provisional: anyNamed('provisional'),
-          providesAppNotificationSettings: anyNamed(
-            'providesAppNotificationSettings',
-          ),
+          alert: true,
+          badge: true,
+          sound: true,
+          announcement: false,
+          carPlay: false,
+          criticalAlert: false,
+          provisional: false,
+          providesAppNotificationSettings: false,
         ),
       ).called(1);
 

@@ -1,13 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
-import 'package:almudeer_mobile_app/presentation/providers/settings_provider.dart';
-import 'package:almudeer_mobile_app/data/repositories/settings_repository.dart';
-import 'package:almudeer_mobile_app/data/repositories/knowledge_repository.dart';
-import 'package:almudeer_mobile_app/data/models/user_preferences.dart';
+import 'package:almudeer_mobile_app/features/settings/presentation/providers/settings_provider.dart';
+import 'package:almudeer_mobile_app/features/settings/data/repositories/settings_repository.dart';
+import 'package:almudeer_mobile_app/features/library/data/repositories/knowledge_repository.dart';
+import 'package:almudeer_mobile_app/features/settings/data/models/user_preferences.dart';
 
-@GenerateMocks([SettingsRepository, KnowledgeRepository])
-import 'settings_provider_test.mocks.dart';
+class MockSettingsRepository extends Mock implements SettingsRepository {}
+
+class MockKnowledgeRepository extends Mock implements KnowledgeRepository {}
 
 void main() {
   late SettingsProvider provider;
@@ -53,9 +53,9 @@ void main() {
       // Arrange
       // Need to load first to set initial state if checking optimistic update,
       // but here we just test savePreferences logic directly.
-      when(mockRepository.updatePreferences(any)).thenAnswer((_) async => true);
 
       final newPrefs = testPreferences.copyWith(notificationsEnabled: false);
+      when(mockRepository.updatePreferences(newPrefs)).thenAnswer((_) async {});
 
       // Act
       final result = await provider.savePreferences(newPrefs);
@@ -77,11 +77,11 @@ void main() {
       ).thenAnswer((_) async => []);
       await provider.loadSettings();
 
-      when(
-        mockRepository.updatePreferences(any),
-      ).thenThrow(Exception('Failed to save'));
-
       final newPrefs = testPreferences.copyWith(tone: 'friendly');
+
+      when(
+        mockRepository.updatePreferences(newPrefs),
+      ).thenThrow(Exception('Failed to save'));
 
       // Act
       final result = await provider.savePreferences(newPrefs);

@@ -1,14 +1,11 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
-import 'package:almudeer_mobile_app/data/repositories/subscriptions_repository.dart';
+import 'package:almudeer_mobile_app/features/settings/data/repositories/subscriptions_repository.dart';
 import 'package:almudeer_mobile_app/core/api/api_client.dart';
 import 'package:almudeer_mobile_app/core/api/endpoints.dart';
 
-// Generate Mocks
-@GenerateMocks([ApiClient])
-import 'subscriptions_repository_test.mocks.dart';
+class MockApiClient extends Mock implements ApiClient {}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

@@ -2,17 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
-import 'package:almudeer_mobile_app/presentation/screens/settings/settings_screen.dart';
-import 'package:almudeer_mobile_app/presentation/providers/settings_provider.dart';
-import 'package:almudeer_mobile_app/presentation/providers/auth_provider.dart';
-import 'package:almudeer_mobile_app/data/models/user_preferences.dart';
+import 'package:almudeer_mobile_app/features/settings/presentation/screens/settings_screen.dart';
+import 'package:almudeer_mobile_app/features/settings/presentation/providers/settings_provider.dart';
+import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
+import 'package:almudeer_mobile_app/features/settings/data/models/user_preferences.dart';
 
-@GenerateMocks([SettingsProvider, AuthProvider])
-import 'settings_screen_test.mocks.dart';
+class MockSettingsProvider extends Mock implements SettingsProvider {}
 
-// Mock Premium components if needed, or rely on them being simple widgets.
-// For integration test, it's better to render them.
+class MockAuthProvider extends Mock implements AuthProvider {}
 
 void main() {
   late MockSettingsProvider mockSettingsProvider;
@@ -21,15 +18,6 @@ void main() {
   setUp(() {
     mockSettingsProvider = MockSettingsProvider();
     mockAuthProvider = MockAuthProvider();
-
-    // Default Stubs
-    when(mockSettingsProvider.addListener(any)).thenReturn(null);
-    when(mockSettingsProvider.removeListener(any)).thenReturn(null);
-    when(mockSettingsProvider.hasListeners).thenReturn(false);
-
-    when(mockAuthProvider.addListener(any)).thenReturn(null);
-    when(mockAuthProvider.removeListener(any)).thenReturn(null);
-    when(mockAuthProvider.hasListeners).thenReturn(false);
   });
 
   Widget createWidgetUnderTest() {
@@ -65,7 +53,7 @@ void main() {
       await tester.pumpAndSettle(); // Wait for animations
 
       // Assert
-      expect(find.text('الإعدادات'), findsOneWidget);
+      expect(find.text('ط§ظ„ط¥ط¹ط¯ط§ط¯ط§طھ'), findsOneWidget);
       // IntegrationsSection is loaded by default now
       // Verifying a part of it or just that the screen renders without error
       // The integrations list requires a provider load, which we mocked.
