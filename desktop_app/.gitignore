@@ -1,0 +1,56 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+
+# IntelliJ IDEA
+.idea
+*.iws
+*.iml
+*.ipr
+
+# VS Code
+.vscode
+
+# Flutter/Dart
+build/
+**/coverage
+.packages
+pubspec.lock
+.flutter-plugins
+.flutter-plugins-dependencies
+.dart_tool/
+
+# Windows
+windows/flutter/ephemeral/
+windows/CMakeCache.txt
+windows/CMakeFiles
+windows/packages.config
+windows/*.sln
+windows/*.vcxproj
+windows/*.vcxproj.filters
+windows/runner/Debug/
+windows/runner/Release/
+*.exe
+*.dll
+*.lib
+
+# Linux
+linux/flutter/ephemeral/
+linux/CMakeCache.txt
+linux/CMakeFiles
+linux/*.so
+linux/build/
+
+# macOS
+macos/Flutter/ephemeral/
+macos/Build/
+macos/*.xcodeproj/
+macos/*.xcworkspace/
+*.dmg
+*.app
+
+# OS files
+.DS_Store
+Thumbs.db

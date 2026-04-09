@@ -52,6 +52,16 @@
 - **Certificate Pinning**: Enhanced security for API communications
 - **Background Sync**: Automatic data synchronization
 
+### Desktop App (Flutter)
+- **Cross-Platform**: Windows, Linux, and macOS support
+- **Window Management**: Resizable windows with proper controls
+- **System Tray**: Background operation support
+- **File System**: Native file picker and drag-and-drop
+- **Keyboard Shortcuts**: Desktop-optimized navigation
+- **All Mobile Features**: Adapted for desktop environment
+- **Dark Mode**: Full theme support with Arabic RTL layout
+- **Offline Support**: Local storage with sync capabilities
+
 ## 🏗️ Architecture
 
 ```
@@ -70,6 +80,14 @@ almudeer/
 │   │   ├── data/     # Data layer
 │   │   └── presentation/ # UI & state management
 │   └── assets/       # App resources
+├── desktop_app/      # Flutter desktop application
+│   ├── lib/
+│   │   ├── core/     # Core services & utilities
+│   │   ├── features/ # Feature modules
+│   │   ├── data/     # Data layer
+│   │   ├── presentation/ # UI & state management
+│   │   └── services/ # Desktop-specific services
+│   └── assets/       # App resources
 └── .github/          # CI/CD workflows
 ```
 
@@ -82,6 +100,7 @@ almudeer/
 - **PostgreSQL**: 14+
 - **Redis**: 7.0+
 - **Node.js**: 18+ (for web deployment)
+- **Desktop**: Visual Studio 2019+ (Windows), GCC/CMake/GTK (Linux), Xcode (macOS)
 
 ### Backend Setup
 
@@ -151,13 +170,51 @@ almudeer/
    ```bash
    # Android
    flutter run
-   
+
    # iOS
    flutter run -d ios
-   
+
    # Web
    flutter run -d chrome
    ```
+
+### Desktop App Setup
+
+1. **Navigate to desktop app**:
+   ```bash
+   cd desktop_app
+   ```
+
+2. **Install Flutter dependencies**:
+   ```bash
+   flutter pub get
+   ```
+
+3. **Run the app**:
+   ```bash
+   # Windows
+   flutter run -d windows
+
+   # Linux
+   flutter run -d linux
+
+   # macOS
+   flutter run -d macos
+   ```
+
+4. **Build for production**:
+   ```bash
+   # Windows
+   flutter build windows --release
+
+   # Linux
+   flutter build linux --release
+
+   # macOS
+   flutter build macos --release
+   ```
+
+See `desktop_app/QUICK_START.md` for detailed instructions.
 
 ## 📦 Deployment
 
@@ -293,6 +350,16 @@ dart format .
 - **Local Storage**: Hive, SQLite, SharedPreferences
 - **HTTP**: http, dio
 - **Notifications**: Firebase Messaging, flutter_local_notifications
+- **Media**: just_audio, video_player, image_picker
+- **QR**: mobile_scanner, qr_flutter
+
+### Desktop App
+- **Framework**: Flutter 3.10.1+
+- **State Management**: Provider
+- **Window Management**: window_manager, tray_manager
+- **Local Storage**: SQLite, SharedPreferences
+- **HTTP**: http, dio
+- **File System**: file_picker, desktop_drop
 - **Media**: just_audio, video_player, image_picker
 - **QR**: mobile_scanner, qr_flutter
 
