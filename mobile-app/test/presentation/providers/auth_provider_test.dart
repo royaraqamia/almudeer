@@ -3,11 +3,15 @@ import 'package:mockito/mockito.dart';
 import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:almudeer_mobile_app/features/users/data/models/user_info.dart';
 import 'package:almudeer_mobile_app/features/auth/data/repositories/auth_repository.dart';
-import 'package:almudeer_mobile_app/features/notifications/data/services/fcm_service.dart';
+import 'package:almudeer_mobile_app/features/notifications/data/services/fcm_service_mobile.dart'
+    if (dart.library.js_interop) 'package:almudeer_mobile_app/features/notifications/data/services/fcm_service_web.dart';
 
 class MockAuthRepository extends Mock implements AuthRepository {}
 
-class MockFcmService extends Mock implements FcmService {}
+/// Fake FcmService for testing - provides no-op implementations
+class MockFcmService extends FcmService {
+  MockFcmService() : super.protected();
+}
 
 void main() {
   group('AuthState', () {

@@ -14,7 +14,8 @@ import 'package:almudeer_mobile_app/features/inbox/presentation/providers/conver
 import 'package:almudeer_mobile_app/features/inbox/presentation/providers/message_input_provider.dart';
 import 'package:almudeer_mobile_app/features/customers/presentation/providers/customers_provider.dart';
 import 'package:almudeer_mobile_app/features/settings/presentation/providers/settings_provider.dart';
-import 'package:almudeer_mobile_app/features/notifications/data/services/fcm_service.dart';
+import 'package:almudeer_mobile_app/features/notifications/data/services/fcm_service_mobile.dart'
+    if (dart.library.js_interop) 'package:almudeer_mobile_app/features/notifications/data/services/fcm_service_web.dart';
 @GenerateMocks([
   ConnectivityService,
   PendingOperationsService,
@@ -22,13 +23,9 @@ import 'package:almudeer_mobile_app/features/notifications/data/services/fcm_ser
 ])
 import 'widget_test.mocks.dart';
 
-class MockFcmService extends Mock implements FcmService {
-  @override
-  Future<void> initialize() async {}
-  @override
-  Future<void> registerTokenWithBackend({int maxRetries = 3}) async {}
-  @override
-  Future<void> unregisterToken() async {}
+/// Fake FcmService for testing - provides no-op implementations
+class MockFcmService extends FcmService {
+  MockFcmService() : super.protected();
 }
 
 void main() {

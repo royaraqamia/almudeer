@@ -16,9 +16,7 @@ import 'features/customers/presentation/providers/customers_provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 // Active Sessions screen removed
-import 'features/notifications/data/services/fcm_service.dart';
-
-import 'features/settings/presentation/providers/settings_provider.dart';
+import 'features/notifications/data/services/fcm_service_mobile.dart' if (dart.library.js_interop) 'features/notifications/data/services/fcm_service_web.dart';
 import 'features/tasks/presentation/providers/task_provider.dart';
 import 'features/viewer/presentation/providers/audio_player_provider.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
@@ -39,6 +37,7 @@ import 'features/tasks/data/services/task_alarm_service.dart';
 
 import 'features/athkar/presentation/providers/athkar_provider.dart';
 import 'features/quran/presentation/providers/quran_provider.dart';
+import 'features/settings/presentation/providers/settings_provider.dart';
 import 'core/services/browser_download_manager.dart';
 import 'core/services/media_cache_manager.dart'; // P3-15 FIX: Add import
 import 'features/athkar/data/services/athkar_reminder_service.dart';
@@ -61,36 +60,43 @@ void main() async {
   final WidgetsBinding widgetsBinding =
       WidgetsFlutterBinding.ensureInitialized();
 
-  // P9: Initialize Firebase first (required for Crashlytics)
-  await Firebase.initializeApp();
+  // WEB PLATFORM: Skip Firebase and mobile-only services on web
+  if (!kIsWeb) {
+    // P9: Initialize Firebase first (required for Crashlytics)
+    await Firebase.initializeApp();
 
-  // P9: Initialize Firebase Crashlytics for production crash reporting
-  if (kReleaseMode) {
-    await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
-    // Pass all uncaught errors to Crashlytics
-    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
-    PlatformDispatcher.instance.onError = (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-      return true;
-    };
-    debugPrint('Firebase Crashlytics initialized for production');
+    // P9: Initialize Firebase Crashlytics for production crash reporting
+    if (kReleaseMode) {
+      await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
+      // Pass all uncaught errors to Crashlytics
+      FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+      PlatformDispatcher.instance.onError = (error, stack) {
+        FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+        return true;
+      };
+      debugPrint('Firebase Crashlytics initialized for production');
+    } else {
+      // Development: disable Crashlytics but keep error handling
+      await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(false);
+      debugPrint('Firebase Crashlytics disabled in development mode');
+    }
   } else {
-    // Development: disable Crashlytics but keep error handling
-    await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(false);
-    debugPrint('Firebase Crashlytics disabled in development mode');
+    debugPrint('Running on WEB platform - skipping Firebase and mobile-only services');
   }
 
   // Preserve native splash screen until we explicitly remove it
   // This ensures seamless transition without flash
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
-  // Allow both portrait and landscape orientations
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
-  ]);
+  // Allow both portrait and landscape orientations (mobile only)
+  if (!kIsWeb) {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  }
 
   // System UI overlay style will be handled dynamically by the app theme in AppRoot
 
@@ -116,22 +122,37 @@ void main() async {
   // Defer heavy initializations to after first frame to improve startup performance
   // This prevents "Skipped XX frames" warnings during app launch
   WidgetsBinding.instance.addPostFrameCallback((_) {
-    // Initialize background services (non-blocking)
-    BackgroundSyncService().initialize();
+    // WEB PLATFORM: Skip mobile-only services
+    if (!kIsWeb) {
+      // Initialize background services (non-blocking)
+      BackgroundSyncService().initialize();
 
-    // Initialize Task Alarm Service
-    try {
-      TaskAlarmService().initialize().then((_) {
-        debugPrint('TaskAlarmService initialized');
-      }).catchError((e) {
+      // Initialize Task Alarm Service
+      try {
+        TaskAlarmService().initialize().then((_) {
+          debugPrint('TaskAlarmService initialized');
+        }).catchError((e) {
+          debugPrint('TaskAlarmService initialization error: $e');
+        });
+      } catch (e) {
         debugPrint('TaskAlarmService initialization error: $e');
-      });
-    } catch (e) {
-      debugPrint('TaskAlarmService initialization error: $e');
-    }
+      }
 
-    // Initialize sharing service (non-blocking)
-    SharingService().initialize();
+      // Initialize sharing service (non-blocking)
+      SharingService().initialize();
+
+      // Initialize Athkar Reminders (non-blocking)
+      try {
+        final athkarReminderService = AthkarReminderService();
+        athkarReminderService.initialize().then((_) {
+          athkarReminderService.scheduleReminders();
+        }).catchError((e) {
+          debugPrint('Athkar reminders error: $e');
+        });
+      } catch (e) {
+        debugPrint('Athkar reminders error: $e');
+      }
+    }
 
     // Initialize Browser Download Manager (non-blocking)
     BrowserDownloadManager().init().then((_) {
@@ -139,18 +160,6 @@ void main() async {
     }).catchError((e) {
       debugPrint('BrowserDownloadManager initialization error: $e');
     });
-
-    // Initialize Athkar Reminders (non-blocking)
-    try {
-      final athkarReminderService = AthkarReminderService();
-      athkarReminderService.initialize().then((_) {
-        athkarReminderService.scheduleReminders();
-      }).catchError((e) {
-        debugPrint('Athkar reminders error: $e');
-      });
-    } catch (e) {
-      debugPrint('Athkar reminders error: $e');
-    }
 
     // P3-15 FIX: Perform startup cache cleanup for attachments (background)
     MediaCacheManager()
@@ -163,22 +172,20 @@ void main() async {
         });
   });
 
-  // Initialize Firebase (required for FCM)
-  try {
-    await Firebase.initializeApp();
-  } catch (e) {
-    debugPrint('Firebase initialization error: $e');
+  // WEB PLATFORM: Skip FCM on web
+  if (!kIsWeb) {
+    // FCM initialization (heavy, runs completely in background)
+    FcmService()
+        .initialize()
+        .then((_) {
+          debugPrint('FCM initialized in background');
+        })
+        .catchError((e) {
+          debugPrint('FCM background initialization error: $e');
+        });
+  } else {
+    debugPrint('Skipping FCM on web platform');
   }
-
-  // FCM initialization (heavy, runs completely in background)
-  FcmService()
-      .initialize()
-      .then((_) {
-        debugPrint('FCM initialized in background');
-      })
-      .catchError((e) {
-        debugPrint('FCM background initialization error: $e');
-      });
 
   runApp(
     AlMudeerApp(

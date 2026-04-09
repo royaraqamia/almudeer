@@ -4,13 +4,17 @@ import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_pr
 import 'package:almudeer_mobile_app/core/api/api_client.dart';
 import 'package:almudeer_mobile_app/features/auth/data/repositories/auth_repository.dart';
 import 'package:almudeer_mobile_app/features/users/data/models/user_info.dart';
-import 'package:almudeer_mobile_app/features/notifications/data/services/fcm_service.dart';
+import 'package:almudeer_mobile_app/features/notifications/data/services/fcm_service_mobile.dart'
+    if (dart.library.js_interop) 'package:almudeer_mobile_app/features/notifications/data/services/fcm_service_web.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class MockAuthRepository extends Mock implements AuthRepository {}
 
-class MockFcmService extends Mock implements FcmService {}
+/// Fake FcmService for testing - provides no-op implementations
+class MockFcmService extends FcmService {
+  MockFcmService() : super.protected();
+}
 
 class FakeFlutterSecureStorage implements FlutterSecureStorage {
   final Map<String, String> _store = {};
