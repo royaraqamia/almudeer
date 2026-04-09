@@ -16,7 +16,7 @@ class AuthService {
   Map<String, dynamic>? _userProfile;
 
   String? get accessToken => _accessToken;
-  String? get refreshToken => _refreshToken;
+  String? get refreshTokenValue => _refreshToken;
   Map<String, dynamic>? get userProfile => _userProfile;
   bool get isAuthenticated => _accessToken != null;
 
@@ -91,7 +91,7 @@ class AuthService {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         await _saveTokens(
           accessToken: data['access_token'] as String,
-          refreshToken: data['refresh_token'] as String? ?? _refreshToken,
+          refreshToken: data['refresh_token'] as String,
         );
         _logger.i('Token refreshed successfully');
         return true;
@@ -134,9 +134,11 @@ class AuthService {
         return _userProfile;
       } else if (response.statusCode == 401) {
         // Token expired, try to refresh
-        final refreshed = await refreshToken();
-        if (refreshed) {
-          return _fetchUserProfile();
+        if (_refreshToken != null) {
+          final refreshed = await refreshToken();
+          if (refreshed) {
+            return _fetchUserProfile();
+          }
         }
       }
     } catch (e) {

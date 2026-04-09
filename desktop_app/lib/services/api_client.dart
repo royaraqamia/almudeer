@@ -8,17 +8,12 @@ class ApiClient {
   static const String _defaultBaseUrl = 'http://localhost:8000';
 
   final Logger _logger = Logger();
-  http.Client _client = http.Client();
-  String? _accessToken;
+  final http.Client _client = http.Client();
+  String? accessToken;
 
-  String get baseUrl => _baseUrl;
   String _baseUrl = _defaultBaseUrl;
 
-  set accessToken(String? token) {
-    _accessToken = token;
-  }
-
-  String? get accessToken => _accessToken;
+  String get baseUrl => _baseUrl;
 
   /// Initialize the API client with stored base URL
   Future<void> init() async {
@@ -152,8 +147,8 @@ class ApiClient {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     };
-    if (_accessToken != null) {
-      headers['Authorization'] = 'Bearer $_accessToken';
+    if (accessToken != null) {
+      headers['Authorization'] = 'Bearer $accessToken';
     }
     return headers;
   }

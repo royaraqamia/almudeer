@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 
@@ -138,8 +139,6 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isRtl = Directionality.of(context) == TextDirection.rtl;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
@@ -345,7 +344,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 // Connection Status
                 if (_connectionStatus != null)
                   Card(
-                    color: _connectionStatusColor?.withOpacity(0.1),
+                    color: _connectionStatusColor?.withValues(alpha: 0.1),
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Row(
