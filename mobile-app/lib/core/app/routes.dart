@@ -1,5 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:almudeer_mobile_app/features/auth/presentation/screens/login_screen.dart';
+import 'package:almudeer_mobile_app/features/auth/presentation/screens/signup_screen.dart'
+    as auth_signup;
+import 'package:almudeer_mobile_app/features/auth/presentation/screens/otp_verification_screen.dart';
+import 'package:almudeer_mobile_app/features/auth/presentation/screens/waiting_for_approval_screen.dart';
+import 'package:almudeer_mobile_app/features/auth/presentation/screens/forgot_password_screen.dart';
+import 'package:almudeer_mobile_app/features/auth/presentation/screens/reset_password_screen.dart'
+    as auth_reset;
 import 'package:almudeer_mobile_app/features/inbox/presentation/screens/inbox_screen.dart';
 import 'package:almudeer_mobile_app/features/inbox/presentation/screens/conversation_detail_screen.dart';
 
@@ -8,7 +15,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:almudeer_mobile_app/features/integrations/presentation/screens/telegram_phone_setup_screen.dart';
 import 'package:almudeer_mobile_app/features/settings/presentation/screens/settings_screen.dart';
 import 'package:almudeer_mobile_app/features/settings/presentation/screens/subscription_screen.dart';
-import 'package:provider/provider.dart';
+import 'package:provider/provider.dart' as provider;
 import 'package:almudeer_mobile_app/features/shared/presentation/widgets/custom_drawer.dart';
 import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:almudeer_mobile_app/features/tasks/presentation/ui/screens/task_list_screen.dart';
@@ -28,6 +35,12 @@ import 'package:almudeer_mobile_app/features/customers/presentation/providers/cu
 import 'package:almudeer_mobile_app/features/shared/presentation/widgets/animated_toast.dart';
 import 'package:almudeer_mobile_app/features/search/presentation/screens/global_search_results_screen.dart';
 import 'package:almudeer_mobile_app/features/library/presentation/widgets/library/share_item_dialog.dart';
+import 'package:almudeer_mobile_app/features/pos/presentation/screens/pos_dashboard_screen.dart';
+import 'package:almudeer_mobile_app/features/pos/presentation/screens/pos_sales_screen.dart';
+import 'package:almudeer_mobile_app/features/pos/presentation/screens/pos_checkout_screen.dart';
+import 'package:almudeer_mobile_app/features/pos/presentation/screens/pos_products_screen.dart';
+import 'package:almudeer_mobile_app/features/pos/presentation/screens/pos_scanner_screen.dart';
+import 'package:almudeer_mobile_app/features/pos/presentation/screens/pos_settings_screen.dart';
 
 /// App route definitions
 class AppRoutes {
@@ -50,6 +63,19 @@ class AppRoutes {
   static const String tasks = '/tasks';
   static const String library = '/library';
   static const String browser = '/browser';
+  static const String posDashboard = '/pos/dashboard';
+  static const String posSales = '/pos/sales';
+  static const String posCheckout = '/pos/checkout';
+  static const String posProducts = '/pos/products';
+  static const String posScanner = '/pos/scanner';
+  static const String posSettings = '/pos/settings';
+
+  // Email auth routes
+  static const String signup = '/signup';
+  static const String otpVerification = '/otp-verification';
+  static const String waitingForApproval = '/waiting-for-approval';
+  static const String forgotPassword = '/forgot-password';
+  static const String resetPassword = '/reset-password';
 
   /// Generate route based on route settings
   static Route<dynamic> generateRoute(RouteSettings routeSettings) {
@@ -62,6 +88,31 @@ class AppRoutes {
         );
       case login:
         return MaterialPageRoute(builder: (_) => const LoginScreen());
+
+      // Email auth routes
+      case signup:
+        return MaterialPageRoute(builder: (_) => const auth_signup.SignUpScreen());
+
+      case otpVerification:
+        final email = (routeSettings.arguments as Map<String, dynamic>?)?['email'] as String? ?? '';
+        return MaterialPageRoute(
+          builder: (_) => OTPVerificationScreen(email: email),
+        );
+
+      case waitingForApproval:
+        final approvalEmail = (routeSettings.arguments as Map<String, dynamic>?)?['email'] as String? ?? '';
+        return MaterialPageRoute(
+          builder: (_) => WaitingForApprovalScreen(email: approvalEmail),
+        );
+
+      case forgotPassword:
+        return MaterialPageRoute(builder: (_) => const ForgotPasswordScreen());
+
+      case resetPassword:
+        final token = (routeSettings.arguments as Map<String, dynamic>?)?['token'] as String? ?? '';
+        return MaterialPageRoute(
+          builder: (_) => auth_reset.ResetPasswordScreen(token: token),
+        );
 
       case dashboard:
       case inbox:
@@ -99,6 +150,19 @@ class AppRoutes {
         return MaterialPageRoute(
           builder: (_) => BrowserScreen(initialUrl: initialUrl),
         );
+
+      case posDashboard:
+        return MaterialPageRoute(builder: (_) => const PosDashboardScreen());
+      case posSales:
+        return MaterialPageRoute(builder: (_) => const PosSalesScreen());
+      case posCheckout:
+        return MaterialPageRoute(builder: (_) => const PosCheckoutScreen());
+      case posProducts:
+        return MaterialPageRoute(builder: (_) => const PosProductsScreen());
+      case posScanner:
+        return MaterialPageRoute(builder: (_) => const PosScannerScreen());
+      case posSettings:
+        return MaterialPageRoute(builder: (_) => const PosSettingsScreen());
 
       default:
         // Default to root to avoid initial flash
@@ -212,7 +276,7 @@ class _DashboardShellState extends State<DashboardShell> {
       extendBody: true,
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(kToolbarHeight),
-        child: Consumer4<InboxProvider, LibraryProvider, CustomersProvider, TaskProvider>(
+        child: provider.Consumer4<InboxProvider, LibraryProvider, CustomersProvider, TaskProvider>(
           builder: (context, inbox, library, customers, tasks, _) {
             final isInboxSelectionMode =
                 _currentIndex == 0 && inbox.isSelectionMode;
@@ -453,7 +517,7 @@ class _DashboardShellState extends State<DashboardShell> {
                 ),
                 // Conversation detail (expanded)
                 Expanded(
-                  child: Consumer<InboxProvider>(
+                  child: provider.Consumer<InboxProvider>(
                     builder: (context, inbox, _) {
                       final selectedConversation =
                           inbox.conversations.isNotEmpty
@@ -537,7 +601,7 @@ class _DashboardShellState extends State<DashboardShell> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                Consumer<InboxProvider>(
+                provider.Consumer<InboxProvider>(
                   builder: (context, inbox, _) {
                     return _buildPremiumNavItem(
                       0,

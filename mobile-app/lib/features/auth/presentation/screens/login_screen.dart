@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:figma_squircle/figma_squircle.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:almudeer_mobile_app/core/utils/url_launcher_utils.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:almudeer_mobile_app/core/app/routes.dart';
 import 'package:almudeer_mobile_app/core/constants/colors.dart';
 import 'package:almudeer_mobile_app/core/constants/strings_ar.dart';
@@ -15,14 +15,10 @@ import 'package:almudeer_mobile_app/core/widgets/app_outline_button.dart';
 import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:almudeer_mobile_app/core/utils/haptics.dart';
 
-/// Login screen with license key validation
+/// Login screen supporting BOTH email/password AND license key login
 ///
-/// Design Principles:
-/// - Visual hierarchy: Primary (Login) > Secondary (WhatsApp)
-/// - Responsive: Adapts padding for small screens and landscape orientation
-/// - Performance: Cached theme references, derived validation state, isolated widgets
-/// - Accessibility: Proper semantics, loading states, WCAG compliant contrast
-/// - Clean: Minimal background distractions for better conversion
+/// Default tab: Email/Password login
+/// Second tab: License key login (backward compatibility for existing users)
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -30,62 +26,65 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
   final _licenseController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
+  final _emailFormKey = GlobalKey<FormState>();
+  final _licenseFormKey = GlobalKey<FormState>();
   final _focusNode = FocusNode();
+  bool _showPassword = false;
 
   @override
   void initState() {
     super.initState();
-    // Listen to text changes for validation
-    _licenseController.addListener(_onLicenseTextChanged);
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(_onTabChange);
   }
 
   @override
   void dispose() {
-    _licenseController.removeListener(_onLicenseTextChanged);
+    _tabController.removeListener(_onTabChange);
+    _tabController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
     _licenseController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
-  /// Update validation state when license key text changes
-  void _onLicenseTextChanged() {
-    // Trigger rebuild of widgets listening to controller
+  void _onTabChange() {
+    _focusNode.unfocus();
     setState(() {});
   }
 
-  /// Computed property for landscape orientation
-  bool get _isLandscape => MediaQuery.of(context).size.width >
-      MediaQuery.of(context).size.height;
+  Future<void> _handleEmailLogin() async {
+    if (!_emailFormKey.currentState!.validate()) return;
 
-  /// Computed property for small screen detection
-  bool get _isSmallScreen =>
-      MediaQuery.of(context).size.height < AppDimensions.breakpointSmallHeight;
+    final authProvider = context.read<AuthProvider>();
+    final success = await authProvider.loginWithEmail(
+      _emailController.text.trim(),
+      _passwordController.text,
+    );
 
-  /// Computed property for vertical padding based on screen state
-  double get _screenVerticalPadding {
-    if (_isLandscape) {
-      return AppDimensions.paddingLarge;
+    if (!mounted) return;
+
+    if (success) {
+      Haptics.mediumTap();
+      Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.dashboard, (route) => false);
+    } else if (authProvider.state == AuthState.pendingApproval) {
+      // Navigate to waiting for approval screen
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        AppRoutes.waitingForApproval,
+        arguments: {'email': _emailController.text.trim()},
+        (route) => false,
+      );
     }
-    return _isSmallScreen
-        ? AppDimensions.loginScreenTopPaddingSmall
-        : AppDimensions.loginScreenTopPaddingLarge;
   }
 
-  /// Computed property for header margin based on screen state
-  double get _headerMargin {
-    if (_isLandscape) {
-      return AppDimensions.spacing32;
-    }
-    return _isSmallScreen
-        ? AppDimensions.loginScreenHeaderMarginSmall
-        : AppDimensions.loginScreenHeaderMarginLarge;
-  }
-
-  Future<void> _handleLogin() async {
-    if (!_formKey.currentState!.validate()) return;
+  Future<void> _handleLicenseLogin() async {
+    if (!_licenseFormKey.currentState!.validate()) return;
 
     final authProvider = context.read<AuthProvider>();
     final success = await authProvider.login(_licenseController.text);
@@ -93,375 +92,354 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
 
     if (success) {
-      // Haptic feedback on successful login
       Haptics.mediumTap();
-      Navigator.of(
-        context,
-      ).pushNamedAndRemoveUntil(AppRoutes.dashboard, (route) => false);
+      Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.dashboard, (route) => false);
     }
   }
 
   void _openWhatsApp() async {
-    final message = Uri.encodeComponent(
-      'ط§ظ„ط³ظژظ‘ظ„ط§ظ… ط¹ظ„ظٹظƒظ…طŒ ط£ط±ط؛ط¨ ظپظٹ ط§ظ„ط­طµظˆظ„ ط¹ظ„ظ‰ ظ…ظپطھط§ط­ ط§ط´طھط±ط§ظƒ ظ„طھط·ط¨ظٹظ‚ ط§ظ„ظ…ط¯ظٹط±.',
-    );
+    final message = Uri.encodeComponent('السلام عليكم، أرغب في الحصول على مفتاح اشتراك لتطبيق المدير.');
     final whatsappUrl = 'https://wa.me/+963966478904?text=$message';
-    await AppLauncher.launchSafeUrl(context, whatsappUrl);
-  }
-
-  /// Build the background - simplified to solid color for performance
-  /// The subtle gradient was nearly imperceptible (4% alpha) and removed
-  Widget _buildBackground(BuildContext context) {
-    final theme = Theme.of(context);
-    // Solid background color matching theme
-    return Container(color: theme.scaffoldBackgroundColor);
-  }
-
-  /// Build the header section with logo and app name
-  Widget _buildHeader() {
-    final theme = Theme.of(context);
-    return Column(
-      children: [
-        // Vertical spacing - documented: centers content on larger screens
-        SizedBox(height: _headerMargin),
-        // Header - RTL-safe logo implementation
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Logo with semantic label
-            Semantics(
-              label: AppStrings.appName,
-              child: Image.asset(
-                'assets/images/transparent-logo.png',
-                height: AppDimensions.headerLogoHeight,
-                fit: BoxFit.contain,
-              ),
-            ),
-            const SizedBox(width: AppDimensions.headerLogoMarginEnd),
-            Text(
-              AppStrings.appName,
-              style: TextStyle(
-                fontSize: AppDimensions.headerTitleSize,
-                fontWeight: FontWeight.bold,
-                color: theme.colorScheme.primary,
-              ),
-            ),
-          ],
-        ),
-        // Vertical spacing - documented: balances header with content below
-        SizedBox(height: _headerMargin),
-      ],
-    );
-  }
-
-  /// Build feedback section (error messages and rate limit warnings)
-  Widget _buildFeedbackSection({
-    required AuthProvider auth,
-    required bool isDark,
-  }) {
-    final hasError = auth.errorMessage != null;
-    final isRateLimited = auth.isRateLimited;
-
-    if (!hasError && !isRateLimited) {
-      return const SizedBox.shrink();
+    final uri = Uri.parse(whatsappUrl);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
-
-    return Column(
-      children: [
-        if (hasError) ...[
-          _ErrorMessageBanner(
-            message: auth.errorMessage!,
-            isDark: isDark,
-          ),
-          // Spacing between error and rate limit - documented: visual separation
-          const SizedBox(height: AppDimensions.loginErrorMarginTop),
-        ],
-        if (isRateLimited) ...[
-          _RateLimitBanner(isDark: isDark),
-          // Spacing after feedback section before button
-          const SizedBox(height: AppDimensions.loginErrorMarginTop),
-        ],
-      ],
-    );
-  }
-
-  /// Build login card with validation state
-  Widget _buildLoginCard(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return Consumer<AuthProvider>(
-      builder: (context, auth, _) {
-        final cardHorizontalPadding = _isSmallScreen
-            ? AppDimensions.loginCardHorizontalPaddingSmall
-            : AppDimensions.loginCardHorizontalPaddingLarge;
-        final cardVerticalPadding = _isSmallScreen
-            ? AppDimensions.loginCardPaddingSmall
-            : AppDimensions.loginCardPaddingLarge;
-
-        return Container(
-          width: double.infinity,
-          constraints: const BoxConstraints(
-            maxWidth: AppDimensions.loginCardMaxWidth,
-          ),
-          decoration: ShapeDecoration(
-            color: theme.cardColor,
-            shape: SmoothRectangleBorder(
-              borderRadius: SmoothBorderRadius(
-                cornerRadius: AppDimensions.radiusLoginCard,
-                cornerSmoothing: 1.0,
-              ),
-              side: BorderSide(
-                color: isDark ? AppColors.borderDark : AppColors.borderLight,
-                width: 1.0,
-              ),
-            ),
-            shadows: [
-              BoxShadow(
-                color: isDark
-                    ? AppColors.shadowPrimaryDark
-                    : AppColors.shadowPrimaryLight,
-                blurRadius: 24,
-                offset: const Offset(0, 8),
-                spreadRadius: 0,
-              ),
-            ],
-          ),
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: cardHorizontalPadding,
-              vertical: cardVerticalPadding,
-            ),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                children: [
-                  // Icon with gradient background - cached with RepaintBoundary
-                  RepaintBoundary(
-                    child: Container(
-                      width: AppDimensions.loginIconContainerSize,
-                      height: AppDimensions.loginIconContainerSize,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            theme.colorScheme.primary,
-                            theme.colorScheme.secondary,
-                          ],
-                        ),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: theme.colorScheme.primary
-                                .withValues(alpha: 0.2),
-                            blurRadius: 20,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        SolarLinearIcons.key,
-                        color: Colors.white,
-                        size: AppDimensions.loginIconSize,
-                      ),
-                    ),
-                  ),
-                  // Spacing after icon - documented: visual breathing room
-                  const SizedBox(height: AppDimensions.loginIconMarginTop),
-
-                  // Title
-                  Text(
-                    AppStrings.loginTitle,
-                    style: TextStyle(
-                      fontSize: AppDimensions.loginTitleSize,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: -0.5,
-                      color: theme.textTheme.headlineSmall?.color,
-                    ),
-                  ),
-                  // Spacing after title
-                  const SizedBox(height: AppDimensions.loginTitleMarginTop),
-                  Text(
-                    AppStrings.loginSubtitle,
-                    style: TextStyle(
-                      fontSize: AppDimensions.loginSubtitleSize,
-                      letterSpacing: -0.2,
-                      color: theme.textTheme.bodySmall?.color,
-                    ),
-                  ),
-                  // Spacing after subtitle before input field
-                  const SizedBox(height: AppDimensions.loginFieldMarginTop),
-
-                  // License Key Input - Extracted to separate widget
-                  _LicenseKeyTextField(
-                    controller: _licenseController,
-                    focusNode: _focusNode,
-                    auth: auth,
-                    onClearError: () => auth.clearError(),
-                  ),
-                  // Spacing after input field before feedback section
-                  const SizedBox(height: AppDimensions.loginButtonMarginTop),
-
-                  // Error Message and Rate Limit Warning - consolidated
-                  _buildFeedbackSection(auth: auth, isDark: isDark),
-
-                  // Login Button (Primary Action)
-                  // Validate license format on every controller change
-                  ValueListenableBuilder<TextEditingValue>(
-                    valueListenable: _licenseController,
-                    builder: (context, value, _) {
-                      final text = value.text.trim().toUpperCase();
-                      final isValid = auth.validateLicenseFormat(text);
-                      return AppGradientButton(
-                        text: auth.isLoading
-                            ? AppStrings.loggingIn
-                            : AppStrings.loginButton,
-                        onPressed: (auth.isRateLimited || !isValid)
-                            ? null
-                            : _handleLogin,
-                        isLoading: auth.isLoading,
-                        gradientColors: [
-                          theme.colorScheme.primary,
-                          theme.colorScheme.secondary,
-                        ],
-                        showShadow: true,
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  /// Build the "Or" divider section
-  Widget _buildOrDivider() {
-    return const Column(
-      children: [
-        // Spacing before divider - documented: visual separation
-        SizedBox(height: AppDimensions.spacing24),
-        _OrDivider(),
-        // Spacing after divider before WhatsApp button
-        SizedBox(height: AppDimensions.whatsappDividerMarginTop),
-      ],
-    );
-  }
-
-  /// Build WhatsApp button section
-  Widget _buildWhatsAppButton() {
-    return Column(
-      children: [
-        // WhatsApp Button (Secondary Action - Outline Style)
-        AppOutlineButton(
-          text: AppStrings.getKeyViaWhatsApp,
-          onPressed: _openWhatsApp,
-          gradientColors: const [
-            AppColors.whatsappGreen,
-            AppColors.whatsappGreen,
-          ],
-          showShadow: false,
-          trailing: SvgPicture.asset(
-            'assets/icons/whatsapp.svg',
-            width: AppDimensions.whatsappIconSize,
-            height: AppDimensions.whatsappIconSize,
-            colorFilter: const ColorFilter.mode(
-              AppColors.whatsappGreen,
-              BlendMode.srcIn,
-            ),
-          ),
-        ),
-        // Spacing after WhatsApp button - documented: bottom margin
-        const SizedBox(height: AppDimensions.loginWhatsAppMarginTop),
-      ],
-    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final isLandscape = MediaQuery.of(context).size.width > MediaQuery.of(context).size.height;
+    final isSmallScreen = MediaQuery.of(context).size.height < AppDimensions.breakpointSmallHeight;
+    final topPadding = isLandscape
+        ? AppDimensions.paddingLarge
+        : (isSmallScreen ? AppDimensions.loginScreenTopPaddingSmall : AppDimensions.loginScreenTopPaddingLarge);
+    final headerMargin = isLandscape ? AppDimensions.spacing32 : (isSmallScreen ? AppDimensions.loginScreenHeaderMarginSmall : AppDimensions.loginScreenHeaderMarginLarge);
+
     return TapRegion(
-      // Dismiss keyboard on tap outside using TapRegion instead of GestureDetector
       onTapOutside: (_) => _focusNode.unfocus(),
       child: Scaffold(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        body: Stack(
-          children: [
-            // Simplified Background - Solid color for performance
-            _buildBackground(context),
-
-            SafeArea(
-              child: SingleChildScrollView(
-                // Dismiss keyboard on scroll
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                padding: EdgeInsets.symmetric(
-                  horizontal: _isSmallScreen
-                      ? AppDimensions.paddingMedium
-                      : AppDimensions.paddingLarge,
-                  vertical: _screenVerticalPadding,
-                ),
-                child: Column(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        body: SafeArea(
+          child: SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: EdgeInsets.symmetric(
+              horizontal: isSmallScreen ? AppDimensions.paddingMedium : AppDimensions.paddingLarge,
+              vertical: topPadding,
+            ),
+            child: Column(
+              children: [
+                // Header
+                SizedBox(height: headerMargin),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Header section
-                    _buildHeader(),
-
-                    // Login Card with validation state
-                    _buildLoginCard(context),
-
-                    // Add vertical space in landscape mode for centering
-                    // Documented: 48px for visual centering in landscape orientation
-                    if (_isLandscape)
-                      const SizedBox(height: AppDimensions.spacing48),
-
-                    // Or Divider section
-                    _buildOrDivider(),
-
-                    // WhatsApp Button section
-                    _buildWhatsAppButton(),
+                    Semantics(
+                      label: AppStrings.appName,
+                      child: Image.asset(
+                        'assets/images/transparent-logo.png',
+                        height: AppDimensions.headerLogoHeight,
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                    const SizedBox(width: AppDimensions.headerLogoMarginEnd),
+                    Text(
+                      AppStrings.appName,
+                      style: TextStyle(
+                        fontSize: AppDimensions.headerTitleSize,
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
                   ],
                 ),
-              ),
+                SizedBox(height: headerMargin),
+
+                // Login Card
+                Container(
+                  width: double.infinity,
+                  constraints: const BoxConstraints(maxWidth: AppDimensions.loginCardMaxWidth),
+                  decoration: ShapeDecoration(
+                    color: theme.cardColor,
+                    shape: SmoothRectangleBorder(
+                      borderRadius: SmoothBorderRadius(
+                        cornerRadius: AppDimensions.radiusLoginCard,
+                        cornerSmoothing: 1.0,
+                      ),
+                      side: BorderSide(color: isDark ? AppColors.borderDark : AppColors.borderLight, width: 1.0),
+                    ),
+                    shadows: [
+                      BoxShadow(
+                        color: isDark ? AppColors.shadowPrimaryDark : AppColors.shadowPrimaryLight,
+                        blurRadius: 24,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isSmallScreen ? AppDimensions.loginCardHorizontalPaddingSmall : AppDimensions.loginCardHorizontalPaddingLarge,
+                      vertical: isSmallScreen ? AppDimensions.loginCardPaddingSmall : AppDimensions.loginCardPaddingLarge,
+                    ),
+                    child: Column(
+                      children: [
+                        // Icon
+                        RepaintBoundary(
+                          child: Container(
+                            width: AppDimensions.loginIconContainerSize,
+                            height: AppDimensions.loginIconContainerSize,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
+                              ),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                                  blurRadius: 20,
+                                  offset: const Offset(0, 8),
+                                ),
+                              ],
+                            ),
+                            child: Icon(
+                              _tabController.index == 0 ? SolarLinearIcons.user : SolarLinearIcons.key,
+                              color: Colors.white,
+                              size: AppDimensions.loginIconSize,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: AppDimensions.loginIconMarginTop),
+
+                        // Title
+                        Text(
+                          _tabController.index == 0 ? 'تسجيل الدخول' : 'تسجيل الدخول بالمفتاح',
+                          style: TextStyle(
+                            fontSize: AppDimensions.loginTitleSize,
+                            fontWeight: FontWeight.bold,
+                            color: theme.textTheme.headlineSmall?.color,
+                          ),
+                        ),
+                        const SizedBox(height: AppDimensions.spacing8),
+                        Text(
+                          _tabController.index == 0 ? 'أدخل بريدك الإلكتروني وكلمة المرور' : 'أدخل مفتاح الاشتراك للمتابعة',
+                          style: TextStyle(
+                            fontSize: AppDimensions.loginSubtitleSize,
+                            color: theme.textTheme.bodySmall?.color,
+                          ),
+                        ),
+                        const SizedBox(height: AppDimensions.spacing24),
+
+                        // Tab Bar
+                        Container(
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surface,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: TabBar(
+                            controller: _tabController,
+                            indicator: BoxDecoration(
+                              color: theme.colorScheme.primary,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            indicatorSize: TabBarIndicatorSize.tab,
+                            labelColor: Colors.white,
+                            unselectedLabelColor: theme.textTheme.bodySmall?.color,
+                            dividerColor: Colors.transparent,
+                            tabs: const [
+                              Tab(text: 'البريد الإلكتروني'),
+                              Tab(text: 'مفتاح الاشتراك'),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: AppDimensions.spacing24),
+
+                        // Tab Views
+                        SizedBox(
+                          height: _tabController.index == 0 ? 300 : 250,
+                          child: TabBarView(
+                            controller: _tabController,
+                            children: [_buildEmailLoginTab(theme), _buildLicenseKeyTab(theme)],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppDimensions.spacing24),
+
+                // Links
+                if (_tabController.index == 0) ...[
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pushNamed(AppRoutes.forgotPassword),
+                    child: Text(
+                      'نسيت كلمة المرور؟',
+                      style: TextStyle(color: theme.colorScheme.primary, fontSize: 14),
+                    ),
+                  ),
+                  const SizedBox(height: AppDimensions.spacing8),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pushNamed(AppRoutes.signup),
+                    child: Text(
+                      'ليس لديك حساب؟ إنشاء حساب جديد',
+                      style: TextStyle(color: theme.colorScheme.primary, fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ] else ...[
+                  AppOutlineButton(
+                    text: AppStrings.getKeyViaWhatsApp,
+                    onPressed: _openWhatsApp,
+                    gradientColors: const [AppColors.whatsappGreen, AppColors.whatsappGreen],
+                    showShadow: false,
+                    trailing: SvgPicture.asset(
+                      'assets/icons/whatsapp.svg',
+                      width: AppDimensions.whatsappIconSize,
+                      height: AppDimensions.whatsappIconSize,
+                      colorFilter: const ColorFilter.mode(AppColors.whatsappGreen, BlendMode.srcIn),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: AppDimensions.spacing24),
+              ],
             ),
-          ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildEmailLoginTab(ThemeData theme) {
+    return Form(
+      key: _emailFormKey,
+      child: Column(
+        children: [
+          // Email Input
+          AppTextField(
+            controller: _emailController,
+            focusNode: _focusNode,
+            hintText: 'user@example.com',
+            keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.next,
+            autocorrect: false,
+            enableSuggestions: false,
+            maxLines: 1,
+            validator: (value) {
+              if (value == null || value.isEmpty) return 'البريد الإلكتروني مطلوب';
+              final emailRegex = RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
+              if (!emailRegex.hasMatch(value)) return 'بريد إلكتروني غير صالح';
+              return null;
+            },
+          ),
+          const SizedBox(height: AppDimensions.spacing16),
+
+          // Password Input
+          AppTextField(
+            controller: _passwordController,
+            focusNode: _focusNode,
+            hintText: 'كلمة المرور',
+            keyboardType: TextInputType.visiblePassword,
+            textInputAction: TextInputAction.done,
+            autocorrect: false,
+            enableSuggestions: false,
+            obscureText: !_showPassword,
+            maxLines: 1,
+            suffixIcon: IconButton(
+              icon: Icon(_showPassword ? SolarLinearIcons.eye : SolarLinearIcons.eyeClosed, size: 20),
+              onPressed: () => setState(() => _showPassword = !_showPassword),
+            ),
+            validator: (value) {
+              if (value == null || value.isEmpty) return 'كلمة المرور مطلوبة';
+              return null;
+            },
+          ),
+          const Spacer(),
+
+          // Error message
+          Consumer<AuthProvider>(
+            builder: (context, auth, _) {
+              if (auth.errorMessage == null || _tabController.index != 0) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(bottom: AppDimensions.spacing16),
+                child: Text(
+                  auth.errorMessage!,
+                  style: const TextStyle(color: AppColors.error, fontSize: 13, fontWeight: FontWeight.w600),
+                  textAlign: TextAlign.center,
+                ),
+              );
+            },
+          ),
+
+          // Login Button
+          Consumer<AuthProvider>(
+            builder: (context, auth, _) {
+              return AppGradientButton(
+                text: auth.isLoading ? 'جاري الدخول...' : AppStrings.loginButton,
+                onPressed: auth.isLoading ? null : _handleEmailLogin,
+                isLoading: auth.isLoading,
+                gradientColors: [theme.colorScheme.primary, theme.colorScheme.secondary],
+                showShadow: true,
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLicenseKeyTab(ThemeData theme) {
+    return Form(
+      key: _licenseFormKey,
+      child: Column(
+        children: [
+          // License Key Input
+          _LicenseKeyTextField(
+            controller: _licenseController,
+            focusNode: _focusNode,
+          ),
+          const Spacer(),
+
+          // Error message
+          Consumer<AuthProvider>(
+            builder: (context, auth, _) {
+              if (auth.errorMessage == null || _tabController.index != 1) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(bottom: AppDimensions.spacing16),
+                child: Text(
+                  auth.errorMessage!,
+                  style: const TextStyle(color: AppColors.error, fontSize: 13, fontWeight: FontWeight.w600),
+                  textAlign: TextAlign.center,
+                ),
+              );
+            },
+          ),
+
+          // Login Button
+          Consumer<AuthProvider>(
+            builder: (context, auth, _) {
+              return AppGradientButton(
+                text: auth.isLoading ? 'جاري الدخول...' : AppStrings.loginButton,
+                onPressed: auth.isLoading ? null : _handleLicenseLogin,
+                isLoading: auth.isLoading,
+                gradientColors: [theme.colorScheme.primary, theme.colorScheme.secondary],
+                showShadow: true,
+              );
+            },
+          ),
+        ],
       ),
     );
   }
 }
 
-/// Text formatter to convert input to uppercase
-class UpperCaseTextFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    return TextEditingValue(
-      text: newValue.text.toUpperCase(),
-      selection: newValue.selection,
-    );
-  }
-}
-
-/// Isolated license key text field widget
-///
-/// Extracted to avoid full-screen rebuilds when typing or showing clear button
+// Keep the existing _LicenseKeyTextField from the original file
 class _LicenseKeyTextField extends StatefulWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
-  final AuthProvider auth;
-  final VoidCallback onClearError;
 
-  const _LicenseKeyTextField({
-    required this.controller,
-    required this.focusNode,
-    required this.auth,
-    required this.onClearError,
-  });
+  const _LicenseKeyTextField({required this.controller, required this.focusNode});
 
   @override
   State<_LicenseKeyTextField> createState() => _LicenseKeyTextFieldState();
@@ -469,13 +447,10 @@ class _LicenseKeyTextField extends StatefulWidget {
 
 class _LicenseKeyTextFieldState extends State<_LicenseKeyTextField> {
   bool _showClearButton = false;
-  bool _hasClipboardText = false;
 
   @override
   void initState() {
     super.initState();
-    _updateClearButtonState(widget.controller.text);
-    _checkClipboard();
     widget.controller.addListener(_onTextChanged);
   }
 
@@ -486,62 +461,23 @@ class _LicenseKeyTextFieldState extends State<_LicenseKeyTextField> {
   }
 
   void _onTextChanged() {
-    _updateClearButtonState(widget.controller.text);
-    _checkClipboard();
-    widget.onClearError();
-  }
-
-  void _updateClearButtonState(String value) {
-    final showClear = value.isNotEmpty;
+    final showClear = widget.controller.text.isNotEmpty;
     if (showClear != _showClearButton) {
-      setState(() {
-        _showClearButton = showClear;
-      });
-    }
-  }
-
-  /// Check clipboard for paste functionality
-  Future<void> _checkClipboard() async {
-    final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
-    final hasText = clipboardData?.text != null &&
-        clipboardData!.text!.trim().isNotEmpty;
-    if (hasText != _hasClipboardText) {
-      setState(() {
-        _hasClipboardText = hasText;
-      });
-    }
-  }
-
-  /// Paste from clipboard
-  Future<void> _pasteFromClipboard() async {
-    final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
-    if (clipboardData?.text != null) {
-      widget.controller.text = clipboardData!.text!.trim().toUpperCase();
-      widget.onClearError();
-      widget.focusNode.requestFocus();
-      Haptics.lightTap();
+      setState(() => _showClearButton = showClear);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(
-            right: AppDimensions.spacing4,
-            bottom: AppDimensions.spacing8,
-          ),
+          padding: const EdgeInsets.only(right: AppDimensions.spacing4, bottom: AppDimensions.spacing8),
           child: Text(
             AppStrings.licenseKeyLabel,
-            style: TextStyle(
-              fontSize: AppDimensions.loginLabelSize,
-              fontWeight: FontWeight.w500,
-              color: theme.textTheme.labelLarge?.color,
-            ),
+            style: TextStyle(fontSize: AppDimensions.loginLabelSize, fontWeight: FontWeight.w500, color: theme.textTheme.labelLarge?.color),
           ),
         ),
         AppTextField(
@@ -554,265 +490,32 @@ class _LicenseKeyTextFieldState extends State<_LicenseKeyTextField> {
           enableSuggestions: false,
           textCapitalization: TextCapitalization.characters,
           inputFormatters: [UpperCaseTextFormatter()],
-          autofocus: widget.auth.accounts.isEmpty,
-          maxLines: 1, // Single-line field to prevent vertical caret movement issues
-          suffixIcon: _buildSuffixIcon(theme),
-          onChanged: (_) {
-            // Update validation state via parent's listener
-          },
-          onFieldSubmitted: (_) {
-            widget.focusNode.unfocus();
-          },
+          maxLines: 1,
+          suffixIcon: _showClearButton
+              ? IconButton(
+                  icon: const Icon(SolarLinearIcons.closeCircle, size: 20),
+                  onPressed: () => widget.controller.clear(),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  color: theme.textTheme.bodySmall?.color,
+                )
+              : null,
           validator: (value) {
-            if (value == null || value.isEmpty) {
-              return AppStrings.errorLicenseRequired;
-            }
+            if (value == null || value.isEmpty) return AppStrings.errorLicenseRequired;
             return null;
           },
         ),
-        // Format hint - shown when input is non-empty but invalid
-        ValueListenableBuilder<TextEditingValue>(
-          valueListenable: widget.controller,
-          builder: (context, value, _) {
-            final text = value.text.trim().toUpperCase();
-            final hasText = text.isNotEmpty;
-            final isValid = widget.auth.validateLicenseFormat(text);
-            if (hasText && !isValid) {
-              return Padding(
-                padding: const EdgeInsets.only(
-                  top: AppDimensions.spacing8,
-                  right: AppDimensions.spacing4,
-                ),
-                child: Text(
-                  AppStrings.licenseKeyFormatHint,
-                  style: TextStyle(
-                    fontSize: AppDimensions.loginHintSize,
-                    color: theme.textTheme.bodySmall?.color,
-                  ),
-                ),
-              );
-            }
-            return const SizedBox.shrink();
-          },
-        ),
       ],
     );
   }
-
-  /// Build suffix icon with clear and paste buttons
-  Widget? _buildSuffixIcon(ThemeData theme) {
-    if (_showClearButton) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Paste button (shown when clipboard has text and field is not empty)
-          if (_hasClipboardText)
-            IconButton(
-              icon: const Icon(
-                SolarLinearIcons.clipboard,
-                size: 20,
-              ),
-              onPressed: _pasteFromClipboard,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-              color: theme.colorScheme.primary,
-              tooltip: AppStrings.pasteFromClipboard,
-            ),
-          // Clear button
-          IconButton(
-            icon: const Icon(
-              SolarLinearIcons.closeCircle,
-              size: 20,
-            ),
-            onPressed: () {
-              widget.controller.clear();
-              widget.onClearError();
-              _showClearButton = false;
-              widget.focusNode.requestFocus();
-            },
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-            color: theme.textTheme.bodySmall?.color,
-            tooltip: AppStrings.clear,
-          ),
-        ],
-      );
-    } else if (_hasClipboardText) {
-      // Show only paste button when field is empty but clipboard has text
-      return IconButton(
-        icon: const Icon(
-          SolarLinearIcons.clipboard,
-          size: 20,
-        ),
-        onPressed: _pasteFromClipboard,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(),
-        color: theme.colorScheme.primary,
-        tooltip: AppStrings.pasteFromClipboard,
-      );
-    }
-    return null;
-  }
 }
 
-/// Error message banner with improved visibility and contrast
-class _ErrorMessageBanner extends StatelessWidget {
-  final String message;
-  final bool isDark;
-
-  const _ErrorMessageBanner({
-    required this.message,
-    required this.isDark,
-  });
-
+class UpperCaseTextFormatter extends TextInputFormatter {
   @override
-  Widget build(BuildContext context) {
-    // Use high-contrast colors for better accessibility
-    // Fixed: Consistent alpha values for both light and dark mode
-    final errorColor = isDark ? AppColors.errorDark : AppColors.error;
-    final backgroundColor = isDark
-        ? AppColors.errorDark.withValues(alpha: 0.20)
-        : AppColors.errorLight.withValues(alpha: 0.20);
-    final borderColor = isDark
-        ? AppColors.errorDark.withValues(alpha: 0.6)
-        : AppColors.error.withValues(alpha: 0.4);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppDimensions.errorPadding),
-      decoration: ShapeDecoration(
-        color: backgroundColor,
-        shape: SmoothRectangleBorder(
-          borderRadius: SmoothBorderRadius(
-            cornerRadius: AppDimensions.radiusLarge,
-            cornerSmoothing: 1.0,
-          ),
-          side: BorderSide(
-            color: borderColor,
-            width: 1.0,
-          ),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            SolarLinearIcons.dangerCircle,
-            color: errorColor,
-            size: AppDimensions.errorIconSize,
-          ),
-          const SizedBox(width: AppDimensions.errorIconMarginEnd),
-          Expanded(
-            child: Text(
-              message,
-              style: TextStyle(
-                color: errorColor,
-                fontSize: AppDimensions.loginErrorSize,
-                fontWeight: FontWeight.w600,
-                height: 1.4,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Rate limit warning banner
-class _RateLimitBanner extends StatelessWidget {
-  final bool isDark;
-
-  const _RateLimitBanner({required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    final warningColor =
-        isDark ? AppColors.warningDark : AppColors.warning;
-    final backgroundColor = isDark
-        ? AppColors.warningDark.withValues(alpha: 0.20)
-        : AppColors.warningLight.withValues(alpha: 0.20);
-    final borderColor = isDark
-        ? AppColors.warningDark.withValues(alpha: 0.6)
-        : AppColors.warning.withValues(alpha: 0.4);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppDimensions.errorPadding),
-      decoration: ShapeDecoration(
-        color: backgroundColor,
-        shape: SmoothRectangleBorder(
-          borderRadius: SmoothBorderRadius(
-            cornerRadius: AppDimensions.radiusLarge,
-            cornerSmoothing: 1.0,
-          ),
-          side: BorderSide(
-            color: borderColor,
-            width: 1.0,
-          ),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            SolarLinearIcons.infoCircle,
-            color: warningColor,
-            size: AppDimensions.errorIconSize,
-          ),
-          const SizedBox(width: AppDimensions.errorIconMarginEnd),
-          Expanded(
-            child: Text(
-              AppStrings.rateLimitWarning,
-              style: TextStyle(
-                color: warningColor,
-                fontSize: AppDimensions.loginErrorSize,
-                fontWeight: FontWeight.w600,
-                height: 1.4,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Reusable "Or" divider component
-class _OrDivider extends StatelessWidget {
-  const _OrDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Row(
-      children: [
-        Expanded(
-          child: Divider(
-            color: theme.dividerColor.withValues(alpha: 0.5),
-            thickness: 1,
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppDimensions.spacing16,
-          ),
-          child: Text(
-            AppStrings.or,
-            style: TextStyle(
-              fontSize: AppDimensions.loginHintSize,
-              color: theme.textTheme.bodySmall?.color,
-            ),
-          ),
-        ),
-        Expanded(
-          child: Divider(
-            color: theme.dividerColor.withValues(alpha: 0.5),
-            thickness: 1,
-          ),
-        ),
-      ],
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    return TextEditingValue(
+      text: newValue.text.toUpperCase(),
+      selection: newValue.selection,
     );
   }
 }

@@ -10,6 +10,7 @@ from .export import router as export_router
 from .notifications import router as notifications_router
 from .library import router as library_router
 from .auth import router as auth_router
+from .admin_approval import router as admin_approval_router
 
 # Subscription router is imported directly in main.py to avoid circular imports
 # from .subscription import router as subscription_router
@@ -23,5 +24,6 @@ __all__ = [
     'export_router',
     'notifications_router',
     'library_router',
-    'auth_router'
+    'auth_router',
+    'admin_approval_router'
 ]

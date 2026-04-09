@@ -11,7 +11,7 @@ import 'package:almudeer_mobile_app/core/services/persistent_cache_service.dart'
 import 'dart:async';
 
 /// Authentication state
-enum AuthState { initial, loading, authenticated, unauthenticated, error }
+enum AuthState { initial, loading, authenticated, unauthenticated, error, pendingApproval }
 
 /// Authentication provider for managing login state
 class AuthProvider extends ChangeNotifier {
@@ -774,5 +774,178 @@ class AuthProvider extends ChangeNotifier {
       _state = AuthState.unauthenticated;
     }
     notifyListeners();
+  }
+
+  // ==================== Email/Password Auth Methods ====================
+
+  /// Sign up with email and password
+  Future<bool> signUp(String email, String password, String fullName) async {
+    _state = AuthState.loading;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      await _authRepository.signUp(email: email, password: password, fullName: fullName);
+      _state = AuthState.unauthenticated;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _state = AuthState.error;
+      _errorMessage = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Verify OTP code
+  Future<bool> verifyOTP(String email, String otpCode) async {
+    _state = AuthState.loading;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      await _authRepository.verifyOTP(email, otpCode);
+      _state = AuthState.unauthenticated;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _state = AuthState.error;
+      _errorMessage = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Resend OTP code
+  Future<bool> resendOTP(String email) async {
+    _errorMessage = null;
+    try {
+      await _authRepository.resendOTP(email);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Login with email and password
+  Future<bool> loginWithEmail(String email, String password) async {
+    _state = AuthState.loading;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final result = await _authRepository.loginWithEmail(email, password);
+
+      if (result.valid) {
+        _userInfo = UserInfo(
+          licenseId: result.licenseId,
+          fullName: result.fullName ?? '',
+          profileImageUrl: result.profileImageUrl,
+          createdAt: result.createdAt,
+          expiresAt: result.expiresAt ?? '',
+          isTrial: result.isTrial ?? false,
+          referralCode: result.referralCode,
+          referralCount: result.referralCount ?? 0,
+          username: result.username,
+          licenseKey: email, // Use email as identifier for email auth
+        );
+        _state = AuthState.authenticated;
+        _addToAccounts(_userInfo!);
+        _refreshFailures = 0;
+
+        // Schedule proactive token refresh
+        _scheduleTokenRefresh();
+
+        // Register FCM
+        _registerFCM();
+
+        notifyListeners();
+        return true;
+      } else {
+        // Check for pending approval
+        if (result.approvalStatus == 'pending') {
+          _state = AuthState.pendingApproval;
+          _errorMessage = result.error ?? 'حسابك قيد المراجعة';
+          notifyListeners();
+          return false;
+        }
+        _state = AuthState.error;
+        _errorMessage = result.error ?? 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
+        notifyListeners();
+        return false;
+      }
+    } catch (e) {
+      _state = AuthState.error;
+      _errorMessage = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Forgot password - send reset email
+  Future<bool> forgotPassword(String email) async {
+    _state = AuthState.loading;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      await _authRepository.forgotPassword(email);
+      _state = AuthState.unauthenticated;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _state = AuthState.error;
+      _errorMessage = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Reset password with token
+  Future<bool> resetPassword(String token, String newPassword) async {
+    _state = AuthState.loading;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      await _authRepository.resetPassword(token, newPassword);
+      _state = AuthState.unauthenticated;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _state = AuthState.error;
+      _errorMessage = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Check approval status (for polling while waiting)
+  Future<Map<String, dynamic>?> checkApprovalStatus() async {
+    try {
+      if (!isAuthenticated) return null;
+      return await _authRepository.getApprovalStatus();
+    } catch (e) {
+      debugPrint('[AuthProvider] Failed to check approval status: $e');
+      return null;
+    }
+  }
+
+  /// Schedule proactive token refresh to prevent expired token errors
+  void _scheduleTokenRefresh() {
+    ApiClient().scheduleProactiveRefresh();
+  }
+
+  /// Register FCM token with backend
+  Future<void> _registerFCM() async {
+    try {
+      await _fcmService.registerTokenWithBackend();
+      debugPrint('[AuthProvider] FCM token registered successfully for ${_userInfo?.username}');
+    } catch (e) {
+      debugPrint('[AuthProvider] FCM registration failed (non-fatal): $e');
+    }
   }
 }

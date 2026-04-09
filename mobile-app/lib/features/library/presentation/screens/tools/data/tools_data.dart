@@ -8,6 +8,7 @@ import '../athkar/athkar_screen.dart';
 import '../browser_screen.dart';
 import '../misbaha_screen.dart';
 import 'package:almudeer_mobile_app/features/qr/presentation/screens/qr_scanner_screen.dart';
+import 'package:almudeer_mobile_app/features/pos/presentation/screens/pos_dashboard_screen.dart';
 
 class ToolsData {
   ToolsData._();
@@ -71,12 +72,21 @@ class ToolsData {
       ),
       ToolItem(
         id: 'qr_scanner',
-        title: 'ظ…ط§ط³ط­ QR',
+        title: 'ماسح QR',
         icon: SolarLinearIcons.qrCode,
         color: const Color(0xFF8B5CF6),
         gradientStart: const Color(0xFFA78BFA),
         gradientEnd: const Color(0xFF7C3AED),
         screen: () => const QRScannerScreen(),
+      ),
+      ToolItem(
+        id: 'pos',
+        title: 'نقاط البيع',
+        icon: SolarLinearIcons.cart,
+        color: const Color(0xFF059669),
+        gradientStart: const Color(0xFF10B981),
+        gradientEnd: const Color(0xFF047857),
+        screen: () => const PosDashboardScreen(),
       ),
     ];
   }

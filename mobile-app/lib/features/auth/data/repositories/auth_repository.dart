@@ -169,4 +169,299 @@ class AuthRepository {
     final String encoded = jsonEncode(accounts.map((u) => u.toJson()).toList());
     await _secureStorage.write(key: _accountsStorageKey, value: encoded);
   }
+
+  // ==================== Email/Password Auth Methods ====================
+
+  /// Sign up with email and password
+  Future<Map<String, dynamic>> signUp({
+    required String email,
+    required String password,
+    required String fullName,
+  }) async {
+    try {
+      final response = await _apiClient.post(
+        Endpoints.signup,
+        body: {'email': email, 'password': password, 'full_name': fullName},
+        requiresAuth: false,
+      );
+      return response;
+    } on ApiException catch (e) {
+      throw AuthenticationException(e.message);
+    } catch (e) {
+      throw AuthenticationException('حدث خطأ في الاتصال');
+    }
+  }
+
+  /// Verify OTP code
+  Future<Map<String, dynamic>> verifyOTP(String email, String otpCode) async {
+    try {
+      final response = await _apiClient.post(
+        Endpoints.verifyOTP,
+        body: {'email': email, 'otp_code': otpCode},
+        requiresAuth: false,
+      );
+      return response;
+    } on ApiException catch (e) {
+      throw AuthenticationException(e.message);
+    } catch (e) {
+      throw AuthenticationException('حدث خطأ في التحقق');
+    }
+  }
+
+  /// Resend OTP code
+  Future<Map<String, dynamic>> resendOTP(String email) async {
+    try {
+      final response = await _apiClient.post(
+        Endpoints.resendOTP,
+        body: {'email': email},
+        requiresAuth: false,
+      );
+      return response;
+    } on ApiException catch (e) {
+      throw AuthenticationException(e.message);
+    } catch (e) {
+      throw AuthenticationException('حدث خطأ في إعادة الإرسال');
+    }
+  }
+
+  /// Login with email and password
+  Future<LicenseValidation> loginWithEmail(String email, String password) async {
+    try {
+      final response = await _apiClient.post(
+        Endpoints.login,
+        body: {'email': email, 'password': password},
+        requiresAuth: false,
+      );
+
+      final jwtAuth = JwtAuthResponse.fromJson(response);
+
+      // Store tokens scoped to email
+      await _apiClient.setLicenseInfo(
+        key: email, // Use email as key identifier for email-based auth
+        id: jwtAuth.user?.licenseId,
+        accessToken: jwtAuth.accessToken,
+        refreshToken: jwtAuth.refreshToken,
+      );
+
+      return LicenseValidation(
+        valid: true,
+        userId: jwtAuth.user?.userId,
+        email: jwtAuth.user?.email,
+        licenseId: jwtAuth.user?.licenseId,
+        fullName: jwtAuth.user?.fullName,
+        profileImageUrl: jwtAuth.user?.profileImageUrl,
+        isApprovedByAdmin: jwtAuth.user?.isApprovedByAdmin ?? true,
+        approvalStatus: 'approved',
+      );
+    } on ApiException catch (e) {
+      // Check for pending approval response
+      if (e.message.contains('PENDING_APPROVAL') ||
+          (e.data != null && e.data!['error_code'] == 'PENDING_APPROVAL')) {
+        return LicenseValidation(
+          valid: false,
+          error: e.message,
+          approvalStatus: 'pending',
+          userId: e.data?['user_id'],
+          email: email,
+          isApprovedByAdmin: false,
+        );
+      }
+      if (e.message.contains('EMAIL_NOT_VERIFIED')) {
+        return LicenseValidation(
+          valid: false,
+          error: 'يجب التحقق من البريد الإلكتروني أولاً',
+          email: email,
+        );
+      }
+      return LicenseValidation(
+        valid: false,
+        error: e.message,
+        retryAfterSeconds: e.retryAfterSeconds,
+      );
+    } catch (e) {
+      return LicenseValidation(
+        valid: false,
+        error: e is AuthenticationException ? e.message : 'حدث خطأ في الاتصال',
+      );
+    }
+  }
+
+  /// Forgot password - send reset email
+  Future<Map<String, dynamic>> forgotPassword(String email) async {
+    try {
+      final response = await _apiClient.post(
+        Endpoints.forgotPassword,
+        body: {'email': email},
+        requiresAuth: false,
+      );
+      return response;
+    } on ApiException catch (e) {
+      throw AuthenticationException(e.message);
+    } catch (e) {
+      throw AuthenticationException('حدث خطأ في الاتصال');
+    }
+  }
+
+  /// Reset password with token
+  Future<Map<String, dynamic>> resetPassword(String token, String newPassword) async {
+    try {
+      final response = await _apiClient.post(
+        Endpoints.resetPassword,
+        body: {'token': token, 'new_password': newPassword},
+        requiresAuth: false,
+      );
+      return response;
+    } on ApiException catch (e) {
+      throw AuthenticationException(e.message);
+    } catch (e) {
+      throw AuthenticationException('حدث خطأ في إعادة التعيين');
+    }
+  }
+
+  /// Check approval status (requires authenticated user)
+  Future<Map<String, dynamic>> getApprovalStatus() async {
+    try {
+      final response = await _apiClient.get(
+        Endpoints.approvalStatus,
+        requiresAuth: true,
+      );
+      return response;
+    } catch (e) {
+      throw Exception('فشل في التحقق من حالة الموافقة');
+    }
+  }
+}
+
+// ==================== Data Models ====================
+
+class JwtAuthResponse {
+  final String accessToken;
+  final String? refreshToken;
+  final int expiresIn;
+  final JwtUser? user;
+
+  JwtAuthResponse({
+    required this.accessToken,
+    this.refreshToken,
+    required this.expiresIn,
+    this.user,
+  });
+
+  factory JwtAuthResponse.fromJson(Map<String, dynamic> json) {
+    return JwtAuthResponse(
+      accessToken: json['access_token'] ?? '',
+      refreshToken: json['refresh_token'],
+      expiresIn: json['expires_in'] ?? 0,
+      user: json['user'] != null ? JwtUser.fromJson(json['user']) : null,
+    );
+  }
+}
+
+class JwtUser {
+  final int? licenseId;
+  final int? userId;
+  final String? email;
+  final String? fullName;
+  final String? profileImageUrl;
+  final String? createdAt;
+  final String? expiresAt;
+  final bool? isTrial;
+  final String? referralCode;
+  final int? referralCount;
+  final String? username;
+  final String? licenseKey;
+  final bool? isApprovedByAdmin;
+  final String? approvalStatus;
+
+  JwtUser({
+    this.licenseId,
+    this.userId,
+    this.email,
+    this.fullName,
+    this.profileImageUrl,
+    this.createdAt,
+    this.expiresAt,
+    this.isTrial,
+    this.referralCode,
+    this.referralCount,
+    this.username,
+    this.licenseKey,
+    this.isApprovedByAdmin,
+    this.approvalStatus,
+  });
+
+  factory JwtUser.fromJson(Map<String, dynamic> json) {
+    return JwtUser(
+      licenseId: json['license_id'] as int?,
+      userId: json['user_id'] != null ? int.tryParse(json['user_id'].toString()) : null,
+      email: json['email'] as String?,
+      fullName: json['full_name'] as String?,
+      profileImageUrl: json['profile_image_url'] as String?,
+      createdAt: json['created_at'] as String?,
+      expiresAt: json['expires_at'] as String?,
+      isTrial: json['is_trial'] as bool?,
+      referralCode: json['referral_code'] as String?,
+      referralCount: json['referral_count'] as int?,
+      username: json['username'] as String?,
+      licenseKey: json['license_key'] as String?,
+      isApprovedByAdmin: json['is_approved_by_admin'] as bool?,
+      approvalStatus: json['approval_status'] as String?,
+    );
+  }
+}
+
+class LicenseValidation {
+  final bool valid;
+  final String? error;
+  final int? retryAfterSeconds;
+  final int? licenseId;
+  final int? userId;
+  final String? email;
+  final String? fullName;
+  final String? profileImageUrl;
+  final String? createdAt;
+  final String? expiresAt;
+  final bool? isTrial;
+  final String? referralCode;
+  final int? referralCount;
+  final String? username;
+  final String? approvalStatus;
+  final bool? isApprovedByAdmin;
+
+  LicenseValidation({
+    required this.valid,
+    this.error,
+    this.retryAfterSeconds,
+    this.licenseId,
+    this.userId,
+    this.email,
+    this.fullName,
+    this.profileImageUrl,
+    this.createdAt,
+    this.expiresAt,
+    this.isTrial,
+    this.referralCode,
+    this.referralCount,
+    this.username,
+    this.approvalStatus,
+    this.isApprovedByAdmin,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'license_id': licenseId,
+      'user_id': userId,
+      'email': email,
+      'full_name': fullName,
+      'profile_image_url': profileImageUrl,
+      'created_at': createdAt,
+      'expires_at': expiresAt,
+      'is_trial': isTrial,
+      'referral_code': referralCode,
+      'referral_count': referralCount,
+      'username': username,
+      'approval_status': approvalStatus,
+      'is_approved_by_admin': isApprovedByAdmin,
+    };
+  }
 }

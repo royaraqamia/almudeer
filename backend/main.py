@@ -81,7 +81,8 @@ try:
         notifications_router,
         library_router,
         auth_router,
-        global_assets
+        global_assets,
+        admin_approval_router
     )
     from routes.tasks import router as tasks_router
     from routes.global_assets import router as global_assets_router
@@ -538,6 +539,7 @@ app.include_router(tasks_router)           # Task Management
 app.include_router(subscription_router)    # Subscription Key Management
 app.include_router(global_assets_router)   # Admin Global Assets
 app.include_router(auth_router)             # Authentication (login, etc)
+app.include_router(admin_approval_router)   # Admin User Approval (approve/reject users)
 app.include_router(users_router)            # User Search & Profiles
 
 

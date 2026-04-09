@@ -12,6 +12,12 @@ class Endpoints {
   static const String refresh = '/api/auth/refresh';
   static const String userInfo = '/api/auth/me';
   static const String logout = '/api/auth/logout';
+  static const String signup = '/api/auth/signup';
+  static const String verifyOTP = '/api/auth/verify-otp';
+  static const String resendOTP = '/api/auth/resend-otp';
+  static const String forgotPassword = '/api/auth/forgot-password';
+  static const String resetPassword = '/api/auth/reset-password';
+  static const String approvalStatus = '/api/auth/approval-status';
   // activeSessions and revokeSession removed
 
   // Inbox & Conversations

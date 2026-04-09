@@ -1,0 +1,284 @@
+"""
+Al-Mudeer - OTP (One-Time Password) Service
+Handles generation, storage, and verification of OTP codes for email verification
+
+Features:
+- Cryptographically secure 6-digit OTP generation
+- Expiry tracking (default 10 minutes)
+- Attempt limiting (max 5 attempts)
+- Rate limiting with cooldown period
+- Constant-time comparison to prevent timing attacks
+"""
+
+import os
+import secrets
+import hashlib
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Tuple
+
+from db_helper import get_db, fetch_one, execute_sql, commit_db
+from logging_config import get_logger
+
+logger = get_logger(__name__)
+
+# OTP Configuration
+OTP_LENGTH = 6
+OTP_EXPIRY_MINUTES = int(os.getenv("OTP_EXPIRY_MINUTES", "10"))
+OTP_MAX_ATTEMPTS = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
+OTP_COOLDOWN_SECONDS = int(os.getenv("OTP_COOLDOWN_SECONDS", "60"))
+
+
+class OTPService:
+    """
+    Service for managing OTP codes for email verification.
+    
+    Usage:
+        otp_service = OTPService()
+        success = await otp_service.generate_and_send_otp("user@example.com")
+        verified = await otp_service.verify_otp("user@example.com", "123456")
+    """
+    
+    def generate_otp(self) -> str:
+        """
+        Generate a cryptographically secure 6-digit OTP code.
+        
+        Returns:
+            6-digit numeric string (e.g., "123456")
+        """
+        # Use secrets.token_urlsafe for cryptographically secure random generation
+        # Generate number between 0 and 999999, then zero-pad to 6 digits
+        otp = secrets.randbelow(10 ** OTP_LENGTH)
+        return f"{otp:0{OTP_LENGTH}d}"
+    
+    async def generate_and_send_otp(self, email: str) -> Tuple[bool, str]:
+        """
+        Generate OTP code and save to database, then send via email.
+        
+        Args:
+            email: User's email address
+        
+        Returns:
+            Tuple of (success, error_message)
+            - (True, "") if OTP was generated and sent successfully
+            - (False, "error message") if failed
+        """
+        from services.email_service import get_email_service
+        from db_helper import get_db, fetch_one, execute_sql, commit_db
+        
+        try:
+            # Check if user exists
+            async with get_db() as db:
+                user = await fetch_one(
+                    db,
+                    "SELECT id, is_email_verified FROM user_accounts WHERE email = ?",
+                    [email.lower()]
+                )
+                
+                if not user:
+                    return False, "البريد الإلكتروني غير مسجل"
+                
+                # Check if already verified
+                if user.get("is_email_verified"):
+                    return False, "البريد الإلكتروني تم التحقق منه بالفعل"
+                
+                # Check cooldown period
+                user_id = user["id"]
+                last_otp_row = await fetch_one(
+                    db,
+                    "SELECT otp_expires_at FROM user_accounts WHERE id = ?",
+                    [user_id]
+                )
+                
+                if last_otp_row and last_otp_row.get("otp_expires_at"):
+                    otp_expires = last_otp_row["otp_expires_at"]
+                    # If otp_expires_at is in the future, we're still in cooldown
+                    # Cooldown is calculated from when OTP was last generated
+                    now = datetime.now(timezone.utc)
+                    # If OTP is still valid, enforce cooldown
+                    if otp_expires > now:
+                        time_since_generation = now - otp_expires + timedelta(minutes=OTP_EXPIRY_MINUTES)
+                        cooldown_remaining = timedelta(seconds=OTP_COOLDOWN_SECONDS) - time_since_generation
+                        
+                        if cooldown_remaining.total_seconds() > 0:
+                            return False, f"يرجى الانتظار {OTP_COOLDOWN_SECONDS} ثانية قبل طلب رمز جديد"
+                
+                # Generate OTP
+                otp_code = self.generate_otp()
+                otp_expires_at = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
+                
+                # Hash OTP before storing (security best practice)
+                otp_hash = hashlib.sha256(otp_code.encode()).hexdigest()
+                
+                # Update user record with OTP details
+                await execute_sql(
+                    db,
+                    """
+                    UPDATE user_accounts 
+                    SET otp_code = ?, otp_expires_at = ?, otp_attempts = 0, updated_at = NOW()
+                    WHERE id = ?
+                    """,
+                    [otp_hash, otp_expires_at, user_id]
+                )
+                await commit_db(db)
+                
+                # Send OTP via email
+                email_service = get_email_service()
+                email_sent = await email_service.send_otp_email(email, otp_code)
+                
+                if not email_sent:
+                    logger.error(f"Failed to send OTP email to {email}")
+                    # Note: OTP is still valid in DB even if email fails
+                    # This allows manual verification if needed
+                
+                logger.info(f"OTP generated for user {user_id} (email: {email})")
+                return True, ""
+                
+        except Exception as e:
+            logger.error(f"Error in generate_and_send_otp for {email}: {e}")
+            return False, f"خطأ في إنشاء رمز التحقق: {str(e)}"
+    
+    async def verify_otp(self, email: str, otp_code: str) -> Tuple[bool, str]:
+        """
+        Verify OTP code for a user.
+        
+        Args:
+            email: User's email address
+            otp_code: 6-digit OTP code to verify
+        
+        Returns:
+            Tuple of (success, error_message)
+            - (True, "") if OTP is valid and email is now verified
+            - (False, "error message") if OTP is invalid/expired/max attempts exceeded
+        """
+        from db_helper import get_db, fetch_one, execute_sql, commit_db
+        
+        try:
+            # Hash the input OTP for comparison
+            otp_hash = hashlib.sha256(otp_code.encode()).hexdigest()
+            
+            async with get_db() as db:
+                # Fetch user with OTP details
+                user = await fetch_one(
+                    db,
+                    """
+                    SELECT id, otp_code, otp_expires_at, otp_attempts, is_email_verified 
+                    FROM user_accounts 
+                    WHERE email = ?
+                    """,
+                    [email.lower()]
+                )
+                
+                if not user:
+                    return False, "البريد الإلكتروني غير مسجل"
+                
+                # Check if already verified
+                if user.get("is_email_verified"):
+                    return False, "البريد الإلكتروني تم التحقق منه بالفعل"
+                
+                # Check if OTP exists
+                if not user.get("otp_code"):
+                    return False, "لا يوجد رمز تحقق. يرجى طلب رمز جديد"
+                
+                # Check if OTP expired
+                otp_expires_at = user.get("otp_expires_at")
+                if otp_expires_at and otp_expires_at < datetime.now(timezone.utc):
+                    return False, "انتهت صلاحية رمز التحقق. يرجى طلب رمز جديد"
+                
+                # Check attempt limit
+                otp_attempts = user.get("otp_attempts", 0)
+                if otp_attempts >= OTP_MAX_ATTEMPTS:
+                    return False, f"تم تجاوز الحد الأقصى من المحاولات ({OTP_MAX_ATTEMPTS}). يرجى طلب رمز جديد"
+                
+                # Verify OTP using constant-time comparison
+                # Use hashlib.compare_digest to prevent timing attacks
+                stored_otp_hash = user.get("otp_code")
+                if not stored_otp_hash or not hashlib.compare_digest(otp_hash, stored_otp_hash):
+                    # Increment attempt counter
+                    await execute_sql(
+                        db,
+                        "UPDATE user_accounts SET otp_attempts = otp_attempts + 1, updated_at = NOW() WHERE id = ?",
+                        [user["id"]]
+                    )
+                    await commit_db(db)
+                    
+                    remaining_attempts = OTP_MAX_ATTEMPTS - otp_attempts - 1
+                    if remaining_attempts <= 0:
+                        return False, f"تم تجاوز الحد الأقصى من المحاولات. يرجى طلب رمز جديد"
+                    
+                    return False, f"رمز التحقق غير صحيح. محاولات متبقية: {remaining_attempts}"
+                
+                # OTP is valid - mark email as verified
+                await execute_sql(
+                    db,
+                    """
+                    UPDATE user_accounts 
+                    SET is_email_verified = TRUE, otp_code = NULL, otp_expires_at = NULL, 
+                        otp_attempts = 0, updated_at = NOW()
+                    WHERE id = ?
+                    """,
+                    [user["id"]]
+                )
+                await commit_db(db)
+                
+                logger.info(f"Email verified successfully for user {user['id']} (email: {email})")
+                return True, ""
+                
+        except Exception as e:
+            logger.error(f"Error in verify_otp for {email}: {e}")
+            return False, f"خطأ في التحقق من رمز التحقق: {str(e)}"
+    
+    async def resend_otp(self, email: str) -> Tuple[bool, str]:
+        """
+        Resend OTP code (with cooldown enforcement).
+        
+        Args:
+            email: User's email address
+        
+        Returns:
+            Tuple of (success, error_message)
+        """
+        from db_helper import get_db, fetch_one
+        
+        try:
+            async with get_db() as db:
+                user = await fetch_one(
+                    db,
+                    "SELECT id, is_email_verified, otp_expires_at FROM user_accounts WHERE email = ?",
+                    [email.lower()]
+                )
+                
+                if not user:
+                    return False, "البريد الإلكتروني غير مسجل"
+                
+                if user.get("is_email_verified"):
+                    return False, "البريد الإلكتروني تم التحقق منه بالفعل"
+                
+                # Check cooldown
+                otp_expires_at = user.get("otp_expires_at")
+                if otp_expires_at:
+                    now = datetime.now(timezone.utc)
+                    time_since_generation = now - (otp_expires_at - timedelta(minutes=OTP_EXPIRY_MINUTES))
+                    cooldown_remaining = timedelta(seconds=OTP_COOLDOWN_SECONDS) - time_since_generation
+                    
+                    if cooldown_remaining.total_seconds() > 0:
+                        seconds_left = int(cooldown_remaining.total_seconds())
+                        return False, f"يرجى الانتظار {seconds_left} ثانية قبل طلب رمز جديد"
+                
+                # Generate and send new OTP
+                return await self.generate_and_send_otp(email)
+                
+        except Exception as e:
+            logger.error(f"Error in resend_otp for {email}: {e}")
+            return False, f"خطأ في إعادة إرسال رمز التحقق: {str(e)}"
+
+
+# Singleton instance
+_otp_service: Optional[OTPService] = None
+
+
+def get_otp_service() -> OTPService:
+    """Get the global OTP service instance"""
+    global _otp_service
+    if _otp_service is None:
+        _otp_service = OTPService()
+    return _otp_service

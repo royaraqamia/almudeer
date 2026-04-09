@@ -28,6 +28,9 @@ class SecurityEventType(Enum):
     PASSWORD_CHANGED = "password_changed"
     RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
     WEBHOOK_REJECTED = "webhook_rejected"
+    USER_SIGNUP = "user_signup"
+    USER_APPROVED = "user_approved"
+    USER_REJECTED = "user_rejected"
 
 
 class SecurityLogger:

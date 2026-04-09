@@ -422,7 +422,28 @@ class MockAuthProvider extends ChangeNotifier implements AuthProvider {
   
   @override
   Future<void> refreshUserInfo() async {}
-  
+
   @override
   void clearError() {}
+
+  @override
+  Future<bool> loginWithEmail(String email, String password) async => true;
+
+  @override
+  Future<bool> signUp(String email, String password, String fullName) async => true;
+
+  @override
+  Future<bool> verifyOTP(String email, String otpCode) async => true;
+
+  @override
+  Future<bool> resendOTP(String email) async => true;
+
+  @override
+  Future<bool> forgotPassword(String email) async => true;
+
+  @override
+  Future<Map<String, dynamic>?> checkApprovalStatus() async => null;
+
+  @override
+  Future<bool> resetPassword(String token, String newPassword) async => true;
 }

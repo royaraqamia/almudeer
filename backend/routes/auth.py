@@ -2,6 +2,13 @@
 Al-Mudeer - Authentication Routes
 JWT-based login, registration, and token management
 
+SUPPORTS:
+- Email/Password login (new flow)
+- License key login (backward compatibility)
+- Email signup with OTP verification
+- Password reset via email
+- Admin approval workflow
+
 SECURITY FIXES:
 - Content-Type validation on all auth endpoints
 - Token validation before blacklisting on logout
@@ -11,8 +18,9 @@ SECURITY FIXES:
 """
 
 import secrets
+import re
 from fastapi import APIRouter, HTTPException, status, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import Optional
 
 from services.jwt_auth import (
@@ -25,11 +33,15 @@ from services.login_protection import (
     record_failed_login,
     record_successful_login,
 )
+from services.password_service import hash_password, verify_password, validate_password_strength
+from services.otp_service import get_otp_service
+from services.password_reset_service import get_password_reset_service
 from database import validate_license_key
 from logging_config import get_logger
 from services.security_logger import get_security_logger, SecurityEventType
 from services.token_blacklist import blacklist_token
 from rate_limiting import limiter, RateLimits
+from db_helper import get_db, fetch_one, execute_sql, commit_db
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
@@ -76,8 +88,46 @@ def _validate_content_type(request: Request) -> bool:
 # ============ Request/Response Models ============
 
 class LoginRequest(BaseModel):
-    """Login with license key"""
-    license_key: str
+    """Login with license key OR email/password"""
+    license_key: Optional[str] = None
+    email: Optional[str] = None
+    password: Optional[str] = None
+
+
+class SignUpRequest(BaseModel):
+    """Sign up with email and password"""
+    email: str
+    password: str
+    full_name: str
+
+
+class VerifyOTPRequest(BaseModel):
+    """Verify email OTP code"""
+    email: str
+    otp_code: str
+
+
+class ResendOTPRequest(BaseModel):
+    """Resend OTP code"""
+    email: str
+
+
+class PasswordResetRequest(BaseModel):
+    """Request password reset"""
+    email: str
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    """Confirm password reset with token"""
+    token: str
+    new_password: str
+
+
+class ApprovalStatusResponse(BaseModel):
+    """User approval status"""
+    is_approved: bool
+    approval_status: str  # 'pending', 'approved', 'rejected'
+    is_email_verified: bool
 
 
 class TokenResponse(BaseModel):
@@ -99,14 +149,15 @@ class RefreshRequest(BaseModel):
 @router.post("/login", response_model=TokenResponse)
 async def login(data: LoginRequest, request: Request):
     """
-    Login with license key.
+    Login with email/password OR license key (backward compatibility).
 
     Returns JWT tokens for authenticated access.
-    
+
     SECURITY FIXES:
     - Content-Type validation
     - Constant-time response delay
     - Generic error messages
+    - Admin approval check for email login
     """
     # SECURITY FIX: Validate Content-Type
     if not _validate_content_type(request):
@@ -115,18 +166,191 @@ async def login(data: LoginRequest, request: Request):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Content-Type must be application/json"
         )
-    
-    # 1. Check brute-force protection (Account + IP)
+
+    # Extract metadata
     ip_address = request.client.host if request.client else "unknown"
 
-    # Check account lockout
-    is_key_locked, key_remaining = check_account_lockout(data.license_key)
-    # Check IP lockout
+    # Determine login type
+    if data.email and data.password:
+        # Email/Password login
+        return await _login_with_email(data.email, data.password, ip_address, request)
+    elif data.license_key:
+        # License key login (backward compatibility)
+        return await _login_with_license_key(data.license_key, ip_address, request)
+    else:
+        await _apply_constant_time_delay()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="يجب إدخال البريد الإلكتروني وكلمة المرور أو مفتاح الاشتراك"
+        )
+
+
+async def _login_with_email(email: str, password: str, ip_address: str, request: Request):
+    """
+    Handle email/password login.
+    
+    Flow:
+    1. Validate email format
+    2. Check account exists
+    3. Verify password
+    4. Check email is verified
+    5. Check admin approval
+    6. Create JWT tokens
+    """
+    # Check brute-force protection
+    is_locked, remaining = check_account_lockout(f"email:{email}")
+    is_ip_locked, ip_remaining = check_account_lockout(f"ip:{ip_address}")
+
+    if is_locked or is_ip_locked:
+        remaining_time = max(remaining or 0, ip_remaining or 0)
+        await _apply_constant_time_delay()
+        
+        detail_msg = "تم حظر الحساب مؤقتاً."
+        if is_ip_locked and not is_locked:
+            detail_msg = "تم حظر هذا الجهاز مؤقتاً بسبب كثرة المحاولات الفاشلة."
+        
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"{detail_msg} حاول مرة أخرى بعد {remaining_time // 60} دقائق." if remaining_time > 60 else f"{detail_msg} حاول مرة أخرى بعد {remaining_time} ثانية.",
+            headers={"Retry-After": str(remaining_time)},
+        )
+
+    async with get_db() as db:
+        # Find user by email
+        user = await fetch_one(
+            db,
+            """
+            SELECT id, email, password_hash, full_name, license_key_id,
+                   is_email_verified, is_approved_by_admin, approval_status
+            FROM user_accounts
+            WHERE email = ?
+            """,
+            [email.lower()]
+        )
+
+        if not user:
+            # Record failed attempt
+            record_failed_login(f"email:{email}")
+            record_failed_login(f"ip:{ip_address}")
+            await _apply_constant_time_delay()
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="البريد الإلكتروني أو كلمة المرور غير صحيحة"
+            )
+
+        # Verify password
+        if not verify_password(password, user["password_hash"]):
+            record_failed_login(f"email:{email}")
+            record_failed_login(f"ip:{ip_address}")
+            await _apply_constant_time_delay()
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="البريد الإلكتروني أو كلمة المرور غير صحيحة"
+            )
+
+        # Check email is verified
+        if not user.get("is_email_verified"):
+            await _apply_constant_time_delay()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "يجب التحقق من البريد الإلكتروني أولاً",
+                    "error_code": "EMAIL_NOT_VERIFIED",
+                    "user_id": user["id"]
+                }
+            )
+
+        # Check admin approval
+        if not user.get("is_approved_by_admin"):
+            await _apply_constant_time_delay()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "حسابك قيد المراجعة. سيتم إعلامك عند الموافقة.",
+                    "error_code": "PENDING_APPROVAL",
+                    "approval_status": user.get("approval_status", "pending"),
+                    "user_id": user["id"]
+                }
+            )
+
+        # Check if license is active (if user has one)
+        license_key_id = user.get("license_key_id")
+        license_info = None
+        if license_key_id:
+            license_row = await fetch_one(
+                db,
+                "SELECT is_active, approval_status FROM license_keys WHERE id = ?",
+                [license_key_id]
+            )
+            if license_row and not license_row.get("is_active", True):
+                await _apply_constant_time_delay()
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="المشترك معطل أو منتهي الصلاحية"
+                )
+            if license_row:
+                license_info = dict(license_row)
+
+        # On success, clear failed attempts
+        record_successful_login(f"email:{email}")
+        record_successful_login(f"ip:{ip_address}")
+
+        # Update last login timestamp
+        await execute_sql(
+            db,
+            "UPDATE user_accounts SET last_login = NOW(), updated_at = NOW() WHERE id = ?",
+            [user["id"]]
+        )
+        await commit_db(db)
+
+    # Create JWT tokens
+    request_ip = request.client.host if request.client else None
+    tokens = await create_token_pair(
+        user_id=str(user["id"]),
+        license_id=license_key_id,
+        role="user",
+        ip_address=request_ip,
+        user_agent=request.headers.get("User-Agent"),
+    )
+
+    # Build user info
+    user_info = {
+        "user_id": user["id"],
+        "email": user["email"],
+        "full_name": user.get("full_name"),
+        "license_key_id": license_key_id,
+        "is_email_verified": True,
+        "is_approved_by_admin": True,
+    }
+
+    # Add license key if available (for backward compatibility with mobile app)
+    if license_key_id and license_info:
+        # Decrypt and include license key
+        try:
+            from database import get_decrypted_license_key
+            license_key = await get_decrypted_license_key(license_key_id)
+            if license_key:
+                user_info["license_key"] = license_key
+        except Exception as e:
+            logger.debug(f"Failed to decrypt license key for user {user['id']}: {e}")
+
+    return TokenResponse(
+        **tokens,
+        user=user_info
+    )
+
+
+async def _login_with_license_key(license_key: str, ip_address: str, request: Request):
+    """
+    Handle license key login (backward compatibility).
+    """
+    # Check brute-force protection (Account + IP)
+    is_key_locked, key_remaining = check_account_lockout(license_key)
     is_ip_locked, ip_remaining = check_account_lockout(f"ip:{ip_address}")
 
     if is_key_locked or is_ip_locked:
         remaining = max(key_remaining or 0, ip_remaining or 0)
-        logger.warning(f"Login attempt blocked (lockout): account={data.license_key}, ip={ip_address}")
+        logger.warning(f"Login attempt blocked (lockout): account={license_key}, ip={ip_address}")
 
         detail_msg = "تم حظر الحساب مؤقتًا."
         if is_ip_locked and not is_key_locked:
@@ -134,18 +358,18 @@ async def login(data: LoginRequest, request: Request):
 
         # SECURITY FIX P1-12: Apply constant-time delay to ALL error paths
         await _apply_constant_time_delay()
-        
+
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"{detail_msg} حاول مرة أخرى بعد {remaining // 60} دقائق." if remaining > 60 else f"{detail_msg} حاول مرة أخرى بعد {remaining} ثانية.",
             headers={"Retry-After": str(remaining)},
         )
 
-    result = await validate_license_key(data.license_key)
+    result = await validate_license_key(license_key)
 
     if not result.get("valid"):
         # Record failed attempt (on both account and IP)
-        record_failed_login(data.license_key)
+        record_failed_login(license_key)
         _, ip_locked_now = record_failed_login(f"ip:{ip_address}")
 
         # SECURITY FIX: Apply constant-time delay before returning error
@@ -154,7 +378,7 @@ async def login(data: LoginRequest, request: Request):
         detail_msg = result.get("error", "مفتاح الاشتراك غير صحيح")
         if ip_locked_now:
             detail_msg = "تم حظر هذا الجهاز بسبب محاولات تسجيل الدخول الفاشلة المتكررة. يرجى المحاولة لاحقاً."
-        elif check_account_lockout(data.license_key)[0]:
+        elif check_account_lockout(license_key)[0]:
             detail_msg = "تم حظر الحساب بسبب محاولات تسجيل الدخول الفاشلة المتكررة. يرجى المحاولة لاحقاً."
 
         raise HTTPException(
@@ -165,17 +389,17 @@ async def login(data: LoginRequest, request: Request):
     license_id = result.get("license_id")
 
     # On success, clear failed attempts
-    record_successful_login(data.license_key)
+    record_successful_login(license_key)
     record_successful_login(f"ip:{ip_address}")
 
     # Extract metadata
-    ip_address = request.client.host if request.client else None
+    request_ip = request.client.host if request.client else None
 
     tokens = await create_token_pair(
         user_id=str(result.get("license_id")),
         license_id=result.get("license_id"),
         role="user",
-        ip_address=ip_address,
+        ip_address=request_ip,
         user_agent=request.headers.get("User-Agent"),
     )
 
@@ -188,6 +412,257 @@ async def login(data: LoginRequest, request: Request):
         **tokens,
         user=user_info
     )
+
+
+# ============ Signup & OTP Endpoints ============
+
+@router.post("/signup")
+async def signup(data: SignUpRequest, request: Request):
+    """
+    Sign up with email and password.
+    
+    Flow:
+    1. Validate email format
+    2. Check email not already registered
+    3. Validate password strength
+    4. Hash password and create account
+    5. Generate and send OTP
+    6. Return success (user must verify OTP before login)
+    """
+    # Validate Content-Type
+    if not _validate_content_type(request):
+        await _apply_constant_time_delay()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Content-Type must be application/json"
+        )
+
+    # Validate email format
+    email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(email_regex, data.email):
+        await _apply_constant_time_delay()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="بريد إلكتروني غير صالح"
+        )
+
+    # Validate password strength
+    is_valid, error_msg = validate_password_strength(data.password)
+    if not is_valid:
+        await _apply_constant_time_delay()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg
+        )
+
+    async with get_db() as db:
+        # Check if email already registered
+        existing = await fetch_one(
+            db,
+            "SELECT id FROM user_accounts WHERE email = ?",
+            [data.email.lower()]
+        )
+        if existing:
+            await _apply_constant_time_delay()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="البريد الإلكتروني مسجل بالفعل"
+            )
+
+        # Hash password
+        password_hash = hash_password(data.password)
+
+        # Create user account (pending approval, not verified)
+        await execute_sql(
+            db,
+            """
+            INSERT INTO user_accounts (email, password_hash, full_name, is_email_verified, is_approved_by_admin, approval_status)
+            VALUES (?, ?, ?, FALSE, FALSE, 'pending')
+            """,
+            [data.email.lower(), password_hash, data.full_name]
+        )
+        await commit_db(db)
+
+    # Generate and send OTP
+    otp_service = get_otp_service()
+    success, error_msg = await otp_service.generate_and_send_otp(data.email)
+    
+    if not success:
+        logger.error(f"Failed to send OTP after signup for {data.email}: {error_msg}")
+        # Note: Account is created even if OTP email fails
+
+    security_logger = get_security_logger()
+    security_logger.log_security_event(
+        SecurityEventType.USER_SIGNUP,
+        user_id=data.email,
+        details={"full_name": data.full_name}
+    )
+
+    return {
+        "success": True,
+        "message": "تم إنشاء الحساب. يرجى التحقق من بريدك الإلكتروني لرمز التحقق.",
+        "email": data.email
+    }
+
+
+@router.post("/verify-otp")
+async def verify_otp(data: VerifyOTPRequest, request: Request):
+    """
+    Verify email OTP code.
+    
+    On success, email is marked as verified.
+    User can then login (pending admin approval).
+    """
+    if not _validate_content_type(request):
+        await _apply_constant_time_delay()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Content-Type must be application/json"
+        )
+
+    otp_service = get_otp_service()
+    success, error_msg = await otp_service.verify_otp(data.email, data.otp_code)
+
+    if not success:
+        await _apply_constant_time_delay()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg
+        )
+
+    return {
+        "success": True,
+        "message": "تم التحقق من البريد الإلكتروني بنجاح. حسابك قيد المراجعة من المسؤول."
+    }
+
+
+@router.post("/resend-otp")
+async def resend_otp(data: ResendOTPRequest, request: Request):
+    """
+    Resend OTP code (with cooldown enforcement).
+    """
+    if not _validate_content_type(request):
+        await _apply_constant_time_delay()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Content-Type must be application/json"
+        )
+
+    otp_service = get_otp_service()
+    success, error_msg = await otp_service.resend_otp(data.email)
+
+    if not success:
+        await _apply_constant_time_delay()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg
+        )
+
+    return {
+        "success": True,
+        "message": f"تم إرسال رمز التحقق إلى {data.email}"
+    }
+
+
+# ============ Password Reset Endpoints ============
+
+@router.post("/forgot-password")
+async def forgot_password(data: PasswordResetRequest, request: Request):
+    """
+    Request password reset email.
+    
+    Always returns success (even if email doesn't exist) to prevent enumeration.
+    """
+    if not _validate_content_type(request):
+        await _apply_constant_time_delay()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Content-Type must be application/json"
+        )
+
+    reset_service = get_password_reset_service()
+    success, error_msg = await reset_service.initiate_reset(data.email)
+
+    if not success:
+        await _apply_constant_time_delay()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg
+        )
+
+    # Always return success to prevent email enumeration
+    return {
+        "success": True,
+        "message": "إذا كان البريد الإلكتروني مسجلاً، ستتلقى رابط إعادة تعيين كلمة المرور."
+    }
+
+
+@router.post("/reset-password")
+async def reset_password(data: PasswordResetConfirmRequest, request: Request):
+    """
+    Reset password using reset token from email.
+    """
+    if not _validate_content_type(request):
+        await _apply_constant_time_delay()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Content-Type must be application/json"
+        )
+
+    reset_service = get_password_reset_service()
+    success, error_msg = await reset_service.reset_password(data.token, data.new_password)
+
+    if not success:
+        await _apply_constant_time_delay()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg
+        )
+
+    return {
+        "success": True,
+        "message": "تم إعادة تعيين كلمة المرور بنجاح. يمكنك تسجيل الدخول الآن."
+    }
+
+
+# ============ Approval Status Endpoint ============
+
+@router.get("/approval-status")
+async def get_approval_status(request: Request):
+    """
+    Check if current user's account is approved by admin.
+    
+    Requires authenticated user (valid JWT).
+    Used by mobile app to poll for approval status.
+    """
+    user = await get_current_user(request)
+    
+    async with get_db() as db:
+        user_account = await fetch_one(
+            db,
+            """
+            SELECT id, is_email_verified, is_approved_by_admin, approval_status, full_name, email
+            FROM user_accounts
+            WHERE id = ?
+            """,
+            [user.get("user_id")]
+        )
+
+        if not user_account:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="المستخدم غير موجود"
+            )
+
+        return {
+            "success": True,
+            "user_id": user_account["id"],
+            "email": user_account.get("email"),
+            "full_name": user_account.get("full_name"),
+            "is_email_verified": user_account.get("is_email_verified", False),
+            "is_approved_by_admin": user_account.get("is_approved_by_admin", False),
+            "approval_status": user_account.get("approval_status", "pending")
+        }
 
 
 @router.post("/refresh", response_model=TokenResponse)

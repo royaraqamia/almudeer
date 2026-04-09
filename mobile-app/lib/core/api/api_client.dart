@@ -35,8 +35,9 @@ class ApiException implements Exception {
   final int? statusCode;
   final int? retryAfterSeconds;
   final String? code;
+  final Map<String, dynamic>? data;
 
-  ApiException(this.message, {this.statusCode, this.retryAfterSeconds, this.code});
+  ApiException(this.message, {this.statusCode, this.retryAfterSeconds, this.code, this.data});
 
   @override
   String toString() => message;
@@ -809,6 +810,7 @@ class ApiClient {
     debugPrint('[ApiClient] Error response: statusCode=$statusCode, body=${response.body}');
     debugPrint('[ApiClient] Parsed errorData: $errorData');
     String errorMessage = 'حدث خطأ في الاتصال';
+    final dynamic detail = errorData['detail']; // Extract detail once for use in error throwing
     if (errorData.containsKey('error')) {
       final error = errorData['error'];
       if (error is String) {
@@ -849,7 +851,13 @@ class ApiClient {
         if (isAccountDisabled) {
           SecurityEventService().emit(SecurityEvent.accountDisabled);
         }
-        throw AuthenticationException(errorMessage, statusCode: statusCode);
+        // Include full error data for PENDING_APPROVAL detection
+        throw ApiException(
+          errorMessage,
+          statusCode: statusCode,
+          code: errorCode,
+          data: detail is Map<String, dynamic> ? detail : errorData,
+        );
       case 404:
         // Check if this is an ITEM_NOT_FOUND error
         final errorCode = errorData['code'] as String?;

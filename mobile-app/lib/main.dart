@@ -38,6 +38,7 @@ import 'features/tasks/data/services/task_alarm_service.dart';
 import 'features/athkar/presentation/providers/athkar_provider.dart';
 import 'features/quran/presentation/providers/quran_provider.dart';
 import 'features/settings/presentation/providers/settings_provider.dart';
+import 'features/pos/presentation/providers/pos_provider.dart';
 import 'core/services/browser_download_manager.dart';
 import 'core/services/media_cache_manager.dart'; // P3-15 FIX: Add import
 import 'features/athkar/data/services/athkar_reminder_service.dart';
@@ -282,6 +283,8 @@ class AlMudeerApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => GlobalSearchProvider()),
         // Users Provider
         ChangeNotifierProvider(create: (_) => UsersProvider()),
+        // POS Provider
+        ChangeNotifierProvider(create: (_) => PosProvider()..initialize()),
       ],
       child: AppRoot(initialRoute: initialRoute),
     );
