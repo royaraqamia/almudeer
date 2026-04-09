@@ -1,24 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:figma_squircle/figma_squircle.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
-import 'package:flutter_svg/flutter_svg.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:almudeer_mobile_app/core/app/routes.dart';
 import 'package:almudeer_mobile_app/core/constants/colors.dart';
 import 'package:almudeer_mobile_app/core/constants/strings_ar.dart';
 import 'package:almudeer_mobile_app/core/constants/dimensions.dart';
 import 'package:almudeer_mobile_app/core/widgets/app_text_field.dart';
 import 'package:almudeer_mobile_app/core/widgets/app_gradient_button.dart';
-import 'package:almudeer_mobile_app/core/widgets/app_outline_button.dart';
 import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:almudeer_mobile_app/core/utils/haptics.dart';
 
-/// Login screen supporting BOTH email/password AND license key login
+/// Login screen with email/password authentication
 ///
-/// Default tab: Email/Password login
-/// Second tab: License key login (backward compatibility for existing users)
+/// Users authenticate using email and password only.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -26,37 +21,24 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _licenseController = TextEditingController();
   final _emailFormKey = GlobalKey<FormState>();
-  final _licenseFormKey = GlobalKey<FormState>();
   final _focusNode = FocusNode();
   bool _showPassword = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _tabController.addListener(_onTabChange);
   }
 
   @override
   void dispose() {
-    _tabController.removeListener(_onTabChange);
-    _tabController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
-    _licenseController.dispose();
     _focusNode.dispose();
     super.dispose();
-  }
-
-  void _onTabChange() {
-    _focusNode.unfocus();
-    setState(() {});
   }
 
   Future<void> _handleEmailLogin() async {
@@ -74,35 +56,11 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       Haptics.mediumTap();
       Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.dashboard, (route) => false);
     } else if (authProvider.state == AuthState.pendingApproval) {
-      // Navigate to waiting for approval screen
       Navigator.of(context).pushNamedAndRemoveUntil(
         AppRoutes.waitingForApproval,
         arguments: {'email': _emailController.text.trim()},
         (route) => false,
       );
-    }
-  }
-
-  Future<void> _handleLicenseLogin() async {
-    if (!_licenseFormKey.currentState!.validate()) return;
-
-    final authProvider = context.read<AuthProvider>();
-    final success = await authProvider.login(_licenseController.text);
-
-    if (!mounted) return;
-
-    if (success) {
-      Haptics.mediumTap();
-      Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.dashboard, (route) => false);
-    }
-  }
-
-  void _openWhatsApp() async {
-    final message = Uri.encodeComponent('السلام عليكم، أرغب في الحصول على مفتاح اشتراك لتطبيق المدير.');
-    final whatsappUrl = 'https://wa.me/+963966478904?text=$message';
-    final uri = Uri.parse(whatsappUrl);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 
@@ -115,7 +73,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     final topPadding = isLandscape
         ? AppDimensions.paddingLarge
         : (isSmallScreen ? AppDimensions.loginScreenTopPaddingSmall : AppDimensions.loginScreenTopPaddingLarge);
-    final headerMargin = isLandscape ? AppDimensions.spacing32 : (isSmallScreen ? AppDimensions.loginScreenHeaderMarginSmall : AppDimensions.loginScreenHeaderMarginLarge);
+    final headerMargin = isLandscape
+        ? AppDimensions.spacing32
+        : (isSmallScreen ? AppDimensions.loginScreenHeaderMarginSmall : AppDimensions.loginScreenHeaderMarginLarge);
 
     return TapRegion(
       onTapOutside: (_) => _focusNode.unfocus(),
@@ -205,8 +165,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                 ),
                               ],
                             ),
-                            child: Icon(
-                              _tabController.index == 0 ? SolarLinearIcons.user : SolarLinearIcons.key,
+                            child: const Icon(
+                              SolarLinearIcons.user,
                               color: Colors.white,
                               size: AppDimensions.loginIconSize,
                             ),
@@ -216,7 +176,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
                         // Title
                         Text(
-                          _tabController.index == 0 ? 'تسجيل الدخول' : 'تسجيل الدخول بالمفتاح',
+                          'تسجيل الدخول',
                           style: TextStyle(
                             fontSize: AppDimensions.loginTitleSize,
                             fontWeight: FontWeight.bold,
@@ -225,7 +185,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                         ),
                         const SizedBox(height: AppDimensions.spacing8),
                         Text(
-                          _tabController.index == 0 ? 'أدخل بريدك الإلكتروني وكلمة المرور' : 'أدخل مفتاح الاشتراك للمتابعة',
+                          'أدخل بريدك الإلكتروني وكلمة المرور',
                           style: TextStyle(
                             fontSize: AppDimensions.loginSubtitleSize,
                             color: theme.textTheme.bodySmall?.color,
@@ -233,38 +193,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                         ),
                         const SizedBox(height: AppDimensions.spacing24),
 
-                        // Tab Bar
-                        Container(
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surface,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: TabBar(
-                            controller: _tabController,
-                            indicator: BoxDecoration(
-                              color: theme.colorScheme.primary,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            indicatorSize: TabBarIndicatorSize.tab,
-                            labelColor: Colors.white,
-                            unselectedLabelColor: theme.textTheme.bodySmall?.color,
-                            dividerColor: Colors.transparent,
-                            tabs: const [
-                              Tab(text: 'البريد الإلكتروني'),
-                              Tab(text: 'مفتاح الاشتراك'),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: AppDimensions.spacing24),
-
-                        // Tab Views
-                        SizedBox(
-                          height: _tabController.index == 0 ? 300 : 250,
-                          child: TabBarView(
-                            controller: _tabController,
-                            children: [_buildEmailLoginTab(theme), _buildLicenseKeyTab(theme)],
-                          ),
-                        ),
+                        // Email Login Form
+                        _buildEmailLoginForm(theme),
                       ],
                     ),
                   ),
@@ -272,36 +202,21 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 const SizedBox(height: AppDimensions.spacing24),
 
                 // Links
-                if (_tabController.index == 0) ...[
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pushNamed(AppRoutes.forgotPassword),
-                    child: Text(
-                      'نسيت كلمة المرور؟',
-                      style: TextStyle(color: theme.colorScheme.primary, fontSize: 14),
-                    ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pushNamed(AppRoutes.forgotPassword),
+                  child: Text(
+                    'نسيت كلمة المرور؟',
+                    style: TextStyle(color: theme.colorScheme.primary, fontSize: 14),
                   ),
-                  const SizedBox(height: AppDimensions.spacing8),
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pushNamed(AppRoutes.signup),
-                    child: Text(
-                      'ليس لديك حساب؟ إنشاء حساب جديد',
-                      style: TextStyle(color: theme.colorScheme.primary, fontSize: 14, fontWeight: FontWeight.w600),
-                    ),
+                ),
+                const SizedBox(height: AppDimensions.spacing8),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pushNamed(AppRoutes.signup),
+                  child: Text(
+                    'ليس لديك حساب؟ إنشاء حساب جديد',
+                    style: TextStyle(color: theme.colorScheme.primary, fontSize: 14, fontWeight: FontWeight.w600),
                   ),
-                ] else ...[
-                  AppOutlineButton(
-                    text: AppStrings.getKeyViaWhatsApp,
-                    onPressed: _openWhatsApp,
-                    gradientColors: const [AppColors.whatsappGreen, AppColors.whatsappGreen],
-                    showShadow: false,
-                    trailing: SvgPicture.asset(
-                      'assets/icons/whatsapp.svg',
-                      width: AppDimensions.whatsappIconSize,
-                      height: AppDimensions.whatsappIconSize,
-                      colorFilter: const ColorFilter.mode(AppColors.whatsappGreen, BlendMode.srcIn),
-                    ),
-                  ),
-                ],
+                ),
                 const SizedBox(height: AppDimensions.spacing24),
               ],
             ),
@@ -311,7 +226,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     );
   }
 
-  Widget _buildEmailLoginTab(ThemeData theme) {
+  Widget _buildEmailLoginForm(ThemeData theme) {
     return Form(
       key: _emailFormKey,
       child: Column(
@@ -355,12 +270,12 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
               return null;
             },
           ),
-          const Spacer(),
+          const SizedBox(height: AppDimensions.spacing24),
 
           // Error message
           Consumer<AuthProvider>(
             builder: (context, auth, _) {
-              if (auth.errorMessage == null || _tabController.index != 0) return const SizedBox.shrink();
+              if (auth.errorMessage == null) return const SizedBox.shrink();
               return Padding(
                 padding: const EdgeInsets.only(bottom: AppDimensions.spacing16),
                 child: Text(
@@ -386,136 +301,6 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildLicenseKeyTab(ThemeData theme) {
-    return Form(
-      key: _licenseFormKey,
-      child: Column(
-        children: [
-          // License Key Input
-          _LicenseKeyTextField(
-            controller: _licenseController,
-            focusNode: _focusNode,
-          ),
-          const Spacer(),
-
-          // Error message
-          Consumer<AuthProvider>(
-            builder: (context, auth, _) {
-              if (auth.errorMessage == null || _tabController.index != 1) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.only(bottom: AppDimensions.spacing16),
-                child: Text(
-                  auth.errorMessage!,
-                  style: const TextStyle(color: AppColors.error, fontSize: 13, fontWeight: FontWeight.w600),
-                  textAlign: TextAlign.center,
-                ),
-              );
-            },
-          ),
-
-          // Login Button
-          Consumer<AuthProvider>(
-            builder: (context, auth, _) {
-              return AppGradientButton(
-                text: auth.isLoading ? 'جاري الدخول...' : AppStrings.loginButton,
-                onPressed: auth.isLoading ? null : _handleLicenseLogin,
-                isLoading: auth.isLoading,
-                gradientColors: [theme.colorScheme.primary, theme.colorScheme.secondary],
-                showShadow: true,
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// Keep the existing _LicenseKeyTextField from the original file
-class _LicenseKeyTextField extends StatefulWidget {
-  final TextEditingController controller;
-  final FocusNode focusNode;
-
-  const _LicenseKeyTextField({required this.controller, required this.focusNode});
-
-  @override
-  State<_LicenseKeyTextField> createState() => _LicenseKeyTextFieldState();
-}
-
-class _LicenseKeyTextFieldState extends State<_LicenseKeyTextField> {
-  bool _showClearButton = false;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.controller.addListener(_onTextChanged);
-  }
-
-  @override
-  void dispose() {
-    widget.controller.removeListener(_onTextChanged);
-    super.dispose();
-  }
-
-  void _onTextChanged() {
-    final showClear = widget.controller.text.isNotEmpty;
-    if (showClear != _showClearButton) {
-      setState(() => _showClearButton = showClear);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(right: AppDimensions.spacing4, bottom: AppDimensions.spacing8),
-          child: Text(
-            AppStrings.licenseKeyLabel,
-            style: TextStyle(fontSize: AppDimensions.loginLabelSize, fontWeight: FontWeight.w500, color: theme.textTheme.labelLarge?.color),
-          ),
-        ),
-        AppTextField(
-          controller: widget.controller,
-          focusNode: widget.focusNode,
-          hintText: AppStrings.licenseKeyPlaceholder,
-          keyboardType: TextInputType.text,
-          textInputAction: TextInputAction.done,
-          autocorrect: false,
-          enableSuggestions: false,
-          textCapitalization: TextCapitalization.characters,
-          inputFormatters: [UpperCaseTextFormatter()],
-          maxLines: 1,
-          suffixIcon: _showClearButton
-              ? IconButton(
-                  icon: const Icon(SolarLinearIcons.closeCircle, size: 20),
-                  onPressed: () => widget.controller.clear(),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  color: theme.textTheme.bodySmall?.color,
-                )
-              : null,
-          validator: (value) {
-            if (value == null || value.isEmpty) return AppStrings.errorLicenseRequired;
-            return null;
-          },
-        ),
-      ],
-    );
-  }
-}
-
-class UpperCaseTextFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
-    return TextEditingValue(
-      text: newValue.text.toUpperCase(),
-      selection: newValue.selection,
     );
   }
 }

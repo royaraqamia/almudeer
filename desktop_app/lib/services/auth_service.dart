@@ -42,16 +42,12 @@ class AuthService {
   Future<bool> login({
     required String username,
     required String password,
-    String? licenseKey,
   }) async {
     try {
       final body = <String, dynamic>{
         'username': username,
         'password': password,
       };
-      if (licenseKey != null) {
-        body['license_key'] = licenseKey;
-      }
 
       final response = await _apiClient.post(
         '/api/auth/login',

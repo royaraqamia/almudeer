@@ -14,7 +14,6 @@ class _SettingsPageState extends State<SettingsPage> {
   final _urlController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _licenseKeyController = TextEditingController();
 
   bool _isConnecting = false;
   bool _isHealthChecking = false;
@@ -37,7 +36,6 @@ class _SettingsPageState extends State<SettingsPage> {
     _urlController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
-    _licenseKeyController.dispose();
     super.dispose();
   }
 
@@ -93,7 +91,6 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _login() async {
     final username = _usernameController.text.trim();
     final password = _passwordController.text.trim();
-    final licenseKey = _licenseKeyController.text.trim();
 
     if (username.isEmpty || password.isEmpty) return;
 
@@ -102,7 +99,6 @@ class _SettingsPageState extends State<SettingsPage> {
     final success = await _authService.login(
       username: username,
       password: password,
-      licenseKey: licenseKey.isEmpty ? null : licenseKey,
     );
 
     setState(() {
@@ -130,7 +126,6 @@ class _SettingsPageState extends State<SettingsPage> {
     await _authService.logout();
     _usernameController.clear();
     _passwordController.clear();
-    _licenseKeyController.clear();
     setState(() {
       _connectionStatus = 'Logged out';
       _connectionStatusColor = Colors.grey;
@@ -266,15 +261,6 @@ class _SettingsPageState extends State<SettingsPage> {
                               labelText: 'Password',
                               border: OutlineInputBorder(),
                               prefixIcon: Icon(Icons.vpn_key),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: _licenseKeyController,
-                            decoration: const InputDecoration(
-                              labelText: 'License Key (optional)',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.key),
                             ),
                           ),
                           const SizedBox(height: 16),
