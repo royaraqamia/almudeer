@@ -29,6 +29,8 @@ RUN pip install --upgrade pip && \
 # Copy application code
 COPY . .
 
-# Run application
-# Shell form allows $PORT expansion
-CMD python -m uvicorn main:app --host 0.0.0.0 --port $PORT
+# Create startup script that runs migrations then starts the app
+RUN printf '#!/bin/bash\nset -e\n\necho "Running database migrations..."\nalembic upgrade head || echo "Warning: Alembic migration failed"\necho "Starting application server..."\nexec python -m uvicorn main:app --host 0.0.0.0 --port $PORT\n' > /app/start.sh && chmod +x /app/start.sh
+
+# Run startup script
+CMD ["/app/start.sh"]
