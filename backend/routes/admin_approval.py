@@ -16,7 +16,7 @@ All endpoints require admin authentication via X-Admin-Key header.
 """
 
 import os
-from fastapi import APIRouter, HTTPException, Depends, Header, Query
+from fastapi import APIRouter, HTTPException, Depends, Header, Query, Body
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
