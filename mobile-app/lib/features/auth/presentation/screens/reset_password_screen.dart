@@ -159,6 +159,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     autocorrect: false,
                     enableSuggestions: false,
                     obscureText: !_showPassword,
+                    enableInteractiveSelection: false, // P1-8 FIX
                     maxLines: 1,
                     suffixIcon: IconButton(
                       icon: Icon(
@@ -200,6 +201,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     autocorrect: false,
                     enableSuggestions: false,
                     obscureText: !_showConfirm,
+                    enableInteractiveSelection: false, // P1-8 FIX
                     maxLines: 1,
                     suffixIcon: IconButton(
                       icon: Icon(

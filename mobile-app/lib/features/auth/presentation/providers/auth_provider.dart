@@ -331,14 +331,26 @@ class AuthProvider extends ChangeNotifier {
       _refreshFailures = 0;
       notifyListeners();
     } catch (e) {
-      // P2-10 FIX: Track failures and force re-authentication after grace period
-      _refreshFailures++;
-      debugPrint('[AuthProvider] Silent refresh failed (attempt $_refreshFailures/$_maxRefreshFailures): $e');
+      // FIX: Differentiate network errors from auth errors
+      // Network errors (SocketException, TimeoutException) should NOT trigger forced logout
+      // Only auth errors (401, 403) should force re-authentication
+      final isNetworkError = e.toString().contains('SocketException') ||
+          e.toString().contains('TimeoutException') ||
+          e.toString().contains('انتهت مهلة') ||
+          e.toString().contains('تعذر الاتصال') ||
+          e.toString().contains('خطأ في تنسيق');
 
-      if (_refreshFailures >= _maxRefreshFailures) {
-        // P2-10 FIX: Force re-authentication after max failures
-        debugPrint('[AuthProvider] Max refresh failures reached, forcing re-authentication');
-        await logout(reason: 'ط§ظ†طھظ‡طھ ط§ظ„ط¬ظ„ط³ط©. ظٹط±ط¬ظ‰ طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„ ظ…ط±ط© ط£ط®ط±ظ‰');
+      if (!isNetworkError) {
+        _refreshFailures++;
+        debugPrint('[AuthProvider] Auth refresh failed (attempt $_refreshFailures/$_maxRefreshFailures): $e');
+
+        if (_refreshFailures >= _maxRefreshFailures) {
+          debugPrint('[AuthProvider] Max auth failures reached, forcing re-authentication');
+          await logout(reason: 'انتهت الجلسة. يرجى تسجيل الدخول مرة أخرى');
+        }
+      } else {
+        // Network error — don't increment failures, don't force logout
+        debugPrint('[AuthProvider] Network error during silent refresh (not forcing logout): $e');
       }
     }
   }
@@ -538,58 +550,48 @@ class AuthProvider extends ChangeNotifier {
     _isSwitching = true;
     try {
       // 1. CRITICAL FIX P0-9: Cancel old proactive refresh timer SYNCHRONOUSLY BEFORE any state changes
-      // This prevents race conditions where old timer fires after new account is set
       ApiClient().cancelProactiveRefresh();
 
-      // 2. Optimistic Update
-      _userInfo = user;
-      notifyListeners(); // UI updates instantly to new user name/avatar
-
-      // 3. Persist Key (Critical for API calls)
+      // 2. FIX: Persist key FIRST before notifying listeners (prevents race condition)
+      // If persistence fails, don't notify — avoid showing wrong user
       await _authRepository.storeLicenseKey(
         user.licenseKey!,
         id: user.licenseId,
       );
 
-      // 4. Increment account key to force widget rebuilds
+      // 3. NOW update state and notify (all persistence is done)
+      _userInfo = user;
       _accountKey++;
+      _state = AuthState.authenticated;
+      notifyListeners();
 
-      // 5. Notify listeners to reset other providers' data
+      // 4. Notify listeners to reset other providers' data
       _onAccountSwitch?.call();
 
-      // 6. Register FCM Token for the new active user
-      // This ensures the backend knows who owns this device now.
+      // 5. Register FCM Token for the new active user
       try {
         await _fcmService.registerTokenWithBackend();
       } catch (e) {
         debugPrint('Failed to register FCM after switch (non-fatal): $e');
       }
 
-      // 7. CRITICAL FIX P0-9: Schedule proactive token refresh SYNCHRONOUSLY after account switch
-      // This ensures the timer is for the correct account
+      // 6. CRITICAL FIX P0-9: Schedule proactive token refresh
       ApiClient().scheduleProactiveRefresh();
 
-      // 8. Background Refresh
-      // We refresh the user info to ensure the key is still valid and get fresh stats.
-      // This happens silently.
+      // 7. Background Refresh — get fresh user data
       try {
         final freshUser = await _authRepository.getUserInfo(
           key: user.licenseKey,
         );
         // Double check we haven't switched away again during the network call
         if (_userInfo?.licenseKey == user.licenseKey) {
-          // Update our object with fresh data but keep the key
           _userInfo = freshUser.copyWith(licenseKey: user.licenseKey);
-          // Persist fresh info to storage
           await _addToAccounts(_userInfo!);
+          notifyListeners();
         }
       } catch (e) {
         // Silent failure on background refresh is acceptable
       }
-
-      // Ensure state is authenticated
-      _state = AuthState.authenticated;
-      notifyListeners();
     } catch (e) {
       _errorMessage = 'ظپط´ظ„ ط§ظ„طھط¨ط¯ظٹظ„ ط¥ظ„ظ‰ ط§ظ„ط­ط³ط§ط¨';
       notifyListeners();
@@ -832,6 +834,15 @@ class AuthProvider extends ChangeNotifier {
 
   /// Login with email and password
   Future<bool> loginWithEmail(String email, String password) async {
+    // P1-7 FIX: Add rate limiting check (same as license key login)
+    if (isRateLimited) {
+      _errorMessage =
+          'للحماية حسابك، يرجى الانتظار $remainingLockoutMinutes دقيقة قبل المحاولة مجدداً';
+      _state = AuthState.error;
+      notifyListeners();
+      return false;
+    }
+
     _state = AuthState.loading;
     _errorMessage = null;
     notifyListeners();
@@ -840,6 +851,11 @@ class AuthProvider extends ChangeNotifier {
       final result = await _authRepository.loginWithEmail(email, password);
 
       if (result.valid) {
+        // P1-7 FIX: Clear rate limit state on successful login
+        _loginAttempts = 0;
+        _lockoutUntil = null;
+        await _clearRateLimitState();
+
         _userInfo = UserInfo(
           licenseId: result.licenseId,
           fullName: result.fullName ?? '',
@@ -872,14 +888,61 @@ class AuthProvider extends ChangeNotifier {
           notifyListeners();
           return false;
         }
+
+        // P1-7 FIX: Track failed attempts and apply lockout
+        _incrementAttempt();
+        if (result.retryAfterSeconds != null && result.retryAfterSeconds! > 0) {
+          _lockoutUntil = DateTime.now().add(
+            Duration(seconds: result.retryAfterSeconds!),
+          );
+          final minutes = result.retryAfterSeconds! ~/ 60;
+          _errorMessage = minutes > 0
+              ? 'تم حظر الحساب مؤقتاً. حاول مرة أخرى بعد $minutes دقائق'
+              : 'تم حظر الحساب مؤقتاً. حاول مرة أخرى بعد ${result.retryAfterSeconds} ثانية';
+        } else {
+          _errorMessage = result.error ?? 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
+        }
+
+        // P1-7 FIX: Persist rate limit state
+        await _saveRateLimitState();
+
         _state = AuthState.error;
-        _errorMessage = result.error ?? 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
         notifyListeners();
         return false;
       }
-    } catch (e) {
+    } on AuthenticationException catch (e) {
+      // P1-7 FIX: Track rate limiting from server response
+      if (e.statusCode == 429) {
+        _incrementAttempt();
+        // Extract retry-after if available
+        _lockoutUntil = DateTime.now().add(const Duration(minutes: 15));
+        await _saveRateLimitState();
+      }
       _state = AuthState.error;
-      _errorMessage = e.toString();
+      _errorMessage = e.message;
+      notifyListeners();
+      return false;
+    } on ApiException catch (e) {
+      // P1-7 FIX: Track rate limiting from server response
+      if (e.statusCode == 429 && e.retryAfterSeconds != null) {
+        _incrementAttempt();
+        _lockoutUntil = DateTime.now().add(
+          Duration(seconds: e.retryAfterSeconds!),
+        );
+        await _saveRateLimitState();
+      } else {
+        _incrementAttempt();
+      }
+      await _saveRateLimitState();
+      _state = AuthState.error;
+      _errorMessage = e.message;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _incrementAttempt();
+      await _saveRateLimitState();
+      _state = AuthState.error;
+      _errorMessage = 'تعذر الاتصال بالخادم. تأكد من اتصالك بالإنترنت وحاول مجدداً ($e)';
       notifyListeners();
       return false;
     }

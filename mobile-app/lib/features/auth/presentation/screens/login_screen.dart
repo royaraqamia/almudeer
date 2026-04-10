@@ -44,9 +44,14 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _handleEmailLogin() async {
     if (!_emailFormKey.currentState!.validate()) return;
 
+    // P2-14 FIX: Sanitize email input - trim and strip non-printable characters
+    final sanitizedEmail = _emailController.text
+        .trim()
+        .replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F]'), '');
+
     final authProvider = context.read<AuthProvider>();
     final success = await authProvider.loginWithEmail(
-      _emailController.text.trim(),
+      sanitizedEmail,
       _passwordController.text,
     );
 
@@ -232,43 +237,50 @@ class _LoginScreenState extends State<LoginScreen> {
       child: Column(
         children: [
           // Email Input
-          AppTextField(
-            controller: _emailController,
-            focusNode: _focusNode,
-            hintText: 'user@example.com',
-            keyboardType: TextInputType.emailAddress,
-            textInputAction: TextInputAction.next,
-            autocorrect: false,
-            enableSuggestions: false,
-            maxLines: 1,
-            validator: (value) {
-              if (value == null || value.isEmpty) return 'البريد الإلكتروني مطلوب';
-              final emailRegex = RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
-              if (!emailRegex.hasMatch(value)) return 'بريد إلكتروني غير صالح';
-              return null;
-            },
+          Semantics(
+            label: 'البريد الإلكتروني',
+            child: AppTextField(
+              controller: _emailController,
+              focusNode: _focusNode,
+              hintText: 'user@example.com',
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
+              autocorrect: false,
+              enableSuggestions: false,
+              maxLines: 1,
+              validator: (value) {
+                if (value == null || value.isEmpty) return 'البريد الإلكتروني مطلوب';
+                final emailRegex = RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
+                if (!emailRegex.hasMatch(value)) return 'بريد إلكتروني غير صالح';
+                return null;
+              },
+            ),
           ),
           const SizedBox(height: AppDimensions.spacing16),
 
           // Password Input
-          AppTextField(
-            controller: _passwordController,
-            focusNode: _focusNode,
-            hintText: 'كلمة المرور',
-            keyboardType: TextInputType.visiblePassword,
-            textInputAction: TextInputAction.done,
-            autocorrect: false,
-            enableSuggestions: false,
-            obscureText: !_showPassword,
-            maxLines: 1,
-            suffixIcon: IconButton(
-              icon: Icon(_showPassword ? SolarLinearIcons.eye : SolarLinearIcons.eyeClosed, size: 20),
-              onPressed: () => setState(() => _showPassword = !_showPassword),
+          Semantics(
+            label: 'كلمة المرور',
+            child: AppTextField(
+              controller: _passwordController,
+              focusNode: _focusNode,
+              hintText: 'كلمة المرور',
+              keyboardType: TextInputType.visiblePassword,
+              textInputAction: TextInputAction.done,
+              autocorrect: false,
+              enableSuggestions: false,
+              enableInteractiveSelection: false, // P1-8 FIX: Prevent text selection/copy
+              obscureText: !_showPassword,
+              maxLines: 1,
+              suffixIcon: IconButton(
+                icon: Icon(_showPassword ? SolarLinearIcons.eye : SolarLinearIcons.eyeClosed, size: 20),
+                onPressed: () => setState(() => _showPassword = !_showPassword),
+              ),
+              validator: (value) {
+                if (value == null || value.isEmpty) return 'كلمة المرور مطلوبة';
+                return null;
+              },
             ),
-            validator: (value) {
-              if (value == null || value.isEmpty) return 'كلمة المرور مطلوبة';
-              return null;
-            },
           ),
           const SizedBox(height: AppDimensions.spacing24),
 

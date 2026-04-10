@@ -359,6 +359,25 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Presence cleanup on startup: {e}")
 
+        # P3-25 FIX: Schedule periodic token blacklist cleanup
+        async def _token_cleanup_loop():
+            """Run token blacklist cleanup every 24 hours"""
+            from services.token_blacklist import cleanup_token_blacklist
+            while True:
+                try:
+                    await asyncio.sleep(86400)  # Every 24 hours
+                    await cleanup_token_blacklist()
+                    logger.info("Token blacklist cleanup completed")
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.error(f"Token blacklist cleanup failed: {e}")
+                    await asyncio.sleep(3600)  # Retry after 1 hour on failure
+
+        # Store task handle for cancellation on shutdown
+        app.state._token_cleanup_task = asyncio.create_task(_token_cleanup_loop())
+        logger.info("Token blacklist cleanup scheduled (every 24 hours)")
+
         print("Al-Mudeer Premium Backend Ready!")
         print("Customers & Notifications tables initialized")
         print("Background workers active for automatic message processing")
@@ -367,6 +386,17 @@ async def lifespan(app: FastAPI):
         raise
     yield
     # Shutdown
+    try:
+        # P3-25 FIX: Cancel token cleanup task
+        if hasattr(app.state, '_token_cleanup_task'):
+            app.state._token_cleanup_task.cancel()
+            try:
+                await app.state._token_cleanup_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("Token cleanup task cancelled")
+    except Exception as e:
+        logger.warning(f"Error canceling token cleanup task: {e}")
     try:
         await stop_message_polling()
         logger.info("Message polling workers stopped")

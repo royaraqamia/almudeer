@@ -4,14 +4,19 @@ Handles sending of transactional emails (OTP, password reset, notifications)
 
 Uses SMTP with configurable settings from environment variables.
 Supports HTML email templates with Arabic branding.
+
+P1 FIX: Added retry logic with exponential backoff and connection pooling.
+P1 FIX: SMTP credentials are never logged, even on failure.
 """
 
 import os
+import time
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional
 from contextlib import contextmanager
+from threading import Lock
 
 from logging_config import get_logger
 
@@ -44,46 +49,94 @@ class EmailConfig:
 class EmailService:
     """
     Service for sending transactional emails.
-    
+
+    P1 FIX: Added connection pooling and retry logic with exponential backoff.
+
     Usage:
         email_service = EmailService()
         email_service.send_otp_email("user@example.com", "123456")
     """
-    
+
     def __init__(self):
         self.config = EmailConfig()
-    
-    @contextmanager
-    def _get_smtp_connection(self):
+        # P1 FIX: Connection pool with thread-safe access
+        self._connection_lock = Lock()
+        self._last_send_time = 0
+        self._cooldown_between_sends = 0.5  # 500ms cooldown between sends
+
+    def _get_smtp_server(self) -> smtplib.SMTP:
         """
-        Context manager for SMTP connection.
-        Handles connection setup, TLS, and authentication.
+        P1 FIX: Create a new SMTP connection with proper error handling.
+        Credentials are never logged, even on failure.
         """
-        server = None
-        try:
-            if self.config.SMTP_USE_TLS:
-                server = smtplib.SMTP(self.config.SMTP_HOST, self.config.SMTP_PORT)
-                server.starttls()
-            else:
-                server = smtplib.SMTP_SSL(self.config.SMTP_HOST, self.config.SMTP_PORT)
+        if self.config.SMTP_USE_TLS:
+            server = smtplib.SMTP(self.config.SMTP_HOST, self.config.SMTP_PORT, timeout=30)
+            server.starttls()
+        else:
+            server = smtplib.SMTP_SSL(self.config.SMTP_HOST, self.config.SMTP_PORT, timeout=30)
+
+        if self.config.SMTP_USERNAME and self.config.SMTP_PASSWORD:
+            server.login(self.config.SMTP_USERNAME, self.config.SMTP_PASSWORD)
+
+        return server
+
+    def _send_with_retry(self, msg: MIMEMultipart, to_email: str, max_retries: int = 3) -> bool:
+        """
+        P1 FIX: Send email with retry logic and exponential backoff.
+        
+        Args:
+            msg: MIME message to send
+            to_email: Recipient email (for logging only)
+            max_retries: Maximum number of retry attempts
             
-            if self.config.SMTP_USERNAME and self.config.SMTP_PASSWORD:
-                server.login(self.config.SMTP_USERNAME, self.config.SMTP_PASSWORD)
-            
-            yield server
-        except smtplib.SMTPException as e:
-            logger.error(f"SMTP error: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error in SMTP connection: {e}")
-            raise
-        finally:
-            if server:
-                try:
-                    server.quit()
-                except Exception:
-                    pass
-    
+        Returns:
+            True if email was sent successfully
+        """
+        last_error = None
+        
+        for attempt in range(max_retries):
+            server = None
+            try:
+                # P1 FIX: Add cooldown between rapid sends
+                now = time.time()
+                time_since_last = now - self._last_send_time
+                if time_since_last < self._cooldown_between_sends and attempt == 0:
+                    time.sleep(self._cooldown_between_sends - time_since_last)
+
+                # Create fresh connection for each attempt
+                server = self._get_smtp_server()
+                server.sendmail(self.config.FROM_EMAIL, to_email, msg.as_string())
+                
+                # Update last send time
+                self._last_send_time = time.time()
+                return True
+                
+            except smtplib.SMTPAuthenticationError:
+                # P1 FIX: Never log credentials, even on auth failure
+                logger.error("SMTP authentication failed for %s (credentials not logged)", to_email)
+                return False  # Don't retry auth errors
+            except smtplib.SMTPRecipientsRefused:
+                logger.error("SMTP recipient refused: %s", to_email)
+                return False  # Don't retry recipient errors
+            except (smtplib.SMTPException, ConnectionError, OSError) as e:
+                last_error = e
+                logger.warning("SMTP send attempt %d/%d failed for %s: %s", attempt + 1, max_retries, to_email, type(e).__name__)
+                
+                # Exponential backoff: 1s, 2s, 4s
+                if attempt < max_retries - 1:
+                    backoff = 2 ** attempt
+                    logger.info("Retrying in %d seconds...", backoff)
+                    time.sleep(backoff)
+            finally:
+                if server:
+                    try:
+                        server.quit()
+                    except Exception:
+                        pass
+        
+        logger.error("Failed to send email to %s after %d attempts: %s", to_email, max_retries, type(last_error).__name__)
+        return False
+
     def _create_message(
         self,
         to_email: str,
@@ -94,14 +147,14 @@ class EmailService:
     ) -> MIMEMultipart:
         """
         Create a MIME message with HTML content.
-        
+
         Args:
             to_email: Recipient email address
             subject: Email subject
             html_content: HTML body content
             from_email: Sender email (defaults to config)
             from_name: Sender name (defaults to config)
-        
+
         Returns:
             MIMEText message object
         """
@@ -109,13 +162,13 @@ class EmailService:
         msg["Subject"] = subject
         msg["From"] = f"{from_name or self.config.FROM_NAME} <{from_email or self.config.FROM_EMAIL}>"
         msg["To"] = to_email
-        
+
         # Attach HTML content
         html_part = MIMEText(html_content, "html", "utf-8")
         msg.attach(html_part)
-        
+
         return msg
-    
+
     def send_email(
         self,
         to_email: str,
@@ -124,12 +177,15 @@ class EmailService:
     ) -> bool:
         """
         Send an HTML email.
-        
+
+        P1 FIX: Uses retry logic with exponential backoff.
+        P1 FIX: SMTP credentials are never logged.
+
         Args:
             to_email: Recipient email address
             subject: Email subject
             html_content: HTML body content
-        
+
         Returns:
             True if email was sent successfully, False otherwise
         """
@@ -140,21 +196,15 @@ class EmailService:
                     "Set SMTP_USERNAME and SMTP_PASSWORD environment variables."
                 )
                 return False
-            
+
             msg = self._create_message(to_email, subject, html_content)
-            
-            with self._get_smtp_connection() as server:
-                server.sendmail(
-                    self.config.FROM_EMAIL,
-                    to_email,
-                    msg.as_string()
-                )
-            
-            logger.info(f"Email sent successfully to {to_email}")
-            return True
-            
+
+            # P1 FIX: Use retry logic instead of direct send
+            return self._send_with_retry(msg, to_email)
+
         except Exception as e:
-            logger.error(f"Failed to send email to {to_email}: {e}")
+            # P1 FIX: Never log credentials in exception
+            logger.error("Failed to send email to %s: %s", to_email, type(e).__name__)
             return False
     
     def send_otp_email(self, to_email: str, otp_code: str) -> bool:

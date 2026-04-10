@@ -41,18 +41,22 @@ def get_allowed_origins() -> List[str]:
 SECURITY_HEADERS = {
     # Prevent clickjacking
     "X-Frame-Options": "DENY",
-    
+
     # Prevent MIME type sniffing
     "X-Content-Type-Options": "nosniff",
-    
+
     # Enable browser XSS protection
     "X-XSS-Protection": "1; mode=block",
-    
+
     # Referrer policy
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    
+
     # Permissions policy (disable dangerous features)
     "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+
+    # P2-15 FIX: HSTS header to enforce HTTPS
+    # max-age=31536000 = 1 year, includeSubDomains, preload ready
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
 }
 
 

@@ -44,9 +44,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
   Future<void> _handleSignUp() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // P2-14 FIX: Sanitize email input
+    final sanitizedEmail = _emailController.text
+        .trim()
+        .replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F]'), '');
+
     final authProvider = context.read<AuthProvider>();
     final success = await authProvider.signUp(
-      _emailController.text.trim(),
+      sanitizedEmail,
       _passwordController.text,
       _fullNameController.text.trim(),
     );
@@ -58,7 +63,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       // Navigate to OTP verification
       Navigator.of(context).pushNamed(
         AppRoutes.otpVerification,
-        arguments: {'email': _emailController.text.trim()},
+        arguments: {'email': sanitizedEmail},
       );
     }
   }
@@ -228,6 +233,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     autocorrect: false,
                     enableSuggestions: false,
                     obscureText: !_showPassword,
+                    enableInteractiveSelection: false, // P1-8 FIX
                     maxLines: 1,
                     suffixIcon: IconButton(
                       icon: Icon(

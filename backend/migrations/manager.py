@@ -525,3 +525,16 @@ async def ensure_library_attachments_table():
             except Exception as e:
                 logger.warning(f"Error ensuring library_attachments columns (SQLite): {e}")
 
+# Migration 007: Add last_login_ip columns for audit trail (P2-13 FIX)
+migration_manager.register_migration(
+    version=7,
+    name="add_last_login_ip",
+    up_sql="""
+        ALTER TABLE user_accounts ADD COLUMN last_login_ip VARCHAR(45);
+        ALTER TABLE license_keys ADD COLUMN last_login_ip VARCHAR(45);
+    """,
+    down_sql="""
+        -- SQLite doesn't support DROP COLUMN easily; no-op
+    """
+)
+

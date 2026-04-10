@@ -56,6 +56,7 @@ class AppTextField extends StatefulWidget {
   final TextCapitalization textCapitalization;
   final List<TextInputFormatter>? inputFormatters;
   final bool autofocus;
+  final bool enableInteractiveSelection;
 
   const AppTextField({
     super.key,
@@ -99,6 +100,7 @@ class AppTextField extends StatefulWidget {
     this.textCapitalization = TextCapitalization.none,
     this.inputFormatters,
     this.autofocus = false,
+    this.enableInteractiveSelection = true,
   });
 
   @override
@@ -376,6 +378,7 @@ class _AppTextFieldState extends State<AppTextField> {
               textCapitalization: widget.textCapitalization,
               inputFormatters: widget.inputFormatters,
               autofocus: widget.autofocus,
+              enableInteractiveSelection: widget.enableInteractiveSelection,
               decoration: InputDecoration(
                 hintText: widget.useFloatingLabel ? null : widget.hintText,
                 hintStyle:

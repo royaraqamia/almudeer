@@ -32,7 +32,7 @@ def _get_jwt_secret_key() -> str:
     key = os.getenv("JWT_SECRET_KEY")
     if key:
         return key
-    
+
     # SECURITY: No fallback - fail fast in ALL environments
     # This prevents accidental use of weak secrets
     logger.error(
@@ -50,9 +50,14 @@ class JWTConfig:
     """JWT configuration from environment"""
     secret_key: str = None  # Set in __post_init__
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = int(os.getenv("JWT_ACCESS_EXPIRE_MINUTES", "720"))
+    # FIX: Access tokens expire after 30 minutes (industry standard for short-lived tokens)
+    # Offline grace period allows expired tokens to work briefly for offline-first UX
+    access_token_expire_minutes: int = int(os.getenv("JWT_ACCESS_EXPIRE_MINUTES", "30"))
     refresh_token_expire_days: int = int(os.getenv("JWT_REFRESH_EXPIRE_DAYS", "7"))
-    
+    # Offline grace period: allow expired access tokens within this window for offline-first
+    # During grace period, API calls succeed but a background refresh is triggered
+    offline_grace_minutes: int = int(os.getenv("JWT_OFFLINE_GRACE_MINUTES", "60"))
+
     def __post_init__(self):
         if self.secret_key is None:
             self.secret_key = _get_jwt_secret_key()
@@ -73,7 +78,7 @@ class TokenType:
 
 def create_access_token(data: Dict[str, Any], expires_delta: timedelta = None) -> Tuple[str, str, datetime]:
     """
-    Create a JWT access token.
+    Create a JWT access token with proper expiration.
 
     Args:
         data: Payload data (should include 'sub' for subject/user ID)
@@ -83,26 +88,29 @@ def create_access_token(data: Dict[str, Any], expires_delta: timedelta = None) -
         Tuple of (encoded_token, jti, expiry_datetime)
     """
     to_encode = data.copy()
-    # OFFLINE-FIRST: Tokens never expire - no exp or nbf claims
     now = datetime.now(timezone.utc)
+
+    if expires_delta:
+        expire = now + expires_delta
+    else:
+        expire = now + timedelta(minutes=config.access_token_expire_minutes)
 
     # SECURITY FIX: Generate JTI with 32 bytes (256 bits) for collision resistance
     jti = secrets.token_hex(32)
 
     to_encode.update({
         "iat": now,
+        "exp": expire,
         "type": TokenType.ACCESS,
         "jti": jti,
     })
 
-    # Return a far-future expire for compatibility (but it's never checked)
-    expire = now + timedelta(days=365*10)  # 10 years
     return jwt.encode(to_encode, config.secret_key, algorithm=config.algorithm), jti, expire
 
 
 def create_refresh_token(data: Dict[str, Any], family_id: str = None) -> Tuple[str, str]:
     """
-    Create a JWT refresh token (longer expiration).
+    Create a JWT refresh token with proper expiration (longer than access token).
 
     Args:
         data: Payload data (should include 'sub' for subject/user ID)
@@ -111,14 +119,15 @@ def create_refresh_token(data: Dict[str, Any], family_id: str = None) -> Tuple[s
         Tuple of (encoded_token_string, jti)
     """
     to_encode = data.copy()
-    # OFFLINE-FIRST: Tokens never expire - no exp or nbf claims
     now = datetime.now(timezone.utc)
+    expire = now + timedelta(days=config.refresh_token_expire_days)
 
     # SECURITY FIX: Generate JTI with 32 bytes (256 bits) for collision resistance
     jti = secrets.token_hex(32)
 
     to_encode.update({
         "iat": now,
+        "exp": expire,
         "type": TokenType.REFRESH,
         "jti": jti,
     })
@@ -166,11 +175,15 @@ async def create_token_pair(
     ip_address: str = None,
     family_id: str = None,
     user_agent: str = None,
+    device_fingerprint: str = None,
 ) -> Dict[str, Any]:
     """
     Create both access and refresh tokens. Track device session for admin oversight.
 
     Note: Sessions are only revoked by admin action, not automatically.
+
+    SECURITY FIX: Device fingerprint is embedded in JWT to bind tokens to a specific device.
+    On refresh, the fingerprint is validated to prevent token replay from other devices.
     """
     # Fetch current token_version for the license to embed in JWT
     from database import get_db, fetch_one
@@ -205,6 +218,10 @@ async def create_token_pair(
         "v": token_version, # Token version for server-side kill-switch
         "family_id": family_id,
     }
+
+    # SECURITY FIX: Bind token to device fingerprint to prevent cross-device replay
+    if device_fingerprint:
+        payload["dfp"] = hashlib.sha256(device_fingerprint.encode()).hexdigest()[:16]
 
     access_token, jti, expires_at = await create_access_token_async(payload)
     refresh_token, refresh_jti = await create_refresh_token_async(payload, family_id=family_id)
@@ -269,7 +286,12 @@ async def create_token_pair(
 
 def verify_token(token: str, token_type: str = TokenType.ACCESS) -> Optional[Dict[str, Any]]:
     """
-    Verify and decode a JWT token.
+    Verify and decode a JWT token with proper expiration checking.
+
+    For access tokens, supports an offline grace period: if the token is
+    expired but within the grace window, it still validates successfully.
+    This enables offline-first UX — the client can make API calls while
+    offline, and a background refresh will be triggered.
 
     Args:
         token: JWT token string
@@ -279,12 +301,11 @@ def verify_token(token: str, token_type: str = TokenType.ACCESS) -> Optional[Dic
         Decoded payload or None if invalid
     """
     try:
-        # DISABLE EXPIRATION CHECK: For offline-first reliability, tokens never expire
         payload = jwt.decode(
             token,
             config.secret_key,
             algorithms=[config.algorithm],
-            options={"verify_exp": False}
+            options={"verify_exp": True}  # FIX: Re-enable expiration verification
         )
 
         # Verify token type
@@ -310,6 +331,49 @@ def verify_token(token: str, token_type: str = TokenType.ACCESS) -> Optional[Dic
         return payload
 
     except JWTError as e:
+        # OFFLINE-FIRST GRACE: If token is expired but within grace period,
+        # still allow the request. The client should refresh in background.
+        if token_type == TokenType.ACCESS:
+            try:
+                payload = jwt.decode(
+                    token,
+                    config.secret_key,
+                    algorithms=[config.algorithm],
+                    options={"verify_exp": False}  # Decode without verifying to check grace
+                )
+
+                exp_timestamp = payload.get("exp")
+                if exp_timestamp:
+                    exp_time = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
+                    now = datetime.now(timezone.utc)
+                    grace = timedelta(minutes=config.offline_grace_minutes)
+
+                    if now - exp_time <= grace:
+                        # Token expired but within grace period — allow with flag
+                        payload["_offline_grace"] = True
+                        logger.debug(f"Access token expired but within grace period ({(now - exp_time).total_seconds():.0f}s ago)")
+
+                        # Still check blacklist
+                        jti = payload.get("jti")
+                        if jti:
+                            from services.token_blacklist import is_token_blacklisted
+                            if is_token_blacklisted(jti):
+                                return None
+
+                        # Verify token type
+                        if payload.get("type") != token_type:
+                            return None
+
+                        return payload
+
+                # Outside grace period — reject
+                logger.debug(f"Access token expired outside grace period")
+                return None
+
+            except JWTError:
+                logger.debug(f"JWT verification failed (grace check): {e}")
+                return None
+
         logger.debug(f"JWT verification failed: {e}")
         return None
 
@@ -317,11 +381,17 @@ def verify_token(token: str, token_type: str = TokenType.ACCESS) -> Optional[Dic
 async def refresh_access_token(
     refresh_token: str,
     ip_address: str = None,
-    user_agent: str = None
+    user_agent: str = None,
+    device_fingerprint: str = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Use a refresh token to get a new access token and rotate the refresh token.
-    
+
+    SECURITY FIXES:
+    - Device fingerprint validation: prevents token replay from different devices
+    - IP change detection: flags suspicious refresh patterns for admin review
+    - Token version check: handles admin-initiated license-level revocation
+
     Note: Session revocation is only checked at the license level (admin action).
     Individual device sessions are NOT automatically revoked for better UX.
     """
@@ -333,9 +403,66 @@ async def refresh_access_token(
     jti = payload.get("jti")
     family_id = payload.get("family_id")
     license_id = payload.get("license_id")
+    stored_fingerprint = payload.get("dfp")
 
     if not license_id:
         return None
+
+    # SECURITY FIX: Validate device fingerprint
+    if device_fingerprint and stored_fingerprint:
+        provided_hash = hashlib.sha256(device_fingerprint.encode()).hexdigest()[:16]
+        if provided_hash != stored_fingerprint:
+            logger.warning(
+                f"Device fingerprint mismatch on refresh for license {license_id}. "
+                f"Token issued for dfp={stored_fingerprint}, got dfp={provided_hash}. "
+                f"Possible token replay attack."
+            )
+            # Reject refresh from different device — force re-authentication
+            return None
+    elif stored_fingerprint and not device_fingerprint:
+        # Token has fingerprint but refresh request doesn't provide one
+        # This is a migration path — allow but log
+        logger.info(
+            f"Refresh without device fingerprint for license {license_id} "
+            f"(token has dfp={stored_fingerprint}). Consider client update."
+        )
+
+    # SECURITY FIX: Detect suspicious IP changes (different geographic location)
+    if ip_address and family_id:
+        from database import DB_TYPE
+        from db_helper import get_db, fetch_one
+        try:
+            async with get_db() as db:
+                session = await fetch_one(
+                    db,
+                    "SELECT ip_address FROM device_sessions WHERE family_id = ?",
+                    [family_id]
+                )
+                if session and session.get("ip_address"):
+                    original_ip = session.get("ip_address")
+                    if original_ip != ip_address:
+                        logger.warning(
+                            f"IP change detected on refresh for license {license_id}, "
+                            f"family {family_id}: {original_ip} -> {ip_address}"
+                        )
+                        # Log as suspicious activity for admin review
+                        from services.security_logger import get_security_logger, SecurityEventType
+                        get_security_logger().log_event(
+                            SecurityEventType.SUSPICIOUS_ACTIVITY,
+                            identifier=f"license:{license_id}",
+                            ip_address=ip_address,
+                            details={
+                                "action": "ip_change_on_refresh",
+                                "original_ip": original_ip,
+                                "new_ip": ip_address,
+                                "family_id": family_id,
+                            },
+                            severity="WARNING"
+                        )
+                        # NOTE: We don't reject the refresh here — IP changes can be legitimate
+                        # (mobile networks, travel). Admin can review and revoke if needed.
+        except Exception as e:
+            logger.error(f"Error checking IP during refresh: {e}")
 
     # Token version check - this handles admin-initiated license-level revocation
     from database import validate_license_by_id
@@ -354,6 +481,7 @@ async def refresh_access_token(
             license_id=license_id,
             role=payload.get("role", "user"),
             ip_address=ip_address,
+            device_fingerprint=device_fingerprint,
         )
 
     # Update session metadata (last used, IP, device info)
@@ -410,7 +538,8 @@ async def refresh_access_token(
         role=payload.get("role", "user"),
         ip_address=ip_address,
         family_id=family_id,
-        user_agent=user_agent
+        user_agent=user_agent,
+        device_fingerprint=device_fingerprint,
     )
 
 
@@ -445,7 +574,7 @@ async def get_current_user(
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
+            detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -453,18 +582,18 @@ async def get_current_user(
     license_id = payload.get("license_id")
     if license_id:
         from database import validate_license_by_id
-        
+
         # This one call handles: Redis Cache, DB Fallback, Account Activity, and Token Versioning
         validation = await validate_license_by_id(
-            license_id, 
+            license_id,
             required_version=payload.get("v")
         )
-        
+
         if not validation.get("valid"):
             status_code = status.HTTP_401_UNAUTHORIZED
             if validation.get("code") == "ACCOUNT_DEACTIVATED":
                 status_code = status.HTTP_403_FORBIDDEN
-                
+
             raise HTTPException(
                 status_code=status_code,
                 detail=validation.get("error", "Invalid session"),
@@ -475,6 +604,7 @@ async def get_current_user(
         "user_id": payload.get("sub"),
         "license_id": payload.get("license_id"),
         "role": payload.get("role", "user"),
+        "offline_grace": payload.get("_offline_grace", False),
     }
 
 

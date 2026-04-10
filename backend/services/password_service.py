@@ -17,7 +17,9 @@ from logging_config import get_logger
 logger = get_logger(__name__)
 
 # Bcrypt configuration
-BCRYPT_ROUNDS = 12  # Security: Higher = more secure but slower (12 is recommended for 2024+)
+# P3-19 FIX: Increased from 12 to 14 rounds for 2026 security standards
+# 14 rounds = ~350ms per hash (vs ~90ms for 12 rounds) - significantly more resistant to GPU attacks
+BCRYPT_ROUNDS = 14
 
 
 def hash_password(password: str) -> str:

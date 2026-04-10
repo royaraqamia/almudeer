@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:almudeer_mobile_app/core/api/api_client.dart';
 import 'package:almudeer_mobile_app/core/api/endpoints.dart';
@@ -16,9 +17,10 @@ class AuthRepository {
   /// Validate a license key
   Future<LicenseValidation> validateLicense(String key) async {
     try {
+      final deviceFingerprint = await _apiClient.getDeviceFingerprint();
       final response = await _apiClient.post(
         Endpoints.login,
-        body: {'license_key': key},
+        body: {'license_key': key, 'device_fingerprint': deviceFingerprint},
         requiresAuth: false,
       );
 
@@ -107,11 +109,30 @@ class AuthRepository {
 
   /// Clear stored license key (logout)
   Future<void> logout() async {
-    try {
-      await _apiClient.post(Endpoints.logout, requiresAuth: true);
-    } catch (e) {
-      // Best effort
+    // FIX: Retry logout up to 3 times before clearing local tokens
+    // This ensures server-side session is invalidated when possible
+    int attempts = 0;
+    const maxAttempts = 3;
+    bool serverLogoutSuccess = false;
+
+    while (attempts < maxAttempts && !serverLogoutSuccess) {
+      try {
+        await _apiClient.post(Endpoints.logout, requiresAuth: true);
+        serverLogoutSuccess = true;
+      } catch (e) {
+        attempts++;
+        if (attempts < maxAttempts) {
+          // Exponential backoff: 500ms, 1s, 2s
+          await Future.delayed(Duration(milliseconds: 500 * (1 << (attempts - 1))));
+          debugPrint('[AuthRepository] Logout attempt $attempts failed, retrying: $e');
+        } else {
+          debugPrint('[AuthRepository] Server logout failed after $maxAttempts attempts: $e');
+          // Best effort — local tokens will still be cleared below
+        }
+      }
     }
+
+    // Always clear local tokens regardless of server logout success
     await _apiClient.clearLicenseKey();
   }
 
@@ -227,20 +248,23 @@ class AuthRepository {
   /// Login with email and password
   Future<LicenseValidation> loginWithEmail(String email, String password) async {
     try {
+      final deviceFingerprint = await _apiClient.getDeviceFingerprint();
       final response = await _apiClient.post(
         Endpoints.login,
-        body: {'email': email, 'password': password},
+        body: {'email': email, 'password': password, 'device_fingerprint': deviceFingerprint},
         requiresAuth: false,
       );
 
       final jwtAuth = JwtAuthResponse.fromJson(response);
 
       // Store tokens scoped to email
+      // FIX: Also store user_id for unique account identification
       await _apiClient.setLicenseInfo(
-        key: email, // Use email as key identifier for email-based auth
+        key: email,
         id: jwtAuth.user?.licenseId,
         accessToken: jwtAuth.accessToken,
         refreshToken: jwtAuth.refreshToken,
+        userId: jwtAuth.user?.userId,
       );
 
       return LicenseValidation(

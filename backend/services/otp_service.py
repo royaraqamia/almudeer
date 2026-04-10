@@ -8,11 +8,16 @@ Features:
 - Attempt limiting (max 5 attempts)
 - Rate limiting with cooldown period
 - Constant-time comparison to prevent timing attacks
+
+SECURITY FIX: OTPs are now hashed with HMAC-SHA256 using a server-side pepper
+instead of plain SHA-256. This prevents brute-force attacks if the database is
+compromised, since the attacker would also need the server pepper.
 """
 
 import os
 import secrets
 import hashlib
+import hmac
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
@@ -26,6 +31,27 @@ OTP_LENGTH = 6
 OTP_EXPIRY_MINUTES = int(os.getenv("OTP_EXPIRY_MINUTES", "10"))
 OTP_MAX_ATTEMPTS = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
 OTP_COOLDOWN_SECONDS = int(os.getenv("OTP_COOLDOWN_SECONDS", "60"))
+
+# SECURITY FIX: Server-side pepper for OTP hashing
+# This prevents attackers with DB read access from brute-forcing 6-digit OTPs
+# because they would also need the server-side pepper
+_OTP_PEPPER = os.getenv("OTP_HMAC_PEPPER", os.getenv("LICENSE_KEY_PEPPER", "default-dev-pepper"))
+
+
+def _hash_otp(otp_code: str) -> str:
+    """
+    Hash an OTP code using HMAC-SHA256 with a server-side pepper.
+
+    This is significantly more secure than plain SHA-256 because:
+    1. HMAC requires a secret key (the pepper) to compute
+    2. An attacker with only DB access cannot brute-force OTPs
+    3. Even with read access to both DB and code, they need runtime access to pepper
+    """
+    return hmac.new(
+        _OTP_PEPPER.encode(),
+        otp_code.encode(),
+        hashlib.sha256
+    ).hexdigest()
 
 
 class OTPService:
@@ -88,26 +114,25 @@ class OTPService:
                     "SELECT otp_expires_at FROM user_accounts WHERE id = ?",
                     [user_id]
                 )
-                
+
                 if last_otp_row and last_otp_row.get("otp_expires_at"):
                     otp_expires = last_otp_row["otp_expires_at"]
-                    # If otp_expires_at is in the future, we're still in cooldown
-                    # Cooldown is calculated from when OTP was last generated
+                    # P1 FIX: Correct cooldown calculation
+                    # otp_expires_at = generation_time + OTP_EXPIRY_MINUTES
+                    # So generation_time = otp_expires_at - OTP_EXPIRY_MINUTES
                     now = datetime.now(timezone.utc)
-                    # If OTP is still valid, enforce cooldown
-                    if otp_expires > now:
-                        time_since_generation = now - otp_expires + timedelta(minutes=OTP_EXPIRY_MINUTES)
-                        cooldown_remaining = timedelta(seconds=OTP_COOLDOWN_SECONDS) - time_since_generation
-                        
-                        if cooldown_remaining.total_seconds() > 0:
-                            return False, f"يرجى الانتظار {OTP_COOLDOWN_SECONDS} ثانية قبل طلب رمز جديد"
+                    generation_time = otp_expires - timedelta(minutes=OTP_EXPIRY_MINUTES)
+                    time_since_generation = now - generation_time
+
+                    if time_since_generation < timedelta(seconds=OTP_COOLDOWN_SECONDS):
+                        return False, f"يرجى الانتظار {OTP_COOLDOWN_SECONDS} ثانية قبل طلب رمز جديد"
                 
                 # Generate OTP
                 otp_code = self.generate_otp()
                 otp_expires_at = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
-                
-                # Hash OTP before storing (security best practice)
-                otp_hash = hashlib.sha256(otp_code.encode()).hexdigest()
+
+                # SECURITY FIX: Hash OTP with HMAC-SHA256 + server pepper
+                otp_hash = _hash_otp(otp_code)
                 
                 # Update user record with OTP details
                 await execute_sql(
@@ -153,8 +178,8 @@ class OTPService:
         from db_helper import get_db, fetch_one, execute_sql, commit_db
         
         try:
-            # Hash the input OTP for comparison
-            otp_hash = hashlib.sha256(otp_code.encode()).hexdigest()
+            # SECURITY FIX: Hash the input OTP with HMAC-SHA256 + server pepper
+            otp_hash = _hash_otp(otp_code)
             
             async with get_db() as db:
                 # Fetch user with OTP details
@@ -257,11 +282,12 @@ class OTPService:
                 otp_expires_at = user.get("otp_expires_at")
                 if otp_expires_at:
                     now = datetime.now(timezone.utc)
-                    time_since_generation = now - (otp_expires_at - timedelta(minutes=OTP_EXPIRY_MINUTES))
-                    cooldown_remaining = timedelta(seconds=OTP_COOLDOWN_SECONDS) - time_since_generation
-                    
-                    if cooldown_remaining.total_seconds() > 0:
-                        seconds_left = int(cooldown_remaining.total_seconds())
+                    # P1 FIX: Correct cooldown calculation
+                    generation_time = otp_expires_at - timedelta(minutes=OTP_EXPIRY_MINUTES)
+                    time_since_generation = now - generation_time
+
+                    if time_since_generation < timedelta(seconds=OTP_COOLDOWN_SECONDS):
+                        seconds_left = int(OTP_COOLDOWN_SECONDS - time_since_generation.total_seconds())
                         return False, f"يرجى الانتظار {seconds_left} ثانية قبل طلب رمز جديد"
                 
                 # Generate and send new OTP

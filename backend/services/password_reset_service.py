@@ -12,6 +12,7 @@ Features:
 import os
 import uuid
 import secrets
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
@@ -72,34 +73,39 @@ class PasswordResetService:
                     "SELECT id, is_email_verified FROM user_accounts WHERE email = ?",
                     [email.lower()]
                 )
-                
+
+                # P2-17 FIX: Always return success to prevent email enumeration
+                # This matches the behavior when email doesn't exist
                 if not user:
-                    # SECURITY: Don't reveal if email exists or not
-                    # Still return success to prevent email enumeration
                     logger.info(f"Password reset requested for non-existent email: {email}")
                     return True, ""
-                
-                # Check if email is verified
+
+                # P2-17 FIX: Don't reveal if email exists but is not verified
+                # Return same generic success message to prevent enumeration
                 if not user.get("is_email_verified"):
-                    return False, "يجب التحقق من البريد الإلكتروني أولاً"
+                    logger.info(f"Password reset requested for unverified email: {email}")
+                    return True, ""  # Same response as non-existent email
                 
                 # Generate reset token
                 reset_token = self.generate_reset_token()
                 reset_token_expires_at = datetime.now(timezone.utc) + timedelta(hours=RESET_TOKEN_EXPIRY_HOURS)
-                
-                # Store token in database
+
+                # P1 FIX: Hash token before storing (like OTP hashing)
+                reset_token_hash = hashlib.sha256(reset_token.encode()).hexdigest()
+
+                # Store hashed token in database
                 await execute_sql(
                     db,
                     """
-                    UPDATE user_accounts 
+                    UPDATE user_accounts
                     SET reset_token = ?, reset_token_expires_at = ?, updated_at = NOW()
                     WHERE id = ?
                     """,
-                    [reset_token, reset_token_expires_at, user["id"]]
+                    [reset_token_hash, reset_token_expires_at, user["id"]]
                 )
                 await commit_db(db)
-                
-                # Send reset email
+
+                # Send reset email with PLAIN token (user-readable)
                 email_service = get_email_service()
                 email_sent = await email_service.send_password_reset_email(email, reset_token)
                 
@@ -132,17 +138,20 @@ class PasswordResetService:
             is_valid, error_msg = validate_password_strength(new_password)
             if not is_valid:
                 return False, error_msg
-            
+
+            # P1 FIX: Hash input token for comparison with stored hash
+            token_hash = hashlib.sha256(token.encode()).hexdigest()
+
             async with get_db() as db:
-                # Find user with valid token
+                # Find user with valid token (using hashed comparison)
                 user = await fetch_one(
                     db,
                     """
-                    SELECT id, reset_token, reset_token_expires_at 
-                    FROM user_accounts 
+                    SELECT id, reset_token, reset_token_expires_at
+                    FROM user_accounts
                     WHERE reset_token = ?
                     """,
-                    [token]
+                    [token_hash]
                 )
                 
                 if not user:

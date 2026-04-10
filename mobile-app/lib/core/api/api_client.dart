@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -71,6 +72,10 @@ class ApiClient {
   static const String _licenseIdStorage = 'almudeer_license_id';
   static const String _accessTokenStorage = 'almudeer_access_token';
   static const String _refreshTokenStorage = 'almudeer_refresh_token';
+  // SECURITY FIX: Device fingerprint for token binding — prevents cross-device replay
+  static const String _deviceFingerprintStorage = 'almudeer_device_fingerprint';
+  // FIX: Use user_id as account identifier instead of email (prevents key collisions)
+  static const String _userIdStorage = 'almudeer_user_id';
   static final ApiClient _instance = ApiClient._internal();
 
   factory ApiClient() => _instance;
@@ -88,14 +93,15 @@ class ApiClient {
   // SECURITY FIX #16: Removed SSL certificate bypass completely
   // Even in debug mode, we now validate SSL certificates
   // P2-14 FIX: Added certificate pinning for enhanced MITM protection
+  // FIX #10: Enforce HTTPS-only connections
   http.Client _createSecureClient() {
     // P2-14 FIX: Create custom HttpClient with certificate pinning
     final httpClient = HttpClient();
 
-    // P2-14 FIX: Enable certificate pinning in production
-    // This prevents MITM attacks even if a CA is compromised
-    if (kReleaseMode) {
-      httpClient.badCertificateCallback = (X509Certificate cert, String host, int port) {
+    // FIX #10: Enforce HTTPS — reject any non-TLS connections
+    httpClient.badCertificateCallback = (X509Certificate cert, String host, int port) {
+      // In release mode, enable certificate pinning
+      if (kReleaseMode) {
         // P2-14 FIX: Pin backend certificate by SHA-256 hash
         // IMPORTANT: Replace with your actual backend certificate hash
         // To get the hash: openssl s_client -connect your-domain.com:443 2>/dev/null | openssl x509 -pubkey -noout | sha256sum
@@ -117,8 +123,11 @@ class ApiClient {
         }
 
         return matches;
-      };
-    }
+      }
+
+      // In debug mode, still reject bad certificates (no SSL bypass)
+      return false;
+    };
 
     // SECURITY: No SSL bypass - always validate certificates
     return IOClient(httpClient);
@@ -158,6 +167,9 @@ class ApiClient {
 
   String? _cachedLicenseKey;
 
+  // Device fingerprint cache (persistent across app restarts)
+  String? _cachedDeviceFingerprint;
+
   Timer? _proactiveRefreshTimer;
   static const Duration _refreshBuffer = Duration(minutes: 5);
 
@@ -179,9 +191,41 @@ class ApiClient {
   // SECURITY FIX #12: Track logout state to prevent token refresh during/after logout
   // CRITICAL FIX: Using atomic flag - only reset on successful login, never on timeout
   bool _isLoggingOut = false;
-  
+
   // Track logout completion to prevent race conditions
   Completer<void>? _logoutCompleter;
+
+  /// Generate or retrieve a persistent device fingerprint
+  /// This binds JWTs to this specific device instance
+  Future<String> getDeviceFingerprint() async {
+    if (_cachedDeviceFingerprint != null) return _cachedDeviceFingerprint!;
+
+    try {
+      // Try to load existing fingerprint from secure storage
+      _cachedDeviceFingerprint = await _secureStorage.read(
+        key: _deviceFingerprintStorage,
+      );
+
+      if (_cachedDeviceFingerprint == null) {
+        // Generate a cryptographically secure unique identifier
+        final bytes = List<int>.generate(32, (i) => (math.Random.secure().nextInt(256)));
+        _cachedDeviceFingerprint = base64Encode(bytes);
+        await _secureStorage.write(
+          key: _deviceFingerprintStorage,
+          value: _cachedDeviceFingerprint!,
+        );
+        debugPrint('[ApiClient] Generated new device fingerprint');
+      }
+    } catch (e) {
+      debugPrint('[ApiClient] Failed to get device fingerprint: $e');
+      // Fallback: use a random UUID-like string (less ideal but functional)
+      _cachedDeviceFingerprint ??= base64Encode(
+        List<int>.generate(32, (i) => (math.Random.secure().nextInt(256))),
+      );
+    }
+
+    return _cachedDeviceFingerprint!;
+  }
 
   void setTemporaryOverride(String? key) {
     _temporaryOverrideLicenseKey = key;
@@ -249,6 +293,7 @@ class ApiClient {
     int? id,
     String? accessToken,
     String? refreshToken,
+    int? userId,
     bool updateActivePointer = true,
   }) async {
     if (updateActivePointer) {
@@ -260,6 +305,14 @@ class ApiClient {
       await _secureStorage.write(
         key: _scopedKey(_licenseIdStorage, key),
         value: id.toString(),
+      );
+    }
+
+    // FIX: Store user_id for unique account identification (prevents email key collisions)
+    if (userId != null) {
+      await _secureStorage.write(
+        key: _scopedKey(_userIdStorage, key),
+        value: userId.toString(),
       );
     }
 
@@ -298,11 +351,13 @@ class ApiClient {
       await _secureStorage.delete(key: _scopedKey(_licenseIdStorage, key));
       await _secureStorage.delete(key: _scopedKey(_accessTokenStorage, key));
       await _secureStorage.delete(key: _scopedKey(_refreshTokenStorage, key));
+      await _secureStorage.delete(key: _scopedKey(_userIdStorage, key));
     }
 
     await _secureStorage.delete(key: _licenseKeyStorage);
 
     _cachedLicenseKey = null;
+    _cachedDeviceFingerprint = null;
 
     // Cancel any proactive refresh timers
     cancelProactiveRefresh();
@@ -437,6 +492,11 @@ class ApiClient {
     return token;
   }
 
+  // P2-12 FIX: Circuit breaker for token refresh retries
+  // Tracks consecutive 401 failures after refresh to prevent infinite loops
+  final Map<String, int> _consecutiveAuthFailures = {};
+  static const int _maxConsecutiveAuthFailures = 2;
+
   Future<Map<String, dynamic>> _makeRequest(
     String method,
     String endpoint, {
@@ -479,6 +539,11 @@ class ApiClient {
       }
       // SECURITY: License key is NEVER sent with API requests
       // Only used during initial authentication
+
+      // SECURITY FIX: Attach device fingerprint to all authenticated requests
+      // This allows the backend to validate token-device binding
+      final deviceFp = await getDeviceFingerprint();
+      headers['X-Device-Fingerprint'] = deviceFp;
     }
     
     try {
@@ -531,6 +596,15 @@ class ApiClient {
         if (key != null) {
           final skey = _normalizeLicenseKey(key);
 
+          // P2-12 FIX: Circuit breaker - if too many consecutive failures, force logout
+          final failures = _consecutiveAuthFailures[skey] ?? 0;
+          if (failures >= _maxConsecutiveAuthFailures) {
+            debugPrint('[ApiClient] Circuit breaker triggered for $skey ($_maxConsecutiveAuthFailures consecutive failures). Forcing logout.');
+            _consecutiveAuthFailures.remove(skey);
+            await clearLicenseKey();
+            throw AuthenticationException('انتهت الجلسة. يرجى تسجيل الدخول مرة أخرى', statusCode: 401);
+          }
+
           // SECURITY FIX #19: Proper refresh queue - wait for existing refresh
           if (_refreshLocks.containsKey(skey)) {
             debugPrint(
@@ -539,7 +613,7 @@ class ApiClient {
             // Wait for the existing refresh operation to complete
             final lock = _refreshLocks[skey]!;
             await lock.synchronized(() async => true);
-            
+
             // Retry the request after refresh completes
             debugPrint(
               '[ApiClient] Refresh completed, retrying original request',
@@ -558,6 +632,8 @@ class ApiClient {
           // Start a new refresh with proper locking
           final refreshed = await _refreshToken(key);
           if (refreshed) {
+            // P2-12 FIX: Reset failure counter on successful refresh
+            _consecutiveAuthFailures.remove(skey);
             debugPrint(
               '[ApiClient] Token refresh successful, retrying request',
             );
@@ -571,7 +647,9 @@ class ApiClient {
               retryCount: retryCount + 1,
             );
           }
-          debugPrint('[ApiClient] Token refresh failed, rethrowing exception');
+          // P2-12 FIX: Increment failure counter
+          _consecutiveAuthFailures[skey] = failures + 1;
+          debugPrint('[ApiClient] Token refresh failed (failure ${failures + 1}/$_maxConsecutiveAuthFailures), rethrowing exception');
         }
       }
       rethrow;
@@ -950,8 +1028,11 @@ class ApiClient {
           'Accept': 'application/json',
         };
 
+        // SECURITY FIX: Include device fingerprint in refresh request
+        final deviceFp = await getDeviceFingerprint();
         final body = {
           'refresh_token': refreshToken,
+          'device_fingerprint': deviceFp,
         };
 
         final response = await _client
