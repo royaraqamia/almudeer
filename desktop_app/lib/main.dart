@@ -20,7 +20,7 @@ void main() async {
     backgroundColor: Colors.transparent,
     skipTaskbar: false,
     titleBarStyle: TitleBarStyle.normal,
-    title: 'Al-Mudeer - المدير',
+    title: 'المدير',
   );
 
   windowManager.waitUntilReadyToShow(windowOptions, () async {
