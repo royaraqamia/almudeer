@@ -430,7 +430,7 @@ class MockAuthProvider extends ChangeNotifier implements AuthProvider {
   Future<bool> loginWithEmail(String email, String password) async => true;
 
   @override
-  Future<bool> signUp(String email, String password, String fullName) async => true;
+  Future<bool> signUp(String email, String password, String fullName, String username) async => true;
 
   @override
   Future<bool> verifyOTP(String email, String otpCode) async => true;

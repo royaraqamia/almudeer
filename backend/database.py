@@ -549,20 +549,10 @@ async def _init_postgresql_tables(conn):
 
 def hash_license_key(key: str, pepper: str = None) -> str:
     """
-    Hash a license key for storage using SHA-256.
-    
-    SECURITY: Uses SHA-256 to avoid storing plaintext keys.
-    While not as secure as peppered hashing, this provides basic protection.
-    
-    Args:
-        key: The license key to hash
-        pepper: Ignored (kept for API compatibility)
-    
-    Returns:
-        Hex-encoded SHA-256 hash of the license key
+    DEPRECATED: License key system has been removed.
+    This function is kept for backward compatibility only.
     """
-    import hashlib
-    return hashlib.sha256(key.encode('utf-8')).hexdigest()
+    raise NotImplementedError("License key system has been removed")
 
 
 async def generate_license_key(

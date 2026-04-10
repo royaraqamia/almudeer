@@ -45,11 +45,6 @@ class DataResponse(BaseModel, Generic[T]):
 
 # ============ Common Field Descriptions ============
 
-LICENSE_KEY_HEADER = {
-    "description": "License key for authentication",
-    "example": "MUDEER-XXXX-XXXX-XXXX",
-}
-
 ADMIN_KEY_HEADER = {
     "description": "Admin key for privileged operations",
     "example": "admin-secret-key",
@@ -61,7 +56,7 @@ ADMIN_KEY_HEADER = {
 OPENAPI_TAGS = [
     {
         "name": "Authentication",
-        "description": "License key validation and authentication",
+        "description": "Authentication and session management",
     },
     {
         "name": "Integrations",

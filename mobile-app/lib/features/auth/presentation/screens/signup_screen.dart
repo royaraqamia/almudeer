@@ -26,6 +26,7 @@ class SignUpScreen extends StatefulWidget {
 
 class _SignUpScreenState extends State<SignUpScreen> {
   final _fullNameController = TextEditingController();
+  final _usernameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
@@ -35,6 +36,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   @override
   void dispose() {
     _fullNameController.dispose();
+    _usernameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _focusNode.dispose();
@@ -44,8 +46,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
   Future<void> _handleSignUp() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // P2-14 FIX: Sanitize email input
+    // P2-14 FIX: Sanitize email and username input
     final sanitizedEmail = _emailController.text
+        .trim()
+        .replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F]'), '');
+    
+    final sanitizedUsername = _usernameController.text
         .trim()
         .replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F]'), '');
 
@@ -54,6 +60,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       sanitizedEmail,
       _passwordController.text,
       _fullNameController.text.trim(),
+      sanitizedUsername,
     );
 
     if (!mounted) return;
@@ -99,36 +106,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: AppDimensions.spacing24),
-
-                  // Icon
-                  RepaintBoundary(
-                    child: Container(
-                      width: AppDimensions.loginIconContainerSize,
-                      height: AppDimensions.loginIconContainerSize,
-                      margin: const EdgeInsets.only(bottom: AppDimensions.spacing24),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
-                        ),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                            blurRadius: 20,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        SolarLinearIcons.user,
-                        color: Colors.white,
-                        size: AppDimensions.loginIconSize,
-                      ),
-                    ),
-                  ),
+                  const SizedBox(height: AppDimensions.spacing32),
 
                   // Title
                   Text(
@@ -139,26 +117,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       color: theme.textTheme.headlineSmall?.color,
                     ),
                   ),
-                  const SizedBox(height: AppDimensions.spacing8),
-                  Text(
-                    'أدخل بريدك الإلكتروني لإنشاء حساب',
-                    style: TextStyle(
-                      fontSize: AppDimensions.loginSubtitleSize,
-                      color: theme.textTheme.bodySmall?.color,
-                    ),
-                  ),
                   const SizedBox(height: AppDimensions.spacing32),
 
                   // Full Name Input
-                  Text(
-                    'الاسم الكامل',
-                    style: TextStyle(
-                      fontSize: AppDimensions.loginLabelSize,
-                      fontWeight: FontWeight.w500,
-                      color: theme.textTheme.labelLarge?.color,
-                    ),
-                  ),
-                  const SizedBox(height: AppDimensions.spacing8),
                   AppTextField(
                     controller: _fullNameController,
                     focusNode: _focusNode,
@@ -180,20 +141,42 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   ),
                   const SizedBox(height: AppDimensions.spacing16),
 
-                  // Email Input
-                  Text(
-                    'البريد الإلكتروني',
-                    style: TextStyle(
-                      fontSize: AppDimensions.loginLabelSize,
-                      fontWeight: FontWeight.w500,
-                      color: theme.textTheme.labelLarge?.color,
-                    ),
+                  // Username Input
+                  AppTextField(
+                    controller: _usernameController,
+                    focusNode: _focusNode,
+                    hintText: 'اسم_المستخدم123',
+                    keyboardType: TextInputType.text,
+                    textInputAction: TextInputAction.next,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    maxLines: 1,
+                    textCapitalization: TextCapitalization.none,
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'اسم المستخدم مطلوب';
+                      }
+                      if (value.trim().length < 3) {
+                        return 'اسم المستخدم يجب أن يكون 3 أحرف على الأقل';
+                      }
+                      if (value.trim().length > 50) {
+                        return 'اسم المستخدم يجب أن يكون 50 حرفًا كحد أقصى';
+                      }
+                      // Validate alphanumeric, underscores, and hyphens only
+                      final usernameRegex = RegExp(r'^[a-zA-Z0-9_-]+$');
+                      if (!usernameRegex.hasMatch(value.trim())) {
+                        return 'اسم المستخدم يجب أن يحتوي على أحرف إنجليزية وأرقام وشرطات فقط';
+                      }
+                      return null;
+                    },
                   ),
-                  const SizedBox(height: AppDimensions.spacing8),
+                  const SizedBox(height: AppDimensions.spacing16),
+
+                  // Email Input
                   AppTextField(
                     controller: _emailController,
                     focusNode: _focusNode,
-                    hintText: 'user@example.com',
+                    hintText: 'البريد الإلكتروني',
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
                     autocorrect: false,
@@ -215,15 +198,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   const SizedBox(height: AppDimensions.spacing16),
 
                   // Password Input
-                  Text(
-                    'كلمة المرور',
-                    style: TextStyle(
-                      fontSize: AppDimensions.loginLabelSize,
-                      fontWeight: FontWeight.w500,
-                      color: theme.textTheme.labelLarge?.color,
-                    ),
-                  ),
-                  const SizedBox(height: AppDimensions.spacing8),
                   AppTextField(
                     controller: _passwordController,
                     focusNode: _focusNode,

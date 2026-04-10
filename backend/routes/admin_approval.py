@@ -7,7 +7,6 @@ Endpoints:
 - GET    /api/admin/users              - List all users with filters
 - POST   /api/admin/users/{user_id}/approve   - Approve a user
 - POST   /api/admin/users/{user_id}/reject    - Reject a user
-- POST   /api/admin/users/{user_id}/assign-license - Assign license to user
 - GET    /api/admin/users/{user_id}    - Get user details
 - PATCH  /api/admin/users/{user_id}    - Update user details
 - DELETE /api/admin/users/{user_id}    - Delete user
@@ -56,7 +55,6 @@ class UserAccountInfo(BaseModel):
     id: int
     email: str
     full_name: Optional[str] = None
-    license_key_id: Optional[int] = None
     is_email_verified: bool
     is_approved_by_admin: bool
     approval_status: str
@@ -83,7 +81,6 @@ class UserUpdateRequest(BaseModel):
     full_name: Optional[str] = None
     is_approved_by_admin: Optional[bool] = None
     approval_status: Optional[str] = None
-    license_key_id: Optional[int] = None
 
 
 # ============ Endpoints ============
@@ -98,17 +95,15 @@ async def list_pending_users(admin: bool = Depends(verify_admin_key)):
         rows = await fetch_all(
             db,
             """
-            SELECT ua.id, ua.email, ua.full_name, ua.license_key_id,
-                   ua.is_email_verified, ua.is_approved_by_admin, ua.approval_status,
-                   ua.created_at, ua.last_login,
-                   lk.is_active as license_active, lk.expires_at as license_expires_at
-            FROM user_accounts ua
-            LEFT JOIN license_keys lk ON ua.license_key_id = lk.id
-            WHERE ua.approval_status = 'pending'
-            ORDER BY ua.created_at DESC
+            SELECT id, email, full_name, username,
+                   is_email_verified, is_approved_by_admin, approval_status,
+                   created_at, last_login
+            FROM user_accounts
+            WHERE approval_status = 'pending'
+            ORDER BY created_at DESC
             """
         )
-        
+
         users = []
         for row in rows:
             row_dict = dict(row)
@@ -116,16 +111,14 @@ async def list_pending_users(admin: bool = Depends(verify_admin_key)):
                 "id": row_dict.get("id"),
                 "email": row_dict.get("email"),
                 "full_name": row_dict.get("full_name"),
-                "license_key_id": row_dict.get("license_key_id"),
+                "username": row_dict.get("username"),
                 "is_email_verified": row_dict.get("is_email_verified", False),
                 "is_approved_by_admin": row_dict.get("is_approved_by_admin", False),
                 "approval_status": row_dict.get("approval_status", "pending"),
                 "created_at": str(row_dict.get("created_at")) if row_dict.get("created_at") else None,
                 "last_login": str(row_dict.get("last_login")) if row_dict.get("last_login") else None,
-                "license_active": row_dict.get("license_active", None),
-                "license_expires_at": str(row_dict.get("license_expires_at")) if row_dict.get("license_expires_at") else None,
             })
-        
+
         return {
             "success": True,
             "users": users,
@@ -149,43 +142,40 @@ async def list_all_users(
         # Build dynamic query
         where_clauses = []
         params = []
-        
+
         if approval_status:
-            where_clauses.append("ua.approval_status = ?")
+            where_clauses.append("approval_status = ?")
             params.append(approval_status)
-        
+
         if is_email_verified is not None:
-            where_clauses.append("ua.is_email_verified = ?")
+            where_clauses.append("is_email_verified = ?")
             params.append(is_email_verified)
-        
+
         if search:
-            where_clauses.append("(ua.email LIKE ? OR ua.full_name LIKE ?)")
+            where_clauses.append("(email LIKE ? OR full_name LIKE ?)")
             search_param = f"%{search}%"
             params.extend([search_param, search_param])
-        
+
         where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
-        
+
         # Get total count
-        count_sql = f"SELECT COUNT(*) as total FROM user_accounts ua WHERE {where_sql}"
+        count_sql = f"SELECT COUNT(*) as total FROM user_accounts WHERE {where_sql}"
         count_row = await fetch_one(db, count_sql, params)
         total = count_row["total"] if count_row else 0
-        
+
         # Get paginated results
         data_sql = f"""
-            SELECT ua.id, ua.email, ua.full_name, ua.license_key_id,
-                   ua.is_email_verified, ua.is_approved_by_admin, ua.approval_status,
-                   ua.created_at, ua.last_login,
-                   lk.is_active as license_active, lk.expires_at as license_expires_at,
-                   lk.full_name as license_full_name, lk.username as license_username
-            FROM user_accounts ua
-            LEFT JOIN license_keys lk ON ua.license_key_id = lk.id
+            SELECT id, email, full_name, username,
+                   is_email_verified, is_approved_by_admin, approval_status,
+                   created_at, last_login
+            FROM user_accounts
             WHERE {where_sql}
-            ORDER BY ua.created_at DESC
+            ORDER BY created_at DESC
             LIMIT ? OFFSET ?
         """
         params.extend([limit, offset])
         rows = await fetch_all(db, data_sql, params)
-        
+
         users = []
         for row in rows:
             row_dict = dict(row)
@@ -193,18 +183,14 @@ async def list_all_users(
                 "id": row_dict.get("id"),
                 "email": row_dict.get("email"),
                 "full_name": row_dict.get("full_name"),
-                "license_key_id": row_dict.get("license_key_id"),
+                "username": row_dict.get("username"),
                 "is_email_verified": row_dict.get("is_email_verified", False),
                 "is_approved_by_admin": row_dict.get("is_approved_by_admin", False),
                 "approval_status": row_dict.get("approval_status", "pending"),
                 "created_at": str(row_dict.get("created_at")) if row_dict.get("created_at") else None,
                 "last_login": str(row_dict.get("last_login")) if row_dict.get("last_login") else None,
-                "license_active": row_dict.get("license_active", None),
-                "license_expires_at": str(row_dict.get("license_expires_at")) if row_dict.get("license_expires_at") else None,
-                "license_full_name": row_dict.get("license_full_name"),
-                "license_username": row_dict.get("license_username"),
             })
-        
+
         return {
             "success": True,
             "users": users,
@@ -226,37 +212,31 @@ async def get_user_details(
         user = await fetch_one(
             db,
             """
-            SELECT ua.*, 
-                   lk.license_key, lk.is_active as license_active, 
-                   lk.expires_at as license_expires_at, lk.created_at as license_created_at
-            FROM user_accounts ua
-            LEFT JOIN license_keys lk ON ua.license_key_id = lk.id
-            WHERE ua.id = ?
+            SELECT *
+            FROM user_accounts
+            WHERE id = ?
             """,
             [user_id]
         )
-        
+
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-        
+
         user_dict = dict(user)
-        
+
         return {
             "success": True,
             "user": {
                 "id": user_dict.get("id"),
                 "email": user_dict.get("email"),
                 "full_name": user_dict.get("full_name"),
-                "license_key_id": user_dict.get("license_key_id"),
+                "username": user_dict.get("username"),
                 "is_email_verified": user_dict.get("is_email_verified", False),
                 "is_approved_by_admin": user_dict.get("is_approved_by_admin", False),
                 "approval_status": user_dict.get("approval_status", "pending"),
                 "created_at": str(user_dict.get("created_at")) if user_dict.get("created_at") else None,
                 "last_login": str(user_dict.get("last_login")) if user_dict.get("last_login") else None,
                 "updated_at": str(user_dict.get("updated_at")) if user_dict.get("updated_at") else None,
-                "license_key": user_dict.get("license_key"),  # Already decrypted by DB layer
-                "license_active": user_dict.get("license_active"),
-                "license_expires_at": str(user_dict.get("license_expires_at")) if user_dict.get("license_expires_at") else None,
             }
         }
 
@@ -268,53 +248,44 @@ async def approve_user(
 ):
     """
     Approve a user account.
-    
+
     Flow:
     1. Update user_accounts: is_approved_by_admin=TRUE, approval_status='approved'
-    2. If user has license_key_id, also set license_keys.is_active=TRUE
-    3. Send approval notification email
+    2. Send approval notification email
     """
     from services.email_service import get_email_service
-    
+
     async with get_db() as db:
         # Check if user exists
         user = await fetch_one(
             db,
-            "SELECT id, email, full_name, license_key_id, is_approved_by_admin FROM user_accounts WHERE id = ?",
+            "SELECT id, email, full_name, is_approved_by_admin FROM user_accounts WHERE id = ?",
             [user_id]
         )
-        
+
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-        
+
         if user.get("is_approved_by_admin"):
             return UserApprovalResponse(
                 success=True,
                 message="المستخدم معتمد بالفعل",
                 user_id=user_id
             )
-        
+
         # Approve user
         await execute_sql(
             db,
             """
-            UPDATE user_accounts 
+            UPDATE user_accounts
             SET is_approved_by_admin = TRUE, approval_status = 'approved', updated_at = NOW()
             WHERE id = ?
             """,
             [user_id]
         )
-        
-        # Activate license if exists
-        if user.get("license_key_id"):
-            await execute_sql(
-                db,
-                "UPDATE license_keys SET is_active = TRUE WHERE id = ?",
-                [user.get("license_key_id")]
-            )
-        
+
         await commit_db(db)
-    
+
     # Send approval notification email
     try:
         email_service = get_email_service()
@@ -325,9 +296,9 @@ async def approve_user(
     except Exception as e:
         logger.error(f"Failed to send approval notification to {user['email']}: {e}")
         # Don't fail the approval if email fails
-    
+
     logger.info(f"User {user_id} approved by admin")
-    
+
     return UserApprovalResponse(
         success=True,
         message=f"تم اعتماد المستخدم {user.get('email')}",
@@ -343,119 +314,39 @@ async def reject_user(
 ):
     """
     Reject a user account.
-    
+
     Flow:
     1. Update user_accounts: approval_status='rejected'
-    2. Optionally deactivate license
     """
     async with get_db() as db:
         # Check if user exists
         user = await fetch_one(
             db,
-            "SELECT id, email, full_name, license_key_id FROM user_accounts WHERE id = ?",
+            "SELECT id, email, full_name FROM user_accounts WHERE id = ?",
             [user_id]
         )
-        
+
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-        
+
         # Reject user
         await execute_sql(
             db,
             """
-            UPDATE user_accounts 
+            UPDATE user_accounts
             SET approval_status = 'rejected', updated_at = NOW()
             WHERE id = ?
             """,
             [user_id]
         )
-        
-        # Optionally deactivate license
-        if user.get("license_key_id"):
-            await execute_sql(
-                db,
-                "UPDATE license_keys SET is_active = FALSE WHERE id = ?",
-                [user.get("license_key_id")]
-            )
-        
+
         await commit_db(db)
-    
+
     logger.info(f"User {user_id} rejected by admin. Reason: {reason or 'Not specified'}")
-    
+
     return UserApprovalResponse(
         success=True,
         message=f"تم رفض المستخدم {user.get('email')}",
-        user_id=user_id
-    )
-
-
-@router.post("/{user_id}/assign-license", response_model=UserApprovalResponse)
-async def assign_license_to_user(
-    user_id: int,
-    license_key: str = Body(..., embed=True),
-    admin: bool = Depends(verify_admin_key)
-):
-    """
-    Assign an existing license key to a user.
-    
-    Flow:
-    1. Validate license key
-    2. Update user_accounts.license_key_id
-    3. Approve user if not already approved
-    """
-    from database import validate_license_key
-    
-    # Validate license key
-    result = await validate_license_key(license_key)
-    if not result.get("valid"):
-        raise HTTPException(status_code=400, detail=f"مفتاح الاشتراك غير صالح: {result.get('error')}")
-    
-    license_id = result.get("license_id")
-    
-    async with get_db() as db:
-        # Check if user exists
-        user = await fetch_one(
-            db,
-            "SELECT id, email, license_key_id FROM user_accounts WHERE id = ?",
-            [user_id]
-        )
-        
-        if not user:
-            raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-        
-        # Check if license already assigned to another user
-        existing_assignment = await fetch_one(
-            db,
-            "SELECT id FROM user_accounts WHERE license_key_id = ? AND id != ?",
-            [license_id, user_id]
-        )
-        if existing_assignment:
-            raise HTTPException(
-                status_code=409,
-                detail="مفتاح الاشتراك هذا مرتبط بمستخدم آخر بالفعل"
-            )
-        
-        # Assign license to user
-        await execute_sql(
-            db,
-            """
-            UPDATE user_accounts 
-            SET license_key_id = ?, 
-                is_approved_by_admin = TRUE, 
-                approval_status = 'approved',
-                updated_at = NOW()
-            WHERE id = ?
-            """,
-            [license_id, user_id]
-        )
-        
-        await commit_db(db)
-    
-    logger.info(f"License {license_id} assigned to user {user_id} by admin")
-    
-    return UserApprovalResponse(
-        success=True,
-        message=f"تم تعيين مفتاح الاشتراك للمستخدم {user.get('email')}",
         user_id=user_id
     )
 
@@ -476,43 +367,39 @@ async def update_user(
             "SELECT id FROM user_accounts WHERE id = ?",
             [user_id]
         )
-        
+
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-        
+
         # Build update query dynamically
         updates = []
         params = []
-        
+
         if data.full_name is not None:
             updates.append("full_name = ?")
             params.append(data.full_name)
-        
+
         if data.is_approved_by_admin is not None:
             updates.append("is_approved_by_admin = ?")
             params.append(data.is_approved_by_admin)
-        
+
         if data.approval_status is not None:
             updates.append("approval_status = ?")
             params.append(data.approval_status)
-        
-        if data.license_key_id is not None:
-            updates.append("license_key_id = ?")
-            params.append(data.license_key_id)
-        
+
         if not updates:
             return {"success": True, "message": "لا توجد تغييرات"}
-        
+
         updates.append("updated_at = NOW()")
         params.append(user_id)
-        
+
         await execute_sql(
             db,
             f"UPDATE user_accounts SET {', '.join(updates)} WHERE id = ?",
             params
         )
         await commit_db(db)
-    
+
     return {"success": True, "message": "تم تحديث المستخدم"}
 
 
@@ -530,13 +417,13 @@ async def delete_user(
         # Check if user exists
         user = await fetch_one(
             db,
-            "SELECT id, email, license_key_id FROM user_accounts WHERE id = ?",
+            "SELECT id, email FROM user_accounts WHERE id = ?",
             [user_id]
         )
-        
+
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-        
+
         # Delete user (cascade will handle related records if configured)
         await execute_sql(
             db,
@@ -544,7 +431,7 @@ async def delete_user(
             [user_id]
         )
         await commit_db(db)
-    
+
     logger.warning(f"User {user_id} ({user.get('email')}) deleted by admin")
-    
+
     return {"success": True, "message": f"تم حذف المستخدم {user.get('email')}"}

@@ -781,13 +781,18 @@ class AuthProvider extends ChangeNotifier {
   // ==================== Email/Password Auth Methods ====================
 
   /// Sign up with email and password
-  Future<bool> signUp(String email, String password, String fullName) async {
+  Future<bool> signUp(String email, String password, String fullName, String username) async {
     _state = AuthState.loading;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      await _authRepository.signUp(email: email, password: password, fullName: fullName);
+      await _authRepository.signUp(
+        email: email,
+        password: password,
+        fullName: fullName,
+        username: username,
+      );
       _state = AuthState.unauthenticated;
       notifyListeners();
       return true;

@@ -96,7 +96,6 @@ try:
 except ImportError as e:
     logger.error(f"Failed to import routes: {e}")
     raise e
-from routes.subscription import router as subscription_router
 from security_config import SECURITY_HEADERS, ADMIN_KEY
 from security import sanitize_message, sanitize_string
 from workers import start_message_polling, stop_message_polling, start_subscription_reminders, stop_subscription_reminders, start_token_cleanup_worker, stop_token_cleanup_worker, start_library_trash_cleanup_worker, stop_library_trash_cleanup_worker, start_conversation_state_retry_processor, stop_conversation_state_retry_processor
@@ -566,7 +565,6 @@ app.include_router(devices_router)         # Device Pairing (P3-1/Nearby)
 app.include_router(transfers_router)       # Transfer Management (P3-1/Nearby)
 app.include_router(qr_codes_router)          # QR Code Generation & Verification
 app.include_router(tasks_router)           # Task Management
-app.include_router(subscription_router)    # Subscription Key Management
 app.include_router(global_assets_router)   # Admin Global Assets
 app.include_router(auth_router)             # Authentication (login, etc)
 app.include_router(admin_approval_router)   # Admin User Approval (approve/reject users)
@@ -671,7 +669,6 @@ v1_router.include_router(library_router)
 
 v1_router.include_router(export_router.router if hasattr(export_router, 'router') else export_router, prefix="")
 v1_router.include_router(notifications_router.router if hasattr(notifications_router, 'router') else notifications_router, prefix="")
-v1_router.include_router(subscription_router, prefix="")
 # Note: v1_router is prepared but routes already have /api/ prefix
 # Future versions can modify prefixes as needed
 

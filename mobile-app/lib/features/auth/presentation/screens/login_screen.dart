@@ -58,14 +58,14 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _handleEmailLogin() async {
     if (!_emailFormKey.currentState!.validate()) return;
 
-    // P2-14 FIX: Sanitize email input - trim and strip non-printable characters
-    final sanitizedEmail = _emailController.text
+    // P2-14 FIX: Sanitize input - trim and strip non-printable characters
+    final sanitizedInput = _emailController.text
         .trim()
         .replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F]'), '');
 
     final authProvider = context.read<AuthProvider>();
     final success = await authProvider.loginWithEmail(
-      sanitizedEmail,
+      sanitizedInput,
       _passwordController.text,
     );
 
@@ -164,35 +164,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     child: Column(
                       children: [
-                        // Icon
-                        RepaintBoundary(
-                          child: Container(
-                            width: AppDimensions.loginIconContainerSize,
-                            height: AppDimensions.loginIconContainerSize,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
-                              ),
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                                  blurRadius: 20,
-                                  offset: const Offset(0, 8),
-                                ),
-                              ],
-                            ),
-                            child: const Icon(
-                              SolarLinearIcons.user,
-                              color: Colors.white,
-                              size: AppDimensions.loginIconSize,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: AppDimensions.loginIconMarginTop),
-
                         // Title
                         Text(
                           'تسجيل الدخول',
@@ -200,14 +171,6 @@ class _LoginScreenState extends State<LoginScreen> {
                             fontSize: AppDimensions.loginTitleSize,
                             fontWeight: FontWeight.bold,
                             color: theme.textTheme.headlineSmall?.color,
-                          ),
-                        ),
-                        const SizedBox(height: AppDimensions.spacing8),
-                        Text(
-                          'أدخل بريدك الإلكتروني وكلمة المرور',
-                          style: TextStyle(
-                            fontSize: AppDimensions.loginSubtitleSize,
-                            color: theme.textTheme.bodySmall?.color,
                           ),
                         ),
                         const SizedBox(height: AppDimensions.spacing24),
@@ -250,22 +213,33 @@ class _LoginScreenState extends State<LoginScreen> {
       key: _emailFormKey,
       child: Column(
         children: [
-          // Email Input
+          // Email/Username Input
           Semantics(
-            label: 'البريد الإلكتروني',
+            label: 'البريد الإلكتروني أو اسم المستخدم',
             child: AppTextField(
               controller: _emailController,
               focusNode: _focusNode,
-              hintText: 'user@example.com',
-              keyboardType: TextInputType.emailAddress,
+              hintText: 'البريد الإلكتروني أو اسم المستخدم',
+              keyboardType: TextInputType.text,
               textInputAction: TextInputAction.next,
               autocorrect: false,
               enableSuggestions: false,
               maxLines: 1,
               validator: (value) {
-                if (value == null || value.isEmpty) return 'البريد الإلكتروني مطلوب';
+                if (value == null || value.isEmpty) {
+                  return 'البريد الإلكتروني أو اسم المستخدم مطلوب';
+                }
+                // Check if it looks like an email
                 final emailRegex = RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
-                if (!emailRegex.hasMatch(value)) return 'بريد إلكتروني غير صالح';
+                final isEmail = emailRegex.hasMatch(value);
+                
+                // If not email, validate username format
+                if (!isEmail) {
+                  final usernameRegex = RegExp(r'^[a-zA-Z0-9_-]{3,50}$');
+                  if (!usernameRegex.hasMatch(value)) {
+                    return 'اسم المستخدم يجب أن يكون 3-50 حرفًا (أحرف، أرقام، شرطات)';
+                  }
+                }
                 return null;
               },
             ),

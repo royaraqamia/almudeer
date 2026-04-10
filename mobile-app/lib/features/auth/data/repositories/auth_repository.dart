@@ -198,11 +198,17 @@ class AuthRepository {
     required String email,
     required String password,
     required String fullName,
+    required String username,
   }) async {
     try {
       final response = await _apiClient.post(
         Endpoints.signup,
-        body: {'email': email, 'password': password, 'full_name': fullName},
+        body: {
+          'email': email,
+          'password': password,
+          'full_name': fullName,
+          'username': username,
+        },
         requiresAuth: false,
       );
       return response;
