@@ -12,6 +12,7 @@ import 'package:synchronized/synchronized.dart';
 import 'package:mime/mime.dart';
 import '../services/security_event_service.dart';
 import '../services/connectivity_service.dart';
+import '../errors/error_codes.dart';
 import 'endpoints.dart';
 
 /// Default timeout for HTTP requests
@@ -103,15 +104,20 @@ class ApiClient {
       // In release mode, enable certificate pinning
       if (kReleaseMode) {
         // P2-14 FIX: Pin backend certificate by SHA-256 hash
-        // IMPORTANT: Replace with your actual backend certificate hash
-        // To get the hash: openssl s_client -connect your-domain.com:443 2>/dev/null | openssl x509 -pubkey -noout | sha256sum
-        const String expectedCertHash = 'sha256/REPLACE_WITH_YOUR_ACTUAL_CERT_HASH=';
+        // To get the hash, run:
+        //   openssl s_client -connect almudeer.up.railway.app:443 2>/dev/null | openssl x509 -pubkey -noout | sha256sum
+        // Or from Dart: print(base64Encode(sha256.convert(cert.der).bytes))
+        // P3-24 FIX: Configure via environment variable CERT_PINNING_HASH
+        const String expectedCertHash = String.fromEnvironment(
+          'CERT_PINNING_HASH',
+          defaultValue: '',
+        );
 
-        if (expectedCertHash == 'sha256/REPLACE_WITH_YOUR_ACTUAL_CERT_HASH=') {
-          // P2-14 FIX: If hash not configured, fall back to standard validation
-          // This is safe - we still validate the certificate chain
-          debugPrint('[ApiClient] Certificate pinning not configured - using standard validation');
-          return false; // Reject bad certificates even if pinning not configured
+        if (expectedCertHash.isEmpty) {
+          // P3-24 FIX: If pinning not configured, fall back to standard TLS validation
+          // This is safe — the certificate chain is still validated by the OS
+          debugPrint('[ApiClient] Certificate pinning not configured — using standard TLS validation');
+          return false; // Reject bad certificates
         }
 
         // Verify certificate hash matches pinned hash
@@ -914,13 +920,20 @@ class ApiClient {
     } else if (errorData.containsKey('message')) {
       errorMessage = errorData['message'] as String;
     }
+
+    // Extract error code for localization
+    final String? errorCode = errorData['code'] as String?;
+
+    // FIX: Use error code mapping for localized messages
+    // If backend sends a recognized error code, use the localized version
+    // Otherwise fall back to the backend's message
+    final localizedMessage = AppErrorCodes.getLocalizedMessage(errorCode, errorMessage);
+
     switch (statusCode) {
       case 401:
-        throw AuthenticationException(errorMessage, statusCode: statusCode);
+        throw AuthenticationException(localizedMessage, statusCode: statusCode);
       case 403:
         // SECURITY FIX #26: Only emit account disabled for specific error codes
-        // Use backend error codes instead of keyword matching to prevent false positives
-        final errorCode = errorData['code'] as String?;
         final isAccountDisabled =
             errorCode == 'ACCOUNT_DEACTIVATED' ||
             errorCode == 'SESSION_REVOKED' ||
@@ -929,42 +942,38 @@ class ApiClient {
         if (isAccountDisabled) {
           SecurityEventService().emit(SecurityEvent.accountDisabled);
         }
-        // Include full error data for PENDING_APPROVAL detection
         throw ApiException(
-          errorMessage,
+          localizedMessage,
           statusCode: statusCode,
           code: errorCode,
           data: detail is Map<String, dynamic> ? detail : errorData,
         );
       case 404:
-        // Check if this is an ITEM_NOT_FOUND error
-        final errorCode = errorData['code'] as String?;
         if (errorCode == 'ITEM_NOT_FOUND') {
-          // Try to extract item ID from the URL path
           int? itemId;
           final pathParts = response.request?.url.path.split('/');
           if (pathParts != null) {
-            // Find the segment before the item ID (e.g., /api/library/254048570)
             final itemIndex = pathParts.indexWhere((p) => p.isNotEmpty && int.tryParse(p) != null);
             if (itemIndex >= 0) {
               itemId = int.tryParse(pathParts[itemIndex]);
             }
           }
-          throw ItemNotFoundException(errorMessage, itemId: itemId);
+          throw ItemNotFoundException(localizedMessage, itemId: itemId);
         }
-        throw ApiException(errorMessage, statusCode: statusCode, code: errorCode);
+        throw ApiException(localizedMessage, statusCode: statusCode, code: errorCode);
       case 429:
         throw ApiException(
-          errorMessage,
+          localizedMessage,
           statusCode: statusCode,
           retryAfterSeconds: retryAfter,
+          code: errorCode,
         );
       case 500:
       case 502:
       case 503:
-        throw ApiException(errorMessage, statusCode: statusCode);
+        throw ApiException(localizedMessage, statusCode: statusCode, code: errorCode);
       default:
-        throw ApiException(errorMessage, statusCode: statusCode);
+        throw ApiException(localizedMessage, statusCode: statusCode, code: errorCode);
     }
   }
 

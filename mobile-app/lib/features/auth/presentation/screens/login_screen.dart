@@ -10,6 +10,7 @@ import 'package:almudeer_mobile_app/core/widgets/app_text_field.dart';
 import 'package:almudeer_mobile_app/core/widgets/app_gradient_button.dart';
 import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:almudeer_mobile_app/core/utils/haptics.dart';
+import 'package:almudeer_mobile_app/core/services/biometric_service.dart';
 
 /// Login screen with email/password authentication
 ///
@@ -39,6 +40,19 @@ class _LoginScreenState extends State<LoginScreen> {
     _passwordController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  /// P2-18: Handle biometric authentication
+  Future<void> _handleBiometricLogin() async {
+    final biometricService = BiometricService.instance;
+    final authenticated = await biometricService.authenticate();
+    if (!mounted) return;
+
+    if (authenticated) {
+      Haptics.mediumTap();
+      // Biometric verified - navigate to dashboard
+      Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.dashboard, (route) => false);
+    }
   }
 
   Future<void> _handleEmailLogin() async {
@@ -308,6 +322,34 @@ class _LoginScreenState extends State<LoginScreen> {
                 isLoading: auth.isLoading,
                 gradientColors: [theme.colorScheme.primary, theme.colorScheme.secondary],
                 showShadow: true,
+              );
+            },
+          ),
+
+          // P2-18: Biometric login button
+          FutureBuilder<bool>(
+            future: BiometricService.instance.isBiometricAvailable(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData || !snapshot.data!) return const SizedBox.shrink();
+              return FutureBuilder<bool>(
+                future: BiometricService.instance.isBiometricEnabled(),
+                builder: (context, enabledSnapshot) {
+                  if (!enabledSnapshot.hasData || !enabledSnapshot.data!) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: AppDimensions.spacing16),
+                    child: OutlinedButton.icon(
+                      onPressed: _handleBiometricLogin,
+                      icon: const Icon(Icons.fingerprint, size: 20),
+                      label: const Text('تسجيل الدخول بالبصمة'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  );
+                },
               );
             },
           ),
