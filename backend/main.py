@@ -44,13 +44,11 @@ DEBUG_ERRORS = os.getenv("DEBUG_ERRORS", "0") == "1"
 
 from database import (
     init_database,
-    create_demo_license,
     validate_license_key,
     increment_usage,
     save_crm_entry,
     get_crm_entries,
     get_entry_by_id,
-    generate_license_key,
 )
 from schemas import (
     ProcessingResponse,
@@ -59,7 +57,6 @@ from schemas import (
     CRMListResponse,
     CRMListResponse,
     HealthCheck,
-    LicenseKeyCreate,
     MessageInput,
 )
 from models import (
@@ -220,12 +217,7 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Int32 range fix migration warning: {e}")
         
-        demo_key = await create_demo_license()
-        if demo_key:
-            logger.info(f"Demo license key created: {demo_key[:20]}...")
-            print(f"\n{'='*50}")
-            print(f"Demo License Key: {demo_key}")
-            print(f"{'='*50}\n")
+        # Demo license creation removed - license key system has been deprecated
         
         # Start background workers for message polling
         try:
@@ -719,26 +711,7 @@ async def verify_admin(x_admin_key: str = Header(None, alias="X-Admin-Key")):
         )
 
 
-@app.post("/api/admin/license/create", tags=["Admin"])
-async def create_license(data: LicenseKeyCreate, _: None = Depends(verify_admin)):
-    """
-    Create a new license key (admin only).
-    
-    Requires: X-Admin-Key header
-    
-    Args:
-        data: License key creation request
-        
-    Returns:
-        Generated license key
-    """
-    logger.info(f"Creating license for user: {data.full_name}")
-    key = await generate_license_key(
-        full_name=data.full_name,
-        days_valid=data.days_valid
-    )
-    logger.info(f"License created: {key[:20]}...")
-    return {"success": True, "license_key": key}
+# License creation endpoint removed - license key system has been deprecated
 
 
 # ============ Protected Routes (Require License Key) ============

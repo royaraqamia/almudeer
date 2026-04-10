@@ -51,6 +51,7 @@ redis==5.0.1
 
 # Database (PostgreSQL support)
 asyncpg==0.29.0
+psycopg2-binary==2.9.10
 
 # Database migrations
 alembic==1.13.1

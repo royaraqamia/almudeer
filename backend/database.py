@@ -7,7 +7,6 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import hashlib
-import secrets
 
 from db_helper import (
     get_db,
@@ -547,111 +546,8 @@ async def _init_postgresql_tables(conn):
     """)
 
 
-def hash_license_key(key: str, pepper: str = None) -> str:
-    """
-    DEPRECATED: License key system has been removed.
-    This function is kept for backward compatibility only.
-    """
-    raise NotImplementedError("License key system has been removed")
-
-
-async def generate_license_key(
-    full_name: str,
-    days_valid: int = 365,
-    is_trial: bool = False,
-    referred_by_id: Optional[int] = None,
-    username: Optional[str] = None
-) -> str:
-    """Generate a new license key and store it in the database"""
-    # SECURITY: Generate high-entropy license key format: MUDEER-XXXXXXXX-XXXXXXXX-XXXXXXXX
-    # Each segment is 8 hex chars (4 bytes = 32 bits), total = 96 bits of entropy + prefix
-    raw_key = f"MUDEER-{secrets.token_hex(4).upper()}-{secrets.token_hex(4).upper()}-{secrets.token_hex(4).upper()}"
-    key_hash = hash_license_key(raw_key)
-    
-    # Generate a unique referral code (short)
-    referral_code = secrets.token_hex(3).upper() # 6 characters
-    
-    # Encrypt the original key for storage
-    from security import encrypt_sensitive_data
-    encrypted_key = encrypt_sensitive_data(raw_key)
-    
-    expires_at = datetime.now() + timedelta(days=days_valid)
-    
-    from db_helper import get_db, execute_sql, fetch_one, commit_db
-    
-    async with get_db() as db:
-        try:
-            if DB_TYPE == "postgresql":
-                if referred_by_id:
-                    # Use a CTE to insert and increment referral count atomically
-                    # Note: db_pool handles postgres parameter replacement automatically
-                    row = await fetch_one(db, """
-                        WITH new_key AS (
-                            INSERT INTO license_keys (key_hash, license_key_encrypted, full_name, expires_at, is_trial, referred_by_id, referral_code, username)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            RETURNING id, referred_by_id
-                        )
-                        UPDATE license_keys 
-                        SET referral_count = referral_count + 1 
-                        FROM new_key WHERE license_keys.id = new_key.referred_by_id
-                        RETURNING new_key.id
-                    """, [key_hash, encrypted_key, full_name, expires_at, is_trial, referred_by_id, referral_code, username])
-                else:
-                    row = await fetch_one(db, """
-                        INSERT INTO license_keys (key_hash, license_key_encrypted, full_name, expires_at, is_trial, referred_by_id, referral_code, username)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        RETURNING id
-                    """, [key_hash, encrypted_key, full_name, expires_at, is_trial, referred_by_id, referral_code, username])
-                
-                return raw_key
-            else:
-                cursor = await execute_sql(db, """
-                    INSERT INTO license_keys (key_hash, license_key_encrypted, full_name, expires_at, is_trial, referred_by_id, referral_code, username)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (key_hash, encrypted_key, full_name, expires_at.isoformat(), is_trial, referred_by_id, referral_code, username))
-                
-                if referred_by_id:
-                    await execute_sql(db, "UPDATE license_keys SET referral_count = referral_count + 1 WHERE id = ?", [referred_by_id])
-                
-                await commit_db(db)
-                return raw_key
-        except Exception as e:
-            from logging_config import get_logger
-            get_logger(__name__).error(f"Failed to generate license key: {e}")
-            raise
-    
-    return raw_key
-
-
-async def get_license_key_by_id(license_id: int) -> Optional[str]:
-    """Get the original license key by ID (decrypted)"""
-    from security import decrypt_sensitive_data
-    from logging_config import get_logger
-    
-    logger = get_logger(__name__)
-    
-    from db_helper import get_db, fetch_one
-    
-    async with get_db() as db:
-        row = await fetch_one(db, """
-            SELECT license_key_encrypted FROM license_keys WHERE id = ?
-        """, [license_id])
-        
-        if not row:
-            logger.warning(f"Subscription {license_id} not found")
-            return None
-        
-        if not row.get('license_key_encrypted'):
-            logger.warning(f"License key encrypted field is NULL for subscription {license_id} - this is an old subscription created before encryption was added")
-            return None
-        
-        encrypted_key = row['license_key_encrypted']
-        try:
-            decrypted = decrypt_sensitive_data(encrypted_key)
-            return decrypted
-        except Exception as e:
-            logger.error(f"Failed to decrypt license key for subscription {license_id}: {e}")
-            return None
+# License key functions removed - system has been deprecated
+# hash_license_key, generate_license_key, get_license_key_by_id removed
 
 
 async def validate_license_key(key: str) -> dict:
@@ -911,22 +807,7 @@ async def get_entry_by_id(entry_id: int, license_id: int) -> Optional[dict]:
         return dict(row) if row else None
 
 
-# Initialize demo license key for testing
-async def create_demo_license():
-    """Create a demo license key if none exists"""
-    async with get_db() as db:
-        row = await fetch_one(db, "SELECT COUNT(*) as count FROM license_keys")
-        count = row["count"] if row else 0
-    
-    if count == 0:
-        # Create demo license
-        demo_key = await generate_license_key(
-            full_name="مستخدم تجريبي",
-            days_valid=365
-        )
-        print(f"Demo License Key Created: {demo_key}")
-        return demo_key
-    return None
+# Demo license creation removed - license key system has been deprecated
 
 
 async def get_customer(contact: str) -> Optional[dict]:
