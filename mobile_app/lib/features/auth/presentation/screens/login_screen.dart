@@ -120,6 +120,13 @@ class _LoginScreenState extends State<LoginScreen> {
         arguments: {'email': sanitizedEmail},
         (route) => false,
       );
+    } else if (authProvider.state == AuthState.emailNotVerified) {
+      Haptics.mediumTap();
+      // Navigate to OTP verification screen
+      Navigator.of(context).pushNamed(
+        AppRoutes.otpVerification,
+        arguments: {'email': sanitizedEmail},
+      );
     }
   }
 

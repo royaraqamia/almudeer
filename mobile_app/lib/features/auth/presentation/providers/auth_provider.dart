@@ -12,7 +12,7 @@ import 'package:almudeer_mobile_app/core/services/persistent_cache_service.dart'
 import 'dart:async';
 
 /// Authentication state
-enum AuthState { initial, loading, authenticated, unauthenticated, error, pendingApproval }
+enum AuthState { initial, loading, authenticated, unauthenticated, error, pendingApproval, emailNotVerified }
 
 /// Authentication provider for managing login state
 class AuthProvider extends ChangeNotifier {
@@ -924,6 +924,14 @@ class AuthProvider extends ChangeNotifier {
         if (result.approvalStatus == 'pending') {
           _state = AuthState.pendingApproval;
           _errorMessage = result.error ?? 'حسابك قيد المراجعة';
+          notifyListeners();
+          return false;
+        }
+
+        // Check for email not verified
+        if (result.error != null && result.error!.contains('يجب التحقق من البريد الإلكتروني')) {
+          _state = AuthState.emailNotVerified;
+          _errorMessage = result.error;
           notifyListeners();
           return false;
         }

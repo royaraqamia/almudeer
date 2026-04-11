@@ -164,7 +164,7 @@ class OTPService:
                 
                 # Send OTP via email
                 email_service = get_email_service()
-                email_sent = await email_service.send_otp_email(email, otp_code)
+                email_sent = email_service.send_otp_email(email, otp_code)
                 
                 if not email_sent:
                     logger.error(f"Failed to send OTP email to {email}")

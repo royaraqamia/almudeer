@@ -912,9 +912,11 @@ class ApiClient {
       if (error is String) {
         errorMessage = error;
       } else if (error is Map) {
-        // Backend returns error as object with code, message_ar, message_en
+        // Backend returns error as object with error, error_code, user_id
+        // OR with code, message_ar, message_en
         errorMessage = (error['message_ar'] as String?) ??
             (error['message'] as String?) ??
+            (error['error'] as String?) ??
             (error['message_en'] as String?) ??
             'حدث خطأ في رفع الملفات';
       }
@@ -934,7 +936,11 @@ class ApiClient {
     }
 
     // Extract error code for localization
-    final String? errorCode = errorData['code'] as String?;
+    // Check both top-level 'code' and nested 'error.error_code'
+    String? errorCode = errorData['code'] as String?;
+    if (errorCode == null && errorData['error'] is Map) {
+      errorCode = errorData['error']['error_code'] as String?;
+    }
 
     // FIX: Use error code mapping for localized messages
     // If backend sends a recognized error code, use the localized version

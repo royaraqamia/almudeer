@@ -330,9 +330,11 @@ class AuthRepository {
         approvalStatus: 'approved',
       );
     } on ApiException catch (e) {
+      // Check error code from ApiException.code field or e.data['error_code']
+      final errorCode = e.code ?? e.data?['error_code'];
+      
       // Check for pending approval response
-      if (e.message.contains('PENDING_APPROVAL') ||
-          (e.data != null && e.data!['error_code'] == 'PENDING_APPROVAL')) {
+      if (errorCode == 'PENDING_APPROVAL') {
         return LicenseValidation(
           valid: false,
           error: e.message,
@@ -342,7 +344,7 @@ class AuthRepository {
           isApprovedByAdmin: false,
         );
       }
-      if (e.message.contains('EMAIL_NOT_VERIFIED')) {
+      if (errorCode == 'EMAIL_NOT_VERIFIED') {
         return LicenseValidation(
           valid: false,
           error: 'يجب التحقق من البريد الإلكتروني أولاً',
