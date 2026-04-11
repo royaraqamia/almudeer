@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:almudeer_mobile_app/core/api/api_client.dart';
@@ -203,11 +205,25 @@ class AuthRepository {
       );
       return UsernameAvailability.fromJson(response);
     } catch (e) {
-      // If API fails, return unknown state
-      return const UsernameAvailability(
+      // Log the actual error for debugging
+      debugPrint('Username availability check failed: $e');
+      
+      // Provide more specific error messages based on error type
+      String message;
+      if (e is SocketException) {
+        message = 'لا يوجد اتصال بالإنترنت';
+      } else if (e is TimeoutException) {
+        message = 'انتهت مهلة الاتصال بالخادم';
+      } else if (e is ApiException) {
+        message = e.message;
+      } else {
+        message = 'فشل في التحقق من توفر اسم المستخدم';
+      }
+      
+      return UsernameAvailability(
         available: false,
         validFormat: true,
-        message: 'فشل في التحقق من توفر اسم المستخدم',
+        message: message,
         isUnknown: true,
       );
     }

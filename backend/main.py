@@ -527,12 +527,17 @@ frontend_urls = [
     "https://almudeer.royaraqamia.com",
     "https://www.almudeer.royaraqamia.com",
     "https://almudeer.up.railway.app",
-    os.getenv("FRONTEND_URL", "https://almudeer.royaraqamia.com")
+    os.getenv("FRONTEND_URL", "https://almudeer.royaraqamia.com"),
 ]
+
+# Development mode: Allow all localhost ports (Flutter web uses random ports)
+# In production, set ALLOW_ALL_LOCALHOST=false or don't set it
+allow_localhost_regex = r"https?://(127\.0\.0\.1|localhost)(:\d+)?" if os.getenv("ALLOW_ALL_LOCALHOST", "true").lower() == "true" else None
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=frontend_urls,
+    allow_origin_regex=allow_localhost_regex,  # Matches any localhost port
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
