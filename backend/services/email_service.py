@@ -7,6 +7,7 @@ Supports HTML email templates with Arabic branding.
 
 P1 FIX: Added retry logic with exponential backoff and connection pooling.
 P1 FIX: SMTP credentials are never logged, even on failure.
+P2 FIX: Added Resend HTTP API support for better Railway compatibility.
 """
 
 import os
@@ -25,22 +26,26 @@ logger = get_logger(__name__)
 
 class EmailConfig:
     """Email service configuration from environment variables"""
-    
+
     # SMTP Configuration
     SMTP_HOST: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
     SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
     SMTP_USERNAME: str = os.getenv("SMTP_USERNAME", "")
     SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
     SMTP_USE_TLS: bool = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
-    
+
+    # Resend HTTP API Configuration (alternative to SMTP)
+    RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
+    USE_RESEND_API: bool = bool(os.getenv("RESEND_API_KEY", ""))
+
     # Sender Information
     FROM_EMAIL: str = os.getenv("FROM_EMAIL", "noreply@almudeer.com")
     FROM_NAME: str = os.getenv("FROM_NAME", "Al-Mudeer | المدير")
-    
+
     # Application URLs
     APP_BASE_URL: str = os.getenv("APP_BASE_URL", "https://almudeer.com")
     MOBILE_APP_SCHEME: str = os.getenv("MOBILE_APP_SCHEME", "almudeer")
-    
+
     # OTP Settings
     OTP_EXPIRY_MINUTES: int = int(os.getenv("OTP_EXPIRY_MINUTES", "10"))
     OTP_COOLDOWN_SECONDS: int = int(os.getenv("OTP_COOLDOWN_SECONDS", "60"))
@@ -63,6 +68,16 @@ class EmailService:
         self._connection_lock = Lock()
         self._last_send_time = 0
         self._cooldown_between_sends = 0.5  # 500ms cooldown between sends
+        
+        # P2 FIX: Initialize Resend HTTP client if API key is configured
+        self._resend_client = None
+        if self.config.USE_RESEND_API:
+            try:
+                from services.resend_client import ResendClient
+                self._resend_client = ResendClient()
+                logger.info("Resend HTTP API client initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Resend client: {e}")
 
     def _get_smtp_server(self) -> smtplib.SMTP:
         """
@@ -180,6 +195,7 @@ class EmailService:
 
         P1 FIX: Uses retry logic with exponential backoff.
         P1 FIX: SMTP credentials are never logged.
+        P2 FIX: Uses Resend HTTP API first if configured (better for Railway).
 
         Args:
             to_email: Recipient email address
@@ -190,6 +206,20 @@ class EmailService:
             True if email was sent successfully, False otherwise
         """
         try:
+            # P2 FIX: Try Resend HTTP API first if configured
+            if self.config.USE_RESEND_API and self._resend_client:
+                logger.info(f"Using Resend HTTP API to send email to {to_email}")
+                result = self._resend_client.send_email(
+                    to_email=to_email,
+                    subject=subject,
+                    html_content=html_content,
+                )
+                if result:
+                    logger.info(f"Email sent successfully to {to_email} via Resend API")
+                    return True
+                else:
+                    logger.warning(f"Resend API failed for {to_email}, falling back to SMTP")
+            
             logger.info(f"Attempting to send email to {to_email} via {self.config.SMTP_HOST}:{self.config.SMTP_PORT}")
             
             if not self.config.SMTP_USERNAME or not self.config.SMTP_PASSWORD:
