@@ -54,18 +54,33 @@ class PosProvider extends ChangeNotifier {
   }
 
   Future<void> loadProducts({int? categoryId}) async {
-    _products = await _db.getProducts(categoryId: categoryId);
-    notifyListeners();
+    try {
+      _products = await _db.getProducts(categoryId: categoryId);
+      notifyListeners();
+    } catch (e) {
+      _error = 'خطأ في تحميل المنتجات: ${e.toString()}';
+      notifyListeners();
+    }
   }
 
   Future<void> loadCategories() async {
-    _categories = await _db.getCategories();
-    notifyListeners();
+    try {
+      _categories = await _db.getCategories();
+      notifyListeners();
+    } catch (e) {
+      _error = 'خطأ في تحميل الفئات: ${e.toString()}';
+      notifyListeners();
+    }
   }
 
   Future<void> loadTransactions({DateTime? startDate, DateTime? endDate}) async {
-    _transactions = await _db.getTransactions(startDate: startDate, endDate: endDate);
-    notifyListeners();
+    try {
+      _transactions = await _db.getTransactions(startDate: startDate, endDate: endDate);
+      notifyListeners();
+    } catch (e) {
+      _error = 'خطأ في تحميل المعاملات: ${e.toString()}';
+      notifyListeners();
+    }
   }
 
   Product? findProductByBarcode(String barcode) {
@@ -77,8 +92,17 @@ class PosProvider extends ChangeNotifier {
   }
 
   void addToCart(Product product) {
+    // Check if product is in stock
+    if (product.stock <= 0) {
+      return;
+    }
+    
     final existingIndex = _cart.indexWhere((item) => item.product.id == product.id);
     if (existingIndex >= 0) {
+      // Check if adding more would exceed stock
+      if (_cart[existingIndex].quantity >= product.stock) {
+        return;
+      }
       _cart[existingIndex].quantity++;
     } else {
       _cart.add(CartItem(product: product));
@@ -108,8 +132,11 @@ class PosProvider extends ChangeNotifier {
   Future<int> checkout({double discount = 0, PaymentMethod paymentMethod = PaymentMethod.cash, String? notes}) async {
     final subtotalUSD = cartSubtotalUSD;
     final subtotalSYP = cartSubtotalSYP;
-    final totalUSD = subtotalUSD - discount;
-    final totalSYP = subtotalSYP - (discount * _exchangeRate);
+    
+    // Ensure discount doesn't exceed subtotal
+    final validDiscount = discount.clamp(0.0, subtotalUSD);
+    final totalUSD = subtotalUSD - validDiscount;
+    final totalSYP = subtotalSYP - (validDiscount * _exchangeRate);
 
     final transaction = Transaction(
       items: _cart.map((item) => TransactionItem(
@@ -124,7 +151,7 @@ class PosProvider extends ChangeNotifier {
       )).toList(),
       subtotalUSD: subtotalUSD,
       subtotalSYP: subtotalSYP,
-      discount: discount,
+      discount: validDiscount,
       totalUSD: totalUSD,
       totalSYP: totalSYP,
       exchangeRate: _exchangeRate,
@@ -139,9 +166,15 @@ class PosProvider extends ChangeNotifier {
   }
 
   Future<void> updateExchangeRate(double rate, {String? notes}) async {
-    await _db.updateExchangeRate(rate, notes: notes);
-    _exchangeRate = rate;
-    notifyListeners();
+    try {
+      await _db.updateExchangeRate(rate, notes: notes);
+      _exchangeRate = rate;
+      notifyListeners();
+    } catch (e) {
+      _error = 'خطأ في تحديث سعر الصرف: ${e.toString()}';
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<Map<String, dynamic>> getTodayStats() async {
@@ -153,23 +186,47 @@ class PosProvider extends ChangeNotifier {
   }
 
   Future<void> addProduct(Product product) async {
-    await _db.addProduct(product);
-    await loadProducts();
+    try {
+      await _db.addProduct(product);
+      await loadProducts();
+    } catch (e) {
+      _error = 'خطأ في إضافة المنتج: ${e.toString()}';
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> updateProduct(Product product) async {
-    await _db.updateProduct(product);
-    await loadProducts();
+    try {
+      await _db.updateProduct(product);
+      await loadProducts();
+    } catch (e) {
+      _error = 'خطأ في تحديث المنتج: ${e.toString()}';
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> deleteProduct(int id) async {
-    await _db.deleteProduct(id);
-    await loadProducts();
+    try {
+      await _db.deleteProduct(id);
+      await loadProducts();
+    } catch (e) {
+      _error = 'خطأ في حذف المنتج: ${e.toString()}';
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> addCategory(PosCategory category) async {
-    await _db.addCategory(category);
-    await loadCategories();
+    try {
+      await _db.addCategory(category);
+      await loadCategories();
+    } catch (e) {
+      _error = 'خطأ في إضافة الفئة: ${e.toString()}';
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> insertSampleData() async {

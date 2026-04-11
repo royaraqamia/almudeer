@@ -18,6 +18,7 @@ class Endpoints {
   static const String forgotPassword = '/api/auth/forgot-password';
   static const String resetPassword = '/api/auth/reset-password';
   static const String approvalStatus = '/api/auth/approval-status';
+  static String checkUsername(String username) => '/api/auth/check-username/${Uri.encodeComponent(username)}';
   // activeSessions and revokeSession removed
 
   // Inbox & Conversations

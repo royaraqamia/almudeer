@@ -876,8 +876,10 @@ class _SurahDetailScreenState extends State<SurahDetailScreen>
                     final lastReadVerse = provider.lastVerse;
                     final isCurrentSurah =
                         provider.lastSurah == widget.surahNumber;
-                    final progressPercent =
-                        (lastReadVerse! / verseCount * 100).clamp(0, 100);
+                    // Safe null check - calculate progress only if lastReadVerse is not null
+                    final progressPercent = lastReadVerse != null
+                        ? (lastReadVerse / verseCount * 100).clamp(0, 100)
+                        : 0.0;
 
                     return Container(
                       padding: const EdgeInsets.symmetric(
@@ -925,8 +927,9 @@ class _SurahDetailScreenState extends State<SurahDetailScreen>
                     final lastReadVerse = provider.lastVerse;
                     final isCurrentSurah =
                         provider.lastSurah == widget.surahNumber;
-                    final progress = isCurrentSurah
-                        ? (lastReadVerse! / verseCount).clamp(0.0, 1.0)
+                    // Safe null check for progress bar
+                    final progress = isCurrentSurah && lastReadVerse != null
+                        ? (lastReadVerse / verseCount).clamp(0.0, 1.0)
                         : 0.0;
 
                     return LinearProgressIndicator(

@@ -26,6 +26,16 @@ class _PosCheckoutScreenState extends State<PosCheckoutScreen> {
 
   Future<void> _processCheckout() async {
     if (_isProcessing) return;
+    
+    // Validate discount doesn't exceed subtotal
+    final provider = context.read<PosProvider>();
+    if (_discount > provider.cartSubtotalUSD) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('الخصم لا يمكن أن يتجاوز المجموع'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+    
     setState(() => _isProcessing = true);
 
     try {
@@ -148,7 +158,7 @@ class _PosCheckoutScreenState extends State<PosCheckoutScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: cart.isEmpty || _isProcessing ? null : _processCheckout,
+                      onPressed: (cart.isEmpty || _isProcessing || _discount > subtotalUSD) ? null : _processCheckout,
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.all(16)),
                       child: _isProcessing ? const CircularProgressIndicator(color: Colors.white) : const Text('تأكيد الدفع', style: TextStyle(fontSize: 18)),
                     ),
@@ -187,30 +197,59 @@ class _PosCheckoutScreenState extends State<PosCheckoutScreen> {
   void _showQuantityDialog(int index, int currentQty) {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('تعديل الكمية'),
-        content: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            IconButton(icon: const Icon(Icons.remove), onPressed: () {
-              context.read<PosProvider>().updateCartItemQuantity(index, currentQty - 1);
-              Navigator.pop(ctx);
-            }),
-            Text('$currentQty', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-            IconButton(icon: const Icon(Icons.add), onPressed: () {
-              context.read<PosProvider>().updateCartItemQuantity(index, currentQty + 1);
-              Navigator.pop(ctx);
-            }),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () {
-            context.read<PosProvider>().removeFromCart(index);
-            Navigator.pop(ctx);
-          }, child: const Text('حذف', style: TextStyle(color: Colors.red))),
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إغلاق')),
-        ],
-      ),
+      builder: (ctx) {
+        int quantity = currentQty;
+        
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('تعديل الكمية'),
+              content: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.remove), 
+                    onPressed: quantity > 1 ? () {
+                      setDialogState(() => quantity--);
+                      context.read<PosProvider>().updateCartItemQuantity(index, quantity);
+                    } : null,
+                  ),
+                  Text('$quantity', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                  IconButton(
+                    icon: const Icon(Icons.add), 
+                    onPressed: () {
+                      setDialogState(() => quantity++);
+                      context.read<PosProvider>().updateCartItemQuantity(index, quantity);
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    context.read<PosProvider>().removeFromCart(index);
+                    Navigator.pop(ctx);
+                    // Trigger UI update
+                    setState(() {});
+                  }, 
+                  child: const Text('حذف', style: TextStyle(color: Colors.red)),
+                ),
+                TextButton(
+                  onPressed: () {
+                    if (quantity <= 0) {
+                      context.read<PosProvider>().removeFromCart(index);
+                    }
+                    Navigator.pop(ctx);
+                    // Trigger UI update
+                    setState(() {});
+                  }, 
+                  child: const Text('إغلاق'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }

@@ -222,6 +222,7 @@ class AudioPlayerProvider extends ChangeNotifier {
   StreamSubscription? _durationSubscription;
   StreamSubscription? _verseTimingSubscription; // For verse sync
   Timer? _sleepTimer; // Sleep timer
+  Timer? _sleepCountdownTimer; // Countdown timer for UI updates
   Duration _sleepTimerDuration = Duration.zero; // Remaining sleep timer time
 
   // Getters
@@ -664,15 +665,15 @@ class AudioPlayerProvider extends ChangeNotifier {
   void setSleepTimer(Duration duration) {
     cancelSleepTimer(); // Cancel any existing timer
     _sleepTimerDuration = duration;
-    
+
     _sleepTimer = Timer(duration, () {
       // Stop playback when timer completes
       stopQuranRecitation();
       debugPrint('Sleep timer completed - stopped playback');
     });
-    
+
     // Start countdown timer for UI updates
-    Timer.periodic(const Duration(seconds: 1), (timer) {
+    _sleepCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_sleepTimerDuration > Duration.zero) {
         _sleepTimerDuration -= const Duration(seconds: 1);
         notifyListeners();
@@ -681,7 +682,7 @@ class AudioPlayerProvider extends ChangeNotifier {
         timer.cancel();
       }
     });
-    
+
     notifyListeners();
   }
 
@@ -689,6 +690,8 @@ class AudioPlayerProvider extends ChangeNotifier {
   void cancelSleepTimer() {
     _sleepTimer?.cancel();
     _sleepTimer = null;
+    _sleepCountdownTimer?.cancel();
+    _sleepCountdownTimer = null;
     _sleepTimerDuration = Duration.zero;
     notifyListeners();
   }

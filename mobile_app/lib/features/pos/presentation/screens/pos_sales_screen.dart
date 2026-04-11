@@ -30,17 +30,35 @@ class _PosSalesScreenState extends State<PosSalesScreen> {
       setState(() => _filteredProducts = products);
     } else {
       setState(() {
-        _filteredProducts = products.where((p) =>
-          p.name.contains(query) || 
-          p.barcode.contains(query) ||
-          (p.nameEn?.contains(query) ?? false)
-        ).toList();
+        _filteredProducts = products.where((p) {
+          final nameMatch = p.name.contains(query);
+          final barcodeMatch = p.barcode.contains(query);
+          final nameEnMatch = p.nameEn?.contains(query) ?? false;
+          return nameMatch || barcodeMatch || nameEnMatch;
+        }).toList();
       });
     }
   }
 
   void _addToCart(Product product) {
-    context.read<PosProvider>().addToCart(product);
+    final provider = context.read<PosProvider>();
+    
+    if (product.stock <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('غير متوفر في المخزون'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+    
+    final cartItem = provider.cart.where((item) => item.product.id == product.id).firstOrNull;
+    if (cartItem != null && cartItem.quantity >= product.stock) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لا يمكن إضافة أكثر من المخزون المتاح'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+    
+    provider.addToCart(product);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('تمت إضافة ${product.name}'), duration: const Duration(seconds: 1)),
     );

@@ -8,14 +8,11 @@ import 'package:almudeer_mobile_app/core/constants/animations.dart';
 import 'package:almudeer_mobile_app/core/app/routes.dart';
 import 'package:almudeer_mobile_app/features/users/data/models/user_info.dart';
 import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
-import 'animated_toast.dart';
 import 'premium_bottom_sheet.dart';
 
 import 'package:almudeer_mobile_app/core/utils/haptics.dart';
-
-import 'package:almudeer_mobile_app/core/widgets/app_text_field.dart';
-import 'package:almudeer_mobile_app/core/widgets/app_gradient_button.dart';
 import 'package:almudeer_mobile_app/core/widgets/app_avatar.dart';
+import 'drawer_add_account_sheet.dart';
 
 class CustomDrawer extends StatefulWidget {
   final int currentIndex;
@@ -52,79 +49,21 @@ class _CustomDrawerState extends State<CustomDrawer>
     super.dispose();
   }
 
-  bool _isAddingAccount = false;
-
   void _showAddAccountSheet(BuildContext context) {
-    Haptics.selection();
-    final controller = TextEditingController();
     final authProvider = context.read<AuthProvider>();
 
     PremiumBottomSheet.show(
       context: context,
-      title: 'ط¥ط¶ط§ظپط© ط­ط³ط§ط¨ ط¬ط¯ظٹط¯',
-      child: StatefulBuilder(
-        builder: (context, setSheetState) {
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AppTextField(
-                controller: controller,
-                hintText: 'MUDEER-XXXXXXXX-XXXXXXXX-XXXXXXXX',
-                enabled: !_isAddingAccount,
-                keyboardType: TextInputType.text,
-                textInputAction: TextInputAction.done,
-                onChanged: (_) => setSheetState(() {}),
-              ),
-              const SizedBox(height: 32),
-              AppGradientButton(
-                onPressed:
-                    controller.text.trim().isEmpty ||
-                        !context.read<AuthProvider>().validateLicenseFormat(
-                          controller.text,
-                        ) ||
-                        _isAddingAccount
-                    ? null
-                    : () async {
-                        if (!context.read<AuthProvider>().validateLicenseFormat(
-                          controller.text,
-                        )) {
-                          return;
-                        }
-                        Haptics.mediumTap();
-
-                        setSheetState(() => _isAddingAccount = true);
-
-                        try {
-                          final success = await authProvider.addAccount(
-                            controller.text,
-                          );
-                          if (success && context.mounted) {
-                            Navigator.pop(context);
-                            AnimatedToast.success(
-                              context,
-                              'طھظ…ظ‘ظژ ط¥ط¶ط§ظپط© ط§ظ„ط­ط³ط§ط¨ ط¨ظ†ط¬ط§ط­',
-                            );
-                            setState(() => _isAccountsExpanded = false);
-                          } else if (context.mounted) {
-                            AnimatedToast.error(
-                              context,
-                              authProvider.errorMessage ?? 'ظپط´ظ„ ط¥ط¶ط§ظپط© ط§ظ„ط­ط³ط§ط¨',
-                            );
-                          }
-                        } finally {
-                          if (context.mounted) {
-                            setSheetState(() => _isAddingAccount = false);
-                          }
-                        }
-                      },
-                text: 'ط¥ط¶ط§ظپط©',
-                isLoading: _isAddingAccount,
-                gradientColors: const [Color(0xFF2563EB), Color(0xFF0891B2)],
-              ),
-            ],
-          );
-        },
+      title: 'إضافة حساب جديد',
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Option 1: Login with existing account
+          LoginWithExistingAccount(authProvider: authProvider),
+          const SizedBox(height: 16),
+          // Option 2: Create new account (inline form)
+          const CreateNewAccount(),
+        ],
       ),
     );
   }

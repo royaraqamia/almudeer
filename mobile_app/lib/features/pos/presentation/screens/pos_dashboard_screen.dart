@@ -243,7 +243,7 @@ class _PosDashboardScreenState extends State<PosDashboardScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Expanded(child: Text(product.name)),
-                    Text('${product.stock}件', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                    Text('${product.stock} متبقي', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
                   ],
                 ),
               );

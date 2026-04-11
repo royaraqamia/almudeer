@@ -28,14 +28,31 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailFormKey = GlobalKey<FormState>();
   final _focusNode = FocusNode();
   bool _showPassword = false;
+  bool _isFormValid = false;
 
   @override
   void initState() {
     super.initState();
+    _emailController.addListener(_validateForm);
+    _passwordController.addListener(_validateForm);
+  }
+
+  void _validateForm() {
+    final emailValid = _emailController.text.trim().isNotEmpty;
+    final passwordValid = _passwordController.text.isNotEmpty;
+    final isValid = emailValid && passwordValid;
+    
+    if (isValid != _isFormValid) {
+      setState(() {
+        _isFormValid = isValid;
+      });
+    }
   }
 
   @override
   void dispose() {
+    _emailController.removeListener(_validateForm);
+    _passwordController.removeListener(_validateForm);
     _emailController.dispose();
     _passwordController.dispose();
     _focusNode.dispose();
@@ -292,7 +309,7 @@ class _LoginScreenState extends State<LoginScreen> {
             builder: (context, auth, _) {
               return AppGradientButton(
                 text: auth.isLoading ? 'جاري الدخول...' : AppStrings.loginButton,
-                onPressed: auth.isLoading ? null : _handleEmailLogin,
+                onPressed: (auth.isLoading || !_isFormValid) ? null : _handleEmailLogin,
                 isLoading: auth.isLoading,
                 gradientColors: [theme.colorScheme.primary, theme.colorScheme.secondary],
                 showShadow: true,

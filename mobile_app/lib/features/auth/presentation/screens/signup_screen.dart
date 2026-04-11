@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:figma_squircle/figma_squircle.dart';
 import 'package:provider/provider.dart';
 import 'package:solar_icon_pack/solar_icon_pack.dart';
+import 'dart:async';
 import 'package:almudeer_mobile_app/core/app/routes.dart';
 import 'package:almudeer_mobile_app/core/constants/colors.dart';
 import 'package:almudeer_mobile_app/core/constants/dimensions.dart';
 import 'package:almudeer_mobile_app/core/widgets/app_text_field.dart';
 import 'package:almudeer_mobile_app/core/widgets/app_gradient_button.dart';
 import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
+import 'package:almudeer_mobile_app/features/auth/data/repositories/auth_repository.dart';
+import 'package:almudeer_mobile_app/features/auth/data/models/username_availability.dart';
 import 'package:almudeer_mobile_app/core/utils/haptics.dart';
 
 /// Sign Up screen with email, password, and full name validation
@@ -29,16 +32,114 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _usernameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   final _focusNode = FocusNode();
   bool _showPassword = false;
+  bool _showConfirmPassword = false;
+  bool _isFormValid = false;
+  
+  // Username availability state
+  UsernameAvailability? _usernameAvailability;
+  Timer? _usernameDebounceTimer;
+  bool _isCheckingUsername = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fullNameController.addListener(_validateForm);
+    _usernameController.addListener(_onUsernameChanged);
+    _emailController.addListener(_validateForm);
+    _passwordController.addListener(_validateForm);
+    _confirmPasswordController.addListener(_validateForm);
+  }
+
+  void _onUsernameChanged() {
+    // Cancel previous timer
+    _usernameDebounceTimer?.cancel();
+    
+    // Clear availability when field is empty
+    if (_usernameController.text.trim().isEmpty) {
+      if (_usernameAvailability != null) {
+        setState(() {
+          _usernameAvailability = null;
+        });
+      }
+      return;
+    }
+    
+    // Debounce: wait 500ms before checking
+    _usernameDebounceTimer = Timer(const Duration(milliseconds: 500), () {
+      _checkUsernameAvailability();
+    });
+  }
+
+  Future<void> _checkUsernameAvailability() async {
+    final username = _usernameController.text.trim();
+    
+    // Skip if empty or too short
+    if (username.length < 3) {
+      if (mounted) {
+        setState(() {
+          _usernameAvailability = null;
+        });
+      }
+      return;
+    }
+    
+    if (!mounted) return;
+    
+    setState(() {
+      _isCheckingUsername = true;
+    });
+    
+    final repository = AuthRepository();
+    final availability = await repository.checkUsernameAvailability(username);
+    
+    if (mounted) {
+      setState(() {
+        _usernameAvailability = availability;
+        _isCheckingUsername = false;
+      });
+    }
+  }
+
+  void _validateForm() {
+    final fullNameValid = _fullNameController.text.trim().length >= 2;
+    final usernameValid = _usernameController.text.trim().length >= 3;
+    final emailValid = RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(_emailController.text.trim());
+    final passwordValid = _passwordController.text.length >= 8 &&
+        RegExp(r'[A-Z]').hasMatch(_passwordController.text) &&
+        RegExp(r'[a-z]').hasMatch(_passwordController.text) &&
+        RegExp(r'\d').hasMatch(_passwordController.text) &&
+        RegExp(r"""[!@#\$%^&*(),.?":{}|<>_\-+=\[\]\\;'`~]""").hasMatch(_passwordController.text);
+    final confirmPasswordValid = _confirmPasswordController.text == _passwordController.text &&
+        _confirmPasswordController.text.isNotEmpty;
+
+    // Username is valid only if format is valid AND it's available
+    final usernameAvailable = _usernameAvailability?.available == true;
+    final isValid = fullNameValid && usernameValid && usernameAvailable && emailValid && passwordValid && confirmPasswordValid;
+
+    if (isValid != _isFormValid) {
+      setState(() {
+        _isFormValid = isValid;
+      });
+    }
+  }
 
   @override
   void dispose() {
+    _usernameDebounceTimer?.cancel();
+    _fullNameController.removeListener(_validateForm);
+    _usernameController.removeListener(_onUsernameChanged);
+    _emailController.removeListener(_validateForm);
+    _passwordController.removeListener(_validateForm);
+    _confirmPasswordController.removeListener(_validateForm);
     _fullNameController.dispose();
     _usernameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
@@ -75,6 +176,74 @@ class _SignUpScreenState extends State<SignUpScreen> {
     }
   }
 
+  Widget _buildUsernameStatusIcon() {
+    // Show loading spinner while checking
+    if (_isCheckingUsername) {
+      return SizedBox(
+        width: 20,
+        height: 20,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          valueColor: AlwaysStoppedAnimation<Color>(
+            Theme.of(context).colorScheme.primary,
+          ),
+        ),
+      );
+    }
+    
+    // Show status icon if we have availability data
+    if (_usernameAvailability != null) {
+      if (_usernameAvailability!.available) {
+        return const Icon(
+          SolarBoldIcons.checkCircle,
+          color: AppColors.success,
+          size: 20,
+        );
+      } else {
+        // Username is taken or invalid format
+        return const Icon(
+          SolarBoldIcons.dangerCircle,
+          color: AppColors.error,
+          size: 20,
+        );
+      }
+    }
+    
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildUsernameAvailabilityMessage() {
+    // Don't show anything if field is empty or checking is in progress
+    if (_usernameController.text.trim().isEmpty || _isCheckingUsername) {
+      return const SizedBox.shrink();
+    }
+    
+    // Don't show if username is too short
+    if (_usernameController.text.trim().length < 3) {
+      return const SizedBox.shrink();
+    }
+    
+    // Show message if we have availability data
+    if (_usernameAvailability != null) {
+      final isAvailable = _usernameAvailability!.available;
+      final color = isAvailable ? AppColors.success : AppColors.error;
+      
+      return Padding(
+        padding: const EdgeInsets.only(top: 8, right: 12),
+        child: Text(
+          _usernameAvailability!.message,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: color,
+          ),
+        ),
+      );
+    }
+    
+    return const SizedBox.shrink();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -89,7 +258,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
           elevation: 0,
           leading: IconButton(
             icon: Icon(
-              SolarLinearIcons.arrowLeft,
+              SolarLinearIcons.arrowRight,
               color: theme.colorScheme.primary,
             ),
             onPressed: () => Navigator.of(context).pop(),
@@ -142,33 +311,40 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   const SizedBox(height: AppDimensions.spacing16),
 
                   // Username Input
-                  AppTextField(
-                    controller: _usernameController,
-                    focusNode: _focusNode,
-                    hintText: 'اسم_المستخدم123',
-                    keyboardType: TextInputType.text,
-                    textInputAction: TextInputAction.next,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    maxLines: 1,
-                    textCapitalization: TextCapitalization.none,
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'اسم المستخدم مطلوب';
-                      }
-                      if (value.trim().length < 3) {
-                        return 'اسم المستخدم يجب أن يكون 3 أحرف على الأقل';
-                      }
-                      if (value.trim().length > 50) {
-                        return 'اسم المستخدم يجب أن يكون 50 حرفًا كحد أقصى';
-                      }
-                      // Validate alphanumeric, underscores, and hyphens only
-                      final usernameRegex = RegExp(r'^[a-zA-Z0-9_-]+$');
-                      if (!usernameRegex.hasMatch(value.trim())) {
-                        return 'اسم المستخدم يجب أن يحتوي على أحرف إنجليزية وأرقام وشرطات فقط';
-                      }
-                      return null;
-                    },
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AppTextField(
+                        controller: _usernameController,
+                        focusNode: _focusNode,
+                        hintText: 'اسم المستخدم',
+                        keyboardType: TextInputType.text,
+                        textInputAction: TextInputAction.next,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        maxLines: 1,
+                        textCapitalization: TextCapitalization.none,
+                        suffixIcon: _buildUsernameStatusIcon(),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'اسم المستخدم مطلوب';
+                          }
+                          if (value.trim().length < 3) {
+                            return 'اسم المستخدم يجب أن يكون 3 أحرف على الأقل';
+                          }
+                          if (value.trim().length > 50) {
+                            return 'اسم المستخدم يجب أن يكون 50 حرفًا كحد أقصى';
+                          }
+                          // Validate alphanumeric, underscores, and hyphens only
+                          final usernameRegex = RegExp(r'^[a-zA-Z0-9_-]+$');
+                          if (!usernameRegex.hasMatch(value.trim())) {
+                            return 'اسم المستخدم يجب أن يحتوي على أحرف إنجليزية وأرقام وشرطات فقط';
+                          }
+                          return null;
+                        },
+                      ),
+                      _buildUsernameAvailabilityMessage(),
+                    ],
                   ),
                   const SizedBox(height: AppDimensions.spacing16),
 
@@ -201,9 +377,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   AppTextField(
                     controller: _passwordController,
                     focusNode: _focusNode,
-                    hintText: 'كلمة مرور قوية',
+                    hintText: 'كلمة المرور',
                     keyboardType: TextInputType.visiblePassword,
-                    textInputAction: TextInputAction.done,
+                    textInputAction: TextInputAction.next,
                     autocorrect: false,
                     enableSuggestions: false,
                     obscureText: !_showPassword,
@@ -244,13 +420,42 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       return null;
                     },
                   ),
-                  const SizedBox(height: AppDimensions.spacing8),
-                  Text(
-                    'يجب أن تحتوي على 8 أحرف، حرف كبير وصغير، رقم، ورمز خاص',
-                    style: TextStyle(
-                      fontSize: AppDimensions.loginHintSize,
-                      color: theme.textTheme.bodySmall?.color,
+                  const SizedBox(height: AppDimensions.spacing16),
+
+                  // Confirm Password Input
+                  AppTextField(
+                    controller: _confirmPasswordController,
+                    focusNode: _focusNode,
+                    hintText: 'تأكيد كلمة المرور',
+                    keyboardType: TextInputType.visiblePassword,
+                    textInputAction: TextInputAction.done,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    obscureText: !_showConfirmPassword,
+                    enableInteractiveSelection: false,
+                    maxLines: 1,
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _showConfirmPassword
+                            ? SolarLinearIcons.eye
+                            : SolarLinearIcons.eyeClosed,
+                        size: 20,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _showConfirmPassword = !_showConfirmPassword;
+                        });
+                      },
                     ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'تأكيد كلمة المرور مطلوب';
+                      }
+                      if (value != _passwordController.text) {
+                        return 'كلمتا المرور غير متطابقتين';
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: AppDimensions.spacing32),
 
@@ -312,7 +517,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     builder: (context, auth, _) {
                       return AppGradientButton(
                         text: auth.isLoading ? 'جاري الإنشاء...' : 'إنشاء حساب',
-                        onPressed: auth.isLoading ? null : _handleSignUp,
+                        onPressed: (auth.isLoading || !_isFormValid) ? null : _handleSignUp,
                         isLoading: auth.isLoading,
                         gradientColors: [
                           theme.colorScheme.primary,

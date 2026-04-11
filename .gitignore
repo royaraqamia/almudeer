@@ -40,6 +40,9 @@ mobile_app/ios/Podfile.lock
 # Web build
 mobile-app/build/
 
+# Admin Next.js build and dependencies
+admin/
+
 # Debug files
 *.log
 *.tmp

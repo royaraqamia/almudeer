@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:almudeer_mobile_app/core/api/api_client.dart';
 import 'package:almudeer_mobile_app/core/api/endpoints.dart';
 import 'package:almudeer_mobile_app/features/users/data/models/user_info.dart';
+import 'package:almudeer_mobile_app/features/auth/data/models/username_availability.dart';
 
 /// Repository for authentication operations
 class AuthRepository {
@@ -192,6 +193,25 @@ class AuthRepository {
   }
 
   // ==================== Email/Password Auth Methods ====================
+
+  /// Check if username is available (real-time validation)
+  Future<UsernameAvailability> checkUsernameAvailability(String username) async {
+    try {
+      final response = await _apiClient.get(
+        Endpoints.checkUsername(username),
+        requiresAuth: false,
+      );
+      return UsernameAvailability.fromJson(response);
+    } catch (e) {
+      // If API fails, return unknown state
+      return const UsernameAvailability(
+        available: false,
+        validFormat: true,
+        message: 'فشل في التحقق من توفر اسم المستخدم',
+        isUnknown: true,
+      );
+    }
+  }
 
   /// Sign up with email and password
   Future<Map<String, dynamic>> signUp({

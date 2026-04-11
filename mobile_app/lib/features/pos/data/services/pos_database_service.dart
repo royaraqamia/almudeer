@@ -132,8 +132,13 @@ class PosDatabaseService {
     });
   }
 
-  List<ExchangeRate> getExchangeRateHistory() {
-    return [];
+  Future<List<ExchangeRate>> getExchangeRateHistory() async {
+    final db = await database;
+    final result = await db.query(
+      'exchange_rates',
+      orderBy: 'effectiveDate DESC',
+    );
+    return result.map((e) => ExchangeRate.fromMap(e)).toList();
   }
 
   Future<int> addCategory(PosCategory category) async {

@@ -494,6 +494,46 @@ async def signup(data: SignUpRequest, request: Request):
     }
 
 
+@router.get("/check-username/{username}")
+@limiter.limit(RateLimits.signup)
+async def check_username(username: str, request: Request):
+    """
+    Check if a username is available.
+    
+    Returns availability status in real-time for signup forms.
+    Validates format and checks uniqueness in database.
+    """
+    # Validate username format first
+    username_pattern = r'^[a-zA-Z0-9_-]{3,50}$'
+    if not re.match(username_pattern, username):
+        return {
+            "available": False,
+            "valid_format": False,
+            "message": "اسم المستخدم يجب أن يكون 3-50 حرفًا ويحتوي فقط على أحرف إنجليزية وأرقام وشرطات"
+        }
+    
+    # Check if username is already taken
+    async with get_db() as db:
+        existing = await fetch_one(
+            db,
+            "SELECT id FROM user_accounts WHERE username = ?",
+            [username.lower()]
+        )
+        
+        if existing:
+            return {
+                "available": False,
+                "valid_format": True,
+                "message": "اسم المستخدم مسجل بالفعل"
+            }
+        
+        return {
+            "available": True,
+            "valid_format": True,
+            "message": "اسم المستخدم متاح"
+        }
+
+
 @router.post("/verify-otp")
 async def verify_otp(data: VerifyOTPRequest, request: Request):
     """

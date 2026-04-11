@@ -209,14 +209,39 @@ class _PosProductsScreenState extends State<PosProductsScreen> {
                   return;
                 }
 
+                final sellingPrice = double.tryParse(priceUSDController.text) ?? 0;
+                final costPrice = double.tryParse(costController.text) ?? 0;
+                final stock = int.tryParse(stockController.text) ?? 0;
+                final minStock = int.tryParse(minStockController.text) ?? 5;
+
+                if (sellingPrice < 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('سعر البيع لا يمكن أن يكون سالباً')));
+                  return;
+                }
+
+                if (costPrice < 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('سعر التكلفة لا يمكن أن يكون سالباً')));
+                  return;
+                }
+
+                if (stock < 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('المخزون لا يمكن أن يكون سالباً')));
+                  return;
+                }
+
+                if (minStock < 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الحد الأدنى لا يمكن أن يكون سالباً')));
+                  return;
+                }
+
                 final newProduct = Product(
                   id: product?.id,
                   barcode: barcodeController.text,
                   name: nameController.text,
-                  sellingPriceUSD: double.tryParse(priceUSDController.text) ?? 0,
-                  costPrice: double.tryParse(costController.text) ?? 0,
-                  stock: int.tryParse(stockController.text) ?? 0,
-                  minStock: int.tryParse(minStockController.text) ?? 5,
+                  sellingPriceUSD: sellingPrice,
+                  costPrice: costPrice,
+                  stock: stock,
+                  minStock: minStock,
                   categoryId: selectedCategory,
                 );
 
@@ -239,6 +264,13 @@ class _PosProductsScreenState extends State<PosProductsScreen> {
   }
 
   void _showDeleteDialog(Product product) {
+    if (product.id == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لا يمكن حذف هذا المنتج'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+    
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
