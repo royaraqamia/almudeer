@@ -137,6 +137,10 @@ class OTPService:
                     # otp_expires_at = generation_time + OTP_EXPIRY_MINUTES
                     # So generation_time = otp_expires_at - OTP_EXPIRY_MINUTES
                     now = datetime.now(timezone.utc)
+                    # FIX: Handle both timezone-aware and timezone-naive datetimes
+                    if otp_expires.tzinfo is None:
+                        otp_expires = otp_expires.replace(tzinfo=timezone.utc)
+                    
                     generation_time = otp_expires - timedelta(minutes=OTP_EXPIRY_MINUTES)
                     time_since_generation = now - generation_time
 
@@ -223,11 +227,18 @@ class OTPService:
                 # Check if OTP exists
                 if not user.get("otp_code"):
                     return False, "لا يوجد رمز تحقق. يرجى طلب رمز جديد"
-                
+
                 # Check if OTP expired
                 otp_expires_at = user.get("otp_expires_at")
-                if otp_expires_at and otp_expires_at < datetime.now(timezone.utc):
-                    return False, "انتهت صلاحية رمز التحقق. يرجى طلب رمز جديد"
+                if otp_expires_at:
+                    # FIX: Handle both timezone-aware and timezone-naive datetimes
+                    now = datetime.now(timezone.utc)
+                    # If otp_expires_at is naive, make it UTC-aware
+                    if otp_expires_at.tzinfo is None:
+                        otp_expires_at = otp_expires_at.replace(tzinfo=timezone.utc)
+                    
+                    if otp_expires_at < now:
+                        return False, "انتهت صلاحية رمز التحقق. يرجى طلب رمز جديد"
                 
                 # Check attempt limit
                 otp_attempts = user.get("otp_attempts", 0)
@@ -303,6 +314,10 @@ class OTPService:
                 if otp_expires_at:
                     now = datetime.now(timezone.utc)
                     # P1 FIX: Correct cooldown calculation
+                    # FIX: Handle both timezone-aware and timezone-naive datetimes
+                    if otp_expires_at.tzinfo is None:
+                        otp_expires_at = otp_expires_at.replace(tzinfo=timezone.utc)
+                    
                     generation_time = otp_expires_at - timedelta(minutes=OTP_EXPIRY_MINUTES)
                     time_since_generation = now - generation_time
 
