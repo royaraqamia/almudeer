@@ -164,12 +164,16 @@ class OTPService:
                 
                 # Send OTP via email
                 email_service = get_email_service()
+                logger.info(f"Attempting to send OTP email to {email} via {email_service.config.SMTP_HOST}")
                 email_sent = email_service.send_otp_email(email, otp_code)
-                
+
                 if not email_sent:
-                    logger.error(f"Failed to send OTP email to {email}")
+                    logger.error(f"Failed to send OTP email to {email} - email service returned False")
+                    logger.error(f"Email config: SMTP_HOST={email_service.config.SMTP_HOST}, SMTP_USERNAME={email_service.config.SMTP_USERNAME}, FROM_EMAIL={email_service.config.FROM_EMAIL}")
                     # Note: OTP is still valid in DB even if email fails
                     # This allows manual verification if needed
+                else:
+                    logger.info(f"OTP email sent successfully to {email}")
                 
                 logger.info(f"OTP generated for user {user_id} (email: {email})")
                 return True, ""

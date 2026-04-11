@@ -190,6 +190,8 @@ class EmailService:
             True if email was sent successfully, False otherwise
         """
         try:
+            logger.info(f"Attempting to send email to {to_email} via {self.config.SMTP_HOST}:{self.config.SMTP_PORT}")
+            
             if not self.config.SMTP_USERNAME or not self.config.SMTP_PASSWORD:
                 logger.warning(
                     "Email not sent: SMTP credentials not configured. "
@@ -200,11 +202,13 @@ class EmailService:
             msg = self._create_message(to_email, subject, html_content)
 
             # P1 FIX: Use retry logic instead of direct send
-            return self._send_with_retry(msg, to_email)
+            result = self._send_with_retry(msg, to_email)
+            logger.info(f"Email send result for {to_email}: {'SUCCESS' if result else 'FAILED'}")
+            return result
 
         except Exception as e:
             # P1 FIX: Never log credentials in exception
-            logger.error("Failed to send email to %s: %s", to_email, type(e).__name__)
+            logger.error("Failed to send email to %s: %s - %s", to_email, type(e).__name__, str(e))
             return False
     
     def send_otp_email(self, to_email: str, otp_code: str) -> bool:
