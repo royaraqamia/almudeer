@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
+import 'package:http/browser_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -96,6 +97,17 @@ class ApiClient {
   // P2-14 FIX: Added certificate pinning for enhanced MITM protection
   // FIX #10: Enforce HTTPS-only connections
   http.Client _createSecureClient() {
+    // On web, use BrowserClient (uses browser's fetch API)
+    // dart:io HttpClient is not supported on web
+    if (kIsWeb) {
+      debugPrint('[ApiClient] Using BrowserClient for web platform');
+      final browserClient = BrowserClient();
+      // Set withCredentials to true for CORS credentials
+      browserClient.withCredentials = true;
+      return browserClient;
+    }
+
+    // On mobile/desktop, use IOClient with custom SSL configuration
     // P2-14 FIX: Create custom HttpClient with certificate pinning
     final httpClient = HttpClient();
 

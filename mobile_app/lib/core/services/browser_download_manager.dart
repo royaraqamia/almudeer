@@ -34,6 +34,12 @@ class BrowserDownloadManager {
       _tasksBox.isOpen ? _tasksBox.values.toList() : [];
 
   Future<void> init() async {
+    // Skip initialization on web - background_downloader uses dart:isolate
+    if (kIsWeb) {
+      debugPrint('[BrowserDownloadManager] Skipped on web - background downloads not supported');
+      return;
+    }
+
     if (!Hive.isAdapterRegistered(10)) {
       Hive.registerAdapter(model.DownloadStatusAdapter());
     }

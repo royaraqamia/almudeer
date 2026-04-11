@@ -199,15 +199,23 @@ class AuthRepository {
   /// Check if username is available (real-time validation)
   Future<UsernameAvailability> checkUsernameAvailability(String username) async {
     try {
+      final endpoint = Endpoints.checkUsername(username);
+      debugPrint('[AuthRepo] Checking username: $username');
+      debugPrint('[AuthRepo] Endpoint: $endpoint');
+      debugPrint('[AuthRepo] Base URL: ${Endpoints.baseUrl}');
+      
       final response = await _apiClient.get(
-        Endpoints.checkUsername(username),
+        endpoint,
         requiresAuth: false,
       );
-      return UsernameAvailability.fromJson(response);
-    } catch (e) {
-      // Log the actual error for debugging
-      debugPrint('Username availability check failed: $e');
       
+      debugPrint('[AuthRepo] Response: $response');
+      return UsernameAvailability.fromJson(response);
+    } catch (e, stackTrace) {
+      // Log the actual error for debugging
+      debugPrint('[AuthRepo] Username availability check failed: $e');
+      debugPrint('[AuthRepo] Stack trace: $stackTrace');
+
       // Provide more specific error messages based on error type
       String message;
       if (e is SocketException) {
@@ -216,10 +224,12 @@ class AuthRepository {
         message = 'انتهت مهلة الاتصال بالخادم';
       } else if (e is ApiException) {
         message = e.message;
+      } else if (e is AuthenticationException) {
+        message = 'خطأ في المصادقة';
       } else {
         message = 'فشل في التحقق من توفر اسم المستخدم';
       }
-      
+
       return UsernameAvailability(
         available: false,
         validFormat: true,

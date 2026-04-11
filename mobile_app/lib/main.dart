@@ -156,11 +156,14 @@ void main() async {
     }
 
     // Initialize Browser Download Manager (non-blocking)
-    BrowserDownloadManager().init().then((_) {
-      debugPrint('BrowserDownloadManager initialized');
-    }).catchError((e) {
-      debugPrint('BrowserDownloadManager initialization error: $e');
-    });
+    // Skip on web - background_downloader uses dart:isolate which is not supported on web
+    if (!kIsWeb) {
+      BrowserDownloadManager().init().then((_) {
+        debugPrint('BrowserDownloadManager initialized');
+      }).catchError((e) {
+        debugPrint('BrowserDownloadManager initialization error: $e');
+      });
+    }
 
     // P3-15 FIX: Perform startup cache cleanup for attachments (background)
     MediaCacheManager()
