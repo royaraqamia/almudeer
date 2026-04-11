@@ -220,29 +220,46 @@ async def schedule_task_alarm(
         return alarm_id
 
 
-async def cancel_task_alarm(task_id: str, license_key_id: int) -> bool:
+async def cancel_task_alarm(task_id: str, license_key_id: int, user_id: Optional[str] = None) -> bool:
     """
     Cancel all pending alarms for a task.
-    
+
     Args:
         task_id: Task ID
         license_key_id: License key ID
-        
+        user_id: Optional user ID to cancel only that user's alarms.
+                 If None, cancels all pending alarms for the task (license-wide).
+
     Returns:
         True if cancelled, False on error
     """
     async with get_db() as db:
-        await execute_sql(
-            db,
-            """
-            UPDATE task_alarms 
-            SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
-            WHERE task_id = ? AND license_key_id = ? AND status = 'pending'
-            """,
-            [task_id, license_key_id]
-        )
+        if user_id:
+            # FIX: Only cancel alarms for the specific user to avoid affecting other users
+            await execute_sql(
+                db,
+                """
+                UPDATE task_alarms
+                SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+                WHERE task_id = ? AND license_key_id = ? AND user_id = ? AND status = 'pending'
+                """,
+                [task_id, license_key_id, user_id]
+            )
+            logger.info(f"Cancelled pending alarms for task {task_id}, user {user_id}")
+        else:
+            # Legacy behavior: cancel all pending alarms for the task (license-wide)
+            await execute_sql(
+                db,
+                """
+                UPDATE task_alarms
+                SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+                WHERE task_id = ? AND license_key_id = ? AND status = 'pending'
+                """,
+                [task_id, license_key_id]
+            )
+            logger.info(f"Cancelled all pending alarms for task {task_id} (license-wide)")
+
         await commit_db(db)
-        logger.info(f"Cancelled pending alarms for task {task_id}")
         return True
 
 
@@ -466,28 +483,63 @@ async def mark_alarm_fired(alarm_id: int) -> bool:
 
 async def mark_alarm_retry(alarm_id: int, error: str) -> bool:
     """Increment retry count for a failed alarm."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+
     async with get_db() as db:
-        await execute_sql(
-            db,
-            """
-            UPDATE task_alarms
-            SET retry_count = retry_count + 1,
-                updated_at = CURRENT_TIMESTAMP,
-                notification_data = jsonb_set(
-                    jsonb_set(
-                        COALESCE(notification_data, '{}')::jsonb,
-                        '{last_error}',
+        if DB_TYPE == "postgresql":
+            # PostgreSQL: Use jsonb_set for structured error tracking
+            await execute_sql(
+                db,
+                """
+                UPDATE task_alarms
+                SET retry_count = retry_count + 1,
+                    updated_at = CURRENT_TIMESTAMP,
+                    notification_data = jsonb_set(
+                        jsonb_set(
+                            COALESCE(notification_data, '{}')::jsonb,
+                            '{last_error}',
+                            to_jsonb(?),
+                            true
+                        ),
+                        '{last_error_time}',
                         to_jsonb(?),
                         true
-                    ),
-                    '{last_error_time}',
-                    to_jsonb(?),
-                    true
-                )::jsonb
-            WHERE id = ?
-            """,
-            [error, datetime.now(timezone.utc).isoformat(), alarm_id]
-        )
+                    )::jsonb
+                WHERE id = ?
+                """,
+                [error, now_iso, alarm_id]
+            )
+        else:
+            # SQLite: Use simple JSON string update (SQLite lacks jsonb_set)
+            # Read existing notification_data, update it, and write back
+            row = await fetch_one(
+                db,
+                "SELECT notification_data FROM task_alarms WHERE id = ?",
+                [alarm_id]
+            )
+            if row and row.get("notification_data"):
+                try:
+                    data = json.loads(row["notification_data"])
+                except (json.JSONDecodeError, TypeError):
+                    data = {}
+            else:
+                data = {}
+
+            data["last_error"] = error
+            data["last_error_time"] = now_iso
+
+            await execute_sql(
+                db,
+                """
+                UPDATE task_alarms
+                SET retry_count = retry_count + 1,
+                    updated_at = CURRENT_TIMESTAMP,
+                    notification_data = ?
+                WHERE id = ?
+                """,
+                [json.dumps(data), alarm_id]
+            )
+
         await commit_db(db)
         return True
 

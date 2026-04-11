@@ -10,7 +10,6 @@ preventing distributed brute-force attacks across multiple instances.
 import os
 import time
 from typing import Optional, Tuple
-from datetime import datetime, timedelta, timezone
 from threading import Lock
 
 from logging_config import get_logger
@@ -211,7 +210,8 @@ class LoginProtection:
                     if identifier in self._memory_store:
                         return self._memory_store[identifier].get("attempts", 0)
                     return 0
-        except:
+        except Exception:
+            logger.error("Error getting login attempts count")
             return 0
 
 

@@ -142,10 +142,11 @@ async def share_task(
         if before_share and before_share.get('deleted_at') is not None:
             raise ValueError("Share was previously revoked. Please create a new share.")
 
-        # FIX: Use recipient's license_id for license_key_id so the recipient can find the share
-        # The license_key_id in task_shares should match the recipient's license context,
-        # not the sharer's. This ensures get_shared_tasks() can find shares for the recipient.
-        recipient_license_id = int(recipient_user_id)
+        # FIX: Use the sharer's license_id (not recipient's user_id) for license_key_id
+        # This ensures the share record is associated with the correct license context.
+        # Previously: recipient_license_id = int(recipient_user_id) — crashes on UUIDs
+        # Now: Use the task's license_key_id which is already verified to exist
+        recipient_license_id = license_id
 
         # Perform atomic UPSERT
         if DB_TYPE == "postgresql":

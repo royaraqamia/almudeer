@@ -87,6 +87,22 @@ class _SignUpScreenState extends State<SignUpScreen> {
       return;
     }
 
+    // FIX: Validate username format before making API call
+    final usernameValidation = Validators.validateUsername(username);
+    if (!usernameValidation.isValid) {
+      if (mounted) {
+        setState(() {
+          _usernameAvailability = UsernameAvailability(
+            available: false,
+            validFormat: false,
+            message: usernameValidation.errorMessage ?? 'اسم المستخدم غير صالح',
+          );
+          _isCheckingUsername = false;
+        });
+      }
+      return;
+    }
+
     if (!mounted) return;
 
     setState(() {

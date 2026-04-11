@@ -210,21 +210,28 @@ class TaskAlarmService {
     _onTaskAction = callback;
   }
 
-  // FIX #6: Use incremental counter for notification IDs to prevent hash collisions
-  int _notificationIdCounter = 0;
+  // FIX #6: Use hash-based notification IDs to prevent collisions across app restarts
+  // Previously: incremental counter that resets on restart → collision risk
+  // Now: deterministic hash from taskId → stable across restarts, unique per task
   static const int _notificationIdMax = 2147483647; // Max int32
-  
+
   // FIX #6: Map task IDs to notification IDs for cancellation
   final Map<String, int> _taskToNotificationId = {};
-  
-  // FIX #6: Generate unique notification ID
+
+  // FIX: Generate deterministic notification ID from taskId
+  // This ensures the same taskId always gets the same notificationId,
+  // preventing collisions even after app restarts
   int _generateNotificationId(String taskId) {
-    // Use incremental counter to guarantee uniqueness
-    _notificationIdCounter++;
-    if (_notificationIdCounter > _notificationIdMax) {
-      _notificationIdCounter = 1; // Reset before overflow
+    // Use a simple but effective hash: combine taskId chars into an int
+    int hash = 0;
+    for (int i = 0; i < taskId.length; i++) {
+      hash = 31 * hash + taskId.codeUnitAt(i);
+      // Prevent overflow during computation
+      hash = hash & 0x7FFFFFFF; // Keep as positive 31-bit int
     }
-    return _notificationIdCounter;
+    // Ensure non-zero and within range
+    final notificationId = (hash % _notificationIdMax) + 1;
+    return notificationId;
   }
 
   Future<void> scheduleAlarm(TaskModel task) async {

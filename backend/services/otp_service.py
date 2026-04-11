@@ -21,7 +21,6 @@ import hmac
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
-from db_helper import get_db, fetch_one, execute_sql, commit_db
 from logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -245,7 +244,7 @@ class OTPService:
                     
                     remaining_attempts = OTP_MAX_ATTEMPTS - otp_attempts - 1
                     if remaining_attempts <= 0:
-                        return False, f"تم تجاوز الحد الأقصى من المحاولات. يرجى طلب رمز جديد"
+                        return False, "تم تجاوز الحد الأقصى من المحاولات. يرجى طلب رمز جديد"
                     
                     return False, f"رمز التحقق غير صحيح. محاولات متبقية: {remaining_attempts}"
                 

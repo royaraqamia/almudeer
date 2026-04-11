@@ -164,21 +164,30 @@ class PasswordResetService:
                 
                 # Hash new password
                 password_hash = hash_password(new_password)
-                
+
                 # Update password and clear reset token
                 await execute_sql(
                     db,
                     """
-                    UPDATE user_accounts 
+                    UPDATE user_accounts
                     SET password_hash = ?, reset_token = NULL, reset_token_expires_at = NULL,
                         updated_at = NOW(), last_login = NOW()
                     WHERE id = ?
                     """,
                     [password_hash, user["id"]]
                 )
+
+                # SECURITY FIX: Invalidate all existing sessions after password reset
+                # This forces re-authentication on all devices with the new password
+                await execute_sql(
+                    db,
+                    "DELETE FROM device_sessions WHERE license_key_id = ?",
+                    [user["id"]]
+                )
+
                 await commit_db(db)
-                
-                logger.info(f"Password reset successfully for user {user['id']}")
+
+                logger.info(f"Password reset successfully for user {user['id']}, all sessions invalidated")
                 return True, ""
                 
         except Exception as e:

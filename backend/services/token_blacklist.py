@@ -11,8 +11,8 @@ CRITICAL FIX: Added DB fallback table for token blacklist to handle Redis outage
 
 import os
 import time
-from typing import Optional, Set
-from datetime import datetime, timedelta, timezone
+from typing import Optional
+from datetime import datetime, timezone
 from threading import Lock
 
 from logging_config import get_logger
@@ -144,7 +144,7 @@ class TokenBlacklist:
             import asyncio
             # FIX: Avoid asyncio.run() in async context - use existing loop or create_task
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 # Already in async context, schedule the task
                 asyncio.create_task(self._blacklist_token_db_async(jti, expires_at))
             except RuntimeError:
@@ -243,7 +243,7 @@ class TokenBlacklist:
             import asyncio
             # FIX: Avoid asyncio.run() in async context
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 # In async context - we can't await from sync, so return True (fail closed)
                 # This is safe because blocking in sync context would be worse
                 logger.warning("DB blacklist check called from async context - failing closed for safety")
@@ -254,7 +254,6 @@ class TokenBlacklist:
 
             async def _do_check():
                 from db_helper import get_db, fetch_one
-                from database import DB_TYPE
 
                 async with get_db() as db:
                     row = await fetch_one(db, """
@@ -330,7 +329,8 @@ class TokenBlacklist:
             try:
                 keys = self._redis_client.keys("blacklist:*")
                 return {"backend": "redis", "count": len(keys)}
-            except:
+            except Exception:
+                logger.warning("Failed to count Redis blacklist entries")
                 return {"backend": "redis", "count": "unknown", "error": "failed to count"}
         else:
             with self._lock:

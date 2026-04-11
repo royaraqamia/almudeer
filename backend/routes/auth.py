@@ -19,8 +19,9 @@ SECURITY FIXES:
 
 import secrets
 import re
+from datetime import timedelta
 from fastapi import APIRouter, HTTPException, status, Depends, Request
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import Optional
 
 from services.jwt_auth import (
@@ -348,11 +349,11 @@ async def _login_with_email(
             details={"user_id": user["id"]}
         )
 
-        # Update last login timestamp with IP tracking
+        # Update last login timestamp
         await execute_sql(
             db,
-            "UPDATE user_accounts SET last_login = NOW(), last_login_ip = ?, updated_at = NOW() WHERE id = ?",
-            [ip_address, user["id"]]
+            "UPDATE user_accounts SET last_login = NOW(), updated_at = NOW() WHERE id = ?",
+            [user["id"]]
         )
         await commit_db(db)
 
@@ -374,8 +375,9 @@ async def _login_with_email(
         "user_id": user["id"],
         "email": user["email"],
         "full_name": user.get("full_name"),
-        "is_email_verified": True,
-        "is_approved_by_admin": True,
+        "username": user.get("username"),
+        "is_email_verified": bool(user.get("is_email_verified", True)),
+        "is_approved_by_admin": bool(user.get("is_approved_by_admin", True)),
     }
 
     return TokenResponse(
@@ -387,6 +389,7 @@ async def _login_with_email(
 # ============ Signup & OTP Endpoints ============
 
 @router.post("/signup")
+@limiter.limit(RateLimits.SIGNUP)  # FIX: Rate limit signup to prevent abuse (10/minute)
 async def signup(data: SignUpRequest, request: Request):
     """
     Sign up with email and password.
@@ -414,6 +417,26 @@ async def signup(data: SignUpRequest, request: Request):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="بريد إلكتروني غير صالح"
+        )
+
+    # Validate full_name format: 2-200 chars, non-empty
+    if not data.full_name or not data.full_name.strip():
+        await _apply_constant_time_delay()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="الاسم الكامل مطلوب"
+        )
+    if len(data.full_name.strip()) < 2:
+        await _apply_constant_time_delay()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="الاسم الكامل يجب أن يكون حرفين على الأقل"
+        )
+    if len(data.full_name) > 200:
+        await _apply_constant_time_delay()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="الاسم الكامل يجب ألا يتجاوز 200 حرف"
         )
 
     # Validate username format: alphanumeric, underscores, hyphens, 3-50 chars
@@ -478,6 +501,10 @@ async def signup(data: SignUpRequest, request: Request):
             )
             await commit_db(db)
         except Exception as e:
+            # FIX: Rollback transaction on constraint violation to prevent dirty connection
+            from db_helper import rollback_db
+            await rollback_db(db)
+
             # Check if this is a unique constraint violation
             error_str = str(e).lower()
             if "unique" in error_str or "duplicate" in error_str or "constraint" in error_str:

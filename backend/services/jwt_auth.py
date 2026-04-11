@@ -18,9 +18,12 @@ from dataclasses import dataclass
 
 from jose import jwt, JWTError
 from starlette.concurrency import run_in_threadpool
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from database import DB_TYPE
+from db_helper import get_db, fetch_one, execute_sql, commit_db
 
 from logging_config import get_logger
-from db_helper import execute_sql, commit_db
 
 logger = get_logger(__name__)
 
@@ -186,10 +189,7 @@ async def create_token_pair(
     On refresh, the fingerprint is validated to prevent token replay from other devices.
     """
     # Fetch current token_version for the license to embed in JWT
-    from database import get_db, fetch_one, DB_TYPE
-
     token_version = 1
-    is_email_auth_user = False
     if license_id:
         try:
             async with get_db() as db:
@@ -205,7 +205,6 @@ async def create_token_pair(
                     # Email-auth users pass their user_id as license_id for session tracking
                     user_row = await fetch_one(db, "SELECT id FROM user_accounts WHERE id = ?", [license_id])
                     if user_row:
-                        is_email_auth_user = True
                         token_version = 1  # Email-auth users don't have token_version in license_keys
                         logger.debug(f"Email-auth user detected (license_id={license_id}), using default token_version")
                     else:
@@ -246,8 +245,6 @@ async def create_token_pair(
     # Store session in DB for audit/admin oversight
     # For email-auth users, license_id is the user_account_id (not a license key)
     if license_id:
-        from database import DB_TYPE
-        from db_helper import execute_sql, commit_db
         try:
             async with get_db() as db:
                 # Use timezone-aware datetime
@@ -380,7 +377,7 @@ def verify_token(token: str, token_type: str = TokenType.ACCESS) -> Optional[Dic
                         return payload
 
                 # Outside grace period — reject
-                logger.debug(f"Access token expired outside grace period")
+                logger.debug("Access token expired outside grace period")
                 return None
 
             except JWTError:
@@ -521,9 +518,6 @@ async def refresh_access_token(
         )
 
     # Update session metadata (last used, IP, device info)
-    from database import DB_TYPE
-    from db_helper import get_db, fetch_one, execute_sql, commit_db
-
     try:
         async with get_db() as db:
             if DB_TYPE == "postgresql":
@@ -580,9 +574,6 @@ async def refresh_access_token(
 
 
 # ============ FastAPI Dependencies ============
-
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 security = HTTPBearer(auto_error=False)
 

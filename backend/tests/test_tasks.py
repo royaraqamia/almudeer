@@ -376,29 +376,29 @@ class TestConcurrentShareOperations:
     to prevent duplicate shares, data corruption, and inconsistent state.
     """
 
-    async def test_concurrent_share_creation(self):
-        """Test that concurrent share requests don't create duplicates
-
-        Scenario: Two simultaneous requests to share the same task with the same user
-        Expected: Only one share record created, no constraint violations
-        """
+    async def test_concurrent_share_creation(self, task_db, monkeypatch):
+        """Test that concurrent share requests don't create duplicates"""
+        import aiosqlite
         from models.task_shares import share_task, get_shared_tasks
-        from db_helper import get_db, fetch_one, execute_sql
+        from db_helper import get_db, fetch_one, execute_sql, commit_db
+        import db_pool
         import asyncio
 
-        # This test requires a real database to test race conditions
-        # Mock test structure for reference
+        # FIX: Patch db_pool INSTANCE to use our pre-created task_db file
+        monkeypatch.setattr(db_pool.db_pool, "sqlite_path", task_db)
+
         task_id = "test-task-concurrent-123"
         license_id = 1
         shared_with_user_id = "user456"
         created_by = "user123"
 
-        # Create task first (mock)
+        # Create task in the pre-initialized DB
         async with get_db() as db:
             await execute_sql(db, """
                 INSERT OR IGNORE INTO tasks (id, license_key_id, title, created_by, visibility)
                 VALUES (?, ?, ?, ?, 'shared')
             """, (task_id, license_id, "Test Task", created_by))
+            await commit_db(db)
 
         # Simulate concurrent share requests
         async def share_request(permission):
@@ -445,27 +445,28 @@ class TestConcurrentShareOperations:
             await execute_sql(db, "DELETE FROM task_shares WHERE task_id = ?", (task_id,))
             await execute_sql(db, "DELETE FROM tasks WHERE id = ?", (task_id,))
 
-    async def test_share_revoked_cannot_reuse(self):
-        """Test that revoked shares cannot be reactivated
-
-        Scenario: Share is revoked, then someone tries to re-share with same user
-        Expected: Should raise error requiring new share creation
-        """
+    async def test_share_revoked_cannot_reuse(self, task_db, monkeypatch):
+        """Test that revoked shares cannot be reactivated"""
         from models.task_shares import share_task, remove_share
-        from db_helper import get_db, execute_sql
+        from db_helper import get_db, fetch_one, execute_sql, commit_db
+        import db_pool
         from datetime import datetime, timezone
+
+        # FIX: Patch db_pool INSTANCE to use our pre-created task_db file
+        monkeypatch.setattr(db_pool.db_pool, "sqlite_path", task_db)
 
         task_id = "test-task-revoked-456"
         license_id = 1
         shared_with_user_id = "user789"
         created_by = "user123"
 
-        # Setup: Create task and share
+        # Create task
         async with get_db() as db:
             await execute_sql(db, """
                 INSERT OR IGNORE INTO tasks (id, license_key_id, title, created_by, visibility)
                 VALUES (?, ?, ?, ?, 'shared')
             """, (task_id, license_id, "Test Task", created_by))
+            await commit_db(db)
 
         # Create share
         await share_task(
@@ -476,9 +477,19 @@ class TestConcurrentShareOperations:
             created_by=created_by
         )
 
+        # FIX: Fetch the actual share_id from the database
+        async with get_db() as db:
+            share_row = await fetch_one(
+                db,
+                "SELECT id FROM task_shares WHERE task_id = ? AND shared_with_user_id = ? AND deleted_at IS NULL",
+                (task_id, shared_with_user_id)
+            )
+            assert share_row is not None, "Share should exist after creation"
+            share_id = share_row["id"]
+
         # Revoke share
         await remove_share(
-            share_id=1,  # Will be the first share
+            share_id=share_id,
             license_id=license_id,
             revoked_by=created_by
         )
@@ -502,24 +513,26 @@ class TestConcurrentShareOperations:
             await execute_sql(db, "DELETE FROM task_shares WHERE task_id = ?", (task_id,))
             await execute_sql(db, "DELETE FROM tasks WHERE id = ?", (task_id,))
 
-    async def test_self_share_prevention(self):
-        """Test that users cannot share tasks with themselves
-
-        Security test for SEC-001
-        """
+    async def test_self_share_prevention(self, task_db, monkeypatch):
+        """Test that users cannot share tasks with themselves (SEC-001)"""
         from models.task_shares import share_task
-        from db_helper import get_db, execute_sql
+        from db_helper import get_db, fetch_one, execute_sql, commit_db
+        import db_pool
+
+        # FIX: Patch db_pool INSTANCE to use our pre-created task_db file
+        monkeypatch.setattr(db_pool.db_pool, "sqlite_path", task_db)
 
         task_id = "test-task-self-share-789"
         license_id = 1
         user_id = "user123"
 
-        # Setup: Create task
+        # Create task
         async with get_db() as db:
             await execute_sql(db, """
                 INSERT OR IGNORE INTO tasks (id, license_key_id, title, created_by, visibility)
                 VALUES (?, ?, ?, ?, 'shared')
             """, (task_id, license_id, "Test Task", user_id))
+            await commit_db(db)
 
         # Try to share with self - should fail
         try:
@@ -539,11 +552,7 @@ class TestConcurrentShareOperations:
             await execute_sql(db, "DELETE FROM tasks WHERE id = ?", (task_id,))
 
     async def test_concurrent_share_update_permission(self):
-        """Test concurrent permission updates on same share
-
-        Scenario: Two requests to update permission on same share
-        Expected: Last write wins, no data corruption
-        """
+        """Test concurrent permission updates on same share"""
         from models.task_shares import share_task
         from db_helper import get_db, fetch_one, execute_sql
         import asyncio
@@ -552,6 +561,39 @@ class TestConcurrentShareOperations:
         license_id = 1
         shared_with_user_id = "user456"
         created_by = "user123"
+
+        # FIX: Create all required tables in a single DB connection
+        async with get_db() as db:
+            await execute_sql(db, """
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id TEXT PRIMARY KEY, license_key_id INTEGER NOT NULL,
+                    title TEXT NOT NULL, description TEXT, is_completed BOOLEAN DEFAULT FALSE,
+                    due_date TIMESTAMP, priority TEXT DEFAULT 'medium', color BIGINT,
+                    sub_tasks TEXT, alarm_enabled BOOLEAN DEFAULT FALSE, alarm_time TIMESTAMP,
+                    recurrence TEXT, category TEXT, order_index REAL DEFAULT 0.0,
+                    created_by TEXT, assigned_to TEXT, attachments TEXT,
+                    visibility TEXT DEFAULT 'shared', created_at CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP, synced_at TIMESTAMP, is_deleted INTEGER DEFAULT 0,
+                    snooze_count INTEGER DEFAULT 0
+                )
+            """)
+            await execute_sql(db, """
+                CREATE TABLE IF NOT EXISTS task_shares (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id TEXT NOT NULL, license_key_id INTEGER NOT NULL,
+                    shared_with_user_id TEXT NOT NULL, permission TEXT DEFAULT 'read',
+                    created_by TEXT, created_at TIMESTAMP, updated_at TIMESTAMP,
+                    deleted_at TIMESTAMP, expires_at TIMESTAMP,
+                    UNIQUE(task_id, shared_with_user_id)
+                )
+            """)
+            await execute_sql(db, """
+                CREATE TABLE IF NOT EXISTS task_comments (
+                    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, license_key_id INTEGER NOT NULL,
+                    user_id TEXT NOT NULL, user_name TEXT, content TEXT NOT NULL,
+                    attachments TEXT, created_at CURRENT_TIMESTAMP
+                )
+            """)
 
         # Setup: Create task and initial share
         async with get_db() as db:
@@ -619,81 +661,56 @@ class TestTaskRecurrenceEdgeCases:
     
     def test_monthly_recurrence_jan31_to_feb(self):
         """Test monthly recurrence from January 31st to February
-        
+
         January has 31 days, February has 28/29 days.
-        Expected: Should use last day of February
+        FIX: relativedelta already handles month-end correctly (Jan 31 → Feb 29).
+        The previous test had inverted logic that went BACKWARDS to Jan 31.
         """
         from datetime import datetime
         from dateutil.relativedelta import relativedelta
-        
-        # Jan 31
+
         old_due = datetime(2024, 1, 31, 23, 59, 59)
-        
-        # Calculate next occurrence
         next_due = old_due + relativedelta(months=1)
-        
-        # Handle month-end: if day doesn't match, use last day of month
-        if next_due.day != old_due.day:
-            next_due = next_due.replace(day=1) + relativedelta(days=-1)
-        
-        # 2024 is a leap year, so Feb has 29 days
+
+        # relativedelta already gives Feb 29 (leap year 2024)
         assert next_due.month == 2
-        assert next_due.day == 29  # Leap year
+        assert next_due.day == 29
         assert next_due.hour == 23
         assert next_due.minute == 59
-    
+
     def test_monthly_recurrence_non_leap_year(self):
         """Test monthly recurrence in non-leap year"""
         from datetime import datetime
         from dateutil.relativedelta import relativedelta
-        
-        # Jan 31, 2023 (non-leap year)
+
         old_due = datetime(2023, 1, 31, 23, 59, 59)
-        
-        # Calculate next occurrence
         next_due = old_due + relativedelta(months=1)
-        
-        # Handle month-end
-        if next_due.day != old_due.day:
-            next_due = next_due.replace(day=1) + relativedelta(days=-1)
-        
-        # 2023 is not a leap year, so Feb has 28 days
+
+        # relativedelta already gives Feb 28 (non-leap year 2023)
         assert next_due.month == 2
         assert next_due.day == 28
-    
+
     def test_monthly_recurrence_mar31_to_apr30(self):
         """Test monthly recurrence from March 31st to April 30th"""
         from datetime import datetime
         from dateutil.relativedelta import relativedelta
-        
-        # Mar 31
+
         old_due = datetime(2024, 3, 31, 12, 0, 0)
-        
-        # Calculate next occurrence
         next_due = old_due + relativedelta(months=1)
-        
-        # Handle month-end: April has 30 days
-        if next_due.day != old_due.day:
-            next_due = next_due.replace(day=1) + relativedelta(days=-1)
-        
+
+        # relativedelta already gives Apr 30
         assert next_due.month == 4
         assert next_due.day == 30
-    
+
     def test_monthly_recurrence_may31_to_jun30(self):
         """Test monthly recurrence from May 31st to June 30th"""
         from datetime import datetime
         from dateutil.relativedelta import relativedelta
-        
-        # May 31
+
         old_due = datetime(2024, 5, 31, 9, 0, 0)
-        
-        # Calculate next occurrence
         next_due = old_due + relativedelta(months=1)
-        
-        # Handle month-end: June has 30 days
-        if next_due.day != old_due.day:
-            next_due = next_due.replace(day=1) + relativedelta(days=-1)
-        
+
+        # relativedelta already gives Jun 30
         assert next_due.month == 6
         assert next_due.day == 30
     
@@ -701,18 +718,11 @@ class TestTaskRecurrenceEdgeCases:
         """Test that monthly recurrence preserves the time of day"""
         from datetime import datetime
         from dateutil.relativedelta import relativedelta
-        
-        # Jan 31 at specific time
+
         old_due = datetime(2024, 1, 31, 14, 30, 45)
-        
-        # Calculate next occurrence
         next_due = old_due + relativedelta(months=1)
-        
-        # Handle month-end
-        if next_due.day != old_due.day:
-            next_due = next_due.replace(day=1) + relativedelta(days=-1)
-        
-        # Time should be preserved
+
+        # relativedelta already gives Feb 29 with time preserved
         assert next_due.hour == 14
         assert next_due.minute == 30
         assert next_due.second == 45

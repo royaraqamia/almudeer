@@ -80,37 +80,48 @@ async def resolve_username_to_user_id(username: str) -> Tuple[str, bool]:
 
 async def resolve_username_to_user_id_with_db(username: str, db) -> Tuple[str, bool]:
     """
-    Resolve a username to a user_id (license_id) using provided DB connection.
-    
-    This is the actual implementation that uses an existing DB connection
-    to avoid creating multiple connections.
-    
+    Resolve a username to a user_id using provided DB connection.
+
+    FIX: Support both legacy license_keys auth and new email/password auth.
+    First checks license_keys (legacy), then falls back to user_accounts (new auth).
+
     Args:
-        username: Either a username (string) or license_id (numeric string)
+        username: Either a username (string) or user_id (numeric string)
         db: Database connection
-        
+
     Returns:
         Tuple of (user_id, was_resolved)
-        
+
     Raises:
         ValueError: If username is not found in the database
     """
-    # Check if it's already a numeric license_id
+    # Check if it's already a numeric user_id/license_id
     if username.isdigit():
         return username, False
-    
-    # Look up the license_id by username
+
     is_active_value = "TRUE" if DB_TYPE == "postgresql" else "1"
+
+    # FIX: First try legacy license_keys table
     license_row = await fetch_one(
         db,
         f"SELECT id FROM license_keys WHERE username = ? AND is_active = {is_active_value}",
         [username]
     )
-    
-    if not license_row:
-        raise ValueError(f"User '{username}' not found")
-    
-    return str(license_row['id']), True
+
+    if license_row:
+        return str(license_row['id']), True
+
+    # FIX: Fall back to new user_accounts table for email-auth users
+    user_row = await fetch_one(
+        db,
+        f"SELECT id FROM user_accounts WHERE username = ? AND is_active = {is_active_value}",
+        [username]
+    )
+
+    if user_row:
+        return str(user_row['id']), True
+
+    raise ValueError(f"User '{username}' not found")
 
 
 def validate_share_permission(permission: str) -> bool:
