@@ -542,9 +542,9 @@ async def signup(data: SignUpRequest, request: Request):
         # Note: Account is created even if OTP email fails
 
     security_logger = get_security_logger()
-    security_logger.log_security_event(
+    security_logger.log_event(
         SecurityEventType.USER_SIGNUP,
-        user_id=data.email,
+        identifier=data.email,
         details={"full_name": data.full_name, "username": data.username}
     )
 
