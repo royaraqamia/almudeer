@@ -11,6 +11,7 @@ import 'package:almudeer_mobile_app/core/widgets/app_gradient_button.dart';
 import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:almudeer_mobile_app/core/utils/haptics.dart';
 import 'package:almudeer_mobile_app/core/services/biometric_service.dart';
+import 'package:almudeer_mobile_app/core/utils/validators.dart';
 
 /// Login screen with email/password authentication
 ///
@@ -75,15 +76,17 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _handleEmailLogin() async {
     if (!_emailFormKey.currentState!.validate()) return;
 
-    // P2-14 FIX: Sanitize input - trim and strip non-printable characters
-    final sanitizedInput = _emailController.text
-        .trim()
-        .replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F]'), '');
+    // Sanitize input
+    final sanitizedEmail = Validators.sanitizeInput(_emailController.text);
+    final password = _passwordController.text; // Password preserved as-is
 
     final authProvider = context.read<AuthProvider>();
+    // Clear any previous error messages
+    authProvider.clearError();
+    
     final success = await authProvider.loginWithEmail(
-      sanitizedInput,
-      _passwordController.text,
+      sanitizedEmail,
+      password,
     );
 
     if (!mounted) return;
@@ -94,7 +97,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } else if (authProvider.state == AuthState.pendingApproval) {
       Navigator.of(context).pushNamedAndRemoveUntil(
         AppRoutes.waitingForApproval,
-        arguments: {'email': _emailController.text.trim()},
+        arguments: {'email': sanitizedEmail},
         (route) => false,
       );
     }

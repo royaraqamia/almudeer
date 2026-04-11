@@ -495,7 +495,7 @@ async def signup(data: SignUpRequest, request: Request):
 
 
 @router.get("/check-username/{username}")
-@limiter.limit(RateLimits.signup)
+@limiter.limit(RateLimits.SIGNUP)
 async def check_username(username: str, request: Request):
     """
     Check if a username is available.

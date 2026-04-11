@@ -37,6 +37,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
   Timer? _timer;
   Timer? _resendTimer;
   bool _isVerifying = false;
+  bool _isDisposed = false;
 
   @override
   void initState() {
@@ -46,6 +47,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
 
   @override
   void dispose() {
+    _isDisposed = true;
     _timer?.cancel();
     _resendTimer?.cancel();
     for (final c in _controllers) {
@@ -80,6 +82,9 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
   }
 
   Future<void> _handleVerify() async {
+    // Prevent verification if widget is disposed or already verifying
+    if (_isDisposed || _isVerifying) return;
+
     final otpCode = _controllers.map((c) => c.text).join();
     if (otpCode.length != 6) {
       _showError('يرجى إدخال رمز التحقق كاملاً');
@@ -249,6 +254,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                           ),
                         ),
                         onChanged: (value) {
+                          if (_isDisposed) return; // Prevent auto-verify during disposal
                           if (value.isNotEmpty) {
                             if (index < 5) {
                               _focusNodes[index + 1].requestFocus();

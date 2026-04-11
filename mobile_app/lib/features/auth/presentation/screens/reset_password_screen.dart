@@ -9,6 +9,7 @@ import 'package:almudeer_mobile_app/core/widgets/app_text_field.dart';
 import 'package:almudeer_mobile_app/core/widgets/app_gradient_button.dart';
 import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:almudeer_mobile_app/core/utils/haptics.dart';
+import 'package:almudeer_mobile_app/core/utils/validators.dart';
 
 /// Reset Password screen
 ///
@@ -33,9 +34,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   final _focusNode = FocusNode();
   bool _showPassword = false;
   bool _showConfirm = false;
-
-  // Regex for special characters in password
-  static final _specialCharRegex = RegExp(r"""[!@#$%^&*(),.?<>_\-+=\[\]\\;'`~{}|]""");
 
   @override
   void dispose() {
@@ -170,14 +168,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) return 'كلمة المرور مطلوبة';
-                      if (value.length < 8) return '8 أحرف على الأقل';
-                      if (!RegExp(r'[A-Z]').hasMatch(value)) return 'حرف كبير واحد على الأقل';
-                      if (!RegExp(r'[a-z]').hasMatch(value)) return 'حرف صغير واحد على الأقل';
-                      if (!RegExp(r'\d').hasMatch(value)) return 'رقم واحد على الأقل';
-                      if (!_specialCharRegex.hasMatch(value)) {
-                        return 'رمز خاص واحد على الأقل';
-                      }
-                      return null;
+                      final result = Validators.validatePassword(value);
+                      return result.errorMessage;
                     },
                   ),
                   const SizedBox(height: AppDimensions.spacing16),
@@ -212,10 +204,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) return 'تأكيد كلمة المرور مطلوب';
-                      if (value != _passwordController.text) {
-                        return 'كلمتا المرور غير متطابقتين';
-                      }
-                      return null;
+                      final result = Validators.validatePasswordConfirmation(value, _passwordController.text);
+                      return result.errorMessage;
                     },
                   ),
                   const SizedBox(height: AppDimensions.spacing8),

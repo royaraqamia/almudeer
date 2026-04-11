@@ -9,9 +9,9 @@ import 'package:almudeer_mobile_app/core/constants/dimensions.dart';
 import 'package:almudeer_mobile_app/core/widgets/app_text_field.dart';
 import 'package:almudeer_mobile_app/core/widgets/app_gradient_button.dart';
 import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
-import 'package:almudeer_mobile_app/features/auth/data/repositories/auth_repository.dart';
 import 'package:almudeer_mobile_app/features/auth/data/models/username_availability.dart';
 import 'package:almudeer_mobile_app/core/utils/haptics.dart';
+import 'package:almudeer_mobile_app/core/utils/validators.dart';
 
 /// Sign Up screen with email, password, and full name validation
 ///
@@ -76,7 +76,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   Future<void> _checkUsernameAvailability() async {
     final username = _usernameController.text.trim();
-    
+
     // Skip if empty or too short
     if (username.length < 3) {
       if (mounted) {
@@ -86,33 +86,39 @@ class _SignUpScreenState extends State<SignUpScreen> {
       }
       return;
     }
-    
+
     if (!mounted) return;
-    
+
     setState(() {
       _isCheckingUsername = true;
     });
-    
-    final repository = AuthRepository();
-    final availability = await repository.checkUsernameAvailability(username);
-    
-    if (mounted) {
-      setState(() {
-        _usernameAvailability = availability;
-        _isCheckingUsername = false;
-      });
+
+    try {
+      // Use AuthProvider's repository instead of creating new instance
+      final authProvider = context.read<AuthProvider>();
+      final availability = await authProvider.checkUsernameAvailability(username);
+
+      if (mounted) {
+        setState(() {
+          _usernameAvailability = availability;
+          _isCheckingUsername = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isCheckingUsername = false;
+        });
+      }
     }
   }
 
   void _validateForm() {
     final fullNameValid = _fullNameController.text.trim().length >= 2;
     final usernameValid = _usernameController.text.trim().length >= 3;
-    final emailValid = RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(_emailController.text.trim());
-    final passwordValid = _passwordController.text.length >= 8 &&
-        RegExp(r'[A-Z]').hasMatch(_passwordController.text) &&
-        RegExp(r'[a-z]').hasMatch(_passwordController.text) &&
-        RegExp(r'\d').hasMatch(_passwordController.text) &&
-        RegExp(r"""[!@#\$%^&*(),.?":{}|<>_\-+=\[\]\\;'`~]""").hasMatch(_passwordController.text);
+    final emailValid = Validators.email.hasMatch(_emailController.text.trim());
+    final passwordResult = Validators.validatePassword(_passwordController.text);
+    final passwordValid = passwordResult.isValid;
     final confirmPasswordValid = _confirmPasswordController.text == _passwordController.text &&
         _confirmPasswordController.text.isNotEmpty;
 
@@ -147,14 +153,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
   Future<void> _handleSignUp() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // P2-14 FIX: Sanitize email and username input
-    final sanitizedEmail = _emailController.text
-        .trim()
-        .replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F]'), '');
-    
-    final sanitizedUsername = _usernameController.text
-        .trim()
-        .replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F]'), '');
+    // Sanitize email and username input
+    final sanitizedEmail = Validators.sanitizeInput(_emailController.text);
+    final sanitizedUsername = Validators.sanitizeInput(_usernameController.text);
 
     final authProvider = context.read<AuthProvider>();
     final success = await authProvider.signUp(
@@ -302,10 +303,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       if (value == null || value.trim().isEmpty) {
                         return 'الاسم الكامل مطلوب';
                       }
-                      if (value.trim().length < 2) {
-                        return 'الاسم يجب أن يكون حرفين على الأقل';
-                      }
-                      return null;
+                      final result = Validators.validateName(value);
+                      return result.errorMessage;
                     },
                   ),
                   const SizedBox(height: AppDimensions.spacing16),
@@ -359,16 +358,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     enableSuggestions: false,
                     maxLines: 1,
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'البريد الإلكتروني مطلوب';
-                      }
-                      final emailRegex = RegExp(
-                        r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
-                      );
-                      if (!emailRegex.hasMatch(value)) {
-                        return 'بريد إلكتروني غير صالح';
-                      }
-                      return null;
+                      final result = Validators.validateEmail(value);
+                      return result.errorMessage;
                     },
                   ),
                   const SizedBox(height: AppDimensions.spacing16),
@@ -399,25 +390,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       },
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'كلمة المرور مطلوبة';
-                      }
-                      if (value.length < 8) {
-                        return 'كلمة المرور يجب أن تكون 8 أحرف على الأقل';
-                      }
-                      if (!RegExp(r'[A-Z]').hasMatch(value)) {
-                        return 'يجب أن تحتوي على حرف كبير واحد على الأقل';
-                      }
-                      if (!RegExp(r'[a-z]').hasMatch(value)) {
-                        return 'يجب أن تحتوي على حرف صغير واحد على الأقل';
-                      }
-                      if (!RegExp(r'\d').hasMatch(value)) {
-                        return 'يجب أن تحتوي على رقم واحد على الأقل';
-                      }
-                      if (!RegExp(r"""[!@#\$%^&*(),.?":{}|<>_\-+=\[\]\\;'`~]""").hasMatch(value)) {
-                        return 'يجب أن تحتوي على رمز خاص واحد على الأقل';
-                      }
-                      return null;
+                      final result = Validators.validatePassword(value);
+                      return result.errorMessage;
                     },
                   ),
                   const SizedBox(height: AppDimensions.spacing16),
@@ -448,13 +422,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       },
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'تأكيد كلمة المرور مطلوب';
-                      }
-                      if (value != _passwordController.text) {
-                        return 'كلمتا المرور غير متطابقتين';
-                      }
-                      return null;
+                      final result = Validators.validatePasswordConfirmation(value, _passwordController.text);
+                      return result.errorMessage;
                     },
                   ),
                   const SizedBox(height: AppDimensions.spacing32),

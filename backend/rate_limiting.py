@@ -43,6 +43,9 @@ class RateLimits:
     # Authentication endpoints (stricter to prevent brute force)
     AUTH = os.getenv("RATE_LIMIT_AUTH", "5/minute")
 
+    # Username/email signup checks
+    SIGNUP = os.getenv("RATE_LIMIT_SIGNUP", "10/minute")
+
     # P2-13 FIX: User info endpoint - stricter limit to prevent token enumeration
     USER_INFO = os.getenv("RATE_LIMIT_USER_INFO", "10/minute")
 

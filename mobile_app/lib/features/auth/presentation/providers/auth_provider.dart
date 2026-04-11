@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:almudeer_mobile_app/features/users/data/models/user_info.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../../data/models/username_availability.dart';
 import 'package:almudeer_mobile_app/core/api/api_client.dart';
 import 'package:almudeer_mobile_app/features/notifications/data/services/fcm_service_mobile.dart' if (dart.library.js_interop) 'package:almudeer_mobile_app/features/notifications/data/services/fcm_service_web.dart';
 import 'package:almudeer_mobile_app/core/services/security_event_service.dart';
@@ -778,6 +779,11 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Check username availability (delegates to repository)
+  Future<UsernameAvailability> checkUsernameAvailability(String username) async {
+    return await _authRepository.checkUsernameAvailability(username);
+  }
+
   // ==================== Email/Password Auth Methods ====================
 
   /// Sign up with email and password
@@ -955,6 +961,15 @@ class AuthProvider extends ChangeNotifier {
 
   /// Forgot password - send reset email
   Future<bool> forgotPassword(String email) async {
+    // Check rate limiting to prevent abuse
+    if (isRateLimited) {
+      _errorMessage =
+          'للحماية حسابك، يرجى الانتظار $remainingLockoutMinutes دقيقة قبل المحاولة مجدداً';
+      _state = AuthState.error;
+      notifyListeners();
+      return false;
+    }
+
     _state = AuthState.loading;
     _errorMessage = null;
     notifyListeners();

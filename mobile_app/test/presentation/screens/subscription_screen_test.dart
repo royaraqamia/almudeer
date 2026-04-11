@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:almudeer_mobile_app/features/settings/presentation/screens/subscription_screen.dart';
 import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
+import 'package:almudeer_mobile_app/features/auth/data/models/username_availability.dart';
 import 'package:almudeer_mobile_app/features/users/data/models/user_info.dart';
 import 'package:almudeer_mobile_app/core/constants/settings_strings.dart';
 
@@ -425,6 +426,15 @@ class MockAuthProvider extends ChangeNotifier implements AuthProvider {
 
   @override
   void clearError() {}
+
+  @override
+  Future<UsernameAvailability> checkUsernameAvailability(String username) async {
+    return const UsernameAvailability(
+      available: true,
+      validFormat: true,
+      message: 'Available',
+    );
+  }
 
   @override
   Future<bool> loginWithEmail(String email, String password) async => true;

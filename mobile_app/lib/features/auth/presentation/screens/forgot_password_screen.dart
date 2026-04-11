@@ -9,6 +9,7 @@ import 'package:almudeer_mobile_app/core/widgets/app_text_field.dart';
 import 'package:almudeer_mobile_app/core/widgets/app_gradient_button.dart';
 import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:almudeer_mobile_app/core/utils/haptics.dart';
+import 'package:almudeer_mobile_app/core/utils/validators.dart';
 
 /// Forgot Password screen
 ///
@@ -39,8 +40,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   Future<void> _handleSendResetLink() async {
     if (!_formKey.currentState!.validate()) return;
 
+    final sanitizedEmail = Validators.sanitizeInput(_emailController.text);
     final authProvider = context.read<AuthProvider>();
-    final success = await authProvider.forgotPassword(_emailController.text.trim());
+    final success = await authProvider.forgotPassword(sanitizedEmail);
 
     if (!mounted) return;
 

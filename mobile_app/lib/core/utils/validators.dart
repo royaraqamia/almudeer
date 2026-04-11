@@ -112,4 +112,84 @@ class Validators {
   static String sanitizePhone(String phone) {
     return phone.replaceAll(RegExp(r'[^\d+\-]'), '');
   }
+
+  /// Special characters allowed in passwords (consistent across all screens)
+  static final RegExp _passwordSpecialChar = RegExp(
+    r"""[!@#\$%^&*(),.?":{}|<>_\-+=\[\]\\;'`~]""",
+  );
+
+  /// Validate password strength
+  ///
+  /// Requirements:
+  /// - At least 8 characters
+  /// - At least one uppercase letter
+  /// - At least one lowercase letter
+  /// - At least one digit
+  /// - At least one special character
+  static ValidationResult validatePassword(String? value) {
+    if (value == null || value.isEmpty) {
+      return const ValidationResult.invalid('كلمة المرور مطلوبة');
+    }
+
+    if (value.length < 8) {
+      return const ValidationResult.invalid('كلمة المرور يجب أن تكون 8 أحرف على الأقل');
+    }
+
+    if (!RegExp(r'[A-Z]').hasMatch(value)) {
+      return const ValidationResult.invalid('يجب أن تحتوي على حرف كبير واحد على الأقل');
+    }
+
+    if (!RegExp(r'[a-z]').hasMatch(value)) {
+      return const ValidationResult.invalid('يجب أن تحتوي على حرف صغير واحد على الأقل');
+    }
+
+    if (!RegExp(r'\d').hasMatch(value)) {
+      return const ValidationResult.invalid('يجب أن تحتوي على رقم واحد على الأقل');
+    }
+
+    if (!_passwordSpecialChar.hasMatch(value)) {
+      return const ValidationResult.invalid('يجب أن تحتوي على رمز خاص واحد على الأقل');
+    }
+
+    return const ValidationResult.valid();
+  }
+
+  /// Validate password confirmation
+  static ValidationResult validatePasswordConfirmation(
+    String? value,
+    String originalPassword,
+  ) {
+    if (value == null || value.isEmpty) {
+      return const ValidationResult.invalid('تأكيد كلمة المرور مطلوب');
+    }
+
+    if (value != originalPassword) {
+      return const ValidationResult.invalid('كلمتا المرور غير متطابقتين');
+    }
+
+    return const ValidationResult.valid();
+  }
+
+  /// Validate email format
+  static final RegExp email = RegExp(
+    r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+  );
+
+  /// Validate email format
+  static ValidationResult validateEmail(String? value) {
+    if (value == null || value.isEmpty) {
+      return const ValidationResult.invalid('البريد الإلكتروني مطلوب');
+    }
+
+    if (!email.hasMatch(value)) {
+      return const ValidationResult.invalid('بريد إلكتروني غير صالح');
+    }
+
+    return const ValidationResult.valid();
+  }
+
+  /// Sanitize input by trimming and stripping control characters
+  static String sanitizeInput(String input) {
+    return input.trim().replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F]'), '');
+  }
 }
