@@ -36,8 +36,8 @@ class TelegramListenerService:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(TelegramListenerService, cls).__new__(cls)
-            cls._instance.clients = {}  # license_id -> TelegramClient
-            cls._instance.locks = {} # license_id -> asyncio.Lock
+            cls._instance.clients = {}  # user_id -> TelegramClient
+            cls._instance.locks = {} # user_id -> asyncio.Lock
             cls._instance.running = False
             cls._instance.monitor_task = None
             cls._instance.background_tasks = set() # Track fire-and-forget tasks
@@ -110,8 +110,8 @@ class TelegramListenerService:
         
         # Disconnect all clients
         keys = list(self.clients.keys())
-        for license_id in keys:
-            await self._stop_client(license_id)
+        for user_id in keys:
+            await self._stop_client(user_id)
 
     async def _monitor_sessions(self):
         """Periodically check for active sessions and start listeners"""
@@ -136,7 +136,7 @@ class TelegramListenerService:
             try:
                 async with get_db() as db:
                     query = """
-                        SELECT license_key_id, session_data_encrypted, phone_number
+                        SELECT user_id, session_data_encrypted, phone_number
                         FROM telegram_phone_sessions
                         WHERE is_active = TRUE
                     """
@@ -151,7 +151,7 @@ class TelegramListenerService:
                     "connection reset" in error_str.lower() or
                     "ConnectionDoesNotExistError" in type(e).__name__
                 )
-                
+
                 if is_connection_error and attempt < max_retries - 1:
                     logger.warning(f"DB connection error (attempt {attempt + 1}/{max_retries}): {e}. Retrying...")
                     await asyncio.sleep(retry_delay * (attempt + 1))  # Exponential backoff
@@ -163,63 +163,63 @@ class TelegramListenerService:
             logger.error("Failed to fetch sessions after multiple attempts")
             return
 
-        active_license_ids = set()
-        
+        active_user_ids = set()
+
         for row in rows:
-            license_id = row.get("license_key_id")
+            user_id = row.get("user_id")
             encrypted_data = row.get("session_data_encrypted")
             phone_number = row.get("phone_number")
 
             try:
                 session_string = simple_decrypt(encrypted_data)
             except Exception as e:
-                logger.error(f"Failed to decrypt session for license {license_id}: {e}")
+                logger.error(f"Failed to decrypt session for user {user_id}: {e}")
                 continue
 
-            active_license_ids.add(license_id)
-            
+            active_user_ids.add(user_id)
+
             # If not running, start client
-            if license_id not in self.clients:
+            if user_id not in self.clients:
                 # Ensure lock exists
-                if license_id not in self.locks:
-                    self.locks[license_id] = asyncio.Lock()
-                    
-                async with self.locks[license_id]:
+                if user_id not in self.locks:
+                    self.locks[user_id] = asyncio.Lock()
+
+                async with self.locks[user_id]:
                     # Double check inside lock
-                    if license_id not in self.clients:
-                        await self._start_client(license_id, session_string, phone_number)
+                    if user_id not in self.clients:
+                        await self._start_client(user_id, session_string, phone_number)
 
         # Stop clients for sessions that are no longer active
         current_clients = list(self.clients.keys())
-        for license_id in current_clients:
-            if license_id not in active_license_ids:
-                logger.info(f"Session for license {license_id} no longer active. Stopping client.")
-                await self._stop_client(license_id)
+        for user_id in current_clients:
+            if user_id not in active_user_ids:
+                logger.info(f"Session for user {user_id} no longer active. Stopping client.")
+                await self._stop_client(user_id)
 
-    async def _start_client(self, license_id: int, session_string: str, phone_number: str):
+    async def _start_client(self, user_id: str, session_string: str, phone_number: str):
         """Start a single Telegram client and attach listeners"""
         client = None
         try:
-            logger.info(f"Starting Telegram client for license {license_id}")
-            
+            logger.info(f"Starting Telegram client for user {user_id}")
+
             client = TelegramClient(
                 StringSession(session_string),
                 TELEGRAM_API_ID,
                 TELEGRAM_API_HASH
             )
-            
+
             await client.connect()
-            
+
             if not await client.is_user_authorized():
-                logger.warning(f"Session unauthorized for license {license_id}. Skipping.")
+                logger.warning(f"Session unauthorized for user {user_id}. Skipping.")
                 await client.disconnect()
                 return
 
             # Store client immediately
-            self.clients[license_id] = client
+            self.clients[user_id] = client
 
             # Proactive Entity Seeding (Senior Backend Fix for Stateless Sessions)
-            async def seed_entities(lic_id, c):
+            async def seed_entities(u_id, c):
                 try:
                     from models import save_telegram_entity
                     # Get top 50 dialogs to quickly populate common contacts
@@ -229,7 +229,7 @@ class TelegramListenerService:
                              if hasattr(dialog.entity, 'broadcast') or hasattr(dialog.entity, 'megagroup'):
                                  e_type = 'channel'
                              await save_telegram_entity(
-                                 license_id=lic_id,
+                                 license_id=u_id,
                                  entity_id=str(dialog.id),
                                  access_hash=str(dialog.entity.access_hash),
                                  entity_type=e_type,
@@ -237,20 +237,20 @@ class TelegramListenerService:
                                  phone=getattr(dialog.entity, 'phone', None)
                              )
                 except Exception as seed_e:
-                    logger.error(f"Proactive seeding failed for {lic_id}: {seed_e}")
+                    logger.error(f"Proactive seeding failed for {u_id}: {seed_e}")
 
             # Run seeding in background to not block listener startup
-            self.background_tasks.add(asyncio.create_task(seed_entities(license_id, client)))
-            logger.info(f"Telegram client started for license {license_id}")
+            self.background_tasks.add(asyncio.create_task(seed_entities(user_id, client)))
+            logger.info(f"Telegram client started for user {user_id}")
             
             # 1. User Update (Typing/Recording/Status)
             @client.on(events.UserUpdate)
             async def handler(event):
                 try:
                     from services.websocket_manager import broadcast_typing_indicator, broadcast_recording_indicator
-                    
+
                     sender_id = str(event.user_id)
-                    
+
                     # We need the username/contact if possible
                     # Try to find it from dialogs or entity cache
                     entity = await client.get_entity(event.user_id)
@@ -258,14 +258,14 @@ class TelegramListenerService:
                     if not sender_contact: sender_contact = sender_id
 
                     if event.typing:
-                        await broadcast_typing_indicator(license_id, sender_contact, True)
+                        await broadcast_typing_indicator(user_id, sender_contact, True)
                     elif event.recording:
-                        await broadcast_recording_indicator(license_id, sender_contact, True)
+                        await broadcast_recording_indicator(user_id, sender_contact, True)
                     else:
                         # If stopped typing, broadcast False
-                        await broadcast_typing_indicator(license_id, sender_contact, False)
-                        await broadcast_recording_indicator(license_id, sender_contact, False)
-                        
+                        await broadcast_typing_indicator(user_id, sender_contact, False)
+                        await broadcast_recording_indicator(user_id, sender_contact, False)
+
                 except Exception as e:
                     logger.debug(f"Error handling Telegram UserUpdate: {e}")
 
@@ -300,7 +300,7 @@ class TelegramListenerService:
                                 e_type = 'channel'
                             
                             await save_telegram_entity(
-                                license_id=license_id,
+                                license_id=user_id,
                                 entity_id=str(sender.id),
                                 access_hash=str(sender.access_hash),
                                 entity_type=e_type,
@@ -382,10 +382,10 @@ class TelegramListenerService:
                     from services.websocket_manager import RedisPubSubManager
                     redis_mgr = RedisPubSubManager()
                     if await redis_mgr.initialize():
-                        processed_key = f"almudeer:telegram:processed:{license_id}:{channel_message_id}"
+                        processed_key = f"almudeer:telegram:processed:{user_id}:{channel_message_id}"
                         already_processed = await redis_mgr._redis_client.exists(processed_key)
                         if already_processed:
-                            logger.debug(f"Skipping duplicate Telegram message {channel_message_id} for license {license_id}")
+                            logger.debug(f"Skipping duplicate Telegram message {channel_message_id} for user {user_id}")
                             return
                         # Mark as processed with 24-hour TTL (covers service restart scenarios)
                         await redis_mgr._redis_client.setex(processed_key, 86400, "1")
@@ -403,13 +403,13 @@ class TelegramListenerService:
                         # EXCLUDE Channel Posts (Outgoing)
                         # If I post to my own channel, it shouldn't show in inbox.
                         if event.is_channel and event.out:
-                            logger.info(f"Ignoring Telegram Channel Post for license {license_id}")
+                            logger.info(f"Ignoring Telegram Channel Post for user {user_id}")
                             return
 
                         # EXCLUDE "Saved Messages" (Self-Chat)
                         # If I am sending a message to myself, ignore it.
                         if getattr(sender, 'id', None) and recipient_id == str(sender.id):
-                            logger.info(f"Ignoring Telegram 'Saved Messages' (Self-Chat) for license {license_id}")
+                            logger.info(f"Ignoring Telegram 'Saved Messages' (Self-Chat) for user {user_id}")
                             return
 
                         fn = getattr(recipient, 'first_name', None) or ""
@@ -500,7 +500,7 @@ class TelegramListenerService:
 
                         from models.inbox import save_synced_outbox_message
                         await save_synced_outbox_message(
-                             license_id=license_id,
+                             license_id=user_id,
                              channel="telegram",
                              body=body or ("[Media]" if attachments else ""),
                              recipient_id=recipient_id,
@@ -543,7 +543,7 @@ class TelegramListenerService:
                         "attachments": [{"type": "pending"}] if event.message.media else []
                     }
                     
-                    should_process, reason = await apply_filters(filter_msg, license_id, recent_messages=None)
+                    should_process, reason = await apply_filters(filter_msg, user_id, recent_messages=None)
                     if not should_process:
                         logger.info(f"Telegram real-time message filtered: {reason}")
                         return
@@ -660,7 +660,7 @@ class TelegramListenerService:
                     from models.inbox import save_inbox_message
                     is_forwarded = bool(event.message.fwd_from)
                     msg_id = await save_inbox_message(
-                        license_id=license_id,
+                        license_id=user_id,
                         channel="telegram",
                         body=body,
                         sender_name=sender_name,
@@ -674,12 +674,12 @@ class TelegramListenerService:
                         reply_to_body_preview=reply_to_body_preview,
                         reply_to_sender_name=reply_to_sender_name
                     )
-                    
+
                     if msg_id:
-                        logger.info(f"Saved real-time Telegram message {msg_id} for license {license_id}")
-                        
+                        logger.info(f"Saved real-time Telegram message {msg_id} for user {user_id}")
+
                         # 7. Persist Updated Session (CRITICAL for access_hash management)
-                        # StringSession stores new hashes as they are encountered. 
+                        # StringSession stores new hashes as they are encountered.
                         # Saving it back ensures we don't get "entity not found" on replies.
                         try:
                             updated_session = client.session.save()
@@ -687,63 +687,63 @@ class TelegramListenerService:
                             async with get_db() as db:
                                 await execute_sql(
                                     db,
-                                    "UPDATE telegram_phone_sessions SET session_data_encrypted = ?, updated_at = ? WHERE license_key_id = ?",
-                                    [encrypted_session, datetime.now(timezone.utc), license_id]
+                                    "UPDATE telegram_phone_sessions SET session_data_encrypted = ?, updated_at = ? WHERE user_id = ?",
+                                    [encrypted_session, datetime.now(timezone.utc), user_id]
                                 )
                                 await commit_db(db)
-                            # logger.debug(f"Persisted updated Telegram session for license {license_id}")
+                            # logger.debug(f"Persisted updated Telegram session for user {user_id}")
                         except Exception as session_e:
                             logger.error(f"Failed to persist updated Telegram session: {session_e}")
-                        
+
                 except Exception as e:
                     logger.error(f"Error in Telegram real-time message handler: {e}")
 
         except Exception as e:
-            if license_id in self.clients:
-                del self.clients[license_id]
-            
+            if user_id in self.clients:
+                del self.clients[user_id]
+
             # Ensure cleanup of local client
             if client:
                 try:
                     await client.disconnect()
                 except:
                     pass
-            
+
             error_str = str(e)
-            logger.error(f"Failed to start Telegram client for license {license_id}: {error_str}")
+            logger.error(f"Failed to start Telegram client for user {user_id}: {error_str}")
 
             # Critical: Check for Session Conflict / Revocation
             if "used under two different IP addresses" in error_str or "auth key" in error_str.lower():
-                logger.critical(f"Telegram Session Revoked for license {license_id}. Disabling session in DB.")
+                logger.critical(f"Telegram Session Revoked for user {user_id}. Disabling session in DB.")
                 try:
                     from models import deactivate_telegram_phone_session
                     # We might need a direct DB call if models isn't fully async-compatible in this context,
-                    # but assumes models functions work. 
+                    # but assumes models functions work.
                     # Actually, better to use direct DB here to be sure.
                     async with get_db() as db:
                         await execute_sql(
-                            db, 
-                            "UPDATE telegram_phone_sessions SET is_active = FALSE, updated_at = ? WHERE license_key_id = ?",
-                            [datetime.now(timezone.utc), license_id]
+                            db,
+                            "UPDATE telegram_phone_sessions SET is_active = FALSE, updated_at = ? WHERE user_id = ?",
+                            [datetime.now(timezone.utc), user_id]
                         )
                 except Exception as db_e:
-                    logger.error(f"Failed to disable revoked session {license_id}: {db_e}")
+                    logger.error(f"Failed to disable revoked session {user_id}: {db_e}")
 
-    async def ensure_client_active(self, license_id: int) -> Optional[TelegramClient]:
+    async def ensure_client_active(self, user_id: str) -> Optional[TelegramClient]:
         """
-        Ensure a client is active for the given license_id.
+        Ensure a client is active for the given user_id.
         If it's running, return it.
         If not, try to start it from the DB session.
-        Uses a lock to prevent multiple simultaneous connection attempts for the same license.
+        Uses a lock to prevent multiple simultaneous connection attempts for the same user.
         """
         # 1. if already active, return it
-        if license_id in self.clients:
-            client = self.clients[license_id]
+        if user_id in self.clients:
+            client = self.clients[user_id]
             if client.is_connected():
                 return client
             else:
                 # Cleanup disconnected client
-                del self.clients[license_id]
+                del self.clients[user_id]
 
         # --- Distributed Lock Check ---
         # If we don't hold the distributed lock, we cannot start clients.
@@ -752,30 +752,30 @@ class TelegramListenerService:
              logger.info(f"Process {os.getpid()} in standby mode (Not the Leader). Skipping client initialization.")
              return None
         # ----------------------
-        
+
         # Initialize lock if needed
-        if license_id not in self.locks:
-             self.locks[license_id] = asyncio.Lock()
-             
+        if user_id not in self.locks:
+             self.locks[user_id] = asyncio.Lock()
+
         # 2. Acquire lock to safely start client
-        async with self.locks[license_id]:
+        async with self.locks[user_id]:
              # Double-check after acquiring lock in case another task beat us to it
-             if license_id in self.clients:
-                 client = self.clients[license_id]
+             if user_id in self.clients:
+                 client = self.clients[user_id]
                  if client.is_connected():
                      return client
-            
+
              # Fetch session from DB and start
              try:
                 async with get_db() as db:
                     row = await fetch_one(
                         db,
-                        "SELECT session_data_encrypted, phone_number FROM telegram_phone_sessions WHERE license_key_id = ? AND is_active = TRUE",
-                        [license_id]
+                        "SELECT session_data_encrypted, phone_number FROM telegram_phone_sessions WHERE user_id = ? AND is_active = TRUE",
+                        [user_id]
                     )
-                    
+
                     if not row:
-                        logger.warning(f"No active session found for license {license_id}")
+                        logger.warning(f"No active session found for user {user_id}")
                         return None
 
                     session_data = row.get("session_data_encrypted")
@@ -787,22 +787,22 @@ class TelegramListenerService:
                         logger.error(f"Failed to decrypt session: {e}")
                         return None
 
-                    await self._start_client(license_id, session_string, phone_number)
-                    return self.clients.get(license_id)
+                    await self._start_client(user_id, session_string, phone_number)
+                    return self.clients.get(user_id)
 
              except Exception as e:
-                logger.error(f"Error ensuring active client for {license_id}: {e}")
+                logger.error(f"Error ensuring active client for {user_id}: {e}")
                 return None
 
-    async def _stop_client(self, license_id: int):
+    async def _stop_client(self, user_id: str):
         """Stop and remove a client"""
-        if license_id in self.clients:
-            client = self.clients[license_id]
+        if user_id in self.clients:
+            client = self.clients[user_id]
             try:
                 await client.disconnect()
             except Exception as e:
-                logger.error(f"Error disconnecting client {license_id}: {e}")
-            del self.clients[license_id]
+                logger.error(f"Error disconnecting client {user_id}: {e}")
+            del self.clients[user_id]
 
 # Global access
 _listener_service = None

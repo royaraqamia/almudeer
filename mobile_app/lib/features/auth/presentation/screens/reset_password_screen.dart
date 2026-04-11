@@ -47,7 +47,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final authProvider = context.read<AuthProvider>();
-    final success = await authProvider.resetPassword(widget.token, _passwordController.text);
+    // Sanitize token to prevent control character injection
+    final sanitizedToken = widget.token.trim();
+    final success = await authProvider.resetPassword(sanitizedToken, _passwordController.text);
 
     if (!mounted) return;
 

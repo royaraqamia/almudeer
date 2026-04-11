@@ -186,18 +186,30 @@ async def create_token_pair(
     On refresh, the fingerprint is validated to prevent token replay from other devices.
     """
     # Fetch current token_version for the license to embed in JWT
-    from database import get_db, fetch_one
-    
+    from database import get_db, fetch_one, DB_TYPE
+
     token_version = 1
+    is_email_auth_user = False
     if license_id:
         try:
             async with get_db() as db:
+                # First check if this is a license_keys entry
                 row = await fetch_one(db, "SELECT token_version, is_active FROM license_keys WHERE id = ?", [license_id])
                 if row:
                     token_version = row.get("token_version", 1)
                     if not row.get("is_active", True):
                         logger.warning(f"Denying token creation for deactivated license {license_id}")
                         raise ValueError("Account is deactivated")
+                else:
+                    # Not a license key - check if it's a user_accounts entry (email-auth)
+                    # Email-auth users pass their user_id as license_id for session tracking
+                    user_row = await fetch_one(db, "SELECT id FROM user_accounts WHERE id = ?", [license_id])
+                    if user_row:
+                        is_email_auth_user = True
+                        token_version = 1  # Email-auth users don't have token_version in license_keys
+                        logger.debug(f"Email-auth user detected (license_id={license_id}), using default token_version")
+                    else:
+                        logger.warning(f"license_id={license_id} not found in license_keys or user_accounts")
         except Exception as e:
             logger.error(f"Error fetching token version for JWT: {e}")
             pass
@@ -232,6 +244,7 @@ async def create_token_pair(
     device_name = parse_device_info(user_agent)
 
     # Store session in DB for audit/admin oversight
+    # For email-auth users, license_id is the user_account_id (not a license key)
     if license_id:
         from database import DB_TYPE
         from db_helper import execute_sql, commit_db
@@ -465,14 +478,37 @@ async def refresh_access_token(
             logger.error(f"Error checking IP during refresh: {e}")
 
     # Token version check - this handles admin-initiated license-level revocation
-    from database import validate_license_by_id
-    validation = await validate_license_by_id(
-        license_id,
-        required_version=payload.get("v")
-    )
-    if not validation.get("valid"):
-        logger.warning(f"Token version mismatch or account inactive for license {license_id} during refresh")
+    # For email-auth users, validate against user_accounts instead of license_keys
+    from database import validate_license_by_id, get_db, fetch_one
+
+    # Check if this is an email-auth user (license_id points to user_accounts, not license_keys)
+    is_email_auth_refresh = False
+    try:
+        async with get_db() as db:
+            license_check = await fetch_one(db, "SELECT id FROM license_keys WHERE id = ?", [license_id])
+            if not license_check:
+                # Not a license key - check if it's a user_account
+                user_check = await fetch_one(db, "SELECT id, is_approved_by_admin FROM user_accounts WHERE id = ?", [license_id])
+                if user_check:
+                    is_email_auth_refresh = True
+                    if not user_check.get("is_approved_by_admin"):
+                        logger.warning(f"Email-auth user {license_id} not approved during token refresh")
+                        return None
+                else:
+                    logger.warning(f"license_id={license_id} not found in license_keys or user_accounts during refresh")
+                    return None
+    except Exception as e:
+        logger.error(f"Error checking license/user during refresh: {e}")
         return None
+
+    if not is_email_auth_refresh:
+        validation = await validate_license_by_id(
+            license_id,
+            required_version=payload.get("v")
+        )
+        if not validation.get("valid"):
+            logger.warning(f"Token version mismatch or account inactive for license {license_id} during refresh")
+            return None
 
     if not family_id:
         # Legacy support
@@ -581,23 +617,43 @@ async def get_current_user(
     # License-level validation (handles admin-initiated account deactivation)
     license_id = payload.get("license_id")
     if license_id:
-        from database import validate_license_by_id
+        from database import validate_license_by_id, get_db, fetch_one
 
-        # This one call handles: Redis Cache, DB Fallback, Account Activity, and Token Versioning
-        validation = await validate_license_by_id(
-            license_id,
-            required_version=payload.get("v")
-        )
-
-        if not validation.get("valid"):
-            status_code = status.HTTP_401_UNAUTHORIZED
-            if validation.get("code") == "ACCOUNT_DEACTIVATED":
-                status_code = status.HTTP_403_FORBIDDEN
-
+        # Check if it's a license key first
+        try:
+            async with get_db() as db:
+                license_row = await fetch_one(db, "SELECT id, is_active FROM license_keys WHERE id = ?", [license_id])
+                if license_row:
+                    # It's a license-key user - use standard validation
+                    validation = await validate_license_by_id(
+                        license_id,
+                        required_version=payload.get("v")
+                    )
+                    if not validation.get("valid"):
+                        status_code = status.HTTP_401_UNAUTHORIZED
+                        if validation.get("code") == "ACCOUNT_DEACTIVATED":
+                            status_code = status.HTTP_403_FORBIDDEN
+                        raise HTTPException(
+                            status_code=status_code,
+                            detail=validation.get("error", "Invalid session"),
+                            headers={"WWW-Authenticate": "Bearer"},
+                        )
+                else:
+                    # Not a license key - check user_accounts (email-auth user)
+                    user_row = await fetch_one(db, "SELECT id, is_approved_by_admin FROM user_accounts WHERE id = ?", [license_id])
+                    if user_row and not user_row.get("is_approved_by_admin"):
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Account not approved by admin",
+                            headers={"WWW-Authenticate": "Bearer"},
+                        )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error validating license/user during request: {e}")
             raise HTTPException(
-                status_code=status_code,
-                detail=validation.get("error", "Invalid session"),
-                headers={"WWW-Authenticate": "Bearer"},
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication service unavailable",
             )
 
     return {

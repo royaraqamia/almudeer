@@ -31,10 +31,15 @@ target_metadata = None
 
 def get_url():
     """Get database URL from environment or config"""
-    db_type = os.getenv("DB_TYPE", "sqlite").lower()
+    # Check for explicit DATABASE_URL first
+    url = os.getenv("DATABASE_URL", "").strip()
+    if url and url.startswith("postgresql://"):
+        return url
     
+    db_type = os.getenv("DB_TYPE", "sqlite").lower()
+
     if db_type == "postgresql":
-        url = os.getenv("DATABASE_URL")
+        url = os.getenv("DATABASE_URL", "").strip()
         if url:
             return url
         # Fallback to building URL from components

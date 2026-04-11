@@ -9,6 +9,7 @@ import 'package:almudeer_mobile_app/core/constants/dimensions.dart';
 import 'package:almudeer_mobile_app/core/widgets/app_outline_button.dart';
 import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:almudeer_mobile_app/core/utils/haptics.dart';
+import 'package:almudeer_mobile_app/core/utils/auth_strings.dart';
 
 /// Waiting for Approval screen
 ///
@@ -28,14 +29,16 @@ class _WaitingForApprovalScreenState extends State<WaitingForApprovalScreen> {
   Timer? _pollTimer;
   int _elapsedSeconds = 0;
   bool _isChecking = false;
+  DateTime? _startTime;
 
   @override
   void initState() {
     super.initState();
-    // Poll every 30 seconds
-    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) => _checkApprovalStatus());
+    _startTime = DateTime.now();
     // Check immediately
     _checkApprovalStatus();
+    // Poll every 30 seconds
+    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) => _checkApprovalStatus());
   }
 
   @override
@@ -53,7 +56,10 @@ class _WaitingForApprovalScreenState extends State<WaitingForApprovalScreen> {
     if (!mounted) return;
     setState(() {
       _isChecking = false;
-      _elapsedSeconds += 30;
+      // FIX: Calculate elapsed from actual start time instead of incrementing
+      if (_startTime != null) {
+        _elapsedSeconds = DateTime.now().difference(_startTime!).inSeconds;
+      }
     });
 
     if (status != null) {
@@ -62,8 +68,8 @@ class _WaitingForApprovalScreenState extends State<WaitingForApprovalScreen> {
         Haptics.mediumTap();
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تمت الموافقة على حسابك! مرحباً بك'),
+          SnackBar(
+            content: Text(AuthStrings.t('تمت الموافقة على حسابك! مرحباً بك', 'Your account has been approved! Welcome')),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
           ),

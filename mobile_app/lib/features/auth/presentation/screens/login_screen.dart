@@ -12,6 +12,8 @@ import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_pr
 import 'package:almudeer_mobile_app/core/utils/haptics.dart';
 import 'package:almudeer_mobile_app/core/services/biometric_service.dart';
 import 'package:almudeer_mobile_app/core/utils/validators.dart';
+import 'package:almudeer_mobile_app/core/api/api_client.dart';
+import 'package:almudeer_mobile_app/core/utils/auth_strings.dart';
 
 /// Login screen with email/password authentication
 ///
@@ -68,7 +70,25 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (authenticated) {
       Haptics.mediumTap();
-      // Biometric verified - navigate to dashboard
+      // SECURITY FIX: Validate stored token before navigating to dashboard
+      // This prevents navigating to dashboard with expired/revoked sessions
+      final apiClient = ApiClient();
+      final accessToken = await apiClient.getAccessToken();
+      if (!mounted) return;
+
+      if (accessToken == null) {
+        // Token is null/expired and refresh failed - require re-authentication
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AuthStrings.t('انتهت الجلسة. يرجى تسجيل الدخول مرة أخرى', 'Session expired. Please sign in again')),
+            backgroundColor: AppColors.warning,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      // Token is valid - navigate to dashboard
       Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.dashboard, (route) => false);
     }
   }
@@ -250,9 +270,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   return 'البريد الإلكتروني أو اسم المستخدم مطلوب';
                 }
                 // Check if it looks like an email
-                final emailRegex = RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
-                final isEmail = emailRegex.hasMatch(value);
-                
+                final isEmail = Validators.email.hasMatch(value);
+
                 // If not email, validate username format
                 if (!isEmail) {
                   final usernameRegex = RegExp(r'^[a-zA-Z0-9_-]{3,50}$');

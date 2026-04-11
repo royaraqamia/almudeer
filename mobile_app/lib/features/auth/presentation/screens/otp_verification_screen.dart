@@ -9,6 +9,7 @@ import 'package:almudeer_mobile_app/core/constants/dimensions.dart';
 import 'package:almudeer_mobile_app/core/widgets/app_gradient_button.dart';
 import 'package:almudeer_mobile_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:almudeer_mobile_app/core/utils/haptics.dart';
+import 'package:almudeer_mobile_app/core/utils/auth_strings.dart';
 
 /// OTP Verification screen
 ///
@@ -62,6 +63,11 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
   void _startTimer() {
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_isDisposed) {
+        timer.cancel();
+        return;
+      }
+      if (!mounted) return;
       if (_remainingSeconds > 0) {
         setState(() => _remainingSeconds--);
       } else {
@@ -73,6 +79,11 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
   void _startResendCooldown() {
     _resendTimer?.cancel();
     _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_isDisposed) {
+        timer.cancel();
+        return;
+      }
+      if (!mounted) return;
       if (_resendCooldown > 0) {
         setState(() => _resendCooldown--);
       } else {
@@ -87,7 +98,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
 
     final otpCode = _controllers.map((c) => c.text).join();
     if (otpCode.length != 6) {
-      _showError('يرجى إدخال رمز التحقق كاملاً');
+      _showError(AuthStrings.t('يرجى إدخال رمز التحقق كاملاً', 'Please enter the full verification code'));
       return;
     }
 
@@ -118,7 +129,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
 
     if (success) {
       Haptics.lightTap();
-      _showSuccess('تم إرسال رمز التحقق بنجاح');
+      _showSuccess(AuthStrings.t('تم إرسال رمز التحقق بنجاح', 'Verification code sent successfully'));
       setState(() {
         _resendCooldown = 60;
         _remainingSeconds = 600;
@@ -208,7 +219,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
 
                 // Title
                 Text(
-                  'التحقق من البريد الإلكتروني',
+                  AuthStrings.otpVerification,
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -288,7 +299,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                 ),
                 const SizedBox(height: AppDimensions.spacing8),
                 Text(
-                  'ينتهي الرمز بعد هذا الوقت',
+                  AuthStrings.t('ينتهي الرمز بعد هذا الوقت', 'Code expires after this time'),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 12,
@@ -324,7 +335,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                 Consumer<AuthProvider>(
                   builder: (context, auth, _) {
                     return AppGradientButton(
-                      text: _isVerifying ? 'جاري التحقق...' : 'تحقق',
+                      text: _isVerifying ? AuthStrings.t('جاري التحقق...', 'Verifying...') : AuthStrings.t('تحقق', 'Verify'),
                       onPressed: _isVerifying || auth.isLoading ? null : _handleVerify,
                       isLoading: _isVerifying || auth.isLoading,
                       gradientColors: [theme.colorScheme.primary, theme.colorScheme.secondary],
@@ -340,8 +351,8 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                     onPressed: _resendCooldown > 0 ? null : _handleResendOTP,
                     child: Text(
                       _resendCooldown > 0
-                          ? 'إعادة الإرسال بعد $_resendCooldown ثانية'
-                          : 'إعادة إرسال الرمز',
+                          ? '${AuthStrings.t('إعادة الإرسال بعد', 'Resend in')} $_resendCooldown ${AuthStrings.t('ثانية', 'seconds')}'
+                          : AuthStrings.resendOtp,
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,

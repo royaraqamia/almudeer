@@ -141,33 +141,41 @@ class TokenBlacklist:
     def _blacklist_token_db(self, jti: str, expires_at: datetime):
         """CRITICAL FIX: Store blacklisted token in database as fallback"""
         try:
-            from db_helper import get_db, execute_sql, commit_db
-            from database import DB_TYPE
             import asyncio
-            
-            async def _do_insert():
-                async with get_db() as db:
-                    try:
-                        if DB_TYPE == "postgresql":
-                            await execute_sql(db, """
-                                INSERT INTO token_blacklist (jti, expires_at, created_at)
-                                VALUES (?, ?, NOW())
-                                ON CONFLICT (jti) DO UPDATE SET expires_at = ?
-                            """, [jti, expires_at, expires_at])
-                        else:
-                            await execute_sql(db, """
-                                INSERT OR REPLACE INTO token_blacklist (jti, expires_at, created_at)
-                                VALUES (?, ?, datetime('now'))
-                            """, [jti, expires_at.isoformat()])
-                        await commit_db(db)
-                    except Exception as e:
-                        logger.error(f"DB blacklist insert failed: {e}")
-                        raise
-            
-            asyncio.run(_do_insert())
+            # FIX: Avoid asyncio.run() in async context - use existing loop or create_task
+            try:
+                loop = asyncio.get_running_loop()
+                # Already in async context, schedule the task
+                asyncio.create_task(self._blacklist_token_db_async(jti, expires_at))
+            except RuntimeError:
+                # No running event loop, safe to use asyncio.run()
+                asyncio.run(self._blacklist_token_db_async(jti, expires_at))
         except Exception as e:
             logger.error(f"DB fallback blacklist failed: {e}")
             raise
+
+    async def _blacklist_token_db_async(self, jti: str, expires_at: datetime):
+        """Async helper for database blacklist insertion"""
+        from db_helper import get_db, execute_sql, commit_db
+        from database import DB_TYPE
+
+        async with get_db() as db:
+            try:
+                if DB_TYPE == "postgresql":
+                    await execute_sql(db, """
+                        INSERT INTO token_blacklist (jti, expires_at, created_at)
+                        VALUES ($1, $2, NOW())
+                        ON CONFLICT (jti) DO UPDATE SET expires_at = $2
+                    """, [jti, expires_at, expires_at])
+                else:
+                    await execute_sql(db, """
+                        INSERT OR REPLACE INTO token_blacklist (jti, expires_at, created_at)
+                        VALUES (?, ?, datetime('now'))
+                    """, [jti, expires_at.isoformat()])
+                await commit_db(db)
+            except Exception as e:
+                logger.error(f"DB blacklist insert failed: {e}")
+                raise
     
     def is_blacklisted(self, jti: str) -> bool:
         """
@@ -232,11 +240,22 @@ class TokenBlacklist:
     def _is_blacklisted_db(self, jti: str) -> bool:
         """CRITICAL FIX: Check if token is blacklisted in database"""
         try:
-            from db_helper import get_db, fetch_one
-            from database import DB_TYPE
             import asyncio
-            
+            # FIX: Avoid asyncio.run() in async context
+            try:
+                loop = asyncio.get_running_loop()
+                # In async context - we can't await from sync, so return True (fail closed)
+                # This is safe because blocking in sync context would be worse
+                logger.warning("DB blacklist check called from async context - failing closed for safety")
+                return True
+            except RuntimeError:
+                # No running event loop, safe to use asyncio.run()
+                pass
+
             async def _do_check():
+                from db_helper import get_db, fetch_one
+                from database import DB_TYPE
+
                 async with get_db() as db:
                     row = await fetch_one(db, """
                         SELECT expires_at FROM token_blacklist WHERE jti = ?
@@ -253,7 +272,7 @@ class TokenBlacklist:
                     if expires_at.tzinfo is None:
                         expires_at = expires_at.replace(tzinfo=timezone.utc)
                     return datetime.now(timezone.utc) < expires_at
-            
+
             return asyncio.run(_do_check())
         except Exception as e:
             logger.error(f"DB blacklist check failed: {e}")

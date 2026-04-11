@@ -10,8 +10,8 @@ class _Patterns {
   /// Phone number pattern (international format, digits, +, -, spaces, parentheses)
   static final RegExp phone = RegExp(r'^[\d\s\-\+\(\)]{8,20}$');
 
-  /// Username pattern (alphanumeric, underscores, 3-30 chars)
-  static final RegExp username = RegExp(r'^[a-zA-Z0-9_]{3,30}$');
+  /// Username pattern (alphanumeric, underscores, hyphens, 3-50 chars)
+  static final RegExp username = RegExp(r'^[a-zA-Z0-9_-]{3,50}$');
 
   /// Name pattern (letters, spaces, hyphens, apostrophes, 2-100 chars)
   static final RegExp name = RegExp(r"^[\p{L}\p{M}'\-\s]{2,100}$", unicode: true);
@@ -54,18 +54,18 @@ class Validators {
       return const ValidationResult.valid(); // Optional field
     }
 
-    final trimmed = value.trim().replaceAll('@', '');
+    final trimmed = value.trim();
     if (trimmed.length < 3) {
-      return const ValidationResult.invalid('يجب أن يكون المعرِّف ٣ أحرف على الأقل');
+      return const ValidationResult.invalid('اسم المستخدم يجب أن يكون 3 أحرف على الأقل');
     }
 
-    if (trimmed.length > 30) {
-      return const ValidationResult.invalid('يجب ألا يتجاوز المعرِّف ٣٠ حرفاً');
+    if (trimmed.length > 50) {
+      return const ValidationResult.invalid('اسم المستخدم يجب أن يكون 50 حرفًا كحد أقصى');
     }
 
     if (!_Patterns.username.hasMatch(trimmed)) {
       return const ValidationResult.invalid(
-        'يجب أن يحتوي المعرِّف على أحرف إنجليزية وأرقام وشرطات سفلية فقط',
+        'اسم المستخدم يجب أن يحتوي على أحرف إنجليزية وأرقام وشرطات فقط',
       );
     }
 

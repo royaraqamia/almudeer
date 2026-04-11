@@ -357,9 +357,12 @@ async def _login_with_email(
         await commit_db(db)
 
     # Create JWT tokens
+    # SECURITY FIX: For email-auth users, use user_id as license_id equivalent
+    # so that device sessions are tracked and token version kill-switch works
     request_ip = request.client.host if request.client else None
     tokens = await create_token_pair(
         user_id=str(user["id"]),
+        license_id=user["id"],  # Use user account ID for email-auth users
         role="user",
         ip_address=request_ip,
         user_agent=request.headers.get("User-Agent"),
@@ -462,15 +465,46 @@ async def signup(data: SignUpRequest, request: Request):
         password_hash = hash_password(data.password)
 
         # Create user account (pending approval, not verified)
-        await execute_sql(
-            db,
-            """
-            INSERT INTO user_accounts (email, password_hash, full_name, username, is_email_verified, is_approved_by_admin, approval_status)
-            VALUES (?, ?, ?, ?, FALSE, FALSE, 'pending')
-            """,
-            [data.email.lower(), password_hash, data.full_name, data.username.lower()]
-        )
-        await commit_db(db)
+        # SECURITY FIX: Wrap in try-except to handle race condition where
+        # concurrent requests bypass the pre-check and hit UNIQUE constraint
+        try:
+            await execute_sql(
+                db,
+                """
+                INSERT INTO user_accounts (email, password_hash, full_name, username, is_email_verified, is_approved_by_admin, approval_status)
+                VALUES (?, ?, ?, ?, FALSE, FALSE, 'pending')
+                """,
+                [data.email.lower(), password_hash, data.full_name, data.username.lower()]
+            )
+            await commit_db(db)
+        except Exception as e:
+            # Check if this is a unique constraint violation
+            error_str = str(e).lower()
+            if "unique" in error_str or "duplicate" in error_str or "constraint" in error_str:
+                await _apply_constant_time_delay()
+                # Re-check which field caused the conflict
+                existing_email = await fetch_one(
+                    db,
+                    "SELECT id FROM user_accounts WHERE email = ?",
+                    [data.email.lower()]
+                )
+                if existing_email:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="البريد الإلكتروني مسجل بالفعل"
+                    )
+                existing_username = await fetch_one(
+                    db,
+                    "SELECT id FROM user_accounts WHERE username = ?",
+                    [data.username.lower()]
+                )
+                if existing_username:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="اسم المستخدم مسجل بالفعل"
+                    )
+            # Re-raise if it's not a constraint violation
+            raise
 
     # Generate and send OTP
     otp_service = get_otp_service()
@@ -596,6 +630,7 @@ async def resend_otp(data: ResendOTPRequest, request: Request):
 # ============ Password Reset Endpoints ============
 
 @router.post("/forgot-password")
+@limiter.limit(RateLimits.SIGNUP)  # SECURITY FIX: Rate limit to prevent email flooding
 async def forgot_password(data: PasswordResetRequest, request: Request):
     """
     Request password reset email.
@@ -637,6 +672,7 @@ async def forgot_password(data: PasswordResetRequest, request: Request):
 
 
 @router.post("/reset-password")
+@limiter.limit(RateLimits.SIGNUP)  # SECURITY FIX: Rate limit to prevent brute-force password resets
 async def reset_password(data: PasswordResetConfirmRequest, request: Request):
     """
     Reset password using reset token from email.

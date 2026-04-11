@@ -6,7 +6,7 @@ Enables horizontal scaling by storing sessions in Redis instead of memory
 import os
 import json
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
 from logging_config import get_logger
@@ -48,11 +48,12 @@ class SessionStore:
     async def create_session(self, user_data: Dict[str, Any]) -> str:
         """Create a new session and return session ID"""
         session_id = secrets.token_urlsafe(32)
-        
+
+        now = datetime.now(timezone.utc)
         session_data = {
             "user": user_data,
-            "created_at": datetime.utcnow().isoformat(),
-            "last_access": datetime.utcnow().isoformat(),
+            "created_at": now.isoformat(),
+            "last_access": now.isoformat(),
         }
         
         if self._use_redis and self._redis_client:
@@ -73,7 +74,7 @@ class SessionStore:
             if data:
                 session = json.loads(data)
                 # Update last access
-                session["last_access"] = datetime.utcnow().isoformat()
+                session["last_access"] = datetime.now(timezone.utc).isoformat()
                 await self._redis_client.setex(
                     f"session:{session_id}",
                     self._session_ttl,
@@ -82,7 +83,7 @@ class SessionStore:
                 return session
         else:
             if session_id in self._memory_store:
-                self._memory_store[session_id]["last_access"] = datetime.utcnow().isoformat()
+                self._memory_store[session_id]["last_access"] = datetime.now(timezone.utc).isoformat()
                 return self._memory_store[session_id]
         
         return None
@@ -97,7 +98,7 @@ class SessionStore:
     async def cleanup_expired(self):
         """Clean up expired sessions (memory store only)"""
         if not self._use_redis:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             expired = []
             for sid, data in self._memory_store.items():
                 last_access = datetime.fromisoformat(data["last_access"])

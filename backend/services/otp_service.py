@@ -35,7 +35,24 @@ OTP_COOLDOWN_SECONDS = int(os.getenv("OTP_COOLDOWN_SECONDS", "60"))
 # SECURITY FIX: Server-side pepper for OTP hashing
 # This prevents attackers with DB read access from brute-forcing 6-digit OTPs
 # because they would also need the server-side pepper
-_OTP_PEPPER = os.getenv("OTP_HMAC_PEPPER", os.getenv("LICENSE_KEY_PEPPER", "default-dev-pepper"))
+def _get_otp_pepper() -> str:
+    """
+    Get OTP HMAC pepper from environment. In production, fails if not set.
+    """
+    pepper = os.getenv("OTP_HMAC_PEPPER", os.getenv("LICENSE_KEY_PEPPER", ""))
+    if not pepper:
+        env = os.getenv("ENVIRONMENT", "development")
+        if env == "production":
+            raise ValueError(
+                "OTP_HMAC_PEPPER must be set in production! "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        # Development fallback
+        logger.warning("OTP_HMAC_PEPPER not set - using insecure dev pepper. NEVER use this in production!")
+        return "default-dev-pepper"
+    return pepper
+
+_OTP_PEPPER = _get_otp_pepper()
 
 
 def _hash_otp(otp_code: str) -> str:

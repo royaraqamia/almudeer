@@ -121,10 +121,10 @@ async def get_telegram_bot_token(license_id: int) -> Optional[str]:
 # ============ Telegram Phone Sessions Functions ============
 
 async def save_telegram_phone_session(
-    license_id: int,
+    user_id: str,
     phone_number: str,
     session_string: str,
-    user_id: str = None,
+    user_telegram_id: str = None,
     user_first_name: str = None,
     user_last_name: str = None,
     user_username: str = None,
@@ -132,17 +132,17 @@ async def save_telegram_phone_session(
     """Save or update Telegram phone session (MTProto)."""
     # Encrypt session data
     encrypted_session = simple_encrypt(session_string)
-    
+
     async with get_db() as db:
         # Check if session exists
         existing = await fetch_one(
             db,
-            "SELECT id FROM telegram_phone_sessions WHERE license_key_id = ?",
-            [license_id],
+            "SELECT id FROM telegram_phone_sessions WHERE user_id = ?",
+            [user_id],
         )
-        
+
         now = datetime.now() if DB_TYPE == "postgresql" else datetime.now().isoformat()
-        
+
         if existing:
             await execute_sql(
                 db,
@@ -156,35 +156,35 @@ async def save_telegram_phone_session(
                     user_username = ?,
                     is_active = TRUE,
                     updated_at = ?
-                WHERE license_key_id = ?
+                WHERE user_id = ?
                 """,
                 [
                     phone_number,
                     encrypted_session,
-                    user_id,
+                    user_telegram_id,
                     user_first_name,
                     user_last_name,
                     user_username,
                     now,
-                    license_id,
+                    user_id,
                 ],
             )
             await commit_db(db)
             return existing["id"]
-        
+
         await execute_sql(
             db,
             """
-            INSERT INTO telegram_phone_sessions 
-                (license_key_id, phone_number, session_data_encrypted,
-                 user_id, user_first_name, user_last_name, user_username, is_active, created_at, updated_at)
+            INSERT INTO telegram_phone_sessions
+                (user_id, phone_number, session_data_encrypted,
+                 user_telegram_id, user_first_name, user_last_name, user_username, is_active, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?)
             """,
             [
-                license_id,
+                user_id,
                 phone_number,
                 encrypted_session,
-                user_id,
+                user_telegram_id,
                 user_first_name,
                 user_last_name,
                 user_username,
@@ -196,23 +196,23 @@ async def save_telegram_phone_session(
             db,
             """
             SELECT id FROM telegram_phone_sessions
-            WHERE license_key_id = ?
+            WHERE user_id = ?
             ORDER BY id DESC
             LIMIT 1
             """,
-            [license_id],
+            [user_id],
         )
         await commit_db(db)
         return row["id"] if row else 0
 
 
-async def get_telegram_phone_session(license_id: int) -> Optional[dict]:
-    """Get Telegram phone session for a license (without decrypted session data)."""
+async def get_telegram_phone_session(user_id: str) -> Optional[dict]:
+    """Get Telegram phone session for a user (without decrypted session data)."""
     async with get_db() as db:
         row = await fetch_one(
             db,
-            "SELECT * FROM telegram_phone_sessions WHERE license_key_id = ? AND is_active = TRUE",
-            [license_id],
+            "SELECT * FROM telegram_phone_sessions WHERE user_id = ? AND is_active = TRUE",
+            [user_id],
         )
         if row:
             # Don't return encrypted session data
@@ -225,40 +225,40 @@ async def get_telegram_phone_session(license_id: int) -> Optional[dict]:
         return row
 
 
-async def get_telegram_phone_session_data(license_id: int) -> Optional[str]:
+async def get_telegram_phone_session_data(user_id: str) -> Optional[str]:
     """Get decrypted Telegram phone session string (internal use only)."""
     async with get_db() as db:
         row = await fetch_one(
             db,
-            "SELECT session_data_encrypted FROM telegram_phone_sessions WHERE license_key_id = ? AND is_active = TRUE",
-            [license_id],
+            "SELECT session_data_encrypted FROM telegram_phone_sessions WHERE user_id = ? AND is_active = TRUE",
+            [user_id],
         )
         if row and row.get("session_data_encrypted"):
             return simple_decrypt(row["session_data_encrypted"])
     return None
 
 
-async def deactivate_telegram_phone_session(license_id: int) -> bool:
+async def deactivate_telegram_phone_session(user_id: str) -> bool:
     """Delete Telegram phone session."""
     async with get_db() as db:
         await execute_sql(
             db,
-            "DELETE FROM telegram_phone_sessions WHERE license_key_id = ?",
-            [license_id],
+            "DELETE FROM telegram_phone_sessions WHERE user_id = ?",
+            [user_id],
         )
         await commit_db(db)
         return True
 
 
-async def update_telegram_phone_session_sync_time(license_id: int) -> bool:
+async def update_telegram_phone_session_sync_time(user_id: str) -> bool:
     """Update last_synced_at timestamp."""
     now = datetime.now() if DB_TYPE == "postgresql" else datetime.now().isoformat()
-    
+
     async with get_db() as db:
         await execute_sql(
             db,
-            "UPDATE telegram_phone_sessions SET last_synced_at = ? WHERE license_key_id = ?",
-            [now, license_id],
+            "UPDATE telegram_phone_sessions SET last_synced_at = ? WHERE user_id = ?",
+            [now, user_id],
         )
         await commit_db(db)
         return True
@@ -298,7 +298,7 @@ async def update_whatsapp_config_settings(
 # ============ Telegram Entity Persistence Functions ============
 
 async def save_telegram_entity(
-    license_id: int,
+    user_id: str,
     entity_id: str,
     access_hash: str,
     entity_type: str,
@@ -308,17 +308,17 @@ async def save_telegram_entity(
     """Save or update persistent Telegram entity information (access_hash)."""
     async with get_db() as db:
         now = datetime.now() if DB_TYPE == "postgresql" else datetime.now().isoformat()
-        
+
         # Try to insert first (Optimistic approach)
         try:
             await execute_sql(
                 db,
                 """
-                INSERT INTO telegram_entities 
-                    (license_key_id, entity_id, access_hash, entity_type, username, phone, updated_at)
+                INSERT INTO telegram_entities
+                    (user_id, entity_id, access_hash, entity_type, username, phone, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                [license_id, str(entity_id), str(access_hash), entity_type, username, phone, now]
+                [user_id, str(entity_id), str(access_hash), entity_type, username, phone, now]
             )
         except Exception as e:
             # Check for unique constraint violation (duplicate key)
@@ -336,22 +336,22 @@ async def save_telegram_entity(
                         username = ?,
                         phone = ?,
                         updated_at = ?
-                    WHERE license_key_id = ? AND entity_id = ?
+                    WHERE user_id = ? AND entity_id = ?
                     """,
-                    [str(access_hash), entity_type, username, phone, now, license_id, str(entity_id)]
+                    [str(access_hash), entity_type, username, phone, now, user_id, str(entity_id)]
                 )
             else:
                 raise e
-            
+
         await commit_db(db)
         return True
 
 
-async def get_telegram_entity(license_id: int, entity_id: str) -> Optional[dict]:
-    """Get persistent entity info (including access_hash) for a license and ID."""
+async def get_telegram_entity(user_id: str, entity_id: str) -> Optional[dict]:
+    """Get persistent entity info (including access_hash) for a user and ID."""
     async with get_db() as db:
         return await fetch_one(
             db,
-            "SELECT * FROM telegram_entities WHERE license_key_id = ? AND entity_id = ?",
-            [license_id, str(entity_id)]
+            "SELECT * FROM telegram_entities WHERE user_id = ? AND entity_id = ?",
+            [user_id, str(entity_id)]
         )

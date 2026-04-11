@@ -132,18 +132,16 @@ async def init_enhanced_tables():
         await execute_sql(db, f"""
             CREATE TABLE IF NOT EXISTS telegram_phone_sessions (
                 id {ID_PK},
-                license_key_id INTEGER UNIQUE NOT NULL,
+                user_id TEXT UNIQUE NOT NULL,
                 phone_number TEXT NOT NULL,
                 session_data_encrypted TEXT NOT NULL,
-                user_id TEXT,
                 user_first_name TEXT,
                 user_last_name TEXT,
                 user_username TEXT,
                 is_active BOOLEAN DEFAULT TRUE,
                 last_synced_at TIMESTAMP,
                 created_at {TIMESTAMP_NOW},
-                updated_at {TIMESTAMP_NOW},
-                FOREIGN KEY (license_key_id) REFERENCES license_keys(id)
+                updated_at {TIMESTAMP_NOW}
             )
         """)
  

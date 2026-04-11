@@ -240,6 +240,21 @@ class AuthProvider extends ChangeNotifier {
           }
         }
 
+        // SECURITY FIX: Validate stored token before setting authenticated state
+        // This prevents showing dashboard with expired/revoked sessions on app restart
+        final apiClient = ApiClient();
+        final accessToken = await apiClient.getAccessToken();
+
+        if (accessToken == null) {
+          // Token is invalid/expired and refresh failed - require re-authentication
+          debugPrint('[AuthProvider] Token invalid on app restart, requiring re-auth');
+          await _authRepository.logout();
+          _state = AuthState.unauthenticated;
+          _userInfo = null;
+          notifyListeners();
+          return;
+        }
+
         // Use the matching account, or fall back to the first one if not matched
         _userInfo = activeAccount ?? _accounts.first;
         _state = AuthState.authenticated;
@@ -253,12 +268,25 @@ class AuthProvider extends ChangeNotifier {
         ApiClient().scheduleProactiveRefresh();
       } else if (hasStoredKey) {
         // Has key but no saved accounts - try to fetch from server
+        // SECURITY FIX: Validate token first before setting authenticated state
+        final apiClient = ApiClient();
+        final accessToken = await apiClient.getAccessToken();
+
+        if (accessToken == null) {
+          debugPrint('[AuthProvider] Token invalid on app restart (no accounts), requiring re-auth');
+          await _authRepository.logout();
+          _state = AuthState.unauthenticated;
+          _userInfo = null;
+          notifyListeners();
+          return;
+        }
+
         try {
           _userInfo = await _authRepository.getUserInfo();
           _addToAccounts(_userInfo!);
           _state = AuthState.authenticated;
         } catch (e) {
-          // Network error - but we have a stored key, so stay authenticated
+          // Network error - but we have a stored key and valid token, so stay authenticated
           // Create a minimal user info from local data
           final licenseKey =
               currentStoredKey ?? await _authRepository.getLicenseKey();

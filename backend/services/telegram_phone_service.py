@@ -202,18 +202,15 @@ class TelegramPhoneService:
         if chat_id_int:
             try:
                 from models import get_telegram_entity
-                # We need the license ID. We can get it from the client if needed, 
-                # but better to pass it or infer it. 
-                # For now, we search all known hashes for this ID across our sessions.
-                # Actually, access_hashes are account-specific. 
-                # We need to know WHICH account we are using.
+                # We need the user ID. We can get it from the client if needed.
+                # access_hashes are account-specific, so we need to know WHICH account we are using.
                 me = await client.get_me()
                 from db_helper import get_db, fetch_one
                 async with get_db() as db:
-                    sess_row = await fetch_one(db, "SELECT license_key_id FROM telegram_phone_sessions WHERE user_id = ?", [str(me.id)])
+                    sess_row = await fetch_one(db, "SELECT user_id FROM telegram_phone_sessions WHERE user_id = ?", [str(me.id)])
                     if sess_row:
-                        lic_id = sess_row['license_key_id']
-                        ent_row = await get_telegram_entity(lic_id, str(chat_id_int))
+                        user_id = sess_row['user_id']
+                        ent_row = await get_telegram_entity(user_id, str(chat_id_int))
                         if ent_row and ent_row.get('access_hash'):
                             from telethon.tl.types import InputPeerUser, InputPeerChannel
                             ah = int(ent_row['access_hash'])
@@ -221,7 +218,7 @@ class TelegramPhoneService:
                                 peer = InputPeerUser(chat_id_int, ah)
                             else:
                                 peer = InputPeerChannel(chat_id_int, ah)
-                            
+
                             entity = await client.get_entity(peer)
                             if entity:
                                 logger.info(f"Resolved entity {clean_id} using persisted access_hash from DB.")
@@ -254,10 +251,10 @@ class TelegramPhoneService:
                             from models import save_telegram_entity
                             me = await client.get_me()
                             async with get_db() as db:
-                                sess_row = await fetch_one(db, "SELECT license_key_id FROM telegram_phone_sessions WHERE user_id = ?", [str(me.id)])
+                                sess_row = await fetch_one(db, "SELECT user_id FROM telegram_phone_sessions WHERE user_id = ?", [str(me.id)])
                                 if sess_row:
                                     await save_telegram_entity(
-                                        license_key_id=sess_row['license_key_id'],
+                                        user_id=sess_row['user_id'],
                                         entity_id=str(dialog.id),
                                         access_hash=str(dialog.entity.access_hash),
                                         entity_type='user' if hasattr(dialog.entity, 'first_name') else 'channel',

@@ -325,21 +325,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         textCapitalization: TextCapitalization.none,
                         suffixIcon: _buildUsernameStatusIcon(),
                         validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'اسم المستخدم مطلوب';
-                          }
-                          if (value.trim().length < 3) {
-                            return 'اسم المستخدم يجب أن يكون 3 أحرف على الأقل';
-                          }
-                          if (value.trim().length > 50) {
-                            return 'اسم المستخدم يجب أن يكون 50 حرفًا كحد أقصى';
-                          }
-                          // Validate alphanumeric, underscores, and hyphens only
-                          final usernameRegex = RegExp(r'^[a-zA-Z0-9_-]+$');
-                          if (!usernameRegex.hasMatch(value.trim())) {
-                            return 'اسم المستخدم يجب أن يحتوي على أحرف إنجليزية وأرقام وشرطات فقط';
-                          }
-                          return null;
+                          final result = Validators.validateUsername(value);
+                          return result.errorMessage;
                         },
                       ),
                       _buildUsernameAvailabilityMessage(),

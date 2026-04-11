@@ -146,16 +146,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       enableSuggestions: false,
                       maxLines: 1,
                       validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'البريد الإلكتروني مطلوب';
-                        }
-                        final emailRegex = RegExp(
-                          r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
-                        );
-                        if (!emailRegex.hasMatch(value)) {
-                          return 'بريد إلكتروني غير صالح';
-                        }
-                        return null;
+                        final result = Validators.validateEmail(value);
+                        return result.errorMessage;
                       },
                     ),
                     const SizedBox(height: AppDimensions.spacing32),
